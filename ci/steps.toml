@@ -162,6 +162,9 @@ export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
 : > "$GITHUB_PATH"
 : > "$GITHUB_ENV"
 # Job-local, never sudo: a root-owned install in $CI_TOOLS failed the job at cleanup after every step passed.
+# A machine that keeps RUNNER_TOOL_CACHE between jobs (a persistent runner, a build fleet pool VM whose image holds
+# it) keeps the verified tarball there, so its next job checks the sha256 and unpacks, with no download.
+export ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-${RUNNER_TOOL_CACHE:+$RUNNER_TOOL_CACHE/zig}}"
 GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
 mkdir -p "$CI_TOOLS/bin"
 zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
@@ -213,6 +216,54 @@ inputs = [
   "web/app/lib/indexnow.ts",
 ]
 run = "python3 tests/test_indexnow_notification.py"
+
+# A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
+# The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
+# full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
+# granting none, and every cmux-next and cmux-tui artifacts run ended in startup_failure with 0 jobs until #56935
+# at 20:07Z (31 runs on the artifacts workflow alone; the Cloud channel stayed on an 18:56Z commit). Its tree fails
+# this step: "2 reusable-workflow permission mismatch(es) across 69 local call site(s)". Under a second, offline.
+[step.cargo-proc-macros-unstripped]
+job = "linux"
+timeout = 120
+title = "Cargo proc-macros unstripped"
+about = "every Cargo.toml whose release profile strips also sets `[profile.release.build-override] strip = false`, so Xcode 27's strip can't break proc-macro dylibs (rustc E0463)"
+inputs = ["**/Cargo.toml", "tests/test_cargo_proc_macros_unstripped.py"]
+run = "python3 tests/test_cargo_proc_macros_unstripped.py"
+
+[step.reusable-workflow-permissions]
+job = "linux"
+timeout = 120
+title = "Reusable workflow permissions"
+about = "every local `uses: ./.github/workflows/*.yml` call stays within its caller's permissions, so no workflow fails at startup"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/check_reusable_workflow_permissions.py",
+  "tests/test_ci_reusable_workflow_permissions.py",
+]
+run = "python3 tests/test_ci_reusable_workflow_permissions.py"
+
+# The compile preflight's own rules (cmux-next-compile-preflight.yml: no tier gate, no job-level if:, the build
+# NIGHTLY runs; scripts/ci/compile_preflight.py's web-touched and error lines). It ran as a step of the preflight job
+# on every pull request head, 14-15 s of a 40 s run that changed no web source, ~1.8k runner-min/day; here it runs
+# when one of the files it tests changes.
+[step.compile-preflight-rules]
+job = "linux"
+timeout = 60
+title = "Compile preflight rules"
+about = "the compile preflight runs on every tier, skips only heads no web bundle reads, and names the bundler's errors"
+inputs = [
+  ".github/workflows/cmux-next-compile-preflight.yml",
+  ".github/workflows/pr-router.yml",
+  "scripts/ci/compile_preflight.py",
+  "scripts/ci/pr_router.json",
+  "scripts/ci/pr_router.py",
+  "scripts/ci/workflow_paths_cover_inputs.py",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "tests/test_ci_compile_preflight.py",
+]
+run = "python3 -I tests/test_ci_compile_preflight.py"
 
 # Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
 # (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
@@ -268,6 +319,92 @@ python3 tests/test_mac_live_delivery.py
 python3 tests/test_r2_upload_requests.py
 '''
 
+# ci-guards.yml's release-notary group (the nightly, signing and cmux-tui publication guards), which a
+# feat-cmux-next pull request reached only through cmux-next-guards.yml's ci-guard-group: a Tier B
+# pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #53861, #56394, #53840 and
+# #54859 added nightly.yml jobs and #55067 a cmux-tui-artifacts.yml one without the guard lists naming them, and
+# the guards went red only on the feat-cmux-next push. A change to a nightly or cmux-tui workflow, the step
+# coverage list or one of the guard tests now runs the release-notary steps it reaches before the merge.
+[step.nightly-guards]
+job = "linux"
+# Alone: its steps run at once on every CPU (8 on the pool, 175-359 s for the whole guard group there).
+alone = true
+timeout = 1200
+title = "Nightly and cmux-tui release guards"
+about = "the release-notary guard steps (nightly routing, signing runners, owned minis, step coverage, cmux-tui publication) that a change to the nightly or cmux-tui workflows reaches"
+inputs = [
+  ".github/workflows/nightly*.yml",
+  ".github/workflows/cmux-tui*.yml",
+  ".github/nightly-step-coverage.json",
+  "tests/test_nightly_*",
+  "tests/test_cmux_tui_*",
+  "tests/test_ci_recovery_runs_after_a_timeout.py",
+  "scripts/ci/nightly_guard_steps.py",
+  "tests/test_nightly_guard_steps.py",
+]
+run = '''
+python3 tests/test_nightly_guard_steps.py
+python3 scripts/ci/nightly_guard_steps.py
+'''
+
+# ci-guards.yml's ci group, which a feat-cmux-next pull request reached only through cmux-next-guards.yml's
+# ci-guard-group: a Tier B pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #57964
+# added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
+# test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
+# by #59707). Any Python or JSON change now runs it before the merge.
+[step.cdn-user-agent]
+job = "linux"
+timeout = 300
+title = "CDN readers name their client"
+about = "every read of a cmux CDN host (files-next.cmux.com and the rest) sends a User-Agent, since the CDN refuses Python-urllib's default with 403 error code 1010"
+inputs = ["**/*.py", "**/*.json"]
+run = '''
+python3 tests/test_ci_cdn_user_agent.py
+'''
+
+# The other cheap (under 2 s each) pure-Python guards of ci-guards.yml's ci group that a feat-cmux-next pull
+# request skipped for the same reason (cdn-user-agent, above), on the scripts and workflows they read.
+[step.ci-group-guards]
+job = "linux"
+timeout = 300
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, proof record and UI proof, routed jobs, pair scope)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, the proof record and UI proof verdict, routed job dependencies and pair-run attachment selection"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/ci_timing_readout.py",
+  "scripts/ci/check_repo_variables.py",
+  "scripts/ci/ios_fast_verdict.*",
+  "scripts/ci/ios_fast_dispatch.py",
+  "scripts/ci/proof_record.py",
+  "scripts/ci/ui_proof_verdict.py",
+  "scripts/cmux-next/hot-verify.py",
+  "scripts/ci/ios_verify.py",
+  "scripts/ci/ios-verify.sh",
+  "ci/proof-record/**",
+  "cmux-next-ios/FlowSuite/**",
+  "tests/test_ci_proof_record.py",
+  "tests/test_ci_ui_proof_verdict.py",
+  "tests/test_ci_timing_readout.py",
+  "tests/test_ci_check_repo_variables.py",
+  "tests/test_ci_ios_fast_verdict.py",
+  "tests/test_ci_ios_fast_dispatch.py",
+  "tests/test_ci_routed_jobs_check_needs.py",
+  "scripts/ci/cmux_next_pair_e2e.py",
+  "tests/test_cmux_next_pair_e2e_guards.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_timing_readout.py || status=1
+python3 tests/test_ci_check_repo_variables.py || status=1
+python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 tests/test_ci_ios_fast_dispatch.py || status=1
+python3 -I tests/test_ci_proof_record.py || status=1
+python3 -I tests/test_ci_ui_proof_verdict.py || status=1
+python3 tests/test_ci_routed_jobs_check_needs.py || status=1
+python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300
@@ -308,6 +445,9 @@ exit "$rc"
 [step.cache-receipts]
 job = "linux"
 timeout = 300
+# A pull request runs it on every workflow change (--pr-scope keeps its whole route): the read-only guard says no
+# pull request job holds the cache-writer credentials, and a poisoned cache found after landing is already written.
+pr_scope = false
 title = "CI cache receipt contract"
 about = "cache restore receipts classify a restore, and their test is deterministic"
 inputs = [
@@ -332,6 +472,44 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
+# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
+# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
+# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
+# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
+# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
+# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
+# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+[step.page-strings]
+job = "linux"
+timeout = 300
+alone = true
+# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+pr_scope = false
+title = "Page strings generate with no missing translation"
+about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
+needs = ["node"]
+inputs = [
+  "**/*.xcstrings",
+  "schemas/settings/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/**",
+  "scripts/cmux-next/linux-exports/**",
+  "scripts/cmux-next/export-settings-linux.sh",
+  "scripts/cmux-next/settings-exports.txt",
+  "scripts/cmux-next/string_catalogs.py",
+  "webviews/scripts/pages/**",
+]
+run = '''
+rc=0
+bash scripts/cmux-next/export-settings-linux.sh || rc=$?
+if [ "$rc" = 2 ]; then
+  echo "::notice::the Linux settings export cannot decide; checking the committed export (the Mac export decides)"
+elif [ "$rc" != 0 ]; then
+  exit "$rc"
+fi
+CMUX_STRINGS_BEST_EFFORT="" node webviews/scripts/pages/gen-strings.mjs
+'''
+
 [step.labels-manifest]
 job = "linux"
 timeout = 120
@@ -440,6 +618,8 @@ about = "every acpmux method and param key the Swift app names is in the acpmux 
 inputs = [
   "Packages/macOS/CmuxNext/Sources/**",
   "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+  "scripts/cmux-next/gen-agent-pane-policy-swift.py",
   "scripts/ci/check-swift-acpmux-protocol.py",
   "scripts/ci/swift-acpmux-protocol-allowlist.txt",
   "tests/test_check_swift_acpmux_protocol.py",
@@ -452,9 +632,33 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# cmux-tui-windows-check (cargo check --target x86_64-pc-windows-gnu) runs only in the post-merge
+# batch, so a unix-only use in acpmux reached feat-cmux-next three times (batches 45693869119,
+# 45720080410, 45726394764; fixed forward by #54573). This names the same uses on the PR in seconds.
+[step.unix-only-on-windows]
+job = "linux"
+timeout = 120
+title = "acpmux builds on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-fault/**",
+  "scripts/ci/unix_only_on_windows.py",
+  "scripts/ci/libc_windows_gnu.txt",
+  "tests/test_ci_unix_only_on_windows.py",
+]
+run = '''
+rc=0
+python3 -I tests/test_ci_unix_only_on_windows.py || rc=1
+python3 -I scripts/ci/unix_only_on_windows.py --github || rc=1
+exit "$rc"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
-# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+# push and dispatch runs where needed; automation-bench and cloud-vm-image-lock now live only here.
+# `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
 timeout = 300
@@ -469,6 +673,11 @@ inputs = [
   "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**",
   "scripts/cmux-next/check-app-platform.sh",
   "scripts/cmux-next/sync-app-runtime.sh",
+  # gen-cmux-global.ts's catalog inputs (loadCatalog): a pull request that added actions to action-surfaces.json
+  # left schema/merged/index.json stale on the base without routing this check (11-24, the merged index's 21 ids).
+  "plans/cmux-next/action-surfaces.json",
+  "backend/catalog/cloud-operations.json",
+  "cmux-tui/spec/resource-operations-v2.json",
 ]
 run = "bash scripts/cmux-next/check-app-platform.sh"
 
@@ -498,11 +707,14 @@ run = "bun test tests/automation-bench"
 # that jump (move in one frame and stay), blink or settle in steps; the seeded recordings here (rows pushed by a
 # banner, a card pushed sideways, a 30 fps capture) must fail and a glide, a still screen and content arriving in
 # place must pass. The iOS simulator's `video` runs and the Mac media captures run the same check on real recordings.
+# Leo, 2026-11-24: "we simply shouldnt be running into this problem if we design out the failure mode/error classes":
+# a notice, spinner or pushing banner that comes and goes within 3 s must fail as a flash, and a notice that stays or
+# one for a real 5 s outage must pass. The classes and their design-outs: docs/cmux-next/spurious-ui.md.
 [step.recording-shifts]
 job = "linux"
 timeout = 300
 title = "Recording layout-shift check (seeded fixtures)"
-about = "scripts/cmux-next/flicker-check.py finds the jump, blink and staggered frames planted in seeded YUV4MPEG2 recordings and passes the clean ones"
+about = "scripts/cmux-next/flicker-check.py finds the jump, flash, blink and staggered frames planted in seeded YUV4MPEG2 recordings and passes the clean ones"
 inputs = [
   "scripts/cmux-next/flicker-check.py",
   "scripts/cmux-next/recording-shifts-report.py",
@@ -565,7 +777,6 @@ inputs = [
   "scripts/ci/verify-r2-canary.py",
   "scripts/ci/r2-canary-cloudflare.py",
   "tests/test_ci_r2_canary.py",
-  ".github/workflows/ci-artifact-canary.yml",
   "tests/test_ci_r2_artifact.py",
   ".github/actions/download-test-product/action.yml",
   "scripts/ci/measure-r2-artifact-run.py",
@@ -597,7 +808,7 @@ WRANGLER_SEND_METRICS=false npm run check
 '''
 
 # Two more checks whose pull request runs each took a Linux job: cmux-vm-clients.yml's sdk job (its rust job
-# stays) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
+# is the step cmux-vm-clients-rust) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
 # into main); a feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former
 # pull_request path filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the
 # workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
@@ -1033,6 +1244,9 @@ bun run vercel-build
 [step.security-holes]
 job = "linux"
 timeout = 300
+# A pull request runs it on every change (not left to the post-merge batch, --pr-scope): a secret or a workflow hole
+# found after landing is already out.
+pr_scope = false
 title = "Workflow security holes and secrets"
 about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
 inputs = ["**"]
@@ -1085,7 +1299,6 @@ if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
 if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
-if want tt-ios-placeholder-bounds; then python3 -I tests/test_ios_placeholder_bounds.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
 if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi
@@ -1099,7 +1312,7 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 2 (fast gates, ratchets and test registries)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-test-coverage-tests, those the change reaches"
+about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-cloud-http-tests, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1134,6 +1347,7 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
 
@@ -1215,8 +1429,18 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
-inputs = ["**"]
+about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
+# `**` routes every change in the post-merge batch; on a pull request (--pr-scope) a whole-tree input routes
+# nothing, so the named inputs are what run tt-ci-step-table there when the table, a workflow or its rules change.
+inputs = [
+  "**",
+  "ci/steps.toml",
+  "ci/run",
+  ".github/workflows/*",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/web_subareas.py",
+  "tests/test_ci_step_table.py",
+]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
 sel=all
@@ -1247,12 +1471,14 @@ if want tt-checkup-configuration; then python3 -I scripts/checkup/tests/configur
 if want tt-console-session-hop; then bash scripts/ci/tests/console-session-hop.test.sh || status=1; fi
 if want tt-media-build-app-local-tui; then bash scripts/ci/tests/media-build-app-local-tui.test.sh || status=1; fi
 if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh || status=1; fi
+if want tt-media-tree-submodules; then bash scripts/ci/tests/media-tree-submodules.test.sh || status=1; fi
 if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
 if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
 if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
 if want tt-normalize-pbxproj; then python3 tests/test_normalize_pbxproj.py || status=1; fi
 if want tt-web-validation; then python3 tests/test_web_validation.py || status=1; fi
 if want tt-tip-test-compile; then python3 tests/test_ci_tip_test_compile.py || status=1; fi
+if want tt-ci-step-table; then python3 tests/test_ci_step_table.py || status=1; fi
 exit "$status"
 '''
 
@@ -1403,6 +1629,66 @@ if [ "${CAPTURE_LISTED:-}" != true ]; then
 fi
 python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$paths" \
   --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
+'''
+
+# Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product area". The relevance map
+# (docs/benches/relevance-map.toml) and `cmux-bench for-paths`: the prefix index agrees with the old scan on random
+# paths, a 2,000-path change resolves in under 1 s and stays flat at 10x the rules, each risky area of
+# docs/benches/coverage-map.md has a mapping, every template exists, and the generated units match the layout.
+[step.bench-relevance-map]
+job = "linux"
+timeout = 180
+title = "Bench relevance map"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+inputs = [
+  "docs/benches/*",
+  "docs/benches/templates/*",
+  "scripts/bench/cmux-bench",
+  "scripts/bench/benchlib/relevance.py",
+  "tests/test_bench_relevance_map.py",
+  "cmux-tui/crates/*/Cargo.toml",
+  "cmux-next-ios/rust/crates/*/Cargo.toml",
+  "Packages/*/*/Package.swift",
+]
+run = "python3 -I tests/test_bench_relevance_map.py"
+
+# What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
+# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
+# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
+# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+[step.bench-relevance]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "Benches and tests for these paths"
+about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+run = '''
+if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
+  echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
+  exit 0
+fi
+paths="${CI_PATHS_FILE:-$RUNNER_TEMP/paths.txt}"
+if [ ! -s "$paths" ]; then
+  echo "::notice::No changed-paths list; for-paths has nothing to read."
+  exit 0
+fi
+if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
+  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
+  exit 0
+fi
+# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
+# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+set +e
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+code=$?
+set -e
+if [ "$code" -eq 1 ]; then
+  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  exit 1
+elif [ "$code" -ne 0 ]; then
+  echo "::notice::for-paths --run exited $code; fail open"
+fi
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
@@ -1605,10 +1891,13 @@ fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
   || true
 # A merge base found while the window cut history between it and the head (an old branch that merged the
 # base since; a cut commit lists in .git/shallow) skews commits= and files=: deepen for it as for none.
-mb=$(git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+# A window fetch that fails still records origin as a promisor remote: without GIT_NO_LAZY_FETCH a merge-base or
+# rev-list over a missing commit fetches it from origin one object at a time, unbounded, and finds a merge base
+# the window never had (git 2.45+), so the deepen below never ran.
+mb=$(GIT_NO_LAZY_FETCH=1 git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
 cut=""
 if [ -n "$mb" ] && [ -f "$repo/.git/shallow" ]; then
-  cut=$({ echo "$mb"; git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
+  cut=$({ echo "$mb"; GIT_NO_LAZY_FETCH=1 git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
 fi
 if [ -z "$mb" ] || [ -n "$cut" ]; then
   echo "No merge base in the last 14 days, or history cut inside the pull request; fetching the whole history of the two commits."
@@ -1725,6 +2014,64 @@ case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
 CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 '''
 
+# ci-web.yml's react-apps-check (its 8-shard matrix and react-apps-base-check) for a feat-cmux-next pull request
+# whose shard pick runs only touched tests: one runner pays the checkout, install, bundles and engines once, the
+# PR-scoped rules run beside the build, and the touched tests' reds are judged on the base in the same step
+# (scripts/ci/react-apps-check-fleet.sh). scripts/ci/react_apps_fleet.py decides, the same way on both sides: a push,
+# full-ci, a whole-shard pick, the audit sample and CI_REACT_APPS_FLEET=0 keep the matrix, and this step exits 0.
+[step.react-apps-check]
+job = "web-browser"
+timeout = 1800
+# Its verdict follows the head's base and labels too: pr_receipt.py's key pins the paths the merge changes against
+# the base, and a full-ci run never takes a receipt.
+title = "React apps check"
+about = "webviews' source checks, bundles, PR-scoped rules and touched tests, judged against the base"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/**/Resources/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-diff-budget.mjs",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
+  "scripts/ci/webviews_pr_shards.py",
+  "scripts/ci/webviews_affected.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews_retry_pool.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/unittest_results.py",
+  "scripts/ci/fast_gate_webviews_checks.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/pin-browser-test-font.sh",
+  "scripts/ci/web_subareas.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  "tests/test_format_post_edit.py",
+  ".gitattributes",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has react_apps || exit 0
+bash scripts/ci/react-apps-check-fleet.sh
+'''
+
 [step.agent-pane-real-acpmux]
 job = "web-browser"
 timeout = 1800
@@ -1734,14 +2081,129 @@ title = "Agent pane on real acpmux"
 about = "the agent pane's new-chat and picks-hold browser tests against a freshly built acpmux daemon"
 needs = ["bun", "node", "rust"]
 inputs = [
+  # web_subareas.py counts the react-apps-check fleet scripts in agent_pane too (REACT_EXACT).
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
-  "cmux-tui/**",
+  # Only what `cargo build -p acpmux --bin acpmux` reads: acpmux and its path dependencies (cmux-tui/crates, from Cargo.toml
+  # `path =` deps, normal and build kinds, transitively), their include_str! files, the workspace manifest and lock, the
+  # vendored patches, .cargo, the ghostty-next gitlink and the cloud client's codegen source. A change to any other cmux-tui crate cannot reach the daemon this step runs.
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/acpmux-book/**",
+  "cmux-tui/crates/acpmux-build-id/**",
+  "cmux-tui/crates/acpmux-client/**",
+  "cmux-tui/crates/acpmux-core/**",
+  "cmux-tui/crates/acpmux-hot/**",
+  "cmux-tui/crates/acpmux-list-types/**",
+  "cmux-tui/crates/cmux-action-catalog/**",
+  "cmux-tui/crates/cmux-agent-customize/**",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-app-host/**",
+  "cmux-tui/crates/cmux-apps/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-bounded/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-braid-session/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-chat-index/**",
+  "cmux-tui/crates/cmux-cloud-api/**",
+  "cmux-tui/crates/cmux-cloud-client/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-environment/**",
+  "cmux-tui/crates/cmux-cloud-machine/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-coderouter/**",
+  "cmux-tui/crates/cmux-command-class/**",
+  "cmux-tui/crates/cmux-computer-use/**",
+  "cmux-tui/crates/cmux-config/**",
+  "cmux-tui/crates/cmux-deadline/**",
+  "cmux-tui/crates/cmux-device-kind/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-embed/**",
+  "cmux-tui/crates/cmux-embed-macros/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-file-lock/**",
+  "cmux-tui/crates/cmux-flow-trace/**",
+  "cmux-tui/crates/cmux-forum-hosted/**",
+  "cmux-tui/crates/cmux-git/**",
+  "cmux-tui/crates/cmux-git-cache/**",
+  "cmux-tui/crates/cmux-host/**",
+  "cmux-tui/crates/cmux-host-budget/**",
+  "cmux-tui/crates/cmux-hub-host/**",
+  "cmux-tui/crates/cmux-image-linear/**",
+  "cmux-tui/crates/cmux-journal/**",
+  "cmux-tui/crates/cmux-json/**",
+  "cmux-tui/crates/cmux-layout-reducer/**",
+  "cmux-tui/crates/cmux-lifeline/**",
+  "cmux-tui/crates/cmux-link/**",
+  "cmux-tui/crates/cmux-local-auth/**",
+  "cmux-tui/crates/cmux-local-url/**",
+  "cmux-tui/crates/cmux-mcp-connect/**",
+  "cmux-tui/crates/cmux-netwatch/**",
+  "cmux-tui/crates/cmux-palette-ranker/**",
+  "cmux-tui/crates/cmux-panic-log/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-pty/**",
+  "cmux-tui/crates/cmux-remote/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-server/**",
+  "cmux-tui/crates/cmux-server-core/**",
+  "cmux-tui/crates/cmux-session-cloud/**",
+  "cmux-tui/crates/cmux-session-pack/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-signed-bundle/**",
+  "cmux-tui/crates/cmux-signed-envelope/**",
+  "cmux-tui/crates/cmux-stack-auth/**",
+  "cmux-tui/crates/cmux-supervise-core/**",
+  "cmux-tui/crates/cmux-sync/**",
+  "cmux-tui/crates/cmux-tag-cache/**",
+  "cmux-tui/crates/cmux-tailnet/**",
+  "cmux-tui/crates/cmux-tailnet-front/**",
+  "cmux-tui/crates/cmux-tailnet-join/**",
+  "cmux-tui/crates/cmux-tailnet-local/**",
+  "cmux-tui/crates/cmux-terminal-host-protocol/**",
+  "cmux-tui/crates/cmux-theme-tokens/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-tui-hooks/**",
+  "cmux-tui/crates/cmux-tui-platform/**",
+  "cmux-tui/crates/cmux-tui-util/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-usage-patterns/**",
+  "cmux-tui/crates/cmux-usage-share/**",
+  "cmux-tui/crates/cmux-vault-egress/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-worktree-care/**",
+  "cmux-tui/crates/ghostty-vt/**",
+  "cmux-tui/crates/ghostty-vt-sys/**",
+  "cmux-tui/bindings/rust/**",
+  "cmux-tui/crates/cmux-browser-host/js/**",
+  "cmux-tui/crates/cmux-rd-host/systemd/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "cmux-tui/vendor/**",
+  "cmux-tui/build-support/**",
+  "cmux-tui/spec/**",
+  ".cargo/**",
+  "ghostty-next",
+  "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
+  "skills/**",
+  "persisted-formats/**",
+  "Resources/sidebar-looks/**",
+  "Resources/theme-files/**",
+  "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
+  "docs/remote-agents-and-cloud.md",
   "schemas/**",
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
@@ -1778,13 +2240,22 @@ root="$PWD"
 (cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
 # The last feat-cmux-next push's daemon-tests build (read only; a miss builds cold): its dependencies are acpmux's.
-../scripts/ci/cmux-tui-test-target.sh restore
+set -o pipefail
+restore_log="$(mktemp)" cargo_log="$(mktemp)"
+../scripts/ci/cmux-tui-test-target.sh restore | tee "$restore_log"
 # No incremental state: it only fills the disk (No space left writing dep-graph.part.bin, #53426).
-CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
+CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux 2>&1 | tee "$cargo_log"
+# A hit should leave third-party crates fresh (a registry crate's Compiling line names no path). Many of them
+# rebuilding means the saved target was built with other features than this build's (cmux-tui-test-target.sh save).
+rebuilt="$(grep -cE '^ +Compiling [^ ]+ v[^ ]+$' "$cargo_log" || true)"
+if grep -q 'test target: hit' "$restore_log" && ((rebuilt > 20)); then
+  echo "::warning title=acpmux cache hit rebuilt third-party crates::$rebuilt registry crates compiled after a cmux-tui test target hit; the saved build's dependency features no longer match -p acpmux (scripts/ci/cmux-tui-test-target.sh save)"
+fi
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
 cd "$root/webviews"
+"$root/scripts/ci/apt-no-service-restarts.sh"
 ./node_modules/.bin/playwright install --with-deps webkit
 log="$(mktemp)"
 bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
@@ -1812,6 +2283,10 @@ title = "Chat flow layout-shift budget"
 about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
 needs = ["bun", "node"]
 inputs = [
+  # web_subareas.py counts the react-apps-check fleet scripts and the pane's policy in chat_flow too (REACT_EXACT).
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
@@ -1819,6 +2294,9 @@ inputs = [
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
@@ -1893,12 +2371,18 @@ exit "$status"
 # feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
 # the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
 # merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
+# `nightly`: `webviews/**` is a whole-directory glob, so a pull request's --pr-scope route dropped this step and a
+# landing head of the affected tier ran no type check at all; cmux#61720 fixed the type errors that reached
+# feat-cmux-next that way (a duplicate import, a missing module) after the nightly's webview checks went red on them.
+# Naming the nightly's check keeps the whole route and starts it on the landing head (pr_router.py
+# nightly_gate_steps), about 2 min. Leo, 2026-11-25: "if checks fail, fix the checks or ignore and just merge".
 [step.webviews-typecheck]
 job = "linux"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
 about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
+nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
   "webviews/**",
   "scripts/web_lint_prepush.py",
@@ -1950,6 +2434,646 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 cargo bench --profile gate -p acpmux --bench icount --locked -- check
 '''
 
+# The cmux_next_ daemon tests of the gate's small members, on the pull request itself. The gate (the
+# cmux-next-daemon-tests step below, and cmux-tui-artifacts.yml's job whose pass moves the feat-cmux-next channel) has
+# whole-directory inputs, so --pr-scope leaves it to the post-merge batch, and a lane/** push does not run the
+# artifacts job: a pull request that breaks one of these tests merged green and held the channel after the merge.
+# These members compile in seconds, so their tests run here, routed by one-directory globs over each member and every
+# member it depends on by path (tests/test_ci_daemon_pr_crate_steps.py keeps those globs whole, the cargo targets
+# right, and says why each other gate member stays post-merge). Cold on a 32-vCPU host, each in its own target:
+# machine-protocol 26 s, hooks 28 s, server-core 12 s, cmux-sdk 49 s; nothing on a pull request that touches none.
+[step.cmux-next-daemon-crates]
+job = "linux"
+timeout = 360
+title = "cmux_next_ daemon tests of the small members"
+about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core and cmux-sdk (the gate's small members) pass on the pull request"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "tests/test_ci_daemon_pr_crate_steps.py",
+  "cmux-tui/bindings/rust/*",
+  "cmux-tui/bindings/rust/examples/*",
+  "cmux-tui/bindings/rust/src/*",
+  "cmux-tui/bindings/rust/src/client/*",
+  "cmux-tui/bindings/rust/src/generated/*",
+  "cmux-tui/bindings/rust/src/local_socket/*",
+  "cmux-tui/bindings/rust/src/raw/*",
+  "cmux-tui/bindings/rust/src/raw/byte_attachment/*",
+  "cmux-tui/bindings/rust/src/resource/*",
+  "cmux-tui/bindings/rust/src/resource/client/*",
+  "cmux-tui/bindings/rust/src/resource/handles/*",
+  "cmux-tui/bindings/rust/src/resource/options/*",
+  "cmux-tui/bindings/rust/tests/*",
+  "cmux-tui/bindings/rust/tests/cases/*",
+  "cmux-tui/bindings/rust/tests/common/*",
+  "cmux-tui/crates/cmux-json/*",
+  "cmux-tui/crates/cmux-json/src/*",
+  "cmux-tui/crates/cmux-link/*",
+  "cmux-tui/crates/cmux-link/src/*",
+  "cmux-tui/crates/cmux-link/src/caller/*",
+  "cmux-tui/crates/cmux-link/src/caller/supervised/*",
+  "cmux-tui/crates/cmux-link/src/root_bootstrap/*",
+  "cmux-tui/crates/cmux-link/tests/*",
+  "cmux-tui/crates/cmux-process/*",
+  "cmux-tui/crates/cmux-process/src/*",
+  "cmux-tui/crates/cmux-process/tests/*",
+  "cmux-tui/crates/cmux-process/tests/support/*",
+  "cmux-tui/crates/cmux-pty/*",
+  "cmux-tui/crates/cmux-pty/src/*",
+  "cmux-tui/crates/cmux-server-core/*",
+  "cmux-tui/crates/cmux-server-core/src/*",
+  "cmux-tui/crates/cmux-server-core/src/health/*",
+  "cmux-tui/crates/cmux-server-core/src/manifest/*",
+  "cmux-tui/crates/cmux-server-core/src/pairing/*",
+  "cmux-tui/crates/cmux-server-core/src/pg/*",
+  "cmux-tui/crates/cmux-server-core/src/units/*",
+  "cmux-tui/crates/cmux-server-core/tests/*",
+  "cmux-tui/crates/cmux-server-core/tests/fixtures/*",
+  "cmux-tui/crates/cmux-server-core/tests/fixtures/manifest/*",
+  "cmux-tui/crates/cmux-tui-hooks/*",
+  "cmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/*",
+  "cmux-tui/crates/cmux-tui-hooks/src/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/src/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/tests/*",
+  "cmux-tui/crates/cmux-tui-platform/*",
+  "cmux-tui/crates/cmux-tui-platform/src/*",
+  "cmux-tui/crates/cmux-tui-platform/src/host_exe/*",
+  "cmux-tui/crates/cmux-tui-platform/src/platform/*",
+  "cmux-tui/crates/cmux-tui-platform/src/process_resources/*",
+  "cmux-tui/crates/cmux-unix-socket/*",
+  "cmux-tui/crates/cmux-unix-socket/src/*",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_crate_steps.py
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+log="$(mktemp)"
+status=0
+# Each run must pass at least one test: a filter that matches nothing is red, as in the gate.
+ran() { tee "$log"; grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" || { echo "::error::no cmux_next_ test ran"; return 1; }; }
+cargo test --locked -p cmux-tui-machine-protocol --test machine_metadata_compat cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-tui-hooks --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-server-core --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-sdk --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-sdk --test machine_catalog_reads cmux_next_ 2>&1 | ran || status=1
+rm -f "$log"
+exit "$status"
+'''
+
+# The cmux_next_ daemon tests of the gate's three big members, each on the pull request that touches it. Their path
+# dependencies are most of the workspace (114 to 168 members), so routing them by every file that can break them would
+# run them on nearly every cmux-tui pull request; these steps route by the member's own files and the fixtures its
+# cmux_next_ tests read (cmux-tui/persisted-formats, cmux-tui/spec/sdk-schema.json), and a break that comes from a
+# dependency stays the post-merge gate's. Each restores the gate's saved target (scripts/ci/cmux-next-member-tests.sh),
+# so only the member and what depends on it compile. tests/test_ci_daemon_pr_member_steps.py keeps the inputs whole
+# and the targets the gate's. Nothing on a pull request that touches none of them.
+[step.cmux-next-acpmux]
+job = "linux"
+alone = true
+timeout = 2700
+title = "cmux_next_ daemon tests of acpmux"
+about = "the cmux_next_ tests of acpmux (the post-merge gate's targets for that member) pass on the pull request"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "cmux-tui/crates/acpmux/*",
+  "cmux-tui/crates/acpmux/benches/*",
+  "cmux-tui/crates/acpmux/benches/turn_overhead/*",
+  "cmux-tui/crates/acpmux/benches/v2/*",
+  "cmux-tui/crates/acpmux/benches/v2/rows/*",
+  "cmux-tui/crates/acpmux/catalog/*",
+  "cmux-tui/crates/acpmux/data/*",
+  "cmux-tui/crates/acpmux/docs/*",
+  "cmux-tui/crates/acpmux/examples/*",
+  "cmux-tui/crates/acpmux/harnesses/*",
+  "cmux-tui/crates/acpmux/rules/secrets/*",
+  "cmux-tui/crates/acpmux/sandbox/*",
+  "cmux-tui/crates/acpmux/schema/acp/v1/*",
+  "cmux-tui/crates/acpmux/scripts/*",
+  "cmux-tui/crates/acpmux/skills/acpmux/*",
+  "cmux-tui/crates/acpmux/skills/cmux-chat/*",
+  "cmux-tui/crates/acpmux/skills/cmux-quota/*",
+  "cmux-tui/crates/acpmux/skills/cmux-rich-output/*",
+  "cmux-tui/crates/acpmux/skills/cmux-rich-output/templates/*",
+  "cmux-tui/crates/acpmux/skills/cmux-rich-output/tests/*",
+  "cmux-tui/crates/acpmux/skills/cmux-sudo/*",
+  "cmux-tui/crates/acpmux/skills/integrate-harness/*",
+  "cmux-tui/crates/acpmux/spec/*",
+  "cmux-tui/crates/acpmux/src/*",
+  "cmux-tui/crates/acpmux/src/agent/*",
+  "cmux-tui/crates/acpmux/src/agent_host/*",
+  "cmux-tui/crates/acpmux/src/agent_host/host/*",
+  "cmux-tui/crates/acpmux/src/agent_login/*",
+  "cmux-tui/crates/acpmux/src/agent_tools/*",
+  "cmux-tui/crates/acpmux/src/attach/*",
+  "cmux-tui/crates/acpmux/src/auto_session/*",
+  "cmux-tui/crates/acpmux/src/auto_session/export/*",
+  "cmux-tui/crates/acpmux/src/auto_session/import/*",
+  "cmux-tui/crates/acpmux/src/auto_session/laptop/*",
+  "cmux-tui/crates/acpmux/src/auto_session/machine/*",
+  "cmux-tui/crates/acpmux/src/auto_session/runtime/*",
+  "cmux-tui/crates/acpmux/src/auto_session/runtime/projection/*",
+  "cmux-tui/crates/acpmux/src/autocloud_enroll/*",
+  "cmux-tui/crates/acpmux/src/bin/*",
+  "cmux-tui/crates/acpmux/src/bin/pause_replay/*",
+  "cmux-tui/crates/acpmux/src/catalog/*",
+  "cmux-tui/crates/acpmux/src/chatgpt/*",
+  "cmux-tui/crates/acpmux/src/chats/*",
+  "cmux-tui/crates/acpmux/src/chats/brand/*",
+  "cmux-tui/crates/acpmux/src/claude_stdio/*",
+  "cmux-tui/crates/acpmux/src/claude_token/*",
+  "cmux-tui/crates/acpmux/src/cli/*",
+  "cmux-tui/crates/acpmux/src/cli/cloud_join/*",
+  "cmux-tui/crates/acpmux/src/cli/harness/*",
+  "cmux-tui/crates/acpmux/src/cli/help_examples/*",
+  "cmux-tui/crates/acpmux/src/cli/orchestrate/*",
+  "cmux-tui/crates/acpmux/src/cli/run/*",
+  "cmux-tui/crates/acpmux/src/codex_app_server/*",
+  "cmux-tui/crates/acpmux/src/complete/*",
+  "cmux-tui/crates/acpmux/src/computer_use/*",
+  "cmux-tui/crates/acpmux/src/config/*",
+  "cmux-tui/crates/acpmux/src/cpu_class/*",
+  "cmux-tui/crates/acpmux/src/daemon/*",
+  "cmux-tui/crates/acpmux/src/daemon/router_owner/*",
+  "cmux-tui/crates/acpmux/src/deps/*",
+  "cmux-tui/crates/acpmux/src/gauges/*",
+  "cmux-tui/crates/acpmux/src/hand/*",
+  "cmux-tui/crates/acpmux/src/harness_fixture/*",
+  "cmux-tui/crates/acpmux/src/harness_health/*",
+  "cmux-tui/crates/acpmux/src/harness_health/channel/*",
+  "cmux-tui/crates/acpmux/src/hub/*",
+  "cmux-tui/crates/acpmux/src/hub/auto_resume/*",
+  "cmux-tui/crates/acpmux/src/hub/book_tee/*",
+  "cmux-tui/crates/acpmux/src/hub/file_uploads/*",
+  "cmux-tui/crates/acpmux/src/hub/handoff/*",
+  "cmux-tui/crates/acpmux/src/hub/hosts/*",
+  "cmux-tui/crates/acpmux/src/hub/journal_restore/*",
+  "cmux-tui/crates/acpmux/src/hub/ledger/*",
+  "cmux-tui/crates/acpmux/src/hub/lineage/*",
+  "cmux-tui/crates/acpmux/src/hub/list_tee/*",
+  "cmux-tui/crates/acpmux/src/hub/peer_snapshot/*",
+  "cmux-tui/crates/acpmux/src/hub/peers/*",
+  "cmux-tui/crates/acpmux/src/hub/permissions/*",
+  "cmux-tui/crates/acpmux/src/hub/permissions/external/*",
+  "cmux-tui/crates/acpmux/src/hub/person/*",
+  "cmux-tui/crates/acpmux/src/hub/pool/*",
+  "cmux-tui/crates/acpmux/src/hub/remote_sandbox/*",
+  "cmux-tui/crates/acpmux/src/hub/start_gate/*",
+  "cmux-tui/crates/acpmux/src/hub/turns/*",
+  "cmux-tui/crates/acpmux/src/hub/v1_source/*",
+  "cmux-tui/crates/acpmux/src/hub/views/*",
+  "cmux-tui/crates/acpmux/src/hub/workflow_activity/*",
+  "cmux-tui/crates/acpmux/src/hub/worktree_care/*",
+  "cmux-tui/crates/acpmux/src/hypervisor/*",
+  "cmux-tui/crates/acpmux/src/linux_sandbox/*",
+  "cmux-tui/crates/acpmux/src/linux_sandbox/bwrap/*",
+  "cmux-tui/crates/acpmux/src/linux_sandbox/supervisor/*",
+  "cmux-tui/crates/acpmux/src/live_models/*",
+  "cmux-tui/crates/acpmux/src/login_env/*",
+  "cmux-tui/crates/acpmux/src/memory_mount/*",
+  "cmux-tui/crates/acpmux/src/pairing/*",
+  "cmux-tui/crates/acpmux/src/place_mode/*",
+  "cmux-tui/crates/acpmux/src/placement/*",
+  "cmux-tui/crates/acpmux/src/pricing/*",
+  "cmux-tui/crates/acpmux/src/protocol/*",
+  "cmux-tui/crates/acpmux/src/review_brief_fixtures/*",
+  "cmux-tui/crates/acpmux/src/rows/*",
+  "cmux-tui/crates/acpmux/src/server/*",
+  "cmux-tui/crates/acpmux/src/server/account_sign_in/*",
+  "cmux-tui/crates/acpmux/src/server/accounts/*",
+  "cmux-tui/crates/acpmux/src/server/chats/*",
+  "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/*",
+  "cmux-tui/crates/acpmux/src/server/peer_forward/*",
+  "cmux-tui/crates/acpmux/src/server/races/*",
+  "cmux-tui/crates/acpmux/src/server/races/peer/*",
+  "cmux-tui/crates/acpmux/src/server/remote_guard/*",
+  "cmux-tui/crates/acpmux/src/server/requests/*",
+  "cmux-tui/crates/acpmux/src/server/requests/info/*",
+  "cmux-tui/crates/acpmux/src/server/ws_shutdown/*",
+  "cmux-tui/crates/acpmux/src/share_host/*",
+  "cmux-tui/crates/acpmux/src/stats/*",
+  "cmux-tui/crates/acpmux/src/store/*",
+  "cmux-tui/crates/acpmux/src/store/journal_store/*",
+  "cmux-tui/crates/acpmux/src/stress/*",
+  "cmux-tui/crates/acpmux/src/tailnet/*",
+  "cmux-tui/crates/acpmux/src/test_support/*",
+  "cmux-tui/crates/acpmux/src/time_breakdown/*",
+  "cmux-tui/crates/acpmux/src/vault/*",
+  "cmux-tui/crates/acpmux/src/workflow_journal/*",
+  "cmux-tui/crates/acpmux/src/workflow_reply/*",
+  "cmux-tui/crates/acpmux/src/workflow_runs/*",
+  "cmux-tui/crates/acpmux/src/write_journal/*",
+  "cmux-tui/crates/acpmux/tests/*",
+  "cmux-tui/crates/acpmux/tests/agent_host/*",
+  "cmux-tui/crates/acpmux/tests/auto_journey/*",
+  "cmux-tui/crates/acpmux/tests/auto_machine/*",
+  "cmux-tui/crates/acpmux/tests/auto_session/*",
+  "cmux-tui/crates/acpmux/tests/durable_agents/*",
+  "cmux-tui/crates/acpmux/tests/durable_watch_lifecycle/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/memory_inbox/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/prompt_coach/*",
+  "cmux-tui/crates/acpmux/tests/god_daemon/*",
+  "cmux-tui/crates/acpmux/tests/harness_health/*",
+  "cmux-tui/crates/acpmux/tests/hub_carrier/*",
+  "cmux-tui/crates/acpmux/tests/hub_carrier_cases/*",
+  "cmux-tui/crates/acpmux/tests/hub_integration/*",
+  "cmux-tui/crates/acpmux/tests/lane_reports/*",
+  "cmux-tui/crates/acpmux/tests/request_stack/*",
+  "cmux-tui/crates/acpmux/tests/sim/*",
+  "cmux-tui/crates/acpmux/tests/support/*",
+  "cmux-tui/crates/acpmux/tests/transfer_cli/*",
+  "cmux-tui/crates/acpmux/tests/windows_daemon/*",
+  "cmux-tui/crates/acpmux/web/*",
+  "cmux-tui/persisted-formats/*",
+  "cmux-tui/persisted-formats/agent-host-record/*",
+  "cmux-tui/persisted-formats/terminal-host-record/*",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_member_steps.py
+scripts/ci/cmux-next-member-tests.sh crates/acpmux
+'''
+
+[step.cmux-next-tui-core]
+job = "linux"
+alone = true
+timeout = 2700
+title = "cmux_next_ daemon tests of cmux-tui-core"
+about = "the cmux_next_ tests of cmux-tui-core (the post-merge gate's targets for that member) pass on the pull request"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "cmux-tui/crates/cmux-tui-core/*",
+  "cmux-tui/crates/cmux-tui-core/data/*",
+  "cmux-tui/crates/cmux-tui-core/examples/*",
+  "cmux-tui/crates/cmux-tui-core/src/*",
+  "cmux-tui/crates/cmux-tui-core/src/apps/*",
+  "cmux-tui/crates/cmux-tui-core/src/apps/testdata/store-signed/*",
+  "cmux-tui/crates/cmux-tui-core/src/apps/testdata/store-signed/hello/*",
+  "cmux-tui/crates/cmux-tui-core/src/apps/testdata/store-signed/hello/dist/*",
+  "cmux-tui/crates/cmux-tui-core/src/blob_fetch/*",
+  "cmux-tui/crates/cmux-tui-core/src/browser/*",
+  "cmux-tui/crates/cmux-tui-core/src/browser/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/cloud_repos/*",
+  "cmux-tui/crates/cmux-tui-core/src/computer_use_host/*",
+  "cmux-tui/crates/cmux-tui-core/src/diagnostics/*",
+  "cmux-tui/crates/cmux-tui-core/src/diagnostics/request_log/*",
+  "cmux-tui/crates/cmux-tui-core/src/feed_client/*",
+  "cmux-tui/crates/cmux-tui-core/src/fs_ops/*",
+  "cmux-tui/crates/cmux-tui-core/src/fs_ops/fixtures/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/checkpoint/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/diff_comments/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/fingerprint/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/pr_review/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/worktree/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_seed/*",
+  "cmux-tui/crates/cmux-tui-core/src/git_seed/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/history_ops/*",
+  "cmux-tui/crates/cmux-tui-core/src/holder_runtime/*",
+  "cmux-tui/crates/cmux-tui-core/src/holder_runtime/service/*",
+  "cmux-tui/crates/cmux-tui-core/src/journal_ingress/*",
+  "cmux-tui/crates/cmux-tui-core/src/language_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/model/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/notifications/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/pending_terminals/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/personal/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/presentation/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/presentation/git_heads/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/public_projections/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/resource_content/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/resource_effects/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/resource_topology/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/resource_topology/batch_close/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/screen_groups/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/startup_restore/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tab_drag/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tab_groups/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tab_strip/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_adoption/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_catalog_index/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_host_records/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_reap/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_reap/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_sizing/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/terminal_work/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/create_commit_cost/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/floating_panes/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/holder_late_start/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/session_lists/*",
+  "cmux-tui/crates/cmux-tui-core/src/mux/tests/snapshot_read/*",
+  "cmux-tui/crates/cmux-tui-core/src/output_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/remote_host/*",
+  "cmux-tui/crates/cmux-tui-core/src/request_origin/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_api/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/content/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/content/targeted_browser/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/topology/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/topology/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_router/topology/workspace_mutations/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_selector/*",
+  "cmux-tui/crates/cmux-tui-core/src/resource_selector/id_forms/*",
+  "cmux-tui/crates/cmux-tui-core/src/scripts/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/agent_inventory_watch/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/agent_transfer/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/client_registry/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/connection_frame/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/message_writer/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/server/tests/list_request_counts/*",
+  "cmux-tui/crates/cmux-tui-core/src/shell_integration/*",
+  "cmux-tui/crates/cmux-tui-core/src/shell_integration/prompt_redraw_tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/shell_runs/*",
+  "cmux-tui/crates/cmux-tui-core/src/state/*",
+  "cmux-tui/crates/cmux-tui-core/src/state/project_sources/*",
+  "cmux-tui/crates/cmux-tui-core/src/state/router/*",
+  "cmux-tui/crates/cmux-tui-core/src/state/values/*",
+  "cmux-tui/crates/cmux-tui-core/src/surface/*",
+  "cmux-tui/crates/cmux-tui-core/src/surface/hosted_reader/*",
+  "cmux-tui/crates/cmux-tui-core/src/surface/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/tasks_link/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_backend/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/attachment/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_refusal/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_serve/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_shared/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/renderer_grant/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/windows/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/*",
+  "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/tests/*",
+  "cmux-tui/crates/cmux-tui-core/src/tool_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/output_cleanup/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/personal_bookmarks/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/personal_mutations/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/personal_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store/svg_icon/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/public_projection_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/relaunch_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store/screen_rows/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/session_journal/*",
+  "cmux-tui/crates/cmux-tui-core/src/workspace_registry/tests/*",
+  "cmux-tui/crates/cmux-tui-core/tests/*",
+  "cmux-tui/crates/cmux-tui-core/tests/fixtures/*",
+  "cmux-tui/crates/cmux-tui-core/tests/support/*",
+  "cmux-tui/persisted-formats/*",
+  "cmux-tui/persisted-formats/agent-host-record/*",
+  "cmux-tui/persisted-formats/terminal-host-record/*",
+  "cmux-tui/spec/sdk-schema.json",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_member_steps.py
+scripts/ci/cmux-next-member-tests.sh crates/cmux-tui-core
+'''
+
+[step.cmux-next-tui]
+job = "linux"
+alone = true
+timeout = 2700
+title = "cmux_next_ daemon tests of cmux-tui"
+about = "the cmux_next_ tests of cmux-tui (the post-merge gate's targets for that member) pass on the pull request"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "cmux-tui/crates/cmux-tui/*",
+  "cmux-tui/crates/cmux-tui/src/*",
+  "cmux-tui/crates/cmux-tui/src/app/*",
+  "cmux-tui/crates/cmux-tui/src/app/copy_mode/*",
+  "cmux-tui/crates/cmux-tui/src/app/dispatch/*",
+  "cmux-tui/crates/cmux-tui/src/app/menu/*",
+  "cmux-tui/crates/cmux-tui/src/app/ordered_session/*",
+  "cmux-tui/crates/cmux-tui/src/app/pointer/*",
+  "cmux-tui/crates/cmux-tui/src/app/tests/*",
+  "cmux-tui/crates/cmux-tui/src/app/window_docks/*",
+  "cmux-tui/crates/cmux-tui/src/app/window_frame/*",
+  "cmux-tui/crates/cmux-tui/src/bin/*",
+  "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/*",
+  "cmux-tui/crates/cmux-tui/src/build_adopt/*",
+  "cmux-tui/crates/cmux-tui/src/carrier/*",
+  "cmux-tui/crates/cmux-tui/src/cli/*",
+  "cmux-tui/crates/cmux-tui/src/cli/agent_config/*",
+  "cmux-tui/crates/cmux-tui/src/cli/agent_names/*",
+  "cmux-tui/crates/cmux-tui/src/cli/agent_start/*",
+  "cmux-tui/crates/cmux-tui/src/cli/agents/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/health/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/join/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/live/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/nightly/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/skew/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/share/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app/version/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app_commands/*",
+  "cmux-tui/crates/cmux-tui/src/cli/app_focus/*",
+  "cmux-tui/crates/cmux-tui/src/cli/apps_run/*",
+  "cmux-tui/crates/cmux-tui/src/cli/auth_handoff/*",
+  "cmux-tui/crates/cmux-tui/src/cli/auth_token/*",
+  "cmux-tui/crates/cmux-tui/src/cli/automation/*",
+  "cmux-tui/crates/cmux-tui/src/cli/billing/*",
+  "cmux-tui/crates/cmux-tui/src/cli/change_background/*",
+  "cmux-tui/crates/cmux-tui/src/cli/chat_cd/*",
+  "cmux-tui/crates/cmux-tui/src/cli/chat_send/*",
+  "cmux-tui/crates/cmux-tui/src/cli/chat_start/*",
+  "cmux-tui/crates/cmux-tui/src/cli/chat_start/local_repo/*",
+  "cmux-tui/crates/cmux-tui/src/cli/chief/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_auth_handoff_relay/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_connect/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_environment/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_help/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_journey/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_machines/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_route/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/internal/*",
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_workspaces/*",
+  "cmux-tui/crates/cmux-tui/src/cli/command/*",
+  "cmux-tui/crates/cmux-tui/src/cli/command/cases/*",
+  "cmux-tui/crates/cmux-tui/src/cli/command/git/*",
+  "cmux-tui/crates/cmux-tui/src/cli/command/state/*",
+  "cmux-tui/crates/cmux-tui/src/cli/command/tests/*",
+  "cmux-tui/crates/cmux-tui/src/cli/community/*",
+  "cmux-tui/crates/cmux-tui/src/cli/customize/*",
+  "cmux-tui/crates/cmux-tui/src/cli/docs/*",
+  "cmux-tui/crates/cmux-tui/src/cli/env_command/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/build-status/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/build-status/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/build-status/preview/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/build-status/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/next-meeting/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/next-meeting/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/next-meeting/preview/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/next-meeting/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/pomodoro/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/pomodoro/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/pomodoro/preview/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/pomodoro/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/todo/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/todo/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/todo/preview/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/todo/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/weather/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/weather/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/weather/preview/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/cold_model/weather/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/command/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/command/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/command/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/common/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/newtab/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/newtab/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/newtab/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/pane/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/pane/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/pane/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/section/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/section/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/section/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/session-info/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/session-info/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/session-info/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/widget/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/widget/dist/*",
+  "cmux-tui/crates/cmux-tui/src/cli/ext/templates/widget/src/*",
+  "cmux-tui/crates/cmux-tui/src/cli/extra_help/*",
+  "cmux-tui/crates/cmux-tui/src/cli/frontend_browser/*",
+  "cmux-tui/crates/cmux-tui/src/cli/intent/*",
+  "cmux-tui/crates/cmux-tui/src/cli/internal/*",
+  "cmux-tui/crates/cmux-tui/src/cli/key_broker/*",
+  "cmux-tui/crates/cmux-tui/src/cli/key_broker/local/*",
+  "cmux-tui/crates/cmux-tui/src/cli/live_code/*",
+  "cmux-tui/crates/cmux-tui/src/cli/machine_doctor/*",
+  "cmux-tui/crates/cmux-tui/src/cli/machine_join/*",
+  "cmux-tui/crates/cmux-tui/src/cli/machine_join/bootstrap/*",
+  "cmux-tui/crates/cmux-tui/src/cli/machine_join/vault/*",
+  "cmux-tui/crates/cmux-tui/src/cli/mcp/*",
+  "cmux-tui/crates/cmux-tui/src/cli/mcp/code_mode/*",
+  "cmux-tui/crates/cmux-tui/src/cli/mcp/tests/*",
+  "cmux-tui/crates/cmux-tui/src/cli/mcp/workflow/*",
+  "cmux-tui/crates/cmux-tui/src/cli/pack/*",
+  "cmux-tui/crates/cmux-tui/src/cli/sandbox_run/*",
+  "cmux-tui/crates/cmux-tui/src/cli/script/*",
+  "cmux-tui/crates/cmux-tui/src/cli/search/*",
+  "cmux-tui/crates/cmux-tui/src/cli/search/internal/*",
+  "cmux-tui/crates/cmux-tui/src/cli/setup/*",
+  "cmux-tui/crates/cmux-tui/src/cli/setup/cloud_machine/*",
+  "cmux-tui/crates/cmux-tui/src/cli/setup/repo/*",
+  "cmux-tui/crates/cmux-tui/src/cli/start_stages/*",
+  "cmux-tui/crates/cmux-tui/src/cli/status/*",
+  "cmux-tui/crates/cmux-tui/src/cli/terminal_talk/*",
+  "cmux-tui/crates/cmux-tui/src/cli/tests/*",
+  "cmux-tui/crates/cmux-tui/src/cli/theme_file/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_bootstrap/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_cleanup/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_exec_input/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_ready/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_short/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/*",
+  "cmux-tui/crates/cmux-tui/src/cli/vnc/*",
+  "cmux-tui/crates/cmux-tui/src/cli/wallpaper/*",
+  "cmux-tui/crates/cmux-tui/src/cli/wire/*",
+  "cmux-tui/crates/cmux-tui/src/cli/wire/agent_roster/*",
+  "cmux-tui/crates/cmux-tui/src/cli/wire/program_status_view/*",
+  "cmux-tui/crates/cmux-tui/src/config/*",
+  "cmux-tui/crates/cmux-tui/src/config/tests/*",
+  "cmux-tui/crates/cmux-tui/src/devices/*",
+  "cmux-tui/crates/cmux-tui/src/devices/setup/*",
+  "cmux-tui/crates/cmux-tui/src/headless/*",
+  "cmux-tui/crates/cmux-tui/src/link/*",
+  "cmux-tui/crates/cmux-tui/src/link/access_cli/*",
+  "cmux-tui/crates/cmux-tui/src/link/agent_cli/*",
+  "cmux-tui/crates/cmux-tui/src/link/machine_update/*",
+  "cmux-tui/crates/cmux-tui/src/link/seed/*",
+  "cmux-tui/crates/cmux-tui/src/link/seed_cli/*",
+  "cmux-tui/crates/cmux-tui/src/link/start_chat_cli/*",
+  "cmux-tui/crates/cmux-tui/src/link/start_chat_cli/spare_warm/*",
+  "cmux-tui/crates/cmux-tui/src/link/sync_cli/*",
+  "cmux-tui/crates/cmux-tui/src/link/sync_cli/remote/*",
+  "cmux-tui/crates/cmux-tui/src/local_owner/*",
+  "cmux-tui/crates/cmux-tui/src/localization/*",
+  "cmux-tui/crates/cmux-tui/src/machine_agent/*",
+  "cmux-tui/crates/cmux-tui/src/machine_provider_runtime/*",
+  "cmux-tui/crates/cmux-tui/src/owner_start/*",
+  "cmux-tui/crates/cmux-tui/src/plugin_manager/*",
+  "cmux-tui/crates/cmux-tui/src/pty_input/*",
+  "cmux-tui/crates/cmux-tui/src/pty_input/tests/*",
+  "cmux-tui/crates/cmux-tui/src/remote_cli/*",
+  "cmux-tui/crates/cmux-tui/src/remote_host/*",
+  "cmux-tui/crates/cmux-tui/src/remote_host/service/*",
+  "cmux-tui/crates/cmux-tui/src/remote_runtime/*",
+  "cmux-tui/crates/cmux-tui/src/remote_runtime/tests/*",
+  "cmux-tui/crates/cmux-tui/src/session/*",
+  "cmux-tui/crates/cmux-tui/src/session/remote/*",
+  "cmux-tui/crates/cmux-tui/src/session/remote/tests/*",
+  "cmux-tui/crates/cmux-tui/src/session/tree/*",
+  "cmux-tui/crates/cmux-tui/src/sidebar_files/*",
+  "cmux-tui/crates/cmux-tui/src/ui/*",
+  "cmux-tui/crates/cmux-tui/src/ui_watchdog/*",
+  "cmux-tui/crates/cmux-tui/tests/*",
+  "cmux-tui/crates/cmux-tui/tests/agent_message_policy/*",
+  "cmux-tui/crates/cmux-tui/tests/carrier_support/*",
+  "cmux-tui/crates/cmux-tui/tests/cli/*",
+  "cmux-tui/crates/cmux-tui/tests/fault_support/*",
+  "cmux-tui/crates/cmux-tui/tests/fixtures/*",
+  "cmux-tui/crates/cmux-tui/tests/holder_terminals/*",
+  "cmux-tui/crates/cmux-tui/tests/it/*",
+  "cmux-tui/crates/cmux-tui/tests/it/modules/*",
+  "cmux-tui/crates/cmux-tui/tests/journey_support/*",
+  "cmux-tui/crates/cmux-tui/tests/link_sync/*",
+  "cmux-tui/crates/cmux-tui/tests/projection_roundtrip_matrix/*",
+  "cmux-tui/crates/cmux-tui/tests/setup/*",
+  "cmux-tui/crates/cmux-tui/tests/support/*",
+  "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/*",
+  "cmux-tui/crates/cmux-tui/tests/ws_cloud_conversations/*",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_member_steps.py
+scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
@@ -1994,7 +3118,9 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
 # incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+# Fork pull requests use a 4-vCPU Linux runner. Keep cold rustc fan-out within that
+# runner's memory budget after an unrestricted compile killed rustc with SIGKILL.
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 unset CMUX_ZIG ZIG
 # The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
 ../scripts/ci/cmux-tui-test-target.sh restore
@@ -2030,6 +3156,296 @@ acpmux="$(command -v acpmux || true)"
 rm -rf "$home" "$log"
 [ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post "$crates" || true
 rm -f "$crates"
+exit "$status"
+'''
+
+# The settings-keys half of the cmux_next_ daemon tests above, on the pull request itself. That step's inputs are
+# whole-directory globs (`cmux-tui/**`, `schemas/settings/**`), so --pr-scope leaves it to the post-merge batch and
+# cmux-tui-artifacts.yml (which a lane/** push does not run): a pull request that added a settings row without its
+# published-keys.txt line merged green and failed the channel's gate after the merge. From 2026-11-25 21:43Z to
+# 2026-11-26 21:26Z every feat-cmux-next artifacts run failed that gate (the last cause: 36 live rows missing from
+# published-keys.txt, fixed by #59554), and the channel held every merged daemon fix meanwhile. This step names the
+# files a settings row lives in, so a pull request that touches one runs the one test, cmux-config's published_keys:
+# about 150 s cold on a 32-vCPU host (2m29s compile, the test 0.05 s), nothing on a pull request that touches none.
+[step.settings-published-keys]
+job = "linux"
+timeout = 360
+title = "Settings keys are published or retired"
+about = "every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
+needs = ["rust"]
+inputs = [
+  "schemas/settings/settings-schema.json",
+  "schemas/settings/published-keys.txt",
+  "schemas/settings/retired-keys.json",
+  "schemas/settings/source/*.json",
+  "schemas/settings/source/*/*.json",
+  "cmux-tui/crates/cmux-config/tests/published_keys.rs",
+  "cmux-tui/crates/cmux-config/src/schema/*.rs",
+  "cmux-tui/crates/cmux-config/Cargo.toml",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+cargo test -p cmux-config --locked --test published_keys cmux_next_
+'''
+
+# Six more checks whose feat-cmux-next pull request runs each took a Linux job: risk-tier-tests.yml's tests,
+# cmux-next-crash-class.yml's crash-class, cmux-cloud-cli.yml's test, cmux-vm-cloud.yml's check,
+# app-store-shelf.yml's shelf and cmux-vm-clients.yml's rust. A feat-cmux-next pull request runs the same commands
+# here; each workflow keeps its other runs (pushes, dispatch, pull requests into other bases). `inputs` is each
+# workflow's former pull_request path filter. A failure in one command of a step does not stop the step's others,
+# as the jobs' `!cancelled()` steps did. Failure-only artifact uploads (a regenerated client or contract) are not
+# steps: a failed step prints its `git diff --stat`. The cargo steps are `alone`, so their compile does not raise
+# the shared wave bound. helm-chart.yml (helm, which no tool supplies, on an ephemeral runner for untrusted chart
+# input) and cloud-vm-guest-install.yml (a Postgres service container) stay in their workflows.
+
+# risk-tier-tests.yml ran on pull requests into feat-cmux-next only; it now runs on dispatch alone.
+# 6 s on an 8-CPU lane machine; the job's bound was 5 min.
+[step.risk-tier-tests]
+job = "linux"
+timeout = 300
+title = "risk tier tests"
+about = "the risk classifier's unit tests (scripts/ci/risk_tier.py) pass"
+inputs = [
+  "scripts/ci/risk_tier.py",
+  "tests/test_risk_tier.py",
+  "tests/git_fixture_env.py",
+  "tests/fleet_test_host.py",
+  ".github/workflows/risk-tier-tests.yml",
+]
+run = '''
+python3 tests/test_risk_tier.py -v
+'''
+
+# On a merge commit (a pull request's) the gate fails only for findings in the files the change touches (--pr), as
+# the job's pull request runs did; on a commit with one parent it keeps the whole-tree verdict, as the push run did.
+# 125 s on an 8-CPU lane machine (the whole-tree gate and the five rule checks); the job's bound was 5 min.
+[step.cmux-next-crash-class]
+job = "linux"
+timeout = 300
+title = "cmux-next crash-class rules"
+about = "CmuxNext Sources pass the crash-class concurrency rules, their rule tests, the unrecognized-selector rule and the Chromium Objective-C contract"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**",
+  "Packages/macOS/CmuxNext/Package.swift",
+  "scripts/cmux-next/check-concurrency.sh",
+  "scripts/cmux-next/check-main-actor-work.py",
+  "scripts/cmux-next/swift_scope.py",
+  "tests/test_check_concurrency_generic_deinit.py",
+  "tests/test_check_concurrency_pipe_reads.py",
+  "tests/test_check_concurrency_caller_isolated.py",
+  "scripts/cmux-next/caller_isolation.py",
+  "scripts/cmux-next/caller-isolated-blocking-pending.json",
+  "scripts/ci/crash-class-gate.sh",
+  "scripts/ci/pr_owned_findings.py",
+  "scripts/cmux-next/check-objc-selectors.py",
+  "scripts/cmux-next/objc-selector-table.json",
+  "scripts/cmux-next/check-cef-objc-contract.py",
+  "scripts/cmux-next/chromium-objc-contract.json",
+  "scripts/cmux-next/cef-manifest.json",
+  ".github/workflows/cmux-next-crash-class.yml",
+]
+run = '''
+scope=()
+git rev-parse -q --verify 'HEAD^2' >/dev/null && scope=(--pr)
+status=0
+scripts/ci/crash-class-gate.sh "${scope[@]}" || status=1
+python3 -I tests/test_check_concurrency_generic_deinit.py || status=1
+python3 -I tests/test_check_concurrency_pipe_reads.py || status=1
+python3 -I tests/test_check_concurrency_caller_isolated.py || status=1
+python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
+python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
+exit "$status"
+'''
+
+# The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
+[step.cmux-vm-cloud]
+job = "linux"
+timeout = 360
+title = "cmux VM cloud API"
+about = "the backend API typechecks, the protocol catalog and generated clients match, the Team VM and server pairing tests pass, and backend sources stay under the size limit"
+needs = ["bun", "node"]
+inputs = [
+  "workers/cmux-vm/sdk/**",
+  "workers/cmux-vm/src/**",
+  "libs/vm-instance-identity/**",
+  "backend/apps/api/src/team-vm-api*",
+  "backend/apps/api/test/team-vm-api*",
+  ".github/workflows/cmux-vm-cloud.yml",
+]
+run = '''
+cd backend
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+status=0
+(cd apps/api && bun run typecheck) || status=1
+if bun run catalog:export && bun run catalog:client && bun run catalog:rust; then
+  paths=(catalog/cloud-operations.json ../clients/ts/cloud/src/generated.ts ../cmux-tui/crates/cmux-cloud-wire/src/generated)
+  if [[ -n "$(git status --porcelain -- "${paths[@]}")" ]]; then
+    git --no-pager diff --stat -- "${paths[@]}"
+    echo "::error::Protocol catalog or generated clients are stale: run bun run catalog:export, catalog:client and catalog:rust in backend and commit the result"
+    status=1
+  fi
+else
+  status=1
+fi
+(cd apps/api && bun run test -- test/team-vm-api) || status=1
+(cd apps/api && bun run test -- test/team-vm-bind.test.ts test/team-vm.test.ts test/team-vm-taint.test.ts test/team-vm-retired-fence.test.ts test/team-vm-export.test.ts) || status=1
+(cd apps/api && bun run test -- test/server-pairing.test.ts test/server-pairing-failures.test.ts) || status=1
+bun run lint:size || status=1
+exit "$status"
+'''
+
+# The job's 15-minute bound. Warnings never fail a pull request's compile (Leo, 2026-11-19): CI_WARNINGS is soft on
+# a pull request, deny in the post-merge batch. The job's release binary upload (cmux-cloud-cli-<sha>) stays with
+# the workflow's push and dispatch runs; here the musl release build only has to succeed.
+[step.cmux-cloud-cli]
+job = "linux"
+timeout = 900
+alone = true
+title = "cmux cloud CLI"
+about = "cmux-cloud-cli and cmux-cloud-wire are rustfmt-clean, pass clippy and their tests, and the CLI builds for x86_64 musl"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/crates/cmux-cloud-cli/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "backend/catalog/cloud-operations.json",
+  "backend/catalog/cloud-vectors.json",
+  "cmux-tui/Cargo.*",
+  ".github/workflows/cmux-cloud-cli.yml",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+[ -z "${GITHUB_BASE_REF:-}" ] || export CI_WARNINGS=soft
+status=0
+cargo fmt -p cmux-cloud-cli -p cmux-cloud-wire --check || status=1
+python3 ../scripts/ci/warnings_policy.py run -- cargo clippy -p cmux-cloud-cli -p cmux-cloud-wire --locked --all-targets -- -D warnings || status=1
+cargo test -p cmux-cloud-cli -p cmux-cloud-wire --locked || status=1
+rustup target add x86_64-unknown-linux-musl --toolchain "$channel" || status=1
+cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl || status=1
+exit "$status"
+'''
+
+# app-store-shelf.yml ran on pull requests into feat-cmux-next only; it keeps its feat-cmux-next push and dispatch
+# runs, and nightly.yml's check-nightly-app-store-shelf runs the same script. The job's 45-minute bound (a cold
+# cmux-tui test compile). The build env the job set: the ghostty-next gitlink's sources, Zig from PATH.
+[step.app-store-shelf]
+job = "linux"
+timeout = 2700
+alone = true
+title = "App Store shelf"
+about = "every App Store listing installs and shows something (the three cmux-tui shelf tests run and pass)"
+needs = ["rust", "zig"]
+# The nightly's shelf job runs the same script on the build commit; its red reds the run and files
+# report-nightly-shelf-red (it holds no publish since 2026-11-25). cmux#46903 reached it only through
+# `first-party-apps/**`, which --pr-scope left to the post-merge batch, so the nightly found it (fix cmux#61540).
+inputs = [
+  ".github/workflows/app-store-shelf.yml",
+  "first-party-apps/**",
+  "samples/apps/**",
+  "scripts/cmux-next/sync-app-runtime.sh",
+  "scripts/cmux-next/store-package-sign.py",
+  "scripts/ci/app-store-shelf-check.sh",
+  "cmux-tui/crates/cmux-tui-core/src/apps/**",
+  "cmux-tui/crates/cmux-app-host/**",
+  "cmux-tui/crates/cmux-app-manifest/**",
+  "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*",
+  "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs",
+]
+run = '''
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
+unset CMUX_ZIG ZIG
+bash scripts/ci/app-store-shelf-check.sh
+'''
+
+# The nightly's "Generate third-party notices (cmux-next)" generates the Rust notices from the tree and refuses a
+# crate whose license it does not accept: cmux#59540 added jpeg-encoder (IJG) and the nightly stopped there hours
+# after the merge. cmux-next-guards.yml's rust-notices-tree runs the same command only with full-ci, so a landing
+# head on the affected tier never ran it; this step does (pr_router.py nightly_gate_steps). The inputs are that
+# job's filter.
+[step.rust-notices]
+job = "linux"
+# cmux-next-guards.yml's rust-notices-tree bound (25 min) less its checkout; cargo metadata over every workspace.
+alone = true
+timeout = 1200
+title = "Rust third-party notices (as the nightly generates them)"
+about = "the third-party notices generate from this tree's Rust crates and Swift packages, every license accepted"
+needs = ["rust"]
+nightly = [
+  "nightly.yml:nightly-next-one:Generate third-party notices (cmux-next)",
+  "nightly.yml:build-nightly-app:Generate third-party notices (cmux-next)",
+]
+inputs = [
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "scripts/cmux-next/remote-browser-host.pin.json",
+  "cmux-tui/build-support/notices/**",
+  "scripts/cmux-next/generate-third-party-notices.sh",
+  "scripts/cmux-next/notices/**",
+  "Packages/macOS/CmuxNext/Package.resolved",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$RUNNER_TEMP/cmux-notices" \
+  ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+  --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+'''
+
+# cmux-vm-clients.yml's rust job; its sdk job is the step cmux-vm-sdk, and `inputs` is the filter the two jobs
+# shared. The job's 30-minute bound (a cold workspace compile; the job's cargo cache is not here). Formatting is a
+# style guard: on feat-cmux-next it warns (Leo 2026-10-19). Warnings never fail a pull request's compile (Leo,
+# 2026-11-19): CI_WARNINGS is soft on a pull request, deny in the post-merge batch.
+[step.cmux-vm-clients-rust]
+job = "linux"
+timeout = 1800
+alone = true
+title = "cmux VM Rust clients"
+about = "the cmux VM CLI workspace's toolchain pin matches cmux-tui's, it passes clippy and its tests, its generated client matches openapi.json, and the clients never name the upstream provider"
+needs = ["rust"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+status=0
+diff <(grep -v '^#' workers/cmux-vm/cli/rust-toolchain.toml) cmux-tui/rust-toolchain.toml || status=1
+if grep -rIil freestyle workers/cmux-vm/cli workers/cmux-vm/sdk --exclude-dir=target --exclude-dir=node_modules; then
+  echo "::error::the cmux VM clients must not name the upstream provider"
+  status=1
+fi
+cd workers/cmux-vm/cli
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+[ -z "${GITHUB_BASE_REF:-}" ] || export CI_WARNINGS=soft
+if ! cargo fmt --all --check; then
+  echo "::warning title=cmux-vm cli rustfmt::not rustfmt-clean; run cargo fmt --all in workers/cmux-vm/cli"
+fi
+python3 ../../../scripts/ci/warnings_policy.py run -- cargo clippy --locked --workspace --all-targets -- -D warnings || status=1
+cargo test --locked --workspace || status=1
+if ./scripts/regenerate.sh; then
+  if [[ -n "$(git status --porcelain -- .)" ]]; then
+    git --no-pager diff --stat -- .
+    echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
+    status=1
+  fi
+else
+  status=1
+fi
 exit "$status"
 '''
 
@@ -2172,6 +3588,9 @@ python3 scripts/tests/test_pr_scoped_lint_gates.py
 job = "linux"
 timeout = 360
 alone = true
+# A pull request runs it on its whole route (--pr-scope keeps it): the one rule that fails it, a namespace type the
+# pull request adds, is read from the pull request's own diff (--pr), which the post-merge batch does not have.
+pr_scope = false
 title = "Package conventions lint"
 about = "the iOS package conventions gate on the files the pull request changes (package-conventions-gate.sh --pr), warn-only into feat-cmux-next but for an added namespace type"
 inputs = [
@@ -2241,14 +3660,18 @@ run = '''
 python3 -I scripts/cmux-next/check-connection-notices.py --root "$PWD"
 '''
 
-[step.ios-kit]
+[step.ios-kit-macos]
 job = "ios"
-# Takes the Mac's cores and its one simulator; the phone cells follow it.
+# The kit's macOS swift test, which ios-kit ran before its simulator leg: pr-pipeline.yml's `ios macos` job runs it
+# (`--only ios-kit-macos`) beside the `ios` job, which runs every other ios step, so neither leg waits on the other.
+# ios-kit reads this job's verdict (scripts/ci/ios_macos_leg.py): a red macOS leg still skips the simulator and turns
+# `ios` red, as when both ran in one step.
 alone = true
-# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
-timeout = 4800
-title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
+# The xcframework (a Mac build when the fleet has none, up to 25 min) and the two swift test runs (8 min on a warm
+# Mac, 20 on a cold one).
+timeout = 2700
+title = "CmuxMobileKit tests (macOS swift test)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's swift test on macOS"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -2267,6 +3690,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
@@ -2288,6 +3712,51 @@ inputs = [
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
+  # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
+  # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
+  # change starts the iOS checks (cmux#55399).
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-braid-carrier/**",
+  "cmux-tui/crates/cmux-braid-class/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-bundle/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-handlers/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-composer-send/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-mobile-core/**",
+  "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-rd-core/**",
+  "cmux-tui/crates/cmux-rd-ffi/**",
+  "cmux-tui/crates/cmux-rd-link/**",
+  "cmux-tui/crates/cmux-rd-proto/**",
+  "cmux-tui/crates/cmux-rd-screen/**",
+  "cmux-tui/crates/cmux-relay-snapshot/**",
+  "cmux-tui/crates/cmux-remote-browser/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-terminal-prediction/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/crates/cmux-terminal-sizing/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vnc/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-window-rules/**",
+  "cmux-tui/vendor/crossterm/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/vendor/terminput-crossterm/**",
 ]
 # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
 # (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
@@ -2312,8 +3781,143 @@ fi
 status=0
 # The suites that bound wall-clock time or the process footprint run alone after the rest (among 2580 parallel tests
 # in one process they measured their neighbours). The Instant list bench stays in the kit workflow's push runs.
-swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests || status=1
+# CmuxMobileAuthTests, CmuxMobileDesignCoreTests, CmuxMobileModelTests, CmuxMobileNotificationsTests,
+# CmuxMobileRealtimeTests and CmuxMobileTransportTests run on Linux (swift-linux-packages.yml, group ios-kit, which
+# pr-router.yml starts for every change this step's inputs reach in those modules), as cmux-next-ios-kit.yml's macOS
+# swift test already skips them; the simulator run below still runs all six.
+swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests \
+  --skip CmuxMobileAuthTests --skip CmuxMobileDesignCoreTests --skip CmuxMobileModelTests --skip CmuxMobileNotificationsTests \
+  --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests || status=1
 swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests || status=1
+exit $status
+'''
+
+[step.ios-kit]
+job = "ios"
+# Takes the Mac's cores and its one simulator; the phone cells follow it.
+alone = true
+# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
+timeout = 4800
+title = "CmuxMobileKit tests (iOS simulator)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
+# The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
+# its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
+# simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
+# so it still routes (the workflow's re-include, kept).
+inputs = [
+  "cmux-next-ios/**",
+  "Packages/Shared/CMUXAuthCore/**",
+  "Packages/Shared/CMUXMobileCore/**",
+  "Packages/Shared/CmuxAgentBrands/**",
+  "Packages/Shared/CmuxAgentQuestion/**",
+  "Packages/Shared/CmuxAuthRuntime/**",
+  "Packages/Shared/CmuxChiefList/**",
+  "Packages/Shared/CmuxChiefVoiceCore/**",
+  "Packages/Shared/CmuxConnectivityTelemetry/**",
+  "Packages/Shared/CmuxDeviceHub/**",
+  "Packages/Shared/CmuxEgress/**",
+  "Packages/Shared/CmuxGhosttyKit/**",
+  "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
+  "Packages/Shared/CmuxScreenKit/**",
+  "Packages/Shared/CmuxSpinner/**",
+  "Packages/Shared/CmuxTheme/**",
+  "Packages/Shared/CmuxVNC/**",
+  "Packages/Shared/CmuxVNCWebRTC/**",
+  "Packages/iOS/CmuxConversation/**",
+  "Packages/iOS/CmuxMobileBilling/**",
+  "Packages/iOS/CmuxMobileSupport/**",
+  "Packages/iOS/CmuxTabsKit/**",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+  "scripts/ci/ios_app_package_paths.py",
+  "scripts/ci/ios_link_ffi_key.py",
+  "scripts/ci/ios_link_ffi.sh",
+  "scripts/ci/ios_macos_leg.py",
+  "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-sim-pool.sh",
+  # The pool phone runs it at this commit (ios-sim-pool.sh submit).
+  "scripts/ci/ios-sim-linux-test.sh",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  "cmux-tui/rust-toolchain.toml",
+  # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
+  # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
+  # change starts the iOS checks (cmux#55399).
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-braid-carrier/**",
+  "cmux-tui/crates/cmux-braid-class/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-bundle/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-handlers/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-composer-send/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-local-url/**",
+  "cmux-tui/crates/cmux-mobile-core/**",
+  "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-proxy/**",
+  "cmux-tui/crates/cmux-rd-core/**",
+  "cmux-tui/crates/cmux-rd-ffi/**",
+  "cmux-tui/crates/cmux-rd-link/**",
+  "cmux-tui/crates/cmux-rd-proto/**",
+  "cmux-tui/crates/cmux-rd-screen/**",
+  "cmux-tui/crates/cmux-relay-snapshot/**",
+  "cmux-tui/crates/cmux-remote-browser/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-terminal-prediction/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/crates/cmux-terminal-sizing/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vnc/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-window-rules/**",
+  "cmux-tui/vendor/crossterm/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/vendor/terminput-crossterm/**",
+]
+# Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
+# (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
+# reads stay in. The fixtures the kit's own tests read (cmux-next-ios/verify/agent-cli-hybrid/) stay in too (#54725).
+ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli-hybrid/**",
+          "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
+          "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
+          "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
+          "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+needs = ["rust"]
+run = '''
+(cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
+# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+bash scripts/ci/ios_link_ffi.sh 8
+# The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
+# tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
+if ! git diff --exit-code -- cmux-next-ios/; then
+  echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+  exit 1
+fi
+status=0
+# The macOS swift test is ios-kit-macos, in pr-pipeline.yml's `ios macos` job beside this one. Its verdict so far
+# (scripts/ci/ios_macos_leg.py: failure, success, pending or unknown; an unread one runs the simulator leg) keeps
+# the rule both legs had in one step: a red macOS leg skips the simulator leg and fails this step.
+macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+echo "ios macos leg: $macos"
+[[ "$macos" == failure ]] && status=1
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
@@ -2332,7 +3936,7 @@ fi
 # A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
 # of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
 if (( status )); then
-  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  echo "::notice title=ios-kit::the macOS kit tests failed (the ios macos job); the iOS simulator tests are skipped this run"
   pool="skipped"
 fi
 case "${pool%% *}" in
@@ -2380,6 +3984,17 @@ if [[ "$mode" == shadow && -f "$pool_dir/submitted" ]]; then
 fi
 ;;
 esac
+# The macOS leg usually ends first (8 min against the simulator's 15 or more): a red one fails this step too, so the
+# phone cells after it are skipped and `ios` is red, as before the split. One read, no wait: a leg still running is
+# its own `ios macos` check.
+if (( ! status )); then
+  macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+  echo "ios macos leg after the simulator: $macos"
+  if [[ "$macos" == failure ]]; then
+    echo "::error title=ios-kit::the macOS kit tests failed in the ios macos job"
+    status=1
+  fi
+fi
 exit $(( status || sim ))
 '''
 
@@ -2497,6 +4112,23 @@ case "$word" in
 esac
 '''
 
+# Slice 16 (ci-v2 step 11): router callees and the Linux test halves of deploy workflows.
+#
+# Was fleet-artifact-cdn.yml's test job (cmux-linux, 5 min, Node 24) on a pull request. Its pull_request trigger now
+# ignores feat-cmux-next; the workflow keeps its other pull requests, its main pushes and the dispatch deploy (whose
+# `needs: test` runs the job first). Its inputs are the workflow's own paths.
+[step.fleet-artifact-cdn-test]
+job = "linux"
+timeout = 300
+title = "Fleet artifact edge tests"
+about = "the fleet artifact edge Worker (workers/fleet-artifacts) passes its edge authentication and read-only deployment check tests (node --test)"
+needs = ["node"]
+inputs = ["workers/fleet-artifacts/**", ".github/workflows/fleet-artifact-cdn.yml"]
+run = '''
+cd workers/fleet-artifacts
+npm test
+'''
+
 [step.mac-fast-tier]
 job = "mac"
 timeout = 6600
@@ -2530,7 +4162,7 @@ selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
 # Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
-# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+# (cmux-next-pr-pipeline-mac-batch.yml sets it to `0`). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
 if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
   selected=(--changed-files "$CI_PATHS_FILE")
 fi

@@ -132,10 +132,7 @@ fn make_private_dir(path: &Path) -> std::io::Result<()> {
     if private_dir(path) {
         return Ok(());
     }
-    let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(path)
+    crate::home_fs::create_dir(path, 0o700)
 }
 
 /// The reserved folder under `home`, canonical, made if there is none unclaimed: the one a
@@ -157,13 +154,11 @@ pub(super) fn ensure_folder(home: &Path) -> Option<PathBuf> {
             let name = fresh_name();
             make_private_dir(&chats.join(&name)).ok()?;
             let tmp = chats.join(format!("{TICKET}.{name}"));
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            let mut options = crate::home_fs::OpenOptions::new();
+            options.write(true).create_new(true).mode(0o600);
             std::io::Write::write_all(&mut options.open(&tmp).ok()?, name.as_bytes()).ok()?;
             // Atomic: a reader sees the old ticket or the new one, never half of it.
-            std::fs::rename(&tmp, &ticket).ok()?;
+            crate::home_fs::rename(&tmp, &ticket).ok()?;
             name
         }
     };
@@ -263,10 +258,40 @@ impl Hub {
             .map(|(k, s)| json!({"harness": k.harness, "state": s}))
             .collect();
         let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd});
+        if state == "none" {
+            // Nothing in the pool holds the reserved key, so the first home chat starts cold.
+            // Say why, so a caller (the Cloud journey) records the cause, not only "none".
+            answer["why"] = Value::String(self.reserved_missing_why(&key));
+        }
         if !spares.is_empty() {
             answer["spares"] = Value::Array(spares);
         }
         Ok(answer)
+    }
+
+    /// Why no pool entry holds `key` right after it was wanted: the pool never holds a remote
+    /// key; an oversize key is never started again; another key in its slot (same folder,
+    /// harness and preset; a personal spare on another model, say) replaced it. Names fields,
+    /// never values (`PoolKey::differing`).
+    fn reserved_missing_why(&self, key: &PoolKey) -> String {
+        if key.origin == Origin::Remote {
+            return "the key is remote-origin, which the pool never holds".to_string();
+        }
+        if lock(&self.pool.oversize).contains(key) {
+            return "the key went over the pool's RSS cap once (oversize) and is not started again"
+                .to_string();
+        }
+        let views = lock(&self.pool.pool).view();
+        if let Some(v) = views.iter().find(|v| {
+            v.key.cwd == key.cwd && v.key.harness == key.harness && v.key.preset == key.preset
+        }) {
+            return format!(
+                "another key holds its slot ({}), differing in {}",
+                v.state,
+                v.key.differing(key).join(", ")
+            );
+        }
+        format!("no pool entry for it ({} entries in the pool)", views.len())
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.

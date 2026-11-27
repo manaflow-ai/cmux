@@ -4,6 +4,8 @@
 
 use super::*;
 
+#[path = "compaction_outline.rs"]
+mod compaction_outline;
 #[path = "transfer_history.rs"]
 mod transfer_history;
 #[path = "transfer_live.rs"]

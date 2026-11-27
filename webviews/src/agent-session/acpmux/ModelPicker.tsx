@@ -24,25 +24,26 @@ import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS, nearestLevel } from "./composerPickerModel";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
 import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
+import { useModelPickerStyle } from "./chatDisplay";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { useHarnessUpdates } from "./harnessUpdateList";
-import { HarnessUpdatesSection } from "./HarnessUpdates";
+import { HarnessUpdatesSection, HarnessUpdateButton } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { groupVariants } from "./modelVariants";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked, registerModelCommand } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
@@ -78,6 +79,7 @@ type ModelChoice = {
   name: string;
   family?: string;
   unavailable?: string;
+  codexUpdateVersion?: string;
   efforts?: string[];
   effortsDeclared?: boolean;
   /** The level the catalog recommends (a pick with no effort of its own lands it). */
@@ -157,7 +159,7 @@ function sectionsFor(
         name: defaultChoice ? translate("picker.default", {}, lang) : model.shortName || model.name || model.id,
         ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
-        ...(model.unavailable ? { unavailable: model.unavailable } : {}),
+        ...(model.unavailable ? { unavailable: model.unavailable, codexUpdateVersion: model.codexUpdateVersion } : {}),
         // Catalog normalization materializes omitted capabilities as [] and marks them false;
         // direct catalog entries without provenance retain their explicit empty declaration.
         ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
@@ -411,6 +413,10 @@ type ModelRowProps = {
   /** A searched effort and fast mode the pick lands with ("High · Fast"). */
   combo?: string;
   unavailable?: string;
+  /** Why the row is disabled, its tooltip. */
+  reason?: string;
+  /** The update that brings a release-only model (Update Codex), in place of the unavailable note. */
+  update?: ReactNode;
   disabled: boolean;
   favorite: boolean;
   starLabel: string;
@@ -437,6 +443,8 @@ const ModelRow = memo(function ModelRow({
   mark,
   combo,
   unavailable,
+  reason,
+  update,
   disabled,
   favorite,
   starLabel,
@@ -458,6 +466,7 @@ const ModelRow = memo(function ModelRow({
         aria-setsize={setsize}
         className={`acpmux-mp-row ${modelRow} ${rowFill(active)} ${checked ? "pr-14" : "pr-8"}${active ? " acpmux-mp-active" : ""}`}
         onPointerEnter={() => onHover(index)}
+        title={reason}
         disabled={disabled}
         onClick={() => onPick(index)}
         active={active}
@@ -467,8 +476,9 @@ const ModelRow = memo(function ModelRow({
         {used && <UsedMark look={used} />}
         <span className="flex-1" />
         {combo !== undefined && <span className="acpmux-mp-combo flex-none text-detail text-dim">{combo}</span>}
-        {unavailable && <span className="flex-none text-detail text-dim">{unavailable}</span>}
+        {unavailable && !update && <span className="flex-none text-detail text-dim">{unavailable}</span>}
       </PickerOption>
+      {update}
       <span className="pointer-events-none absolute right-1.5 flex items-center">
         <button
           type="button"
@@ -1018,7 +1028,9 @@ export function ModelPicker(props: ModelPickerProps) {
     else trigger.current?.focus();
   }, [current, harness, heldEntry, lang, open, props.model, railHarnesses]);
   const showRef = useRef(show);
-  showRef.current = show;
+  useLayoutEffect(() => {
+    showRef.current = show;
+  }, [show]);
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
@@ -1056,23 +1068,26 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
+  // Parked under a New Tab page (unseen, inert): the page's own picker has the palette and the key.
+  const parked = useContext(ChatViewParked);
   useEffect(
     () =>
-      registerPicker(modelText, () => {
-        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
-        if (root.current?.closest("[inert]")) return;
-        if (quick === undefined) showRef.current();
-        else if (open) close();
-        else setQuickOpen(true);
-      }),
-    [modelText, quick, open, close],
+      parked
+        ? undefined
+        : registerPicker(modelText, () => {
+            // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+            if (root.current?.closest("[inert]")) return;
+            if (quick === undefined) showRef.current();
+            else if (open) close();
+            else setQuickOpen(true);
+          }),
+    [modelText, quick, open, close, parked],
   );
   useEffect(() => {
+    if (parked) return;
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
-        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
-        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
@@ -1084,7 +1099,7 @@ export function ModelPicker(props: ModelPickerProps) {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, quickOpen]);
+  }, [quick, open, quickOpen, parked]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
@@ -1139,8 +1154,7 @@ export function ModelPicker(props: ModelPickerProps) {
   /// The compact menu's search field: the full picker's search over the harnesses the menu offers.
   /// A row names its harness when the menu has a rail, and the effort and fast mode the query named
   /// ("gpt high fast"), which its pick lands with.
-  const quickSearch = (text: string): QuickModel[] => {
-    const typed = parseQuery(text, vocabulary);
+  const quickSearch = (text: string, typed = parseQuery(text, vocabulary)): QuickModel[] => {
     // The chat's own harness once it has started, else every one the rail offers.
     const searchable = (harnessFixed ? ownHarness : harnesses).filter(
       (entry) =>
@@ -1194,12 +1208,16 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
+  const pickerStyle = useModelPickerStyle();
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quick || harnessFixed || current?.folder) return undefined;
+    // Model Picker Style "menu" (chatDisplay.ts MODEL_PICKER_STYLE_KEY, a look's pick, after the
+    // Claude Code app): every chip opens that compact menu, a New Tab's too; More models still
+    // opens the full picker with every harness.
+    if (!quick || harnessFixed || current?.folder || pickerStyle === "menu") return undefined;
     // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
     // opens loses that press's click, so another popover never receives its outside dismissal.
     // The rows stay lazy until the picker opens.
@@ -1285,6 +1303,7 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [
     modelsNeeded,
     quick,
+    pickerStyle,
     harnessFixed,
     forkTargets,
     forkHarnesses,
@@ -1329,6 +1348,23 @@ export function ModelPicker(props: ModelPickerProps) {
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
     return false;
   };
+  useEffect(() =>
+    registerModelCommand((text) => {
+      const typed = parseQuery(text, effortWords(harnesses.flatMap((entry) => entry.models)));
+      if (!typed.effort && !typed.fast) return undefined;
+      // A submitted command must match every word, including its last one.
+      const candidates = quickSearch(text, { ...typed, typing: undefined }).filter(
+        (row) => !row.disabled && !row.setupNote,
+      );
+      const currentRoute = candidates.filter((row) => row.family === current?.id);
+      const matches = currentRoute.length ? currentRoute : candidates;
+      if (matches.length !== 1 || !typed.words.length) {
+        return matches.length ? matches.map((row) => row.id).join(", ") : t("picker.noMatchesFor", { query: text });
+      }
+      pickQuick(matches[0]!);
+      return true;
+    }),
+  );
   /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
   const pickQuickToPrompt = (model: QuickModel) => {
     quickPicked.current = true;
@@ -1768,9 +1804,12 @@ export function ModelPicker(props: ModelPickerProps) {
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
                   modelsNeeded && current && !needsSetup(current)
-                    ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
-                        quickRow("", model),
-                      )
+                    ? quickSections(
+                        current,
+                        props.model,
+                        (model) => !model.unavailable || !!model.codexUpdateVersion,
+                        lang,
+                      ).shown.map((model) => quickRow("", model))
                     : [],
                 // The running model's row: an alias row ("opus") whose release the session reports
                 // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
@@ -2035,7 +2074,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={refreshCatalog}
                 >
                   {refreshStatus === "fetching" ? (
-                    <Spinner size={14} loading />
+                    <WaitSpinner size={14} until={<Icon name="action.reload" size={14} />} />
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}
@@ -2156,6 +2195,13 @@ export function ModelPicker(props: ModelPickerProps) {
                     renderRow={(index, style) => {
                       const model = visible[index]!;
                       const owner = owners.get(model);
+                      const releaseUpdate =
+                        model.codexUpdateVersion &&
+                        updates?.rows.find(
+                          (row) =>
+                            row.harness === (owner?.acpmuxHarness ?? owner?.id) &&
+                            row.latest === model.codexUpdateVersion,
+                        );
                       const ran = model.id === props.model && !!owner?.ids.includes(harness ?? "");
                       // The checked row is what the next message runs: a held pick, else the chat's model.
                       const checked = held ? model.id === held.model && !!owner?.ids.includes(held.harness) : ran;
@@ -2181,6 +2227,18 @@ export function ModelPicker(props: ModelPickerProps) {
                               : undefined
                           }
                           unavailable={model.unavailable ? unavailableText : undefined}
+                          reason={model.unavailable}
+                          update={
+                            releaseUpdate ? (
+                              <HarnessUpdateButton
+                                row={releaseUpdate}
+                                showAgent
+                                className="mr-8 flex-none"
+                                title={model.unavailable}
+                                onOwnUpdate={close}
+                              />
+                            ) : undefined
+                          }
                           disabled={Boolean(model.unavailable || model.defaultChoice)}
                           favorite={favorite}
                           starLabel={`${starredText}: ${model.name}`}

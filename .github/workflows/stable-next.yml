@@ -115,7 +115,7 @@ jobs:
       contents: read
     steps:
       # The tooling comes from nightly-next, where the publish run runs.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: nightly-next
           persist-credentials: false
@@ -194,7 +194,7 @@ jobs:
       commit: ${{ steps.commit.outputs.commit }}
       go: ${{ steps.go.outputs.go }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -285,13 +285,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
       # This workflow's own copy of the delta tool: the candidate commit may predate it.
       - name: Checkout the stable tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-tooling
@@ -463,9 +463,9 @@ jobs:
       COMMIT: ${{ needs.plan.outputs.commit }}
       SIGN: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'developer-id' || 'ad-hoc' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -640,7 +640,7 @@ jobs:
       # leaves the clone sparse for the next job, so these scripts get a clone of their own.
       - name: Start a clean clone of the smoke scripts
         run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-next-smoke
@@ -691,7 +691,7 @@ jobs:
       # MACOS_RUNNER_26 can name an owned runner: a clone of its own, as smoke-27.
       - name: Start a clean clone of the smoke scripts
         run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .stable-next-smoke
@@ -735,7 +735,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -791,12 +791,14 @@ jobs:
       BUILD: ${{ needs.plan.outputs.build }}
       DMG_NAME: ${{ needs.sign.outputs.dmg_name }}
       DMG_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
+      # The new item's cmux:sourceCommit: every commit reader (install-static.sh, hot-verify, bisect) reads it.
+      SOURCE_COMMIT: ${{ needs.plan.outputs.commit }}
       PUBLISH: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'true' || 'false' }}
       NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
       NIGHTLY_NEXT_R2_PREFIX: nightly-next/stable/
       NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/stable
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -841,9 +843,9 @@ jobs:
           </rss>
           EOF
           curl -fsS -A cmux-stable-next/1 -o "$RUNNER_TEMP/live.xml" "$NIGHTLY_NEXT_FEED_BASE/$STABLE_APPCAST" || : > "$RUNNER_TEMP/live.xml"
-          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" \
+          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT" \
             || { echo "::notice::the live stable feed already serves build $BUILD or newer; composing against an empty feed"
-                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST"; }
+                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT"; }
           python3 -I scripts/ci/nightly-next-guard.py appcast "$RUNNER_TEMP/$STABLE_APPCAST"
           { echo "### Dry run: the stable feed it would publish (nothing written)"; echo; echo '```xml'; cat "$RUNNER_TEMP/$STABLE_APPCAST"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the DMG and write the stable feed
@@ -882,7 +884,7 @@ jobs:
       ts: ${{ steps.post.outputs.ts }}
       channel: ${{ steps.post.outputs.channel }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -916,7 +918,7 @@ jobs:
       LANE: crash-class
       RESULT: ${{ needs.crash-class.result }}
     steps: &slack-lane-steps
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -1019,7 +1021,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
