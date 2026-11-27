@@ -156,6 +156,25 @@ jobs:
           print()
           PY
 
+      - name: Launch floor linked like the app (its system dylibs, no code)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          app="$(find .build/ios-sim -maxdepth 6 -type d -path '*/Demo-iphonesimulator/CmuxMobileApp.app' | head -n 1)"
+          [ -n "$app" ] || { echo "no Demo app; skipped"; exit 0; }
+          CMUX_LAUNCH_FLOOR_LINK_LIKE="$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")" \
+            bash "$RUNNER_TEMP/floor/ios-launch-floor.sh" artifacts/ios-sim/launch-floor-linked.json artifacts/ios-sim/SUMMARY.md
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("artifacts/ios-sim/launch-floor-linked.json"))
+          print(f"### launch floor linked like the app ({d['linked_like_app']} system dylibs, n={d['n']})\n")
+          print("| span | p50 | p90 |\n|---|---|---|")
+          for k in ("main_ms", "main_cpu_ms", "first_frame_ms"):
+              print(f"| {k} | {d[k]['p50']} | {d[k]['p90']} |")
+          print()
+          PY
+
       - name: Pre-main (dylibs, initializers, XCTest inserts; simctl launches)
         if: ${{ !cancelled() }}
         timeout-minutes: 15

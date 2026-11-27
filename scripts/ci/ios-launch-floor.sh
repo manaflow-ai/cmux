@@ -9,6 +9,9 @@
 #   OUT_JSON   samples and p50/p90 of main_ms (App.init) and first_frame_ms (first presented frame)
 #   SUMMARY_MD the harness's SUMMARY.md, read for its "- simulator: TYPE on RUNTIME" line
 # CMUX_LAUNCH_FLOOR_RUNS: measured warm launches (default 20), after one unmeasured launch.
+# CMUX_LAUNCH_FLOOR_LINK_LIKE: a Mach-O (the real app's binary). The floor app then also links every
+#   system framework and /usr/lib dylib that binary links (otool -L; @rpath ones skipped), so the
+#   floor-vs-linked difference is what the app's link list alone costs before main.
 set -euo pipefail
 out_json="$1"
 summary_md="${2:-}"
@@ -124,8 +127,28 @@ cat >"$app/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 arch="$(uname -m)"; [[ "$arch" == arm64 ]] || arch=x86_64
+link_args=()
+linked=0
+if [[ -n "${CMUX_LAUNCH_FLOOR_LINK_LIKE:-}" ]]; then
+  while read -r path; do
+    case "$path" in
+      /System/Library/Frameworks/*.framework/*)
+        link_args+=(-Xlinker -framework -Xlinker "$(basename "${path%%.framework/*}")") ;;
+      /System/Library/PrivateFrameworks/*.framework/*)
+        link_args+=(-Xlinker -F/System/Library/PrivateFrameworks -Xlinker -framework -Xlinker "$(basename "${path%%.framework/*}")") ;;
+      /usr/lib/swift/*) ;;
+      /usr/lib/lib*.dylib)
+        n="$(basename "$path" .dylib)"; n="${n#lib}"; n="${n%%.*}"
+        link_args+=(-Xlinker "-l$n") ;;
+      *) continue ;;
+    esac
+    linked=$((linked + 1))
+  done < <(otool -L "$CMUX_LAUNCH_FLOOR_LINK_LIKE" | tail -n +2 | awk '{print $1}')
+  echo "ios-launch-floor: linking $linked system dylibs like $CMUX_LAUNCH_FLOOR_LINK_LIKE"
+fi
 xcrun -sdk iphonesimulator swiftc -O -parse-as-library -target "$arch-apple-ios17.0-simulator" \
-  "$src/main.swift" -o "$app/Floor"
+  "$src/main.swift" -o "$app/Floor" ${link_args[@]+"${link_args[@]}"}
+otool -L "$app/Floor" | tail -n +2 | wc -l | awk '{print "ios-launch-floor: Floor links " $1 " dylibs"}'
 codesign --force --sign - "$app" >/dev/null
 
 udid="$(xcrun simctl create "ios-launch-floor-${GITHUB_RUN_ID:-local}" "$device_type" "$runtime")"
@@ -153,13 +176,13 @@ for ((n = 1; n <= runs; n++)); do
   sleep 0.5
 done
 
-python3 - "$work/samples.jsonl" "$out_json" "$device_type" "$runtime" <<'PY'
+python3 - "$work/samples.jsonl" "$out_json" "$device_type" "$runtime" "$linked" <<'PY'
 import json, math, pathlib, sys
 rows = [json.loads(l) for l in pathlib.Path(sys.argv[1]).read_text().splitlines() if l.strip()]
 def rank(xs, p):
     s = sorted(xs)
     return round(s[max(0, math.ceil(p / 100 * len(s)) - 1)]) if s else None
-out = {"device_type": sys.argv[3], "runtime": sys.argv[4], "n": len(rows), "launch": "simctl launch, warm"}
+out = {"device_type": sys.argv[3], "runtime": sys.argv[4], "n": len(rows), "launch": "simctl launch, warm", "linked_like_app": int(sys.argv[5])}
 for k in ("main_ms", "main_cpu_ms", "first_frame_ms"):
     xs = [r[k] for r in rows if isinstance(r.get(k), (int, float))]
     out[k] = {"samples": [round(x) for x in xs], "p50": rank(xs, 50), "p90": rank(xs, 90)}
