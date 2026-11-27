@@ -568,13 +568,17 @@ class GuardTest(unittest.TestCase):
 
     def test_a_conflicted_revert_still_red_tells_the_culprits_pr_once(self) -> None:
         api, calls, args = self._conflict_api("failure")
-        culprit = pmb.git("rev-parse", "HEAD~1").strip()
-        line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        # Fleet source bundles and shallow checkouts need not contain a parent.
+        culprit = "d" * 40
+        with mock.patch.object(pmb, "git", return_value="abc1234 Fix forward\n") as history:
+            line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        history.assert_called_once_with("log", "--format=%h %s", f"{culprit}..HEAD", "--", "scripts/ci/post_merge_batch.py")
         posts = [c for c in calls if c[1].get("method") == "POST"]
         self.assertEqual([p[0] for p in posts], ["repos/o/r/issues/123/comments"])
         body = posts[0][1]["fields"]["body"]
         self.assertIn(pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job), body)
         self.assertIn("`web / Web tests 1/2`", body)
+        self.assertIn("abc1234 Fix forward", body)
         self.assertIn("told #123's owner", line)
         mark = pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job)
         api, calls, args = self._conflict_api("failure", comments=[{"body": mark}])
