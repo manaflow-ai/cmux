@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
 import { readInitialMain } from "./helpers/render-stream";
@@ -158,7 +157,6 @@ describe("app pricing page", () => {
     const reader = stream.getReader();
     try {
       const first = await readInitialMain(reader);
-      writeFileSync("capture-scratch/plus-pricing-stream/app-first.html", first);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first).toContain("Get Plus");
       expect(first).toContain("md:grid-cols-2 lg:grid-cols-4");
@@ -171,7 +169,6 @@ describe("app pricing page", () => {
     } finally {
       release();
       while (!(await reader.read()).done) { /* Drain the completed response. */ }
-      writeFileSync("capture-scratch/plus-pricing-stream/app-settled.html", await renderSettled(element));
       getUser.mockImplementation(async () => currentUser);
     }
   });
