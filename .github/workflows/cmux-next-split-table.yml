@@ -122,6 +122,7 @@ jobs:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Report-only: a failed comment read or write warns, never fails the job (a bare `id="$(gh ...)"` under bash -e and pipefail exited 1 silently on #61185).
           set -uo pipefail
           report="$RUNNER_TEMP/split-table/report.json"
           body="$RUNNER_TEMP/split-table/comment.md"
@@ -144,7 +145,8 @@ jobs:
           cat "$body" >> "$GITHUB_STEP_SUMMARY"
           if [[ -n "$PR" ]]; then
             id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" \
-              --jq '[.[] | select(.user.type == "Bot" and (.body | startswith("<!-- cmux-next-split-table -->")))] | last | .id // empty' 2>/dev/null | tail -n 1)"
+              --jq '[.[] | select(.user.type == "Bot" and (.body | startswith("<!-- cmux-next-split-table -->")))] | last | .id // empty' 2>"$RUNNER_TEMP/split-table/lookup.err" | tail -n 1)" \
+              || { echo "::warning title=Split table::could not list the PR comments ($(head -c 300 "$RUNNER_TEMP/split-table/lookup.err")); posting a new one"; id=""; }
             if [[ -n "$id" ]]; then
               gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$body" >/dev/null || echo "::warning title=Split table::could not update the comment"
             else
