@@ -53,7 +53,7 @@ fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
     match crate::home_fs::create_dir(dir, 0o700) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let meta = std::fs::symlink_metadata(dir)?;
+            let meta = crate::home_fs::symlink_metadata(dir)?;
             if meta.file_type().is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0 {
                 Ok(())
             } else {
@@ -72,7 +72,7 @@ fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
 #[cfg(unix)]
 pub(crate) fn revive_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> std::io::Result<bool> {
     let Some(root) = cwd.parent() else { return Ok(false) };
-    if std::fs::symlink_metadata(cwd).is_ok() || !is_peer_scratch_in(cwd, temp, uid) {
+    if crate::home_fs::symlink_metadata(cwd).is_ok() || !is_peer_scratch_in(cwd, temp, uid) {
         return Ok(false);
     }
     own_dir(root, uid)?;
@@ -148,6 +148,36 @@ mod tests {
             assert!(!cwd.exists(), "{}", cwd.display());
         }
         std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A configured temp folder may sit below the home: reads and writes stay in its held tree.
+    #[test]
+    fn scratch_revival_stays_in_the_held_home() {
+        crate::lost_home_race_tests::isolated(
+            module_path!(),
+            "scratch_revival_stays_in_the_held_home",
+            |home| {
+                // SAFETY: geteuid takes no arguments and has no caller preconditions.
+                let uid = unsafe { libc::geteuid() };
+                let temp = home.join("tmp");
+                std::fs::create_dir(&temp).unwrap();
+                let existing = temp.join(format!("acpmux-peer-scratch-{uid}-{ID}"));
+                own_dir(&existing, uid).unwrap();
+                crate::config::hold_home();
+                crate::lost_home_race_tests::replace(home);
+                let new_root = temp.join(format!("acpmux-peer-scratch-{uid}-{}", "0".repeat(32)));
+                for root in [existing, new_root] {
+                    let cwd = root.join("chat");
+                    assert!(revive_peer_scratch_in(&cwd, &temp, uid).unwrap());
+                    assert!(!revive_peer_scratch_in(&cwd, &temp, uid).unwrap());
+                    let saved = home.with_extension("old").join(cwd.strip_prefix(home).unwrap());
+                    assert!(saved.join(crate::trust::AGENT_HOME_MARKER).is_file());
+                    assert_eq!(std::fs::metadata(saved).unwrap().mode() & 0o777, 0o700);
+                }
+                assert!(!home.join("tmp").exists(), "the replacement home stays untouched");
+            },
+            |_, _| {},
+        );
     }
 
     /// A root someone else could write is not used.

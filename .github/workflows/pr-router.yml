@@ -52,10 +52,12 @@ jobs:
     name: pr router
     # A title or description edit routes only when a callee reads what changed: the size budget's
     # `size:` line, the classic API guard's `Classic API change:` line, the Swift logic ratchet's
-    # `Swift-growth:` line or the base (its diff moved).
+    # `Swift-growth:` line, the UI proof gate's `Visual: none (WHY)` or `Visible-UI:` line (the route posts
+    # cmux/ui-proof and its ui-proof-status job re-reads the body; before this an added `Visual: none` never
+    # re-ran it and the head stayed pending until a push) or the base (its diff moved).
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:') || contains(github.event.pull_request.body, 'Visual:') || contains(github.event.changes.body.from, 'Visual:') || contains(github.event.pull_request.body, 'Visible-UI:') || contains(github.event.changes.body.from, 'Visible-UI:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -436,8 +438,10 @@ jobs:
   swift-logic-ratchet:
     name: Swift logic ratchet
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-logic-ratchet.yml') }}
-    uses: ./.github/workflows/swift-logic-ratchet.yml
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-acpmux-protocol.yml') }}
+    uses: ./.github/workflows/swift-acpmux-protocol.yml
+    with:
+      check: ratchet
     permissions:
       contents: read
 
