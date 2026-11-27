@@ -123,7 +123,8 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
-                    self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
+                    self.assertNotRegex(runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1],
+                                        r"'blacksmith-[^']+'")
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_pr_checks_advisory_takes_a_one_job_vm(self) -> None:
@@ -243,6 +244,19 @@ class RunnerSetTests(unittest.TestCase):
         self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
         self.assertIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
+
+    def test_fast_checks_retry_follows_provider_switch(self) -> None:
+        from unittest.mock import patch
+        from runs_on_labels import resolve_labels
+
+        job = yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text())["jobs"]["checks"]
+        requested = "blacksmith-32vcpu-ubuntu-2404"
+        provider = "blacksmith-4vcpu-ubuntu-2404"
+        owned = "cmux-fleet-linux-x64"
+        for pool, expected in [(owned, {owned}), (provider, {requested, provider})]:
+            with self.subTest(pool=pool), patch("runs_on_labels.pool_members", return_value={pool}):
+                expression = job["runs-on"].replace("inputs.runner", repr(requested))
+                self.assertEqual(resolve_labels(expression, silent=("github",)), expected)
 
 
 if __name__ == "__main__":

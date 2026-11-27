@@ -29,7 +29,7 @@ on:
         default: '3600'
       runner:
         description: >-
-          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          An alternate Blacksmith size (8, 16 or 32 vCPU) while the Linux pool uses Blacksmith; otherwise ignored.
           The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
           label that started no job; any other value is ignored
         default: ''
@@ -64,7 +64,7 @@ jobs:
     # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
     # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
     # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || startsWith(fromJSON(vars.RUNNER_POOLS).linux, 'blacksmith-') && contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 195
     defaults:
       run:
@@ -92,11 +92,16 @@ jobs:
       # Reuse Git objects and tracked files, but remove all prior untracked
       # outputs on checkout. Package caches stay on their separate disk below.
       - name: Mount warm checkout
+        if: startsWith(runner.name, 'blacksmith-')
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-checkout-v1
           path: ${{ github.workspace }}/.fast-checks-checkout
           commit: on-change
+
+      - name: Create checkout directory
+        working-directory: ${{ github.workspace }}
+        run: mkdir -p .fast-checks-checkout
 
       - name: Sanitize persistent checkout metadata
         working-directory: ${{ github.workspace }}/.fast-checks-checkout
@@ -163,6 +168,7 @@ jobs:
       # This cache namespace is private to fast checks. Release/signing jobs
       # never read it. Concurrent callers fork snapshots without a global queue.
       - name: Mount package and compilation caches
+        if: startsWith(runner.name, 'blacksmith-')
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-v1
