@@ -207,28 +207,32 @@ extension SidebarListViewComponents {
     }
 
     /// Shows `new` in place when it differs from the drawn blocks only in their items' looks (`infos`: a pinned
-    /// workspace's status or progress, a badge, a title) and every block keeps its height: each drawn block shows
-    /// its new content and no row moves. False, changing nothing, otherwise (an item added, moved or hidden that
-    /// changes a height, another input, a drag, drop or landing under way): the caller lays the list out again.
-    /// Before, each progress report of a pinned workspace laid out every row of the list (400 rows, about 4 times a
-    /// second in the CMUX NEXT Stable `sidebar.400.ticking` bench, whose first workspace is pinned and ticking).
+    /// workspace's status or progress, a badge, a title) and every block keeps the height the shown layout gave it
+    /// (`drawnBlockHeights`): each drawn block shows its new content and no row moves. False, changing nothing,
+    /// otherwise: an item added, moved or hidden, a height change (a chip that wraps), another input, a change held
+    /// under the pointer (the shown layout is older than `blocks`), a drag, drop or landing under way. The caller
+    /// then lays the list out again. Before, each progress report of a pinned workspace laid out every row of the
+    /// list (400 rows, about 4 times a second in the CMUX NEXT Stable `sidebar.400.ticking` bench, whose first
+    /// workspace is pinned and ticking).
     func patchBlocks(_ new: SidebarListBlocks) -> Bool {
-        guard let old = blocks, old.differsOnlyInInfos(from: new), drag == nil, settling == nil, landing == nil, external == nil
-        else { return false }
-        let heights = blockHeights(includeGap: true)
-        blocks = new
-        guard blockHeights(includeGap: true) == heights else {
-            blocks = old
-            return false
+        guard let old = blocks, let drawn = drawnBlockHeights, old.differsOnlyInInfos(from: new), !holdsModelChange,
+              drag == nil, settling == nil, landing == nil, external == nil else { return false }
+        return SidebarPerfCounters.timed {
+            blocks = new
+            guard blockHeights(includeGap: true) == drawn else {
+                blocks = old
+                return false
+            }
+            SidebarPerfCounters.add(.blockPatches)
+            for (key, view) in rowViews {
+                guard case .block = key, let row = displayed.row(for: key) else { continue }
+                configure(view, row: row, animated: false)
+            }
+            // A shown hover card reads its row's new status, and one whose anchor left closes, as after a reload.
+            if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
+            updateHover()
+            return true
         }
-        SidebarPerfCounters.add(.blockPatches)
-        // A shown hover card reads its row's new status, as after a reload.
-        if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        for (key, view) in rowViews {
-            guard case .block = key, let row = displayed.row(for: key) else { continue }
-            configure(view, row: row, animated: false)
-        }
-        return true
     }
 
     /// Each block's height at the list's width.
