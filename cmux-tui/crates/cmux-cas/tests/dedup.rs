@@ -12,6 +12,7 @@ fn noise(seed: u64, n: usize) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(unix)] // the symlink case
 #[test]
 fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     let a = tempfile::tempdir().unwrap();
@@ -39,4 +40,24 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     assert!(ra.shared >= (2 << 20) - 300_000 && ra.shared <= 2 << 20, "a shared {}", ra.shared);
     assert_eq!(ra.shared, rb.shared);
     assert!(r.zstd_ratio > 0.95, "noise does not compress: {}", r.zstd_ratio);
+}
+
+/// A hardlinked file is one inode: Unix counts its blocks once. Windows has no
+/// inode id in stable std, so each name counts at its apparent size.
+#[test]
+fn allocated_counts_a_hardlinked_file_once_on_unix() {
+    let a = tempfile::tempdir().unwrap();
+    std::fs::write(a.path().join("x"), noise(3, 1 << 20)).unwrap();
+    std::fs::hard_link(a.path().join("x"), a.path().join("x2")).unwrap();
+    let r = measure(
+        &[("a".into(), a.path().into())],
+        &Options { sample_every: 1, zstd_level: 3, threads: 2, public: None },
+    );
+    assert_eq!(r.files, 2);
+    assert_eq!(r.logical, 2 << 20);
+    if cfg!(unix) {
+        assert!(r.allocated < 2 << 20, "hardlink counted twice: {}", r.allocated);
+    } else {
+        assert_eq!(r.allocated, 2 << 20);
+    }
 }

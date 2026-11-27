@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::io::Read as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError, mpsc};
 
@@ -187,6 +186,20 @@ fn chunk_file(path: &Path) -> std::io::Result<Cut> {
     Ok(Cut { chunks: out, whole: key16(&whole.finalize()), first })
 }
 
+/// A file's inode identity and the disk bytes it uses. Unix counts a hardlinked
+/// inode once, by its blocks. Stable std has no file id or allocated size on
+/// Windows, so there each file counts on its own, at its apparent size.
+#[cfg(unix)]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (Some((meta.dev(), meta.ino())), meta.blocks().saturating_mul(512))
+}
+
+#[cfg(not(unix))]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    (None, meta.len())
+}
+
 /// Add one cut file of root `i` to the totals.
 fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &Options) {
     let Cut { chunks, whole, first } = cut;
@@ -194,8 +207,9 @@ fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &O
     let size = meta.len();
     add(&mut st.totals.files, 1);
     add(&mut st.totals.logical, size);
-    if st.inodes.insert((meta.dev(), meta.ino()), ()).is_none() {
-        add(&mut st.totals.allocated, meta.blocks().saturating_mul(512));
+    let (inode, blocks) = allocation(meta);
+    if inode.is_none_or(|id| st.inodes.insert(id, ()).is_none()) {
+        add(&mut st.totals.allocated, blocks);
     }
     if let Entry::Vacant(e) = st.files.entry(whole) {
         e.insert(size);
