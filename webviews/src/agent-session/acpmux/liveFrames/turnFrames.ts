@@ -94,7 +94,8 @@ function readScreen(value: unknown): LiveScreen | undefined {
 /// else the one asked from).
 export function readLatest(reply: unknown, asked: number): Latest {
   const frames = readFrames(reply);
-  const body = reply && typeof reply === "object" ? (reply as { seq?: unknown; surface?: unknown; screen?: unknown }) : {};
+  const body =
+    reply && typeof reply === "object" ? (reply as { seq?: unknown; surface?: unknown; screen?: unknown }) : {};
   const seq = num(body.seq, asked);
   const surface = typeof body.surface === "string" ? body.surface : undefined;
   return { frame: frames[frames.length - 1], seq, surface, screen: readScreen(body.screen) };

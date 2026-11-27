@@ -56,7 +56,10 @@ test("readLatest returns the newest frame and the next seq", () => {
 });
 
 test("readLatest carries the surface and the screen the daemon offers", () => {
-  const got = readLatest({ frames: [], seq: 3, surface: "window", screen: { device: "D47F-285E", name: "Studio Mac" } }, 1);
+  const got = readLatest(
+    { frames: [], seq: 3, surface: "window", screen: { device: "D47F-285E", name: "Studio Mac" } },
+    1,
+  );
   expect(got.surface).toBe("window");
   expect(got.screen).toEqual({ device: "D47F-285E", name: "Studio Mac" });
   // A device a link cannot carry, or none: frames only.
