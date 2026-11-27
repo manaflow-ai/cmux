@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
-import { Combobox } from "../../ui/Combobox";
+import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
@@ -758,6 +758,16 @@ export function EnvironmentPicker({
     `${list}\u0001${query}`,
     (value) => actions.find((action) => action.value === value)?.text ?? "",
   );
+  // A list long enough that the Combobox mounts only the rows in view (COMBOBOX_VIRTUAL_AFTER): its
+  // rows are placed out of flow and no longer size the popover, which would shrink to its floor and
+  // cut every name off, so it takes its widest size. Counted before the search, so typing never
+  // changes it; the other lists have no search.
+  const windowed =
+    (machineList
+      ? list === "devices"
+        ? devices.length
+        : environments.length + listedSaved.length
+      : presence.rows.length) > COMBOBOX_VIRTUAL_AFTER;
   // A leaving row draws as it last drew: its machine or action may already be gone.
   const drawn = useRef(new Map<string, React.ReactNode>());
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
@@ -1385,7 +1395,8 @@ export function EnvironmentPicker({
           (list === "devices" ? " acpmux-env-devices" : "") +
           (list === "auto" ? " acpmux-env-auto-places" : "") +
           (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "") +
-          (card ? " acpmux-env-card" : "")
+          (card ? " acpmux-env-card" : "") +
+          (windowed ? " acpmux-env-windowed" : "")
         }
         side={side}
         flip={flip}
@@ -1477,6 +1488,14 @@ export function EnvironmentPicker({
           renderItem={row}
           autoHighlight
           inline
+          // Past a menu's worth of machines only the rows in view mount. Continue on's first row
+          // carries its hairline and heading in its top margin: its size is keyed by that, and every
+          // row's by its value, so a row that moves up as one above it leaves (rowPresence.ts) keeps
+          // its own size, never the one that left.
+          virtualRows={{
+            estimate: 28,
+            sizeKey: (value) => (card && value === continueOn[0]?.value ? "continue-on" : ""),
+          }}
         />
         {machineList &&
           query.trim() !== "" &&

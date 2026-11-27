@@ -2,9 +2,7 @@
 //! `giving`. One function per state, every event written out.
 
 use super::out::Out;
-use super::{
-    Answer, CopyState, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give,
-};
+use super::{Answer, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give};
 use crate::consts::SELF_STOP_MS;
 
 /// Another holder runs the chat: kill what ran here, keep what it wrote since the last

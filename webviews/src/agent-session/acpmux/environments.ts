@@ -267,17 +267,20 @@ export function environmentSections(environments: readonly Environment[]): Map<s
   );
 }
 
-const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+// Made on the first ordering, not while the pane's modules evaluate ahead of its handshake.
+let collator: Intl.Collator | undefined;
+const byName = () => (collator ??= intl.Collator(undefined, { numeric: true, sensitivity: "base" }));
 
 /// The environments in the order the picker lists them: This Mac, then the person's machines, then
 /// Cloud and VMs; in each, the machines a chat can start on first, then the ones still connecting or
 /// down, each part by name with its numbers in order (`lane-2` before `lane-10`).
 export function orderEnvironments<T extends Environment>(environments: readonly T[]): T[] {
   const sections = environmentSections(environments);
+  const names = byName();
   return SECTION_ORDER.flatMap((section) => {
     const listed = environments
       .filter((environment) => sections.get(environment.id) === section)
-      .sort((a, b) => byName.compare(a.label, b.label));
+      .sort((a, b) => names.compare(a.label, b.label));
     return [...listed.filter(environmentReady), ...listed.filter((environment) => !environmentReady(environment))];
   });
 }
