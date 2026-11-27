@@ -16,7 +16,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -716,6 +716,25 @@ describe("cloud journey: leaked machine sweep", () => {
   const now = Date.UTC(2026, 10, 9, 12, 0, 0);
   const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
   const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
+
+  test("a failed drill machine is taken once its run is FAILED_JOURNEY_MS old, not after LONG_JOURNEY_MS (run 45979891007 left six)", () => {
+    const t20 = tagAt(now - 20 * 60_000);
+    const t5 = tagAt(now - 5 * 60_000);
+    expect(FAILED_JOURNEY_MS).toBe(15 * 60_000);
+    expect(ids([
+      { id: "dead_long", name: `cloud journey auto ${t20} long`, status: "failed", last_active_at: now - 60_000 },
+      { id: "dead_move", name: `cloud journey auto ${t20} long move B`, status: "failed" },
+      { id: "young", name: `cloud journey auto ${t5} long`, status: "failed" },
+      { id: "live", name: `cloud journey auto ${t20} long`, status: "running" },
+      { id: "kept", name: `cloud journey ${t20}`, status: "failed" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ])).toEqual(["dead_long", "dead_move"]);
+  });
+
+  test("machinesByState counts each state, most first", () => {
+    expect(machinesByState([{ status: "paused" }, { status: "failed" }, { status: "paused" }, {}])).toBe("paused 2, failed 1, ? 1");
+    expect(machinesByState([])).toBe("none");
+  });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
     const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
