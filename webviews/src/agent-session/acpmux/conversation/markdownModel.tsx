@@ -327,13 +327,33 @@ export function footnoteOrder(source: string): string[] {
   // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
   // A streaming reply runs this on every reveal frame, and most replies have no footnote.
   if (!source.includes("^") || !source.includes("[")) return [];
-  const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
-  const ids: string[] = [];
+  return noteIds(source.replace(FENCED, "").replace(CODE_SPANS, ""), []);
+}
+
+const FENCED = /^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm;
+const CODE_SPANS = /(`+)[^`]*?\1/g;
+const FENCE_LINE = /^\s*```/gm;
+
+function noteIds(prose: string, ids: string[]): string[] {
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
     const id = match[1]!;
     if (!/^\w-\w$/.test(id) && !ids.includes(id)) ids.push(id);
   }
   return ids;
+}
+
+/// `footnoteOrder` of a piece of a reply that ends at a line start, and whether the piece is sealed:
+/// every fence and code span it opens closes inside it, so `footnoteOrder(piece + rest)` is its ids
+/// followed by those of `rest` (replyScan.ts reads a streaming reply's closed blocks once this way).
+/// A piece that is not sealed reads again with the text after it.
+export function footnotePiece(piece: string): { ids: string[]; sealed: boolean } {
+  if (!piece.includes("`")) return { ids: footnoteOrder(piece), sealed: true };
+  // An even count of fence lines pairs each opener with a closer inside the piece; then only a
+  // backtick left over after the code spans could pair with one after it.
+  if ((piece.match(FENCE_LINE)?.length ?? 0) % 2 === 1) return { ids: [], sealed: false };
+  const prose = piece.replace(FENCED, "").replace(CODE_SPANS, "");
+  if (prose.includes("`")) return { ids: [], sealed: false };
+  return { ids: piece.includes("^") && piece.includes("[") ? noteIds(prose, []) : [], sealed: true };
 }
 
 /// An image's source the pane can show: a data URL of a raster or SVG image. The pane's CSP

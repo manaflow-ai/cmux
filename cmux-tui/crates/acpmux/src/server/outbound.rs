@@ -21,9 +21,22 @@
 //! room the channel has again are the ones still there, oldest first. One slot is kept free for
 //! the last line, which no other sender can take.
 //!
+//! A connection that reads the session list (not a peer daemon's link) does not end at its bound
+//! while its queue holds list notices ([`LIST_NOTICE_PREFIX`]): each carries a chat's whole row,
+//! which a newer notice or a read of the list replaces. They are left out of the bulk lane, and
+//! one `_acpmux/lagged` (`watch: true`, reason `reader.too_slow`) goes after what is left, so the
+//! client reads the list again from its cursor (webviews `resyncAfterLag`, cmux-tui-core
+//! `agent_chat_notices.rs`, `AgentTurnStateFeed`). Every other line keeps its order. Only a
+//! pass that frees at least a quarter of the bound counts, so each pass is paid for by the bytes
+//! queued since the last, and a queue that still does not fit ends as before. On cosmic-gray,
+//! 2026-11-22, the app's watchers (`cmux-tui-agent-chat-notices`, `cmux-next-turn-states`) reached
+//! 64 MiB of rows of up to 82 KB each and were cut ten times in six minutes around Leo's chat
+//! pane showing "reconnecting".
+//!
 //! Two lanes (cmuxterm-hq `docs/design/remote-cloud-durability.md` 4.6, F18): the answer to a
 //! cheap read ([`is_cheap_read`]: identify, the session list, host health, status, the peer list
-//! the agent pane probes the daemon's liveness with) goes in the
+//! the agent pane probes the daemon's liveness with), or to a read an agent's tool call waits on
+//! ([`is_tool_read`]), goes in the
 //! read lane, which the pump takes before anything else; every other line keeps its order in the
 //! bulk lane. So the pump never lets the bulk lane hold more than [`BULK_WINDOW`] bytes in the
 //! transport's channel: a replay of thousands of lines stays here, where a read answered after it
@@ -62,6 +75,7 @@ pub(crate) fn is_cheap_read(method: &str) -> bool {
             | method::MUX_STATUS
             | method::MUX_HARNESS_HEALTH
             | "_acpmux/host_health"
+            | "_acpmux/host_overload"
             // The agent pane's liveness probe (webviews `direct.ts` `probeDaemon`): the pane gives
             // its socket up when this goes unanswered for 15 s, so behind a huge chat's replay a
             // busy but alive daemon had every pane cut and reattach at once.
@@ -69,10 +83,61 @@ pub(crate) fn is_cheap_read(method: &str) -> bool {
     )
 }
 
-/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one.
-pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>) -> Lane {
+/// Whether `method` is a read an agent's tool call waits on (`last`, `send_status`, `bg_output`,
+/// `who_else`, a far machine's `machine_read`), whose answer goes in the read lane too (Leo,
+/// 2026-11-25: "if we own the transport layer, could we also optimize for these cases?"). On a
+/// peer link the far daemon answers these on the connection that carries its chats' replays and
+/// streams, so in the bulk lane a tool call waited behind every replay line queued before it:
+/// p99 1592 ms under 24 MiB of replays at 16 MiB/s (`outbound_queue_tests/flood_interactive.rs`).
+/// Each is a page or a status read whole by the caller: a history or event page is merged by
+/// `seq` (`agent_session_attach.rs` `bound_page`), so it needs no line ahead of it to have
+/// arrived. `_acpmux/attach`, `wait` and `info` stay in order: their answers mark a stream position.
+pub(crate) fn is_tool_read(method: &str) -> bool {
+    use crate::rpc::method;
+    matches!(
+        method,
+        method::MUX_EVENTS
+            | method::MUX_HISTORY
+            | method::MUX_SEND_STATUS
+            | method::MUX_RESOLVE
+            | method::MUX_SESSION_SEARCH
+            | method::MUX_WHO_ELSE
+            | method::MUX_MACHINE_INFO
+            | method::MUX_MACHINE_FILES_CALL
+            | method::MUX_COMPUTER_USE_STATE
+            | method::MUX_BG_OUTPUT
+            | method::MUX_BG_LIST
+            | method::MUX_GOAL_GET
+            | method::MUX_WATCH_LS
+            | method::MUX_INBOX_THREADS
+            | method::MUX_INBOX_THREAD
+            | method::MUX_RACE_GET
+            | method::MUX_RACE_LIST
+            | method::MUX_GITHUB_PR_STATE
+            | method::MUX_CHAT_TRANSCRIPT_PAGE
+            | method::MUX_CHAT_TRANSCRIPT_FIND
+    )
+}
+
+/// Whether the answer to a request for `method` goes ahead of the bulk lane.
+pub(super) fn reads_ahead(method: &str) -> bool {
+    is_cheap_read(method) || is_tool_read(method)
+}
+
+/// Whether a request asks its answer in order (`inOrder: true` on `_acpmux/events`): a pane's stall
+/// check compares the newest record with what its stream delivered, so its answer may not pass the
+/// records queued before it. In the read lane it did, and on a loaded Mac, where the page drains the
+/// bulk lane slowly, a stream that was only queued read as stalled and the pane reconnected.
+pub(super) fn asks_in_order(method: &str, params: Option<&serde_json::Value>) -> bool {
+    method == crate::rpc::method::MUX_EVENTS
+        && params.and_then(|p| p.get("inOrder")).and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one; `in_order`
+/// keeps it behind the lines queued before it ([`asks_in_order`]).
+pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>, in_order: bool) -> Lane {
     match (msg, reply_to) {
-        (Message::Response { .. }, Some(m)) if is_cheap_read(m) => Lane::Read,
+        (Message::Response { .. }, Some(m)) if !in_order && reads_ahead(m) => Lane::Read,
         _ => Lane::Bulk,
     }
 }
@@ -122,13 +187,15 @@ pub(super) enum Row {
 /// The bytes every connection's queue may hold together. Each connection alone may hold
 /// [`OUTBOUND_BYTE_BOUND`], so a host with a few hundred readers (agents' CLIs, the app, peers)
 /// could hold tens of GB before any one bound tripped: huge-blue's daemon reached 16.5 GB and
-/// stopped answering (2026-11-20). Past this, a line for a connection that holds more than
-/// [`FAIR_SHARE`] ends that connection, as its own bound would; one that holds less is still
-/// served, so a cheap read's answer always goes out.
+/// stopped answering (2026-11-20). A connection over [`FAIR_SHARE`] whose reader took nothing for
+/// [`READER_STALL`] ends at its next line, whatever the total, as its own bound would; one under
+/// it is still served, so a cheap read's answer always goes out. Waiting for the total to pass
+/// this first let a hundred readers that never read hold it all, past a 768 MiB memory ceiling
+/// (duress bigchat leg, 2026-11-26): the total is now what the gauge reports against.
 pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
-/// What a connection may hold when the daemon is past [`TOTAL_BYTE_BOUND`].
+/// What a connection whose reader is stalled ([`READER_STALL`]) may hold.
 pub(super) const FAIR_SHARE: usize = 4 << 20;
-/// How long a reader over [`FAIR_SHARE`] may take nothing before the daemon-wide bound ends it.
+/// How long a reader over [`FAIR_SHARE`] may take nothing before it is ended.
 /// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
 /// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
 /// the whole chat (99 s for the largest), and the re-attach queued the same bytes again
@@ -136,6 +203,24 @@ pub(super) const FAIR_SHARE: usize = 4 << 20;
 pub(super) const READER_STALL: Duration = Duration::from_secs(10);
 /// The bytes every live queue holds now (the sum of their [`State::held`]).
 pub(crate) static TOTAL_HELD: AtomicUsize = AtomicUsize::new(0);
+
+/// The start of a list notice's line ([`crate::rpc::Message::to_line`] writes its keys sorted):
+/// what a lagging reader that reads the list may be spared ([module docs](self)).
+pub(super) const LIST_NOTICE_PREFIX: &str =
+    r#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":"#;
+
+/// Times a lagging reader was spared its list notices instead of disconnected, since the daemon
+/// started (`gauges.queues.listSheds`).
+pub(crate) static LIST_SHEDS: AtomicU64 = AtomicU64::new(0);
+
+/// The `_acpmux/lagged` a reader gets after `dropped` list notices were left out.
+fn lag_marker(dropped: u64) -> String {
+    Message::notification(
+        "_acpmux/lagged",
+        json!({"dropped": dropped, "watch": true, "reason": "reader.too_slow"}),
+    )
+    .to_line()
+}
 
 /// Connections ended because their reader fell [`OUTBOUND_BYTE_BOUND`] behind, since the daemon
 /// started (`daemon status`, `gauges.queues.overruns`).
@@ -212,6 +297,13 @@ struct State {
     /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
     /// or it overran): nothing queued now would ever be sent.
     ended: bool,
+    /// Its list notices may be left out past the bound ([module docs](self)).
+    sheds: bool,
+    /// Who reads it, for the log: origin, client name, connection id.
+    who: String,
+    /// The bulk lane's bytes the transport's channel may hold: [`BULK_WINDOW`], or a peer
+    /// link's own ([`Outbound::set_window`]).
+    window: usize,
 }
 
 impl Drop for State {
@@ -375,58 +467,137 @@ impl Shared {
         if state.held == 0 {
             state.progress_at = Instant::now();
         }
+        // A reader over its fair share that took nothing for the stall bound ends whatever the
+        // total: a hundred readers that never read each held up to their own bound until every
+        // queue together reached the daemon-wide one, a GiB swapped out under a 768 MiB memory
+        // ceiling, and every answer waited on it (duress bigchat leg, 2026-11-26). So what never-read
+        // readers hold is their fair share each for at most the stall bound; one that is taking
+        // lines keeps its own bound.
         let over_total = |state: &State| {
-            state.held + size > self.fair_share
-                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
-                && state.progress_at.elapsed() >= self.reader_stall
+            state.held + size > self.fair_share && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
             state.settle();
         }
-        let own = state.held + size > self.bound || over_rows;
+        let mut own = state.held + size > self.bound;
+        if own && state.sheds {
+            own = !self.shed_list_notices(state, size);
+        }
+        let own = own || over_rows;
         if own || over_total(state) {
             let limit = if over_rows { self.row_bound } else { self.bound };
-            let overrun = Overrun { held: state.held, limit };
-            tracing::warn!(
-                held = state.held,
-                line = size,
-                bound = limit,
-                total = state.pool.load(Ordering::Relaxed),
-                total_bound = self.total_bound,
-                "{}",
-                if own {
-                    "a connection's reader fell past its byte bound: it is disconnected"
-                } else {
-                    "every connection's queues together are past their bound: this one, over its fair share, is disconnected"
-                }
-            );
-            OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            if !own {
-                TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            }
-            state.overrun = Some(overrun);
-            let in_channel = state.sent_bytes;
-            state.set_held(in_channel);
-            state.clear();
-            self.closed.send_replace(true);
-            self.wake.notify_one();
+            self.end_overrun(state, own, size, limit);
             return false;
         }
         let held = state.held + size;
         state.set_held(held);
+        Self::queue_line(state, line, lane);
+        self.wake.notify_one();
+        true
+    }
+
+    /// Ends the connection as overrun: `own` past its own bound (`limit`), else a stalled reader
+    /// over its fair share. `size` is the line that would not fit (0 for the pump's own check).
+    fn end_overrun(&self, state: &mut State, own: bool, size: usize, limit: usize) {
+        let overrun = Overrun { held: state.held, limit };
+        tracing::warn!(
+            who = %state.who,
+            held = state.held,
+            line = size,
+            bound = limit,
+            total = state.pool.load(Ordering::Relaxed),
+            total_bound = self.total_bound,
+            "{}",
+            if own {
+                "a connection's reader fell past its byte bound: it is disconnected"
+            } else {
+                "a connection's reader over its fair share took nothing for the stall bound: it is disconnected"
+            }
+        );
+        OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        if !own {
+            TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        }
+        state.overrun = Some(overrun);
+        let in_channel = state.sent_bytes;
+        state.set_held(in_channel);
+        state.clear();
+        self.closed.send_replace(true);
+        self.wake.notify_one();
+    }
+
+    /// The pump's check while it waits on a reader that takes nothing: one over its fair share
+    /// that took nothing for the stall bound ends now, not at a next line that may never come
+    /// (a hundred attached readers of quiet chats each kept a whole replay's pages). True when
+    /// it ended.
+    fn end_if_stalled(&self) -> bool {
+        let mut state = self.lock();
+        if state.overrun.is_some() || state.ended {
+            return true;
+        }
+        state.settle();
+        if state.held > self.fair_share && state.progress_at.elapsed() >= self.reader_stall {
+            self.end_overrun(&mut state, false, 0, self.fair_share);
+            return true;
+        }
+        false
+    }
+
+    fn queue_line(state: &mut State, mut line: Line, lane: Lane) {
         match lane {
             Lane::Read => state.reads.push_back(line),
             Lane::Bulk => {
                 line.serial = state.next_serial;
                 state.next_serial += 1;
-                if let Row::Latest(key) = row {
-                    state.rows.insert(key, line.serial);
-                    state.row_bytes += size;
+                if let Row::Latest(key) = &line.row {
+                    state.rows.insert(key.clone(), line.serial);
+                    state.row_bytes += line.text.len();
                 }
                 state.queue.push_back(line);
             }
         }
-        self.wake.notify_one();
+    }
+
+    /// Leaves the bulk lane's list notices out, and a lag marker from an earlier pass the reader
+    /// has not taken yet, and queues one marker for all of them: true when that frees a quarter
+    /// of the bound and the marker and a line of `size` then fit. Else changes nothing.
+    fn shed_list_notices(&self, state: &mut State, size: usize) -> bool {
+        let shed = |line: &Line| line.lag_marker > 0 || line.text.starts_with(LIST_NOTICE_PREFIX);
+        let (mut freed, mut dropped) = (0usize, 0u64);
+        for line in state.queue.iter().filter(|l| shed(l)) {
+            freed += line.text.len();
+            // A marker from an earlier pass stands for the notices it counted.
+            dropped += line.lag_marker.max(1);
+        }
+        let marker = lag_marker(dropped);
+        if freed < self.bound / 4 || state.held - freed + marker.len() + size > self.bound {
+            return false;
+        }
+        // A shed row is no longer queued ([`State::unrow`]); the rest keep their order.
+        for line in std::mem::take(&mut state.queue) {
+            if shed(&line) {
+                state.unrow(&line);
+            } else {
+                state.queue.push_back(line);
+            }
+        }
+        LIST_SHEDS.fetch_add(1, Ordering::Relaxed);
+        tracing::warn!(
+            who = %state.who,
+            held = state.held,
+            freed,
+            dropped,
+            bound = self.bound,
+            "a connection's reader fell past its byte bound: its list notices are left out and it reads the list again"
+        );
+        let held = state.held - freed + marker.len();
+        state.set_held(held);
+        let needs = Needs {
+            durable: self.raised.durable.load(Ordering::SeqCst),
+            written: self.raised.written.load(Ordering::SeqCst),
+        };
+        let marker = Line { text: marker, needs, lag_marker: dropped, ..Line::default() };
+        Self::queue_line(state, marker, Lane::Bulk);
         true
     }
 }
@@ -474,6 +645,9 @@ pub(super) struct Line {
     pub(super) ticket: Option<super::controls::Ticket>,
     /// What the journal must have reached before it goes out: set when it is queued.
     pub(super) needs: Needs,
+    /// A lag marker's count of the list notices it stands for ([`Shared::shed_list_notices`]);
+    /// 0 for every other line.
+    pub(super) lag_marker: u64,
     /// A chat's row, or a line that must follow it ([`Row`]).
     pub(super) row: Row,
     /// Its place in the bulk lane: set when it is queued there.
@@ -505,6 +679,25 @@ impl Outbound {
 
     pub(super) fn settle(&self) {
         self.shared.lock().settle();
+    }
+
+    /// Who reads this queue, for the log, and whether its list notices may be left out past its
+    /// bound ([module docs](self)): never a peer daemon's link, whose mirror of this daemon's list
+    /// reads it again only when it links again.
+    pub(super) fn describe(&self, who: String, sheds: bool) {
+        let mut state = self.shared.lock();
+        state.who = who;
+        state.sheds = sheds;
+    }
+
+    /// Bounds the bulk lane's bytes in the transport's channel at `bytes` (at least one line)
+    /// instead of [`BULK_WINDOW`]: a peer link's send window (`ACPMUX_PEER_SEND_WINDOW_KB`, off
+    /// by default, `requests/initialize.rs`). Lines past it wait here, where a read's answer goes
+    /// ahead of them and a newer row of a watched chat replaces its queued one ([`Row`]),
+    /// instead of in the transport's buffers on a lossy link, where nothing passes them.
+    pub(super) fn set_window(&self, bytes: usize) {
+        self.shared.lock().window = bytes.max(1);
+        self.shared.wake.notify_one();
     }
 
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
@@ -586,11 +779,13 @@ impl Drop for Pump {
 }
 
 impl Pump {
-    /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
-    /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
-    /// to send (every handle is gone and both lanes are empty, or it overran).
+    /// Takes the read lane's lines, then the bulk lane's that fit its window ([`BULK_WINDOW`]
+    /// unless [`Outbound::set_window`] set one, [module docs](self)), into `batch`, waiting until
+    /// there is one; false once there is nothing more to send (every handle is gone and both
+    /// lanes are empty, or it overran).
     pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
-        self.take_within(batch, BULK_WINDOW).await
+        let window = self.shared.lock().window;
+        self.take_within(batch, window).await
     }
 
     pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
@@ -619,6 +814,11 @@ impl Pump {
                                 return false;
                             }
                         }
+                        () = tokio::time::sleep(self.shared.reader_stall) => {
+                            if self.shared.end_if_stalled() {
+                                return false;
+                            }
+                        }
                     }
                 }
             }
@@ -630,10 +830,18 @@ impl Pump {
     pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
-        let room = tokio::select! {
-            biased;
-            _ = closed.wait_for(|c| *c) => return false,
-            room = self.transport.reserve_many(keep) => room,
+        // A reader that takes nothing is checked each stall bound ([`Shared::end_if_stalled`]).
+        let room = loop {
+            tokio::select! {
+                biased;
+                _ = closed.wait_for(|c| *c) => return false,
+                room = self.transport.reserve_many(keep) => break room,
+                () = tokio::time::sleep(self.shared.reader_stall) => {
+                    if self.shared.end_if_stalled() {
+                        return false;
+                    }
+                }
+            }
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
@@ -649,6 +857,15 @@ impl Pump {
         // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
         state.settle();
         true
+    }
+
+    /// A taken line with its text replaced (`durable_gate.rs`: a reply answered `disk.full`),
+    /// the queue's bytes moved by the difference.
+    pub(super) fn replace(&self, line: Line, text: String) -> Line {
+        let mut state = self.shared.lock();
+        let held = state.held.saturating_sub(line.text.len()).saturating_add(text.len());
+        state.set_held(held);
+        Line { text, ..line }
     }
 
     /// What this queue's lines were raised to (the durable gate raises it).
@@ -773,6 +990,9 @@ fn start_with(
             pool,
             overrun: None,
             ended: false,
+            sheds: false,
+            who: String::new(),
+            window: BULK_WINDOW,
         }),
         wake: Notify::new(),
         closed,

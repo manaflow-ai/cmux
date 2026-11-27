@@ -72,10 +72,10 @@ nonisolated enum GlyphMask {
 
     /// Sizes `glyphs` (the mask of `fill`) to the image ``image(size:scale:ink:draw:)`` makes for
     /// `fill`'s bounds, its top edge on `fill`'s top edge: the image shows at its own pixel size,
-    /// never resampled.
-    static func place(_ glyphs: CALayer, in fill: CALayer, scale: CGFloat) {
+    /// never resampled. `width`, when given, is the width the image was drawn at instead of `fill`'s.
+    static func place(_ glyphs: CALayer, in fill: CALayer, scale: CGFloat, width drawnWidth: CGFloat? = nil) {
         let scale = max(scale, 1)
-        let (width, height) = pixels(fill.bounds.size, scale: scale)
+        let (width, height) = pixels(CGSize(width: drawnWidth ?? fill.bounds.width, height: fill.bounds.height), scale: scale)
         let size = CGSize(width: CGFloat(width) / scale, height: CGFloat(height) / scale)
         let top = rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
         let frame = CGRect(origin: CGPoint(x: 0, y: top), size: size)
@@ -112,6 +112,38 @@ nonisolated enum GlyphMask {
     private static func opaqueInk(_ ink: CGColor?) -> CGColor {
         let rgb = components(of: ink)
         return CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
+    }
+
+    /// Draws one smoothed line in each system face the window chrome draws, into a small bitmap, so
+    /// Core Graphics has read each face's stem metadata before the first window's commit needs it.
+    ///
+    /// The first smoothed glyph of a face reads that metadata (`FPFontGetStems`, `MetadataFromFont`):
+    /// 45 to 50 ms on the main thread inside the first window frame's commit, in three profiled NIGHTLY
+    /// relaunches (an M4 Pro Mac mini, `ChromeLabel.updateLayer` under `CA::Transaction::commit`).
+    /// Only smoothed stems read it, so with smoothing off this draws nothing. `main` writes the smoothing
+    /// default before the launch warm-up starts, so ``ProcessFontSmoothing/chrome`` (what chrome text draws
+    /// in) is already this process's value. Plain `NSFont` faces, not `Typography`'s cached ones, so it
+    /// runs on any thread.
+    static func warmStems() {
+        let smoothing = ProcessFontSmoothing.chrome
+        guard smoothing.smoothsStems else { return }
+        let faces = [NSFont.Weight.regular, .medium, .semibold].flatMap { weight in
+            [NSFont.systemFont(ofSize: TypeScale.Base.body, weight: weight),
+             NSFont.monospacedDigitSystemFont(ofSize: TypeScale.Base.body, weight: weight)]
+        }
+        for face in faces {
+            guard let ctx = CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            ctx.scaleBy(x: 2, y: 2)
+            ctx.setAllowsFontSmoothing(true)
+            ctx.setShouldSmoothFonts(smoothing.smoothsStems)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "Hlm1", attributes: [
+                .font: face, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+            ]))
+            ctx.textPosition = CGPoint(x: 2, y: 5)
+            CTLineDraw(line, ctx)
+        }
     }
 
     /// The alpha sum of a reference string drawn in `rgb`, smoothed as `smoothing` says.

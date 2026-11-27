@@ -69,6 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
+    /// Only closed sessions (`--status closed`); `--json` rows carry `close`: who closed each,
+    /// why, and its outcome (`done`, `dropped`, `unfinished`).
+    #[arg(long, conflicts_with_all = ["live", "status"])]
+    closed: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
     /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
     /// after its own sessions passes `--machine local`.
@@ -110,6 +114,11 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 /// optional relay/SSH recovery reads together.
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+// RFD 0050 rule 5: the relay listing inside `ls` ends before `ls` does.
+const _: () = assert!(
+    crate::cli::send_relay::LS_DEADLINE.as_millis() < LS_TOTAL_DEADLINE.as_millis(),
+    "the relay listing's bound must nest inside the ls budget"
+);
 
 const LOCAL_ROUTE: &str = "local daemon";
 
@@ -228,6 +237,41 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+/// `acpmux machine cells` (`cell_report.rs`): the live rows `acpmux ls --live --json` lists,
+/// within the same bounds, judged against fleet-registry.json.
+pub(super) async fn cells(json_out: bool) -> Result<()> {
+    #[derive(clap::Parser)]
+    struct Ls {
+        #[command(flatten)]
+        args: LsArgs,
+    }
+    let args = <Ls as clap::Parser>::try_parse_from(["ls", "--live"])?.args;
+    let budget = ListBudget::new(None);
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
+    let far = wants_far(&args)
+        .then(|| crate::cli::ls_far::start(client.clone(), crate::cli::ls_far::budget()));
+    let now = crate::store::now_ms();
+    let (out, _) = bounded_total(
+        &budget,
+        "read",
+        scoped_output_with_budget(args, true, &client, Via::daemon(), now, Some(&budget), far),
+    )
+    .await??;
+    let rows: Value = serde_json::from_str(&out)?;
+    let rows = match &rows {
+        Value::Array(r) => r.as_slice(),
+        other => other.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+    };
+    let registry = crate::placement::load_registry();
+    let report = crate::cell_report::report(registry.as_ref(), rows, now);
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        crate::cell_report::lines(&report).iter().for_each(|l| println!("{l}"));
+    }
+    Ok(())
+}
+
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
 /// pages, with ages as of `now`. The tests read it; `run` takes [`scoped_output`]'s line too.
 #[cfg(test)]
@@ -303,8 +347,11 @@ async fn scoped_output_with_budget(
         wide,
         leads,
         archived,
+        closed,
         refresh_relay_cache: _,
     } = args;
+    // `--closed` is `--status closed` (clap refuses the two together).
+    let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);
@@ -351,6 +398,20 @@ async fn scoped_output_with_budget(
     }
     if rows.local_only() {
         params.set("localOnly", json!(true));
+    }
+    // `--fields` with no filter of this side's that reads other members: the daemon sends only
+    // those members of each row (`hub/page_first.rs` `row_fields`), not whole rows to be cut
+    // here. A daemon from before it sends whole rows, cut below as before.
+    let reads_more = named
+        || tag.is_some()
+        || pending
+        || leads
+        || with_tools
+        || matches!(status.as_deref(), Some("stuck" | "waiting"));
+    if let Some(fields) = fields.as_deref()
+        && !reads_more
+    {
+        params.set("fields", json!(fields));
     }
     let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
     let keeps = |s: &Value| {
@@ -419,9 +480,12 @@ async fn scoped_output_with_budget(
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
+    // Only the counts and peers (`listCounts`): the full status waits on its host, disk and
+    // agent reads, and this read runs before the list (#58414).
     if walks_all && status_read.is_none() {
-        status_read =
-            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+        let mut counts = json!({});
+        counts.set(crate::rpc::LIST_COUNTS, json!(true));
+        status_read = Some(request_bounded(client, method::MUX_STATUS, counts, budget).await.ok());
     }
     let closed_listed = status_read
         .as_ref()
@@ -678,6 +742,14 @@ async fn scoped_output_with_budget(
         out.push_str(&line);
         out.push('\n');
     }
+    if let Some(line) = status
+        .as_ref()
+        .and_then(|s| s.get("outboxStats"))
+        .and_then(crate::hub::outbox_stats::ls_line)
+    {
+        out.push_str(&line);
+        out.push('\n');
+    }
     Ok((out, scope))
 }
 
@@ -917,86 +989,5 @@ pub(super) fn is_live(row: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn rows() -> Vec<Value> {
-        vec![
-            json!({"name": "hb/old", "peer": "hb", "status": "closed"}),
-            json!({"name": "claude-sr2/mac-ci-3", "status": "running"}),
-            json!({"name": "hb/review-1", "peer": "hb", "status": "ready"}),
-            json!({"name": "done", "status": "closed"}),
-            json!({"name": "idle-one", "status": "idle"}),
-        ]
-    }
-
-    fn kept(filter: &RowFilter) -> Vec<String> {
-        rows()
-            .iter()
-            .filter(|r| filter.keeps(r))
-            .map(|r| r["name"].as_str().unwrap().into())
-            .collect()
-    }
-
-    #[test]
-    fn projected_listings_only_refresh_usage_when_they_show_it() {
-        let plain = vec!["sessionId".to_owned(), "name".to_owned(), "status".to_owned()];
-        assert!(!shows_usage(false, true, Some(&plain)));
-        assert!(!shows_usage(true, false, Some(&plain)));
-        assert!(shows_usage(false, false, Some(&["usageStats.cost".to_owned()])));
-        assert!(shows_usage(false, true, None));
-        assert!(shows_usage(true, false, None));
-        assert!(!shows_usage(false, false, None));
-    }
-
-    #[test]
-    fn ls_selection_parses_duration_and_projects_fields() {
-        assert_eq!(parse_duration_ms("1h30m").unwrap(), 5_400_000);
-        assert!(parse_duration_ms("oops").is_err());
-        let fields = parse_fields("name, status").unwrap();
-        assert_eq!(fields, ["name", "status"]);
-        assert_eq!(
-            project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
-            json!({"name": "one", "status": "idle"})
-        );
-    }
-
-    #[test]
-    fn scope_line_names_the_machines_only_when_a_row_is_remote() {
-        let local = [json!({"name": "a"}), json!({"name": "b", "peer": ""})];
-        assert_eq!(scope_line(&local), None);
-        assert_eq!(scope_line(&[]), None);
-        let mixed = [
-            json!({"name": "a"}),
-            json!({"peer": "hb"}),
-            json!({"peer": "HB"}),
-            json!({"peer": "far"}),
-        ];
-        assert_eq!(
-            scope_line(&mixed).as_deref(),
-            Some("ls: 4 sessions on 3 machines; --machine local lists only this one")
-        );
-        assert_eq!(
-            scope_line(&[json!({"peer": "far"})]).as_deref(),
-            Some(
-                "ls: 1 session on 1 machine, none of them this one; --machine local lists only this one"
-            )
-        );
-    }
-
-    #[test]
-    fn live_and_host_filter_the_rows() {
-        let own = || "this-mac".to_owned();
-        let live = RowFilter::new(true, None, own()).unwrap();
-        assert_eq!(kept(&live), ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one"]);
-        let peer = RowFilter::new(true, Some("HB"), own()).unwrap();
-        assert_eq!(kept(&peer), ["hb/review-1"]);
-        let here = RowFilter::new(false, Some("this-mac"), own()).unwrap();
-        assert_eq!(kept(&here), ["claude-sr2/mac-ci-3", "done", "idle-one"]);
-        let local = RowFilter::new(false, Some("local"), own()).unwrap();
-        assert_eq!(kept(&local), kept(&here));
-        assert!(!RowFilter::new(false, None, own()).unwrap().narrows());
-        assert!(live.narrows() && peer.narrows());
-    }
-}
+#[path = "ls_tests.rs"]
+mod tests;

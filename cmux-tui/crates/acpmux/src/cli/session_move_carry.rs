@@ -77,7 +77,10 @@ GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
 # the untracked list leaves out (a tracked `.env`) as a deletion. A sparse checkout's
 # skip-worktree marks live only in its index, so without one every file outside the cone would
 # read as deleted: that is refused (exit 5).
-if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
+# The copy keeps the index's time, and nothing else of it (a flag or an ACL that forbids writing
+# would stop the scratch index too). Git reads a file as old as its index again instead of
+# trusting its size and time, and a copy with a newer time would pass a same-size edit by.
+if [ -f "$real" ]; then { cp -- "$real" "$s/index" && touch -r "$real" "$s/index"; } || exit 2
 elif [ "$(git config --type=bool core.sparseCheckout)" = true ]; then
   echo "it is a sparse checkout with no index: rebuild it there with git reset -q && git sparse-checkout reapply (edits stay), then move again" >&2; exit 5
 else git read-tree HEAD || exit 3; fi

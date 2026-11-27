@@ -1,0 +1,13 @@
+{
+  "title": "Aero living wallpaper: glass bubbles rising through a glossy sky (opt-in backdrop shader:aero)",
+  "settings": {"appearance": {"theme": "light:Soft Blue Light,dark:Soft Blue", "backgroundBlur": "glass"}},
+  "steps": [
+    {"title": "Launch: today's default backdrop", "wait": 3},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1.5, "shot": false},
+    {"title": "Pick the Aero living wallpaper", "cmux": ["settings", "set", "appearance.background", "shader:aero"], "wait": 4},
+    {"title": "Light: bubbles rising", "wait": 4},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 3},
+    {"title": "Dark: bubbles rising", "wait": 4},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}

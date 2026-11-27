@@ -1,3 +1,4 @@
+public import AppKit
 public import Observation
 
 /// The native New Tab page's state: the typed text, the selected kind and the dropdown's
@@ -7,7 +8,7 @@ public import Observation
 /// cannot go stale. Construct one per page with the page and an action bundle:
 ///
 /// ```swift
-/// let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(submit: { text, kind, search in … }))
+/// let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(submit: { text, kind, search, event in … }))
 /// ```
 @MainActor @Observable
 public final class NativeNewTabModel {
@@ -158,25 +159,26 @@ public final class NativeNewTabModel {
     }
 
     /// Return: the highlighted row, or for an empty field the selected kind as it is (the open
-    /// tabs listed under an empty field run only once Up or Down highlights one).
-    public func commit() {
-        if text.isEmpty, highlighted == nil { return actions.submit("", kind, false) }
-        if let index = selectedIndex { return activate(rows[index]) }
-        actions.submit("", kind, false)
+    /// tabs listed under an empty field run only once Up or Down highlights one). `event`: the Return key press.
+    public func commit(event: NSEvent? = nil) {
+        if text.isEmpty, highlighted == nil { return actions.submit("", kind, false, event) }
+        if let index = selectedIndex { return activate(rows[index], event: event) }
+        actions.submit("", kind, false, event)
     }
 
     /// Runs `row`, as Return or a click on it does. Only a palette action's row is a first use that asks for the
     /// actions again (a run of another row opens something else, and a listing would run in that open's frames);
-    /// the host runs an action only when the palette still lists it under the title the row shows.
-    public func activate(_ row: NativeNewTabRow) {
+    /// the host runs an action only when the palette still lists it under the title the row shows. `event`: the key
+    /// or click that ran it (``NativeNewTabActions/submit``), nil for an accessibility press.
+    public func activate(_ row: NativeNewTabRow, event: NSEvent? = nil) {
         switch row {
-        case .ask(let text): actions.submit(text, .agent, false)
-        case .run(let text): actions.submit(text, .terminal, false)
-        case .open(let text): actions.submit(text, .browser, false)
+        case .ask(let text): actions.submit(text, .agent, false, event)
+        case .run(let text): actions.submit(text, .terminal, false, event)
+        case .open(let text): actions.submit(text, .browser, false, event)
         case .tab(let tab): actions.jump(.tab, tab.id)
         case .workspace(let workspace): actions.jump(.workspace, workspace.id)
-        case .page(let page): actions.submit(page.url, .browser, false)
-        case .bookmark(let page): actions.submit(page.url, .browser, false)
+        case .page(let page): actions.submit(page.url, .browser, false, event)
+        case .bookmark(let page): actions.submit(page.url, .browser, false, event)
         case .action(let action):
             used()
             actions.action(action.id, action.title)

@@ -50,6 +50,10 @@ struct MacScreenFrameTimingsTests {
     @Test func shownFramesGiveDecodeAndPresentStages() throws {
         var timings = MacScreenFrameTimings()
         let ms: UInt64 = 1_000_000
+        let now = ContinuousClock.now
+        for (frame, released, decoded) in [(UInt32(1), 100 * ms, 103 * ms), (2, 200 * ms, 202 * ms), (3, 0, 302 * ms), (4, 403 * ms, 402 * ms)] {
+            timings.presented(frame: frame, releasedAtNanos: released, decodedAtNanos: decoded, nowNanos: decoded, now: now)
+        }
         timings.shown(RemoteViewerFrameTimes(frame: 1, releasedAtNanos: 100 * ms, decodedAtNanos: 103 * ms, presentedAtNanos: 111 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 2, releasedAtNanos: 200 * ms, decodedAtNanos: 202 * ms, presentedAtNanos: 206 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 3, releasedAtNanos: 0, decodedAtNanos: 302 * ms, presentedAtNanos: 306 * ms))
@@ -57,6 +61,27 @@ struct MacScreenFrameTimingsTests {
         #expect(timings.decode.summary == MacScreenRollingSamples.Summary(count: 2, p50: 2, p95: 3, max: 3))
         #expect(timings.glass.summary == MacScreenRollingSamples.Summary(count: 2, p50: 4, p95: 8, max: 8))
         #expect(timings.decodePresent.summary == MacScreenRollingSamples.Summary(count: 2, p50: 6, p95: 11, max: 11))
+    }
+
+    /// A static screen sends one keyframe. Decode has its value at decode time, before any
+    /// presented handler runs; a presented time of 0 (macOS recorded none) takes the handler's
+    /// own time, a real one is used as is, so Present and Decode + Present get a value either way.
+    @Test func oneKeyframeGivesEveryStageWithOrWithoutAPresentedTime() throws {
+        let ms: UInt64 = 1_000_000
+        for presentedAtMicros: UInt64 in [0, 30_000] {
+            let counter = MacScreenFrameCounter()
+            _ = counter.tick(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms)
+            #expect(counter.timings.decode.summary?.p50 == 4, "decode is known before the frame is shown")
+            #expect(counter.timings.glass.summary == nil)
+            let times = RemoteViewerFrameTimes.shown(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms,
+                                                     presentedAtMicros: presentedAtMicros, nowNanos: 29 * ms)
+            #expect(times.presentedAtNanos == (presentedAtMicros > 0 ? 30 * ms : 29 * ms))
+            counter.shown(times)
+            let timings = counter.timings
+            #expect(timings.decode.count == 1)
+            #expect(timings.glass.summary?.p50 == (presentedAtMicros > 0 ? 6 : 5))
+            #expect(timings.decodePresent.summary?.p50 == (presentedAtMicros > 0 ? 10 : 9))
+        }
     }
 
     /// The counter the pane's decoder ticks keeps the same timings, at most a window of samples.
@@ -67,6 +92,21 @@ struct MacScreenFrameTimingsTests {
         let timings = counter.timings
         #expect(timings.total == 500 && timings.dropped == 0)
         #expect(timings.intervals.count == MacScreenFrameTimings.window)
+    }
+}
+
+struct MacScreenHelperNoAnswerTests {
+    /// A helper that would not start, one ended at its deadline, one that exited and one killed
+    /// by a signal each say so in their own words; none reads as a grant that is off.
+    @Test func eachWayTheHelperGivesNoGrantsHasItsOwnWords() {
+        let causes: [MacScreenHelper.NoAnswer] = [.didNotStart("spawn failed"), .timedOut, .exited(status: 3 << 8), .exited(status: 9)]
+        let words = causes.map(\.reason)
+        #expect(Set(words).count == causes.count)
+        #expect(words[0].contains("did not start: spawn failed"))
+        #expect(words[1].contains("within 10 seconds"))
+        #expect(words[2].contains("exited (status 3)"))
+        #expect(words[3].contains("signal 9"))
+        #expect(words.allSatisfy { !$0.contains("not granted") })
     }
 }
 
@@ -119,6 +159,15 @@ struct MacScreenStateControlTests {
         return try #require(answer.objectValue?["tabs"]?.arrayValue).compactMap(\.objectValue)
     }
 
+    /// A still screen (the host's fresh heartbeat counts no frame this Mac lacks) reads apart from a stall
+    /// (frames the host sent that never arrived) and from a host gone quiet.
+    @Test func aStillScreenReadsApartFromAStall() {
+        #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 1200, decoded: 2, dropped: 1) == true)
+        #expect(MacScreenPages.screenStill(hostFrames: 90, hostStatsAgeMs: 800, decoded: 2, dropped: 0) == false)
+        #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 9000, decoded: 3, dropped: 0) == false)
+        #expect(MacScreenPages.screenStill(hostFrames: nil, hostStatsAgeMs: nil, decoded: 2, dropped: 0) == nil)
+    }
+
     /// A device tab reads its device, phase and timings; a home tab is not listed. The first
     /// frame through the pane's own counter sets `first_frame_ms` and `frames_dropped`.
     @Test func aDeviceTabReadsItsPhaseAndFirstFrame() throws {
@@ -143,15 +192,19 @@ struct MacScreenStateControlTests {
         // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
         #expect(idle["hub_phase"]?.stringValue == "idle")
         #expect(idle["waits_to_show"]?.boolValue == false)
+        // No window on screen yet: nothing for a capture to find; no hub session streams.
+        #expect(idle["window_id"] == CmuxNextSettings.JSONValue.null && idle["window_pid"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["window_on_primary_display"]?.boolValue == false)
+        #expect(idle["hub_session"] == CmuxNextSettings.JSONValue.null && idle["session_scope"] == CmuxNextSettings.JSONValue.null)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)
         session.timings.sampleRtt(18)
         let counter = MacScreenFrameCounter()
         session.frameCounter = counter
-        _ = counter.tick(frame: 1)
-        _ = counter.tick(frame: 4)
         let ms: UInt64 = 1_000_000
+        _ = counter.tick(frame: 1)
+        _ = counter.tick(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms)
         counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
@@ -175,6 +228,8 @@ struct MacScreenStateControlTests {
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)
         #expect(live["frames_dropped"]?.doubleValue == 2)
+        // No host `stats` line yet: nothing says whether the screen is still.
+        #expect(live["host_frames"] == CmuxNextSettings.JSONValue.null && live["screen_still"] == CmuxNextSettings.JSONValue.null)
         #expect(live["rtt_ms_window"]?.objectValue?["p50"]?.doubleValue == 18)
         #expect(live["frame_interval_ms"]?.objectValue?["count"]?.doubleValue == 1)
         #expect(live["decode_ms"]?.objectValue?["p50"]?.doubleValue == 3)

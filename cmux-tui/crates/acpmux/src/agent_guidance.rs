@@ -53,21 +53,21 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// background so the person always gets an answer (Leo, 2026-11-06: "either there's some sort
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
-pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; mark each done when done, delete what you drop, and when the person's message changes the work, rewrite or clear it; no standing duties in it. Do not also write it as a numbered list.
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
+pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers by default (Agent subagent_type: fork).
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a chip); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, decision left), in acpmux_wrap_up when listed, not also in prose.
+- UI work: load cmux:cmux-ui-preview before the first UI edit (live mode, a preview tab, before/after pictures).
+- Sub-sessions, offered sessions, editing cmux: load cmux:cmux-chat with your first reads.";
 
-/// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
-pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
-- Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes, and clear it when the person's message changes the work; no standing duties in it. Do not also write it as a numbered list.
-- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
+/// Every other harness's first-turn guidance.
+pub const AGENT_GUIDANCE: &str = "cmux chat guidance: cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Side sessions (only with the tools listed; skip this when they are not): start one (cmux.subsessions_start_session, worktree: true if it edits files yours may touch) only when the person asked for parallel or background work, with the assignment and expected result (and background, in a separate worktree). Work you noticed outside the task: offer it (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at turn end), not do it here. Never a session for a quick lookup or an answer you need now.
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers with inherited turns by default.
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a link); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, the person's one decision), in acpmux_wrap_up when listed, not also in prose.
+- UI work: read the cmux-ui-preview skill before the first UI edit (live mode, a preview tab, before/after pictures, trying it at turn end).
+- Editing cmux itself: the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,16 +143,19 @@ pub struct UserSkill {
     pub dir: PathBuf,
 }
 
-/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`.
+/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`
+/// (`cmux-next` instead of `cmux` on macOS, `cmux_config::NEXT_DIR`).
 pub fn user_skills_dir() -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(dir) = var(USER_SKILLS_DIR_ENV) {
         return Some(dir);
     }
     if let Some(xdg) = var("XDG_CONFIG_HOME") {
-        return Some(xdg.join("cmux/skills"));
+        return Some(xdg.join(cmux_config::NEXT_DIR).join("skills"));
     }
-    var("HOME").or_else(dirs::home_dir).map(|home| home.join(".config/cmux/skills"))
+    var("HOME")
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".config").join(cmux_config::NEXT_DIR).join("skills"))
 }
 
 /// The person's skills in `dir`, in name order. A folder without a readable `SKILL.md`, or one
@@ -347,7 +350,10 @@ fn materialize_within(
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
-        "description": "Your own skills from ~/.config/cmux/skills, for agents cmux starts",
+        "description": format!(
+            "Your own skills from ~/.config/{}/skills, for agents cmux starts",
+            cmux_config::NEXT_DIR
+        ),
         "version": env!("CARGO_PKG_VERSION"),
     });
     files.push((".claude-plugin/plugin.json".to_owned(), manifest.to_string().into_bytes()));
@@ -431,34 +437,40 @@ mod tests {
         // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in [
-            "TaskCreate",
-            "TaskUpdate",
-            "TodoWrite",
-            "background",
-            "HOST/NAME",
-            "recap",
-            "acpmux_wrap_up",
-            // A stale list never lingers (design/chat-plan-lifecycle.md).
-            "rewrite or clear it",
-            "no standing duties",
-        ] {
+        for rule in ["background", "HOST/NAME", "recap", "acpmux_wrap_up", "cmux:cmux-ui-preview"] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
         let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
         for tool in [
-            "update_plan",
             "cmux.subsessions_start_session",
             "cmux.sessions_offer_session",
             "cmux.sessions_suggest_tasks",
             "recap",
             "inline code",
-            "clear it when the person's message changes the work",
         ] {
             assert!(codex.contains(tool), "{tool} missing: {codex}");
         }
+        // cmux shows no agent to-do list, so no guidance asks for one.
+        for text in [&claude, &codex] {
+            for tool in ["TaskCreate", "TaskUpdate", "TodoWrite", "update_plan", "checklist"] {
+                assert!(!text.contains(tool), "{tool} named: {text}");
+            }
+        }
         assert!(codex.contains("skip this when they are not"), "{codex}");
+        // How to wait on CI, kill processes or ride out a rate limit is the person's (or their
+        // own instructions') call, not cmux's (Leo, 2026-11-26: "identify all the weird
+        // opinoinated fleet things we shipped into the app and remove them").
+        for text in [&claude, &codex] {
+            for rule in ["gh pr checks", "gh run view", "rate limit", "by PID"] {
+                assert!(!text.contains(rule), "{rule} named: {text}");
+            }
+        }
+        // Every chat pays these bytes on every request (Leo, 2026-11-25: "Well we obviously need to
+        // compress the shit out of this and other docs and instructions"). A new rule replaces
+        // words, it does not add a paragraph: 1,215 -> 846 and 1,939 -> 1,462 bytes on 11-25.
+        assert!(CLAUDE_GUIDANCE.len() <= 900, "CLAUDE_GUIDANCE is {} bytes", CLAUDE_GUIDANCE.len());
+        assert!(AGENT_GUIDANCE.len() <= 1_500, "AGENT_GUIDANCE is {} bytes", AGENT_GUIDANCE.len());
     }
 
     #[test]

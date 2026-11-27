@@ -102,6 +102,58 @@ const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
+/// Lamina: a layered, translucent desktop look. Each recipe carries its own theme file (dark or
+/// light) and the variant's chat stylesheet, which both modes share.
+const LAMINA: &[(&str, &str)] = &[
+    ("themes/lamina.json", include_str!("../recipes/apps/lamina/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina/agent-pane.css")),
+];
+
+const LAMINA_LIGHT: &[(&str, &str)] = &[
+    ("themes/lamina-light.json", include_str!("../recipes/apps/lamina/theme-light.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina/agent-pane.css")),
+];
+
+const LAMINA_MIST: &[(&str, &str)] = &[
+    ("themes/lamina-mist.json", include_str!("../recipes/apps/lamina-mist/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-mist/agent-pane.css")),
+];
+
+const LAMINA_MIST_LIGHT: &[(&str, &str)] = &[
+    ("themes/lamina-mist-light.json", include_str!("../recipes/apps/lamina-mist/theme-light.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-mist/agent-pane.css")),
+];
+
+const LAMINA_SLATE: &[(&str, &str)] = &[
+    ("themes/lamina-slate.json", include_str!("../recipes/apps/lamina-slate/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-slate/agent-pane.css")),
+];
+
+const LAMINA_SLATE_LIGHT: &[(&str, &str)] = &[
+    (
+        "themes/lamina-slate-light.json",
+        include_str!("../recipes/apps/lamina-slate/theme-light.json"),
+    ),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-slate/agent-pane.css")),
+];
+
+const LAMINA_TIDE: &[(&str, &str)] = &[
+    ("themes/lamina-tide.json", include_str!("../recipes/apps/lamina-tide/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-tide/agent-pane.css")),
+];
+
+const LAMINA_TIDE_LIGHT: &[(&str, &str)] = &[
+    ("themes/lamina-tide-light.json", include_str!("../recipes/apps/lamina-tide/theme-light.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-tide/agent-pane.css")),
+];
+
+/// A tonal theme: its light and dark theme files and its chat stylesheet, beside the recipe.
+const TONAL: &[(&str, &str)] = &[
+    ("themes/tonal.json", include_str!("../recipes/apps/tonal/theme.json")),
+    ("themes/tonal-dark.json", include_str!("../recipes/apps/tonal/theme-dark.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
+];
+
 /// Layout and behaviour looks (c-07be086806, Leo: "im saying the big stuff"): each is a look
 /// folder in `examples/looks`, and the recipe is that look's `cmux-setup.json` with its
 /// `keybindings.json`, so the gallery's install test and these tests hold the same files.
@@ -162,12 +214,44 @@ const CODEX_APP_DARK: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app-dark/agent-pane.css")),
 ];
 
+const WEB_CODING_APP: &[(&str, &str)] = &[
+    ("themes/web-coding-app.json", include_str!("../recipes/apps/web-coding-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/web-coding-app/agent-pane.css")),
+];
 const VIOLET_APP: &[(&str, &str)] = &[
     ("themes/violet-app.json", include_str!("../recipes/apps/violet-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/violet-app/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
+/// Plush (examples/looks/plush): six theme files (three tints, each light and
+/// dark) and its chat and Markdown stylesheets, taken from the look itself.
+const PLUSH: &[(&str, &str)] = &[
+    ("themes/plush.json", include_str!("../../../../examples/looks/plush/themes/plush.json")),
+    (
+        "themes/plush-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dark.json"),
+    ),
+    (
+        "themes/plush-dusk.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dusk.json"),
+    ),
+    (
+        "themes/plush-dusk-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dusk-dark.json"),
+    ),
+    (
+        "themes/plush-clay.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-clay.json"),
+    ),
+    (
+        "themes/plush-clay-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-clay-dark.json"),
+    ),
+    ("agent-pane/theme.css", include_str!("../../../../examples/looks/plush/agent-pane/theme.css")),
+    ("markdown/theme.css", include_str!("../../../../examples/looks/plush/markdown/theme.css")),
+];
+
 pub const RECIPES: &[Recipe] = &[
     Recipe {
         name: "compact-sidebar",
@@ -250,6 +334,22 @@ pub const RECIPES: &[Recipe] = &[
         includes: &[],
     },
     Recipe {
+        name: "plush",
+        title: "Plush: soft raised surfaces",
+        group: Group::Look,
+        ask: "make it soft and plush, raised surfaces with no borders or glass",
+        profile: include_str!("../recipes/plush.json"),
+        includes: PLUSH,
+    },
+    Recipe {
+        name: "tonal",
+        title: "Tonal: one seed, every color",
+        group: Group::Look,
+        ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass",
+        profile: include_str!("../recipes/tonal.json"),
+        includes: TONAL,
+    },
+    Recipe {
         name: "hairline",
         title: "Hairline: flat and neutral",
         group: Group::Look,
@@ -272,6 +372,70 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux look and work like the Claude desktop app's Code tab",
         profile: include_str!("../recipes/claude-code-app.json"),
         includes: CLAUDE_CODE_APP,
+    },
+    Recipe {
+        name: "lamina",
+        title: "Lamina",
+        group: Group::Look,
+        ask: "make cmux look like Lamina, compact and balanced",
+        profile: include_str!("../recipes/lamina.json"),
+        includes: LAMINA,
+    },
+    Recipe {
+        name: "lamina-light",
+        title: "Lamina light",
+        group: Group::Look,
+        ask: "make cmux look like Lamina, compact and balanced, light",
+        profile: include_str!("../recipes/lamina-light.json"),
+        includes: LAMINA_LIGHT,
+    },
+    Recipe {
+        name: "lamina-mist",
+        title: "Lamina Mist",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Mist, cool and more translucent",
+        profile: include_str!("../recipes/lamina-mist.json"),
+        includes: LAMINA_MIST,
+    },
+    Recipe {
+        name: "lamina-mist-light",
+        title: "Lamina Mist light",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Mist, cool and more translucent, light",
+        profile: include_str!("../recipes/lamina-mist-light.json"),
+        includes: LAMINA_MIST_LIGHT,
+    },
+    Recipe {
+        name: "lamina-slate",
+        title: "Lamina Slate",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Slate, neutral, flatter and denser",
+        profile: include_str!("../recipes/lamina-slate.json"),
+        includes: LAMINA_SLATE,
+    },
+    Recipe {
+        name: "lamina-slate-light",
+        title: "Lamina Slate light",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Slate, neutral, flatter and denser, light",
+        profile: include_str!("../recipes/lamina-slate-light.json"),
+        includes: LAMINA_SLATE_LIGHT,
+    },
+    Recipe {
+        name: "lamina-tide",
+        title: "Lamina Tide",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Tide, accent-forward teal",
+        profile: include_str!("../recipes/lamina-tide.json"),
+        includes: LAMINA_TIDE,
+    },
+    Recipe {
+        name: "lamina-tide-light",
+        title: "Lamina Tide light",
+        group: Group::Look,
+        ask: "make cmux look like Lamina Tide, accent-forward teal, light",
+        profile: include_str!("../recipes/lamina-tide-light.json"),
+        includes: LAMINA_TIDE_LIGHT,
     },
     Recipe {
         name: "claude-code-notification-levels",
@@ -428,6 +592,14 @@ pub const RECIPES: &[Recipe] = &[
         includes: look!("dot-grid"),
     },
     Recipe {
+        name: "grid",
+        title: "Grid",
+        group: Group::Look,
+        ask: "make it a strict grid: square corners, thin rules, one accent",
+        profile: include_str!("../recipes/grid.json"),
+        includes: look!("grid"),
+    },
+    Recipe {
         name: "aero-sky",
         title: "Aero sky",
         group: Group::Look,
@@ -466,6 +638,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux look like a violet desktop coding app",
         profile: include_str!("../recipes/violet-app.json"),
         includes: VIOLET_APP,
+    },
+    Recipe {
+        name: "web-coding-app",
+        title: "A light web coding app",
+        group: Group::Apps,
+        ask: "make cmux look like a light web coding agent, with workspaces as tabs",
+        profile: include_str!("../recipes/web-coding-app.json"),
+        includes: WEB_CODING_APP,
     },
 ];
 

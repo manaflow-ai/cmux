@@ -7,20 +7,22 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
-/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
-   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
-   borders-none and Reduce Transparency preserve the existing card contract. */
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
+   shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
+   drop is the popups' (--ui-popup-drop), and in a see-through Chromium page it is the App's popover
+   glass (data-host-glass="popover"). Keep the composer's edge alias so focus, borders-none and Reduce
+   Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--nt-box-radius);position:relative}
-.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
+.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--ui-popup-drop,var(--elevation-2))}
 .nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:var(--nt-box-height);--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-composer-surface{--acpmux-composer-edge:transparent;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -59,10 +61,7 @@
 .nt-row-detail{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing)}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing);opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
-.nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
-.nt-row-shortcut{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing)}
-/* The palette's keycaps use the control corner less one spacing step, as the Send menu's caps do. */
-.nt-row-shortcut kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:inherit;line-height:1}
+.nt-row-shortcut{margin-left:auto}
 .nt-command-symbol{width:100%;height:100%;background:currentColor;mask-size:contain;mask-position:center;mask-repeat:no-repeat}
 /* Filled logos (harness marks and favicons) need less room than outline icons for matching ink height: 12 of the
    outline icons' 14, at every density (Lucas 2026-11-18: Google's favicon read bigger than Claude's mark). */
@@ -75,6 +74,11 @@
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
+.nt-chats-evac{margin-left:auto;display:flex;align-items:center}
+.nt-chats-evac:empty{display:none}
+.nt-chats-evac + .nt-chats-all{margin-left:0}
+.nt-chats-evac-body{margin-bottom:var(--ds-space-2)}
+.nt-chats-evac-body:empty{display:none}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
@@ -389,6 +393,13 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
+/* Status Pills in All Chats (agentPane.display.chatListStatusPills, Taste Board #19): a live chat's state as a small tinted pill at the row's end, in the status palette. */
+.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--nt-pill) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
+.nt-all-state+.nt-all-pill{margin-left:var(--ds-space-2)}
+.nt-all-pill[data-tone=running]{--nt-pill:var(--agent-accent)}
+.nt-all-pill[data-tone=input]{--nt-pill:var(--agent-status-warning)}
+.nt-all-pill[data-tone=done]{--nt-pill:var(--agent-status-success)}
+.nt-all-pill[data-tone=failed]{--nt-pill:var(--agent-status-failure)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
@@ -402,12 +413,12 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:is(:focus-visible, :has(:focus-visible)),
-  body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
+  .nt-box:is(:focus-visible, [data-focused]),
+  body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
-/* The split controls stay on the first line as the prompt grows. */
+/* The row's controls stand on the box's bottom edge as the prompt grows (below). */
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
@@ -422,7 +433,8 @@
   display: flex;
   align-items: center;
   height: var(--text-content--line-height);
-  margin-top: var(--nt-input-pad-block);
+  align-self: end;
+  margin-bottom: var(--nt-input-pad-block);
 }
 /* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
    design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
@@ -558,17 +570,28 @@
 }
 /* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
    inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
-   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
-   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
-   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
-   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
-   column). */
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The row spans the box
+   (test/composer-side-inset.test.ts); the model chip takes that distance as its button's end padding
+   and its wrapper's, in a row with room for it: at the composer's narrow steps the row keeps every pixel for
+   its labels (at 320 px a 12 px pad pushed the mode chip off the icon column). */
+/* The model's pill is as wide after its text as before its mark's ink (Lucas 2026-11-23: the end padding
+   was 20.6 px against 8). The rest of that distance is padding on the chip's wrapper, outside the pill:
+   the hover wash stays the button's, and the row's fit (composerRowFit.ts) counts the wrapper's box. */
+.nt-foot .acpmux-composer-foot .acpmux-model {
+  --nt-model-pad: 8px;
+}
+.nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  padding-inline: var(--nt-model-pad);
+}
 @container composer (min-width: 421px) {
-  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  .nt-foot .acpmux-composer-foot .acpmux-model {
     --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
-    padding-inline-end: calc(
-      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
-        var(--nt-send-ink-bearing)
+    padding-inline-end: max(
+      0px,
+      calc(
+        var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+          var(--nt-send-ink-bearing) - var(--nt-model-pad)
+      )
     );
   }
 }
@@ -601,10 +624,31 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* +, the mic and Send stand on the box's bottom edge at every height, each centered on the one-line
+   row's line (the same offset the first line had, so a one-line box draws them where it did): as the
+   draft wraps and grows they stay on its last line, the line being typed, and never sit on the first
+   line of a tall draft, as the chat composer's (composerLocation.css; Leo 2026-11-22: "the
+   buttons for send attach all that doesnt follow/simply stick with teh bottom of the
+   composer"). test/composer-wrap-layout.browser.test.ts. */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
+}
+/* The field's always-reserved scrollbar lane (scrollers.ts, 8 px) stands in the gap before the mic
+   instead of after it: the text ends one lead gap before the mic as it starts one lead gap after +,
+   not a lane and a gap (16 px against 8), and a line holds that much more of the draft (Leo
+   2026-11-22: "we probably ought to be able to type at least one more character or two ... IT'S NOT
+   EVEN LIKE IT'S EVENLY SPACED RIGHT NOW"). The thumb, shown only while the draft scrolls, runs in
+   that gap beside the controls, never over them. */
+.nt-input[data-split] > .nt-field-slot {
+  margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
+}
+/* + stands on the last line too, beside the mic and Send: the field's padding is symmetric, so a one-line
+   box keeps + exactly where its first line put it. */
+.nt-input[data-split] .nt-split-plus {
+  align-self: end;
+  margin: 0 0 var(--nt-input-pad-block);
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
@@ -674,12 +718,18 @@
   --acpmux-attach-inset: 18px;
   --acpmux-attach-gap: var(--ds-space-2);
   --acpmux-attach-height: 64px;
+  --acpmux-attach-top: var(--ds-space-2);
   --acpmux-attach-radius: var(--ds-radius-control);
 }
-/* The attachments sit under the field (NewTabScreen), so the text keeps its place as they come:
-   the field's own bottom inset is the gap above them, a short one below. */
+/* The attachments sit inside the top of the box (NewTabScreen; Leo 2026-11-23, ask-525a5e502a), a
+   short inset above them; the field's own top inset is the gap under them. The field takes the
+   strip's band (its inset and a tile) out of its max height, so at the cap the box keeps its height
+   and edges when attachments land. */
 .nt-box > .acpmux-attachments {
-  padding: 0 var(--acpmux-attach-inset) var(--ds-space-2);
+  padding: var(--acpmux-attach-top) var(--acpmux-attach-inset) 0;
+}
+.nt-box > .acpmux-attachments ~ .nt-input .nt-field {
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -804,7 +854,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the shipped arm, is the bare text above: no rule here.
+   all look the same to me"). pad, the bare text above, has no rule here and ships (Lucas 2026-11-23).
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -851,6 +901,84 @@
   ) {
   display: none;
 }
+/* The icon-treatment arms (Leo 2026-11-15: "theese are kinda crappy looking icons and stuff"). The
+   bare column (pad) is thin 16 px line glyphs in the muted text color, the same weight and size as every
+   other control, so nothing in it reads as an icon. These arms change what carries the glyph, never
+   the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
+   the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
+   project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
+   - tiles: line glyphs in the chip's own ink on soft square tiles, as a system settings
+     sidebar; the names stay.
+   - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
+     the machine and the shield sit on neutral tiles, + on a round one; the project's name in the
+     text color and emphasis weight.
+   - dock: icons only, on larger tiles spaced apart, a dock-like column; the names stay in the
+     accessible name. */
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) {
+  --nt-tile-pad: calc(4px * var(--nt-density));
+  --nt-tile-radius: calc(6px * var(--nt-density));
+  --nt-tile-fill: var(--acpmux-pill-hover);
+  --nt-tile-ink: currentColor;
+  --nt-tile-after: 0px;
+}
+.nt-composer[data-icon-column="appicon"] {
+  --nt-tile-pad: calc(5px * var(--nt-density));
+  --nt-tile-radius: calc(8px * var(--nt-density));
+}
+.nt-composer[data-icon-column="dock"] {
+  --nt-tile-pad: calc(6px * var(--nt-density));
+  --nt-tile-radius: calc(9px * var(--nt-density));
+  --nt-tile-after: var(--ds-space-2);
+}
+/* The tile: the glyph's own box filled (background) and an outline of the same fill around it, no
+   offset. The two never overlap, so a translucent fill reads as one even tile; the outline follows
+   the box's corner, so the core radius is the tile's less its room. The glyph's box, and every
+   measure of it (newtab-chip-scale, newtab-chip-ink-edges), stays as it was. */
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) :is(
+    .nt-above .acpmux-location-button > :is(svg, .acpmux-project-badge):first-child,
+    .nt-box .acpmux-composer-plus svg,
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:first-child
+  ) {
+  overflow: visible;
+  stroke-width: 1.25;
+  color: var(--nt-tile-ink);
+  --nt-tile-core-radius: max(1px, calc(var(--nt-tile-radius) - var(--nt-tile-pad)));
+  border-radius: var(--nt-tile-core-radius);
+  background: var(--nt-tile-fill);
+  outline: var(--nt-tile-pad) solid var(--nt-tile-fill);
+  outline-offset: 0;
+}
+/* The label steps out by the tile's room; the glyph's place does not move. */
+:root .nt-screen .nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-above .acpmux-location-button > svg:first-child {
+  margin-inline: var(--acpmux-location-room) calc(var(--acpmux-location-room) + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  margin-inline-end: calc((var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2 + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
+  margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2 + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer[data-icon-column="appicon"] .nt-above .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button > :first-child {
+  --nt-tile-fill: var(--agent-accent);
+  --nt-tile-ink: var(--agent-on-accent, var(--cmux-on-accent, var(--acpmux-base)));
+}
+.nt-composer[data-icon-column="appicon"] .nt-box .acpmux-composer-plus svg { border-radius: 50%; }
+.nt-composer[data-icon-column="appicon"] .nt-above .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+}
+.nt-composer[data-icon-column="dock"] :is(.nt-above .acpmux-location-label, .nt-foot .acpmux-mode-text) {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-composer[data-icon-column="dock"] :is(
+    .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
+  ) {
+  display: none;
+}
 /* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {
   flex-direction: column;
@@ -878,9 +1006,9 @@
    pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
-.nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
+.nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) { --nt-stage-foot: 0px; }
 /* The optional template switch keeps room under the stage footer. */
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) {
+.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {
@@ -1077,7 +1205,7 @@
   border-radius: 999px;
   --acpmux-attach-inset: 22px;
 }
-/* With attachments under the field the pill is taller than a line: its ends would cut into the
+/* With attachments in the box the pill is taller than a line: its ends would cut into the
    tiles, so it rounds as the composer template's card does. */
 .nt-screen[data-template="cards"] .nt-box:has(> .acpmux-attachments) {
   border-radius: 28px;
@@ -1274,11 +1402,12 @@
   --nt-glow-divider: 50%;
 }
 /* A light page has less dark around the glow to carry it: a little more color, the same reach. */
-:root.light .nt-cards[data-glow] {
-  --nt-glow-mix: 16%;
+/* `data-theme` is what the app sets on the root (shared/theme.ts); it has no `light` class. */
+:root[data-theme="light"] .nt-cards[data-glow] {
+  --nt-glow-mix: 28%;
 }
-:root.light .nt-cards[data-glow="vivid"] {
-  --nt-glow-mix: 30%;
+:root[data-theme="light"] .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 52%;
 }
 .nt-cards[data-glow] .nt-card {
   position: relative;
@@ -1313,10 +1442,10 @@
     transition: opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
   }
 }
-/* Return's row (NewTabScreen): a ↩ keycap at its end, in the shortcut keycaps' dress, so the highlight
+/* Return's row (NewTabScreen): a "return" key hint at its end, as the shortcuts draw, so the highlight
    reads as "Return does this" before Return is pressed (David Beyer 2026-11-20: words he typed ran as a
    shell command). It takes no room from the title: the row's end, after any shortcut. */
-.nt-row-return{flex:none;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--nt-row-detail,var(--text-detail));line-height:1}
+.nt-row-return{margin-left:auto}
 .nt-row-shortcut + .nt-row-return{margin-left:var(--ds-space-1)}
 /* Signed out (NewTabScreen `signedOut`): the cause in one line, then its two fixes as quiet text
    buttons (the trust ask's), wrapping under the text on a narrow pane. */
@@ -1325,3 +1454,469 @@
 .nt-signed-out-text strong { color: var(--agent-text); font-weight: 600; }
 .nt-signed-out-actions { display: flex; flex: none; gap: var(--grid-half-step); }
 .nt-signed-out .acpmux-trust-ask-action { height: var(--grid-pill); font-size: var(--text-detail); }
+
+/* HOME-CARDS: appearance.homeCardStyle (CmuxNextDesign HomeCardStyle; theme.ts sets data-home-cards). Absent, the
+   default `standard`, keeps every card above as it is. The cards: the recent chats' cards (.nt-card, never the
+   one-line rows of the list variant), the environment and suggestions cards over the composer (.nt-stage-card) and
+   the Home lists under a new chat's composer (.acpmux-home-list). Fills, edges and shadows only: no card moves. */
+/* flat: a tonal fill, no edge, no shadow. */
+:root[data-home-cards="flat"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  box-shadow: none;
+}
+:root[data-home-cards="flat"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--agent-text) 11%, transparent);
+}
+/* raised: an elevated card, the composer's solid surface with a hairline and a soft shadow. */
+:root[data-home-cards="raised"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base, Canvas)));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+}
+:root[data-home-cards="raised"][data-borders="none"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  box-shadow: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+}
+:root[data-home-cards="raised"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-surface, var(--acpmux-base, Canvas)));
+}
+/* glass: see-through cards over the window's picture, the glass material's rim and depth. No backdrop blur: these
+   cards scroll with the content (design/glass-system.md rules 2 and 7; check-one-material: only .ui-glass paints a
+   blur). Reduce Transparency keeps the rim on an opaque fill. */
+:root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 42%, transparent);
+  box-shadow: var(--glass-material-rim, inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, white 30%, transparent)),
+    var(--glass-material-depth-composer, var(--elevation-2, none));
+}
+:root[data-home-cards="glass"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 58%, transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+    background: var(--acpmux-composer-surface, var(--acpmux-base, Canvas));
+  }
+}
+/* New Tab's composer: one borderless card (Lucas 2026-11-25, newtab-composer-lab "Unified Card"). The field has the
+   first row to itself; one bar inside the card holds +, the permissions and model chips, the mic and Send. The card is the
+   theme's text at 4.5 % over its surface (42 % surface over white in light), with no edge, rim or focus shift, and the
+   composer's depth. Every size here was measured on screen (a 2x capture: ink where a pixel is past half way from the
+   fill to the glyph's peak), so each glyph reads one size and sits on its label's cap center. */
+:root .nt-screen .nt-composer,
+:root .ui-popup.nt-popover {
+  --acpmux-composer-solid: var(
+    --cmux-composer-fill,
+    light-dark(
+      color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 42%, var(--cmux-tone-light, #fff)),
+      color-mix(in srgb, var(--cmux-text, var(--agent-text)) 4.5%, var(--cmux-surface-solid, var(--acpmux-base)))
+    )
+  );
+  --acpmux-composer-surface: var(--acpmux-composer-solid);
+  --nt-box-radius: calc(22px * var(--nt-density));
+  /* The lab's inks, from the theme's text and surface. */
+  --uc-ink: var(--cmux-text, var(--agent-text));
+  --uc-base: var(--cmux-surface-solid, var(--acpmux-base));
+  --uc-soft: color-mix(in srgb, var(--uc-ink) 74%, var(--uc-base));
+  --uc-muted: color-mix(in srgb, var(--uc-ink) 52%, var(--uc-base));
+  --uc-dim: color-mix(in srgb, var(--uc-ink) 40%, var(--uc-base));
+  --uc-hover: color-mix(in srgb, var(--uc-ink) 6%, transparent);
+  --uc-hover-strong: color-mix(in srgb, var(--uc-ink) 10%, transparent);
+  /* No folder's and This Mac's ink: --agent-muted on the page (on glass that token is the glass secondary ink). */
+  --uc-chip-ink: var(--cmux-text-secondary, color-mix(in srgb, var(--uc-ink) 58%, transparent));
+  --uc-motion: var(--cmux-motion-quick) var(--cmux-ease-out);
+  /* The lab's sizes, named: the chips (26 px tall, 7 px padding, 5 px gap, 12.5 px text; the controls' corner), the field (15 px
+     over its line, 18 px in, 14.5 px text on a 21 px line, from the person's text size) and the model's 500 weight. */
+  --uc-chip-h: calc(var(--acpmux-composer-control) - var(--grid-half-step));
+  --uc-chip-pad: 7px;
+  --uc-chip-gap: 5px;
+  --uc-chip-text: calc(var(--text-body) * 12.5 / 13);
+  /* The folder glyph's box (13.5 x 11.5 px of ink) and the strip's own lead before its first chip. */
+  --uc-folder-glyph: 16.25px;
+  --uc-strip-lead: 4px;
+  --uc-model-gap: 6px;
+  --uc-name-weight: 500;
+  --uc-field-top: 15px;
+  --uc-field-inline: 18px;
+  --uc-field-text: calc(var(--text-content) * 14.5 / 14);
+  --uc-field-line: calc(var(--text-content) * 1.5);
+  /* The suggestions' rows: 9 px from glyph to title; a shortcut's keys 3 px apart. */
+  --uc-row-gap: 9px;
+  --uc-key-gap: 3px;
+}
+/* The card, not its popups: they read the shared transient material (glass-levels.test.ts). */
+:root:not([data-cmux-see-through]) .nt-composer > .nt-box.nt-composer-surface.ui-glass {
+  /* glass-opaque-allow: opaque windows paint the New Tab 4.5% theme surface solid, with no backdrop blur */
+  --glass-tint: var(--acpmux-composer-solid);
+  --glass-backdrop: none;
+}
+html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface) {
+  --acpmux-composer-rim: 0 0 transparent;
+  --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--glass-material-depth-composer, var(--elevation-1)));
+  --glass-rim: 0;
+  --glass-rim-shadow: 0 0 transparent;
+  --glass-elevation: var(--cmux-composer-shadow, var(--glass-material-depth-composer, var(--elevation-1)));
+}
+/* Borderless, except under Increase Contrast, which keeps the composer's edge. */
+@media not (prefers-contrast: more) {
+  html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface) {
+    --acpmux-composer-edge: transparent;
+    --acpmux-composer-edge-focus: transparent;
+  }
+}
+
+/* Increase Contrast: the lab's lighter inks give way to the full text ink. */
+@media (prefers-contrast: more) {
+  :root .nt-screen .nt-composer,
+  :root .ui-popup.nt-popover {
+    --uc-soft: var(--uc-ink);
+    --uc-muted: var(--uc-ink);
+    --uc-dim: var(--uc-ink);
+  }
+}
+
+/* The bar: 4 px over its 28 px controls and 10 px under them, 12 px in from the card's sides, 4 px between items. The
+   field: 15 px over its line and 8 under it, 18 px in. */
+:root .nt-screen .nt-composer {
+  --uc-bar-top: 4px;
+  --uc-bar-bottom: 10px;
+  --uc-bar-inline: 12px;
+  --uc-bar-gap: 4px;
+  --uc-bar-h: calc(var(--uc-bar-top) + var(--acpmux-composer-control) + var(--uc-bar-bottom));
+  /* The mic and Send 3 px apart. */
+  --acpmux-composer-action-gap: 3px;
+}
+:root .nt-screen .nt-input[data-split] {
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-rows: auto var(--uc-bar-h);
+  grid-template-areas: "field field field" "plus chips pick";
+  column-gap: var(--uc-bar-gap);
+  row-gap: 0;
+  min-height: 0;
+  padding: 0;
+}
+:root .nt-screen .nt-input[data-split] > .nt-field-slot {
+  grid-area: field;
+  margin: 0;
+  /* The field's always-reserved scrollbar lane stands in the right inset, so the text ends as far in as it starts. */
+  margin-inline-end: calc(-1 * var(--cmux-scroller-size, 8px));
+  padding: 0 calc(var(--uc-field-inline) * var(--nt-density));
+}
+/* Shell mode's `!` stands in the inset right before the command; a template's prompt glyph (the Console's `>`) starts
+   the text's column. Both on the field's first line. */
+:root .nt-screen .nt-input[data-split] .nt-field-slot .nt-input-glyph {
+  top: calc(var(--uc-field-top) * var(--nt-density) + var(--acpmux-text-drop, 0px));
+}
+:root .nt-screen .nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
+  inset-inline-start: calc(var(--uc-field-inline) * var(--nt-density) - var(--acpmux-composer-lead-gap));
+}
+:root .nt-screen .nt-input[data-split] .nt-field-slot[data-glyph-column] .nt-input-glyph {
+  inset-inline-start: calc(var(--uc-field-inline) * var(--nt-density));
+}
+:root .nt-screen .nt-input[data-split] .nt-field {
+  padding-top: calc(var(--uc-field-top) * var(--nt-density));
+  padding-bottom: calc(8px * var(--nt-density));
+  min-height: 0;
+  font-size: var(--uc-field-text);
+  line-height: var(--uc-field-line);
+  letter-spacing: -0.006em;
+}
+:root .nt-screen .nt-field.acpmux-md-field .acpmux-md-placeholder {
+  top: calc(var(--uc-field-top) * var(--nt-density));
+}
+:root .nt-screen .nt-input[data-split] .acpmux-picker.nt-split-plus {
+  grid-area: plus;
+  align-self: start;
+  height: var(--acpmux-composer-control);
+  margin: var(--uc-bar-top) 0 0 var(--uc-bar-inline);
+}
+:root .nt-screen .nt-input[data-split] > .acpmux-chrome-area,
+:root .nt-screen .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
+  grid-area: pick;
+  align-self: start;
+  margin: 0;
+}
+:root .nt-screen .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
+  margin: var(--uc-bar-top) var(--uc-bar-inline) 0 0;
+}
+:root .nt-screen .nt-pickers .acpmux-composer-actions { gap: var(--acpmux-composer-action-gap); }
+/* The quiet row (permissions, model) is the bar's middle cell, between + and the mic. */
+:root .nt-screen .nt-input[data-split] > .nt-foot {
+  grid-area: chips;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--acpmux-composer-control);
+  margin: var(--uc-bar-top) 0 0;
+}
+:root .nt-screen .nt-foot > * { flex: 1; min-width: 0; }
+:root .nt-screen .nt-foot .acpmux-composer-foot {
+  margin: 0;
+  padding: 0;
+  min-height: var(--acpmux-composer-control);
+}
+:root .nt-screen .nt-foot .acpmux-composer-foot .acpmux-access { margin-inline-start: 0; }
+:root .nt-screen .nt-foot .acpmux-composer-foot .acpmux-model { padding-inline-end: 0; }
+
+/* Chips (folder, computer, permissions): 26 px tall, 7 px padding, 5 px gap, 7 px radius, 12.5 px text; the 6 % wash
+   and the text ink on hover. No folder, This Mac, the permissions chip and + share one ink. */
+:root .nt-screen .nt-composer :is(.nt-above .acpmux-location-button, .nt-foot .acpmux-composer-foot .acpmux-access .acpmux-access-trigger) {
+  height: var(--uc-chip-h);
+  min-height: var(--uc-chip-h);
+  padding: 0 var(--uc-chip-pad);
+  gap: var(--uc-chip-gap);
+  border-radius: var(--ds-radius-control);
+  font-size: var(--uc-chip-text);
+  letter-spacing: -0.003em;
+}
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button,
+:root .nt-screen .nt-composer .nt-foot .acpmux-composer-foot .acpmux-access .acpmux-access-trigger {
+  background: transparent;
+  transition: background-color var(--uc-motion), color var(--uc-motion);
+}
+html:root .nt-screen .nt-composer .nt-foot .acpmux-composer-foot .acpmux-access .acpmux-access-trigger {
+  color: var(--uc-chip-ink);
+}
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button:is(:hover, [aria-expanded="true"], [data-popup-open]),
+:root .nt-screen .nt-composer .nt-foot .acpmux-composer-foot .acpmux-access .acpmux-access-trigger:is(:hover, [aria-expanded="true"], [data-popup-open]) {
+  background: var(--uc-hover);
+  color: var(--uc-ink);
+}
+:root .nt-screen .nt-foot .acpmux-access-trigger :is(.acpmux-chevron, .ui-ghost-icon:last-child:not(:first-child), svg:last-child:not(:first-child)) {
+  color: var(--uc-dim);
+}
+/* The mode reads like the model's name: 13 px, normal tracking, in its chip's ink. */
+html:root .nt-screen .nt-composer .nt-foot .acpmux-composer-foot .acpmux-access .acpmux-access-trigger .acpmux-mode-text {
+  font-size: var(--text-body);
+  letter-spacing: normal;
+  color: inherit;
+}
+:root .nt-screen .nt-above { min-height: var(--uc-chip-h); padding: 0; }
+:root:not([data-top-strip]) .nt-screen .nt-composer .nt-above .acpmux-composer-strip {
+  --acpmux-strip-height: var(--uc-chip-h);
+  /* The folder glyph stands on +'s center (the icon column, newtab-icon-column.test.ts). */
+  padding: 0 0 0 calc(var(--uc-bar-inline) + var(--acpmux-composer-control) / 2 - var(--uc-chip-pad) - var(--uc-folder-glyph) / 2 - var(--uc-strip-lead));
+}
+
+/* One glyph size. The bar's glyphs (+, the shield, the agent mark, the mic, Send) all draw 13.5 px of ink tall, from
+   the top to the bottom of the same band; the folder and the laptop draw the same ink area (13.5 x 11.5 and 16.5 x 9.5 px).
+   The stroked glyphs draw a 1.27 px line (the mic and Send keep their own 1.5). Each sits on its label's cap center. */
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button > svg.acpmux-location-icon:not(.acpmux-env-icon):first-child {
+  --uc-glyph: var(--uc-folder-glyph);
+  width: var(--uc-glyph);
+  height: var(--uc-glyph);
+  margin: 0;
+  stroke-width: 1.25;
+  translate: 0 0.1px;
+}
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button > svg.acpmux-location-icon:not(.acpmux-env-icon):first-child [stroke-width] {
+  stroke-width: 1.25;
+}
+/* The laptop's 20 x 16 view box. */
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button > svg.acpmux-macbook-icon:first-child {
+  --uc-glyph-w: 20.28px;
+  --uc-glyph-h: 16.22px;
+  width: var(--uc-glyph-w);
+  height: var(--uc-glyph-h);
+  margin: 0;
+  stroke-width: 1.2525;
+  translate: 0 -0.25px;
+}
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-button > svg.acpmux-macbook-icon:first-child [stroke-width] {
+  stroke-width: 1.2525;
+}
+html:root .nt-screen .nt-composer .nt-above .acpmux-location-label { translate: 0 -0.17px; }
+html:root .nt-screen .nt-composer .nt-foot .acpmux-access-trigger > svg:first-child,
+html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpmux-picker-button :is(svg, .acpmux-icon) {
+  --uc-glyph: 16.3px;
+  width: var(--uc-glyph);
+  height: var(--uc-glyph);
+  stroke-width: 1.25;
+}
+html:root .nt-screen .nt-composer .nt-foot .acpmux-access-trigger > :first-child { margin-inline-start: 0; }
+/* The agent mark: its ray tips are thinner than a pixel, so it draws at 16.6 px to read 13.5. */
+html:root .nt-screen .nt-composer .nt-foot .acpmux-model .acpmux-picker-button > :is(.agent-mark, :has(> .agent-mark)):first-child,
+html:root .nt-screen .nt-composer .nt-foot .acpmux-model .acpmux-picker-button > :first-child > .agent-mark {
+  --uc-glyph: 16.6px;
+  width: var(--uc-glyph);
+  height: var(--uc-glyph);
+  margin: 0;
+}
+html:root .nt-screen .nt-composer .nt-foot .acpmux-mode-text,
+html:root .nt-screen .nt-composer .nt-foot .acpmux-model :is(.acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
+  translate: 0 -0.42px;
+}
+html:root .nt-screen .nt-composer .nt-pickers :is(.acpmux-mic, .acpmux-send) > svg { translate: 0 0.25px; }
+/* Send's glyph when Return takes a row (a pack icon on a 24-unit grid): 18 px, a 1.5 px line, centered. */
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-send > svg[data-icon] {
+  --uc-glyph: 18px;
+  width: var(--uc-glyph);
+  height: var(--uc-glyph);
+  translate: 0 -0.19px;
+}
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-send > svg[data-icon] [stroke-width] { stroke-width: 2; }
+
+/* +: a 28 px round control in the chips' ink, the 6 % wash and the text ink on hover and while its menu is open. */
+:root .nt-screen .nt-input .acpmux-picker.nt-split-plus > .acpmux-picker-button {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
+  border-radius: 50%; /* radius-allow: round, as the mic and Send beside it are (the lab's + control) */
+  background: transparent;
+  transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out), color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpmux-picker-button { color: var(--uc-chip-ink); }
+html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpmux-picker-button:is(:hover, [aria-expanded="true"], [data-popup-open]) {
+  background: var(--uc-hover);
+  color: var(--uc-ink);
+}
+
+/* Model: 26 px tall, 8 px padding, 6 px gap; the name 500 in the soft ink, the effort 400 in the muted ink. */
+:root .nt-screen .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  height: var(--uc-chip-h);
+  min-height: var(--uc-chip-h);
+  padding: 0 8px;
+  gap: var(--uc-model-gap);
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--uc-ink);
+  font-size: var(--uc-chip-text);
+  letter-spacing: -0.003em;
+  transition: background-color var(--uc-motion);
+}
+:root .nt-screen .nt-foot .acpmux-model .acpmux-picker-button :is(.acpmux-model-name, .acpmux-model-short) {
+  font-weight: var(--uc-name-weight);
+  color: var(--uc-soft);
+}
+:root .nt-screen .nt-foot .acpmux-model .acpmux-picker-button .acpmux-model-detail {
+  font-weight: 400;
+  color: var(--uc-muted);
+}
+:root .nt-screen .nt-foot .acpmux-model .acpmux-picker-button:is(:hover, [aria-expanded="true"], [data-popup-open]) {
+  background: var(--uc-hover-strong);
+}
+:root .nt-screen .nt-foot .acpmux-model .acpmux-picker-button:is(:hover, [aria-expanded="true"], [data-popup-open]) :is(.acpmux-model-name, .acpmux-model-short) {
+  color: var(--uc-ink);
+}
+
+/* Suggestions: 8 px under the card (suggestionsAnchor.ts), the card's corner, 6 px padding; 30 px rows at 14 px radius,
+   10 px padding, 9 px gap, 13 px soft ink; the selected row on the 10 % wash in the text ink; 12 px detail in the shared dim ink. Only the
+   command rows show keycaps (their shortcut); no Return keycap. */
+/* Plain `.nt-popover`, so the single-row whole-pixel rule and the Console's corner still win; the corner is the card's
+   (--nt-box-radius, 22 px at Default). */
+.nt-popover {
+  --ui-popup-padding: 6px;
+  --ui-row-height: 30px;
+  --ui-row-radius: 14px;
+  --ui-row-padding-inline: 10px;
+  --nt-row-text: var(--text-body);
+  --nt-row-detail: var(--text-detail);
+  --acpmux-composer-glyph: 16px;
+}
+:root .ui-popup.nt-popover .nt-rows > .nt-row {
+  gap: var(--uc-row-gap);
+  padding-inline: var(--ui-row-padding-inline);
+  color: var(--uc-soft);
+  font-size: var(--text-body);
+}
+:root .ui-popup.nt-popover .nt-rows > .nt-row.is-selected { background: var(--uc-hover-strong); color: var(--uc-ink); }
+:root .ui-popup.nt-popover .nt-row-icon { color: var(--uc-muted); }
+:root .ui-popup.nt-popover .nt-row.is-selected .nt-row-icon { color: var(--uc-ink); }
+:root .ui-popup.nt-popover .nt-row-glyph { --nt-glyph-ink: 14px; }
+:root .ui-popup.nt-popover .nt-row-detail { font-size: var(--text-detail); letter-spacing: normal; }
+:root .ui-popup.nt-popover .nt-row-return { display: none; }
+:root .ui-popup.nt-popover .nt-row-shortcut { gap: var(--uc-key-gap); }
+
+/* +'s menu: under it, on its left edge (Picker's side), 12 px radius, 5 px padding, 206 to 300 px wide, in the shared
+   menu material; 28 px rows at 7 px radius, 9 px padding, 8 px gap, 13 px in the chips' ink, 14 px icons. No subtitles, Return hint
+   or section rule. */
+html:root .ui-popup.acpmux-menu.nt-split-plus {
+  --uc-ink: var(--cmux-text, var(--agent-text));
+  --uc-hover-strong: color-mix(in srgb, var(--uc-ink) 10%, transparent);
+  --ui-popup-radius: 12px;
+  --ui-popup-padding: 5px;
+  width: max-content;
+  min-width: 206px;
+  max-width: 300px;
+  padding: var(--ui-popup-padding);
+  border-radius: 12px;
+}
+html:root .ui-popup.acpmux-menu.nt-split-plus .acpmux-menu-item {
+  --uc-menu-row-pad: 9px;
+  --uc-menu-row-radius: 7px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 var(--uc-menu-row-pad);
+  gap: 8px; /* menu-gutter-allow: the lab's 8 px from icon to label (Lucas 2026-11-25) */
+  border-radius: var(--uc-menu-row-radius);
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--uc-ink) 58%, transparent));
+  font-size: var(--text-body);
+}
+html:root .ui-popup.acpmux-menu.nt-split-plus .acpmux-menu-item :is(.acpmux-menu-label, .acpmux-menu-text, svg) {
+  color: inherit;
+}
+html:root .ui-popup.acpmux-menu.nt-split-plus .acpmux-menu-item:is(:hover, [data-highlighted], :focus-visible) {
+  background: var(--uc-hover-strong);
+  color: var(--uc-ink);
+}
+html:root .ui-popup.acpmux-menu.nt-split-plus .acpmux-menu-item > svg {
+  width: 14px;
+  height: 14px;
+}
+html:root .ui-popup.acpmux-menu.nt-split-plus :is(.acpmux-menu-description, .acpmux-menu-return, [role="separator"], .ui-menu-separator) {
+  display: none;
+}
+
+/* The location menus, on New Tab (a chat's composer keeps its own). The computer menu's This Mac glyph at the chip's laptop size (it drew 11 x 6.5 px of ink beside
+   Other devices' 14 x 10), its 14 px slot kept; the project menu's + and folder at the bar's and the chip's size
+   (13.5 x 13.5 and 13.5 x 11.5 px, they drew 15 x 15 and 15 x 12.5), their 18 px slot kept. */
+html:root:has(.nt-screen) .ui-popup.acpmux-location-menu .acpmux-location-row > svg.acpmux-macbook-icon {
+  --uc-slot: 14px;
+  --uc-glyph-w: 20.28px;
+  --uc-glyph-h: 16.22px;
+  width: var(--uc-glyph-w);
+  height: var(--uc-glyph-h);
+  margin: calc((var(--uc-slot) - var(--uc-glyph-h)) / 2) calc((var(--uc-slot) - var(--uc-glyph-w)) / 2);
+  stroke-width: 1.2525;
+}
+html:root:has(.nt-screen) .ui-popup.acpmux-location-menu .acpmux-location-action-icon > svg.acpmux-icon {
+  --uc-glyph: 16.3px;
+  width: var(--uc-glyph);
+  height: var(--uc-glyph);
+  stroke-width: 1.25;
+}
+/* The rule under the project rows stands as close to them as the search rule does: 3.5 px on screen (the 0.5 px rule
+   draws on the next half pixel), and 3.5 px over "Add project…". */
+html:root:has(.nt-screen) .ui-popup.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"] {
+  --uc-rule-gap: 3px;
+  margin-top: var(--uc-rule-gap);
+  padding-top: 0;
+}
+html:root:has(.nt-screen) .ui-popup.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before {
+  margin-bottom: 4px;
+}
+
+/* Dictation: no pill. While a session runs, the waveform draws inside the mic in its glyph's place: the 5 newest bars
+   (18 px wide, up to 18 px tall) in the lit mic's accent. The mic keeps its lit square and its press (Stop). */
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-composer-actions { position: relative; }
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-pill {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--acpmux-composer-control, 28px);
+  height: var(--acpmux-composer-control, 28px);
+  justify-content: center;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--acpmux-dictation-accent);
+  z-index: var(--layer-raised);
+}
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-composer-actions:has(> .acpmux-send) .acpmux-dictation-pill {
+  right: calc(var(--acpmux-composer-control) + var(--acpmux-composer-action-gap));
+}
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-wave > [data-dot],
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-wave > [data-bar]:nth-last-child(n + 8) {
+  display: none;
+}
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-mic:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]) > svg {
+  opacity: 0;
+}

@@ -53,6 +53,7 @@ fn unlogged_row_event(session: &Session, kind: &str) -> HubEvent {
         }),
         remote: None,
         update_line: Default::default(),
+        event_params: Default::default(),
         row: Default::default(),
         list_seq: 0,
         peer_batch: false,
@@ -340,7 +341,7 @@ impl Hub {
 
     /// [`Self::warm_chat`] by id, for a chat the hub holds.
     pub(super) fn warm_chat_id(&self, id: &str) {
-        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let live = self.session_get(id);
         if let Some(session) = live {
             self.warm_chat(&session);
         }

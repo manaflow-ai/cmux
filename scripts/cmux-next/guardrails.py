@@ -2119,6 +2119,19 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("expect-keypath-call",
+         "A `#expect` / `#require` whose whole condition is a call with a key-path argument "
+         "(`#expect(xs.allSatisfy(\\.isActive))`)",
+         "Xcode 26.6's swift-testing expands it into `__checkFunctionCall` with the key path as a throwing function "
+         "argument, so the expansion fails with \"call can throw, but it is not marked with 'try'\" and the whole "
+         "CmuxNext test build stops on macOS 27 hosts (2026-11-26: HoverCardBodyHandOffTests from #57323 broke every "
+         "suite step on the fleet; Xcode 26.3 CI compiled it)",
+         "pass a closure instead of the key path (`xs.allSatisfy { $0.isActive }`), or read it into a `let` first",
+         None,
+         # No `?` in the receiver: swift-testing leaves an optional chain unexpanded, and
+         # `try #require(a.first?.items.map(\\.id))` compiles on 26.6.
+         line_rule(r"#(?:expect|require)\(\s*(?:try\s+)?(?:await\s+)?[\w.!\[\]]+\.\w+\(\s*(?:\w+:\s*)?\\\.[\w.]+\s*\)\s*[,)]", None),
+         scope=(TESTS,)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
@@ -3003,6 +3016,22 @@ def marker_ids(lines) -> collections.Counter:
     return found
 
 
+def owner_specs(base: str, head: str) -> list[tuple[str, str]]:
+    """The OWNERS.md reads owners_text needs, for the caller's one blobs() batch (no git call of its own)."""
+    return [(head, OWNERS), (base, OWNERS), (UPSTREAM, OWNERS)]
+
+
+def owners_text(texts: dict[tuple[str, str], str], base: str, head: str) -> str | None:
+    """OWNERS.md as merged upstream, unless the push itself (BASE..HEAD) edits it. Who holds an area is the merged
+    table's answer: 2026-11-27 a lane cut before cmux#60006 dropped `design-*motion*` from Layout motion still sent
+    its pushes to the transcript-motion lane, because the hook read the row from the lane's own stale copy. A push
+    that rewrites the table means its own rows, so those stand. None: no table anywhere."""
+    mine, merged = texts.get((head, OWNERS)), texts.get((UPSTREAM, OWNERS))
+    if merged is None or (mine is not None and texts.get((base, OWNERS)) != mine):
+        return mine
+    return merged
+
+
 def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
     """(area, path globs, owner, doc) from OWNERS.md's table (columns: Area | Paths | Owner | Read first)."""
     rows, header = [], None
@@ -3087,6 +3116,29 @@ def load_owner_live():
     return module
 
 
+# A file a base merge carried in is upstream's, not the push's: on 2026-11-25 lane/port-46285 (webviews only) and
+# lane/gate-held-token, pushed after a feat-cmux-next merge, sent the live iOS lane "you hold it now" for
+# Packages/iOS/CmuxTabsKit, because base..head was diffed as two trees and the base was the old remote head (the
+# upstream fetch had not reached the merged commit). The files are those of the push's own commits instead: every
+# non-merge commit head has that base, any range the push does not own, or any remote branch lacks, less those
+# GitHub committed (a squash merge or web edit landed upstream; a lane's own commit is never committed by GitHub).
+GITHUB_COMMITTER = "noreply@github.com"
+
+
+def owner_route_files(repo: Path, own) -> list[str]:
+    """The files the push's own non-merge commits touch (see the note above)."""
+    if not own.base:
+        return []
+    nots = [own.base, *(after for _, after in getattr(own, "before", ()) or ())]
+    out = git(repo, "log", "--no-merges", "--format=%x00%ce", "--name-only", own.head, "--not", *nots, "--remotes")
+    files: set[str] = set()
+    for commit in out.split("\0")[1:]:
+        committer, _, names = commit.partition("\n")
+        if committer.strip() != GITHUB_COMMITTER:
+            files.update(f for f in names.split("\n") if f.strip())
+    return sorted(files)
+
+
 def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
     """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
     notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
@@ -3097,10 +3149,10 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         if not own.head:
             continue
         try:
-            owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
-        except (Exception, SystemExit):
+            owners = parse_owners(owners_text(blobs(repo, owner_specs(own.base, own.head)), own.base, own.head) or "")
+            names = owner_route_files(repo, own)
+        except (Exception, SystemExit):  # an unreadable head (a range the push could not name) routes nothing
             continue
-        names = [f for f in git(repo, "diff", "--name-only", own.base, own.head).split("\n") if f] if own.base else []
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
@@ -3115,15 +3167,19 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         branch = None
     out = []
     for area, (cell, doc, files, head) in hits.items():
-        who, how = live.holder(cell, rows, coordinator)
+        who, how = live.holder(cell, rows, coordinator, area)
         if not who:
-            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns=WORKSTREAM`.")
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
             continue
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
         # A fallback hears of an unheld area once a UTC day, not every push into it (the coordinator flood of
-        # 2026-11-20); a holder hears of each pushed head.
-        failed = live.notify(who, area, time.strftime("day %Y-%m-%d", time.gmtime()) if fallback else head, text)
+        # 2026-11-20); a holder hears of each branch once a UTC day, not each pushed head: on 2026-11-24 one
+        # branch's rebases sent its holder seven notices in 35 s and 20 branches sent 30. The notice names the
+        # branch, so the later heads are a `git log` away. A detached push (no branch) keys on its head.
+        day = time.strftime("day %Y-%m-%d", time.gmtime())
+        key = day if fallback else (f"{branch} {day}" if branch and branch != "HEAD" else head)
+        failed = live.notify(who, area, key, text)
         out.append(f"owner: {area} is held by {who} ({how}); "
                    + (f"not told: {failed}" if failed else "told of this push"))
     return out
@@ -3227,7 +3283,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES)] + owner_specs(base, head)
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -3289,10 +3345,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
-    if (head, OWNERS) in texts:
+    owners = owners_text(texts, base, head)
+    if owners is not None:
         names_list = [f for f in names.split("\n") if f]
         try:
-            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
     return found, warnings

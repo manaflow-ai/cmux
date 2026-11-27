@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -17,16 +18,64 @@ public final class DaemonUpdateBoard {
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
     /// Machines whose Update the person clicked (``update(_:retry:)``), until their update ends.
     private var clicked: Set<String> = []
+    /// One quiet hold per machine that went offline (``QuietHold/connectionDelay``, 10 s): "offline;
+    /// it will update when it's back" offers nothing to do, and a machine that drops for a reconnect
+    /// or a daemon handoff is back well under it (Leo, 2026-11-14: "i also want all our connectivity
+    /// stuff to shut up and load faster"). Meanwhile the board keeps what it drew before the drop.
+    /// The stretch lasts through the policy's own retries (offline, updating, offline) and ends on
+    /// any other state; a failure or a machine that cannot update (its Update button) shows at once.
+    @ObservationIgnored private var offlineHolds: [String: QuietHold] = [:]
+    /// The offline event of a machine whose hold still runs: drawn once it has lasted.
+    @ObservationIgnored private var heldOffline: [String: DaemonUpdateEvent] = [:]
+    private let offlineQuiet: Duration
+    private let clock: any Clock<Duration>
 
-    public init() {}
+    /// `offlineQuiet`: how long an offline machine says nothing, nil for the shared connection bound
+    /// (tests pass `.zero` for the board as it was, with no hold). `clock`: the hold's clock.
+    public init(offlineQuiet: Duration? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+        self.offlineQuiet = offlineQuiet ?? QuietHold.connectionDelay
+        self.clock = clock
+    }
 
     public func apply(_ event: DaemonUpdateEvent) {
         if event.state != .updating, event.state != .retrying { clicked.remove(event.id) }
+        guard !holdsOffline(event) else { return }
         guard event.state != .cleared else {
             targets[event.id] = nil
             return
         }
         targets[event.id] = event
+    }
+
+    /// True while machine `id` is offline and its hold still runs: nothing says so yet.
+    func offlineHeld(_ id: String) -> Bool {
+        offlineHolds[id]?.held ?? false
+    }
+
+    /// Runs `event` through its machine's offline hold; true when the board keeps what it drew.
+    private func holdsOffline(_ event: DaemonUpdateEvent) -> Bool {
+        let id = event.id
+        let offline = event.state == .offline
+        let retry = event.state == .updating || event.state == .retrying
+        guard offlineQuiet > .zero, offline || (retry && offlineHolds[id] != nil) else {
+            offlineHolds.removeValue(forKey: id)?.update(false) {}
+            heldOffline[id] = nil
+            return false
+        }
+        guard offline else {
+            // The policy's own retry of an offline machine: drawn, and the stretch goes on.
+            heldOffline[id] = nil
+            return false
+        }
+        let hold = offlineHolds[id] ?? QuietHold(owner: "daemon-update-offline", delay: offlineQuiet, clock: clock)
+        offlineHolds[id] = hold
+        heldOffline[id] = event
+        hold.update(true) { [weak self] in
+            guard let self, let held = heldOffline.removeValue(forKey: id) else { return }
+            targets[id] = held
+        }
+        if !hold.held { heldOffline[id] = nil }
+        return hold.held
     }
 
     /// Settings > Updates' row of other machines: each that cannot update in place, then each whose
@@ -82,6 +131,7 @@ public final class DaemonUpdateBoard {
     /// Why an Update click did not run: the machine is gone from this run, or updates of other
     /// machines are off.
     public nonisolated static var updateRefused: String {
+        // retry-prompt-ok: an update replaces the machine's binaries
         String(localized: "agentPane.daemonUpdate.machines.updateRefused",
                defaultValue: "This machine can't be updated now. Try again once it's connected.", bundle: .localizedModule)
     }
@@ -120,6 +170,7 @@ public final class DaemonUpdateBoard {
         case .updating:
             String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's version…", bundle: .localizedModule)
         case .retrying:
+            // retry-prompt-ok: says the update retries by itself; no prompt
             String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .localizedModule)
         case .offline:
             String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .localizedModule)

@@ -21,6 +21,97 @@ pub(crate) fn run() -> Res<()> {
     write_snapshot(&mut std::io::stdout().lock(), read())
 }
 
+/// The System Settings item that holds this process's Screen Recording grant: the innermost
+/// app bundle around `executable` (`cmux NIGHTLY Screen Sharing.app/Contents/MacOS/...` is
+/// "cmux NIGHTLY Screen Sharing"), else the one holder the handbook names, "cmux Computer Use"
+/// (cmuxterm-hq docs/handbook/screen-share-grant-lost-on-a-fleet-mac.md).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn listed_as(executable: &std::path::Path) -> String {
+    executable
+        .ancestors()
+        .filter_map(|p| p.file_name()?.to_str()?.strip_suffix(".app"))
+        .next()
+        .unwrap_or("cmux Computer Use")
+        .to_owned()
+}
+
+/// This Mac's short name (`cosmic-gray.local` is `cosmic-gray`), for the words a viewer reads.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn host_name() -> String {
+    let name = kernel_host_name();
+    let short = name.strip_suffix(".local").unwrap_or(&name);
+    if short.is_empty() {
+        "this Mac".into()
+    } else {
+        short.to_owned()
+    }
+}
+
+#[cfg(unix)]
+fn kernel_host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most `buf.len()` bytes into our own buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    if ok {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        String::new()
+    }
+}
+
+/// Windows has no `gethostname` in libc: the computer name Settings > System shows.
+#[cfg(not(unix))]
+fn kernel_host_name() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default().trim().to_owned()
+}
+
+/// The reason a share ends with when Screen Recording is not granted: the cause, the Mac and
+/// the one click that fixes it (a person's; nothing here grants anything).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn screen_recording_missing(host: &str, item: &str) -> String {
+    format!(
+        "Screen Recording not granted on {host}. On {host}, open System Settings > Privacy & \
+         Security > Screen & System Audio Recording and turn on \"{item}\"."
+    )
+}
+
+/// The reason a share ends with when Screen Recording reads as on but macOS lists no display to
+/// capture (an empty SCShareableContent): a grant macOS holds for an older copy of the item.
+/// Its own words, so it is never read as a missing grant or a helper that stopped.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn no_display_listed(host: &str, item: &str) -> String {
+    format!(
+        "Screen Recording is on for \"{item}\" on {host}, but macOS listed no display to capture. \
+         On {host}, open System Settings > Privacy & Security > Screen & System Audio Recording, \
+         turn \"{item}\" off and on again."
+    )
+}
+
+/// [`no_display_listed`] for this process on this Mac.
+#[cfg(target_os = "macos")]
+pub(crate) fn no_display_here() -> String {
+    let exe = std::env::current_exe().unwrap_or_default();
+    no_display_listed(&host_name(), &listed_as(&exe))
+}
+
+/// At capture start: Err with [`screen_recording_missing`] when this process (the helper, its
+/// own responsible process) has no Screen Recording grant, so the session ends with the cause
+/// on the wire (`ended: failed: <words>`) instead of a capture that never delivers a picture.
+/// Ok when it is granted or cannot be read (the capture then says what it saw).
+#[cfg(target_os = "macos")]
+pub(crate) fn require_screen_recording() -> Res<()> {
+    if platform::cg::available().is_err() {
+        return Ok(());
+    }
+    // SAFETY: resolved above; no arguments, returns a plain bool, never prompts.
+    if unsafe { platform::cg::CGPreflightScreenCaptureAccess() } {
+        return Ok(());
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    Err(screen_recording_missing(&host_name(), &listed_as(&exe)).into())
+}
+
 /// One grant `request-permission` may ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Grant {
@@ -166,64 +257,5 @@ mod platform {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn permission_probe_read_failure_emits_no_snapshot() {
-        let mut output = Vec::new();
-        let result = write_snapshot(&mut output, Err("framework unavailable".into()));
-        assert!(result.is_err());
-        assert!(output.is_empty());
-    }
-
-    #[test]
-    fn permission_probe_snapshot_keeps_grants_independent() {
-        for (screen_recording, accessibility) in [(true, false), (false, true)] {
-            let mut output = Vec::new();
-            write_snapshot(&mut output, Ok(Permissions { screen_recording, accessibility }))
-                .expect("snapshot");
-            let value: serde_json::Value = serde_json::from_slice(&output).expect("JSON");
-            assert_eq!(value["screen_recording"], screen_recording);
-            assert_eq!(value["accessibility"], accessibility);
-            assert_eq!(output.last(), Some(&b'\n'));
-        }
-    }
-
-    #[test]
-    fn permission_probe_rejects_options_that_could_imply_prompting() {
-        assert_eq!(crate::run_cli(&["permissions".into(), "--request".into(), "1".into()]), 2);
-    }
-
-    #[test]
-    fn a_request_names_exactly_one_known_grant() {
-        assert_eq!(Grant::parse("screen-recording"), Some(Grant::ScreenRecording));
-        assert_eq!(Grant::parse("accessibility"), Some(Grant::Accessibility));
-        for word in ["", "all", "screen_recording", "Accessibility", "camera"] {
-            assert_eq!(Grant::parse(word), None, "{word}");
-        }
-        assert_eq!(crate::run_cli(&["request-permission".into()]), 2);
-        assert_eq!(crate::run_cli(&["request-permission".into(), "camera".into()]), 2);
-        let two = ["request-permission".into(), "accessibility".into(), "screen-recording".into()];
-        assert_eq!(crate::run_cli(&two), 2);
-    }
-
-    #[test]
-    fn a_launch_services_open_is_recognized_only_inside_a_bundle() {
-        use std::path::Path;
-        let helper = Path::new("/x/cmux Helper.app/Contents/MacOS/cmux-screen-sharing");
-        let cli = Path::new("/usr/local/bin/cmux-rd");
-        assert!(crate::is_launch_services_open(&[], helper));
-        assert!(crate::is_launch_services_open(&["-psn_0_1234".into()], helper));
-        assert!(!crate::is_launch_services_open(&["serve".into()], helper));
-        assert!(!crate::is_launch_services_open(&[], cli));
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn permission_probe_unsupported_platform_emits_no_snapshot() {
-        let mut output = Vec::new();
-        assert!(write_snapshot(&mut output, read()).is_err());
-        assert!(output.is_empty());
-    }
-}
+#[path = "permissions_tests.rs"]
+mod tests;

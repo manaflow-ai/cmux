@@ -13,6 +13,9 @@
 //!   `Claude <n>`, `~/.cmux/accounts/<id>`, a shadow home for Codex) and lists its route only
 //!   once the sign-in succeeded: a cancelled, failed or expired add lists nothing and removes
 //!   only the home it made. GitHub runs gh's own device flow (`agent_login::github`).
+//!   The start answers `pageHosts` too: the hosts its page is still the sign-in's own on
+//!   (`agent_login::parse::page_hosts`). The app that opened the page in a tab closes that tab
+//!   when the sign-in is cancelled, finishes or expires, only while it shows one of them.
 //! - `sign_in.finish {loginId, code?}` waits for it (Claude takes the pasted code);
 //!   `sign_in.cancel {loginId}` stops it.
 //! - `switch {account}`: Codex and Claude make it their family's default (a built-in login:
@@ -26,8 +29,18 @@
 //!   check `sign_in` refuses with), `signInRequired`, or `ready` (a signed-in, enabled account:
 //!   `account` is the default one's id, else the first's, and `label` its email or login).
 //!
-//! Who may ask: this machine's unix socket and its app (`Origin::Local`, `Origin::LocalApp`),
-//! never a Web client or a peer (`allowed`). The caller names an account or a family only:
+//! Who may ask: exactly who may run an agent's sign-in here (`agent_login::allowed`, one rule for
+//! both): this machine's unix socket and its app, and the owner's own peer daemon (the person's
+//! Mac, forwarding its card for a Cloud or remote machine's chat: `vm_boundary::owner`), so a
+//! Cloud or remote machine signs GitHub, Codex or Claude in there with the same device card
+//! (Leo, 2026-11-22: "if we host the browser and the app at the same time and the cloud
+//! product... theres no reason for us not only to be able to have s*** side by side opened where
+//! it's convienient"). Never a Web client, a paired device, a teammate on a team machine, or a
+//! peer forwarding for one of them (`REMOTE_REFUSED`); a team machine itself refuses every own
+//! sign-in (`shared_machine`, `Machine::refuse_shared`). A request that names a chat
+//! (`sessionId`) was forwarded to the chat's machine before it got here; one whose chat is not
+//! here is refused (`unknown_session`), never run on this machine in its place. The caller names
+//! an account or a family only:
 //! every program, path and variable comes from this daemon. Nothing here logs, traces or
 //! answers a code beyond `userCode` in the start reply, or any token.
 
@@ -37,8 +50,8 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use serde_json::{Value, json};
 
-use super::Origin;
 use super::agent_login::{REMOTE_REFUSED, cli_for, error, machine};
+use super::{Conn, ConnAuth, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, github, reason};
 use crate::hub::Hub;
 use crate::routes::{self, RouteFile};
@@ -67,14 +80,18 @@ pub const GITHUB_PREFIX: &str = "github:";
 /// The longest typed name kept (the Mac's picker keeps as many).
 pub const NAME_MAX: usize = 128;
 
-/// Whether `origin` may ask (module docs).
-pub fn allowed(origin: Origin) -> bool {
-    matches!(origin, Origin::Local | Origin::LocalApp)
+/// Whether a connection of `origin` that presented `auth` may ask (module docs): the agent
+/// sign-in's own owner rule, not a second policy.
+pub fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
+    super::agent_login::allowed(origin, auth, params)
 }
 
 fn refused() -> RpcError {
-    RpcError::new(-32000, "accounts sign in only from this machine's unix socket or its cmux app")
-        .with_data(json!({"reason": REMOTE_REFUSED}))
+    RpcError::new(
+        -32000,
+        "accounts sign in only from this machine, its cmux app, or its owner's own machine",
+    )
+    .with_data(json!({"reason": REMOTE_REFUSED}))
 }
 
 fn unknown(id: &str) -> LoginError {
@@ -288,12 +305,22 @@ fn agent_of(family: &str) -> Option<Agent> {
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
-    origin: Origin,
+    conn: &Conn,
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !allowed(origin) {
+    if !allowed(conn.origin, conn.auth, params) {
         return Err(refused());
+    }
+    // A named chat this daemon does not have (module docs); a cancel stops a sign-in by its id.
+    if m != method::MUX_ACCOUNT_SIGN_IN_CANCEL
+        && let Some(key) = text(params, "sessionId")
+        && hub.resolve(key).is_err()
+    {
+        return Err(error(LoginError::new(
+            reason::UNKNOWN_SESSION,
+            format!("no chat {key:?} here: open the chat again"),
+        )));
     }
     match m {
         method::MUX_ACCOUNT_SIGN_IN => sign_in(hub, params).await,
@@ -403,10 +430,13 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     // A GitHub add has no login until gh names it at finish: until then its account is the
     // family (`github`), and finish answers the `github:<login>` it signed in.
     let shown = account.clone().unwrap_or_else(|| agent.name().to_owned());
+    // The hosts the app may still close this sign-in's own tab on once it ended.
+    let page_hosts = login::parse::page_hosts(agent, &started.url);
     let mut reply = json!({
         "account": shown,
         "loginId": started.login_id,
         "url": started.url,
+        "pageHosts": page_hosts,
         "needsCode": started.needs_code,
         "expiresAtMs": started.expires_at_ms,
         "added": added,
@@ -481,6 +511,8 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(error(e));
         }
     };
+    // Whether git on this machine now uses the GitHub sign-in (GitHub only).
+    let mut git = None;
     let account = match (&p.add, p.agent) {
         (Some(add), _) => {
             let (dir, _) = routes::places(&*hub.config.read().await);
@@ -502,12 +534,23 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             }
         }
         (None, Agent::Github) => match cli(hub, Agent::Github).await {
-            Ok(cli) => github::accounts(&cli)
-                .await
-                .into_iter()
-                .find(|a| a.active)
-                .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
-                .or(p.account.clone()),
+            Ok(cli) => {
+                // git on this machine signs in through gh too, so clone and push work (a
+                // Cloud machine's "Sign in with GitHub"); a failure keeps the gh sign-in.
+                git = Some(match github::setup_git(&cli).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!(error = %e.message, "account sign-in: gh auth setup-git");
+                        false
+                    }
+                });
+                github::accounts(&cli)
+                    .await
+                    .into_iter()
+                    .find(|a| a.active)
+                    .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
+                    .or(p.account.clone())
+            }
             Err(_) => p.account.clone(),
         },
         (None, _) => p.account.clone(),
@@ -523,7 +566,11 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             tracing::warn!(agent = p.agent.name(), error = %e.message, "account sign-in: mark chats");
         }
     }
-    Ok(json!({"signedIn": true, "account": account}))
+    let mut reply = json!({"signedIn": true, "account": account});
+    if let (Some(git), Some(obj)) = (git, reply.as_object_mut()) {
+        obj.insert("git".to_owned(), Value::Bool(git));
+    }
+    Ok(reply)
 }
 
 async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {

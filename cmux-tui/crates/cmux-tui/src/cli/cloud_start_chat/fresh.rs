@@ -18,6 +18,18 @@
 //! (its create still on its way, the machine pausing) is tried again for up to [`RELEASE_WAIT`]; one it still could
 //! not delete stops the retries and names the command that does. A `--from-folder` start is not bounded (its copy
 //! runs inside the step), but its app's own stuck answer is retried the same way.
+//!
+//! A machine still booting is not stuck. Production, 2026-11-26 (cmuxterm-hq `app-chat-production`, run
+//! 45723457278): every `cloud.machine_stuck` (6 of 6) was a cold create (no spare: the create took 18 to 28 s, and
+//! the platform named no spare claim), and every start that passed (5) claimed a spare (create 3.2 to 5.8 s). A
+//! cold machine takes about 90 to 120 s to create and boot: its guest daemon spawned only at the 90 s mark
+//! (`cmux-host: spawn-daemon`), its create was still on its way at the bound or the machine was "not running"
+//! there, and the run deleted it and cold-created another that needed the same 90 to 120 s, so the retry could not
+//! succeed. So at [`START_BOUND`] the run reads the machine ([`Boot`]): one whose create is still on its way, or
+//! listed as provisioning or starting, is waited on while it boots, read again every [`BOOT_EVERY`]; once it
+//! runs it gets [`UP_BOUND`] to connect and start its agent; all of it within [`COLD_BOUND`] of the start. A machine
+//! already running at the bound (the 11-17 bad image pin: running, its session host never on the relay) is given up
+//! there, as before.
 
 use std::time::{Duration, Instant};
 
@@ -26,7 +38,8 @@ use serde_json::{Value, json};
 use super::internal::bounded::PAST_DEADLINE;
 use super::{Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_result, words};
 
-/// The longest a `cloud start-session` on a machine this run made may take before the machine is given up.
+/// The longest a `cloud start-session` on a machine this run made may take before the machine is given up, when the
+/// machine is running by then (a claimed spare); one still booting then is waited on ([`Boot`], [`COLD_BOUND`]).
 /// Production's healthy starts (24 passing `cloud-chat-replies-production` rows, 2026-11-16 to 11-18): the link
 /// (`connect.link`) took 1.5 to 31.6 s, median 6.6 s, and the whole step (machine, connect, approvals, anchor, tab,
 /// agent start) at most about 60 s (2026-11-17 21:12Z: 10.0 + 33.6 + 8.4 + 3.8 + 4.2 s). The stuck ones waited 180 s
@@ -46,18 +59,124 @@ pub(super) const STUCK_CODE: &str = "cloud.machine_stuck";
 const STUCK_WORDS: &[&str] =
     &["didn't connect, so no agent started there", "started but its agent didn't (timed out"];
 
-/// When the start on a fresh machine stops waiting: [`START_BOUND`] from now, or the run's deadline when sooner.
-pub(super) fn start_until(runner: &mut dyn Runner, deadline: Deadline) -> Instant {
-    let now = runner.now();
-    now + deadline.bound(runner, START_BOUND)
+/// The longest a start on a new machine that was still booting at [`START_BOUND`] may take in all, from the start.
+/// 2026-11-26: a cold create plus its boot took about 90 to 120 s (the guest daemon spawned at the 90 s mark); the
+/// slowest of those, 120 s, and then [`UP_BOUND`] to connect and start the agent. It ends well before the app's own
+/// connect wait (180 s after the create) answers.
+pub(super) const COLD_BOUND: Duration = Duration::from_secs(180);
+
+/// How long a machine seen booting at a read, then running at the next one, has to connect and start its agent: the
+/// slowest healthy start's whole step (about 60 s, 2026-11-17 21:12Z), whose machine was up from its claim.
+pub(super) const UP_BOUND: Duration = Duration::from_secs(60);
+
+/// How often a booting machine is read again ([`Boot`]).
+pub(super) const BOOT_EVERY: Duration = Duration::from_secs(10);
+
+/// The longest one read of the machine list may take while a start waits on a booting machine.
+const BOOT_READ: Duration = Duration::from_secs(10);
+
+/// The bound of the `start-session` on a machine this run makes ([`START_BOUND`], within the run's deadline), and
+/// whether it is moved when it comes ([`Boot::later`]): a machine still booting then is waited on, never given up.
+pub(super) struct Boot {
+    name: String,
+    /// When the start began.
+    began: Instant,
+    /// Where the start stops now: [`START_BOUND`] from its start, or a later instant [`Boot::later`] named.
+    pub(super) until: Instant,
+    /// The furthest the start may go: [`COLD_BOUND`] from its start, or the run's deadline when sooner.
+    cap: Instant,
+    /// The last read found the machine booting.
+    booting: bool,
+    /// Any read found it booting (the answer's `booted`).
+    waited: bool,
 }
 
-/// `ran`, the `start-session` on the fresh machine `name`, as a stuck machine: stopped at `bound` (its own, not the
-/// run's deadline nor the runner's), or the app's own stuck answer. `None` for anything else.
+/// What a read of the machine list says of the machine a start makes.
+#[derive(Debug, PartialEq, Eq)]
+enum Seen {
+    /// Its create is still on its way, or it is listed as provisioning or starting: it is coming up.
+    Booting,
+    /// Listed as running.
+    Running,
+    /// Anything else (paused, failed, not listed, the list not read): nothing to wait on.
+    Other,
+}
+
+impl Boot {
+    pub(super) fn new(runner: &mut dyn Runner, name: &str, deadline: Deadline) -> Self {
+        let began = runner.now();
+        let until = began + deadline.bound(runner, START_BOUND);
+        let cap = began + deadline.bound(runner, COLD_BOUND);
+        Self { name: name.to_owned(), began, until, cap, booting: false, waited: false }
+    }
+
+    /// The start's new end, asked when its `until` came with it still running: [`BOOT_EVERY`] on while the machine
+    /// boots, [`UP_BOUND`] on once it runs after booting, never past `cap`. `None` gives the machine up: running
+    /// already at the bound (a hang, not a boot), running for its whole [`UP_BOUND`], or `cap` reached.
+    pub(super) fn later(&mut self, runner: &mut dyn Runner) -> Option<Instant> {
+        if runner.now() >= self.cap {
+            return None;
+        }
+        let seen = self.read(runner);
+        let now = runner.now();
+        let next = match seen {
+            Seen::Booting => {
+                self.booting = true;
+                self.waited = true;
+                now + BOOT_EVERY
+            }
+            Seen::Running if self.booting => {
+                self.booting = false;
+                now + UP_BOUND
+            }
+            Seen::Running | Seen::Other => return None,
+        };
+        let next = next.min(self.cap);
+        (next > now).then(|| {
+            self.until = next;
+            next
+        })
+    }
+
+    /// The machine named `name` in the app's list, read within [`BOOT_READ`].
+    fn read(&self, runner: &mut dyn Runner) -> Seen {
+        let until = (runner.now() + BOOT_READ).min(self.cap);
+        let Ok(listed) =
+            step_result(&runner.cmux_by(&words(&["cloud", "list-machines", "--json"]), until))
+        else {
+            return Seen::Other;
+        };
+        if at(&listed, "loaded").as_bool() == Some(false) {
+            return Seen::Other;
+        }
+        let rows = |key: &str| at(&listed, key).as_array().cloned().unwrap_or_default();
+        let named = |row: &Value, key: &str| at(row, key).as_str() == Some(self.name.as_str());
+        if let Some(row) = rows("machines").iter().find(|row| named(row, "title")) {
+            return match at(row, "status").as_str() {
+                Some("running") => Seen::Running,
+                // The app lists a create's machine as provisioning until its daemon connects or the list
+                // says otherwise (CloudMachineSession `effectiveStatus`); starting is a machine on its way up.
+                Some("provisioning" | "starting" | "unknown") => Seen::Booting,
+                _ => Seen::Other,
+            };
+        }
+        let creating =
+            rows("creating").iter().any(|row| named(row, "name") && at(row, "failed").is_null());
+        if creating { Seen::Booting } else { Seen::Other }
+    }
+
+    /// How long the start was given before it stopped.
+    fn bound(&self) -> Duration {
+        self.until.saturating_duration_since(self.began)
+    }
+}
+
+/// `ran`, the `start-session` on the fresh machine `name`, as a stuck machine: stopped at `boot`'s bound (its own,
+/// not the run's deadline nor the runner's), or the app's own stuck answer. `None` for anything else.
 pub(super) fn stuck(
     runner: &mut dyn Runner,
     ran: &Ran,
-    bound: Option<Instant>,
+    boot: Option<&Boot>,
     name: &str,
     deadline: Deadline,
 ) -> Option<Outcome> {
@@ -65,17 +184,19 @@ pub(super) fn stuck(
         return None;
     }
     if ran.code == PAST_DEADLINE
-        && let Some(bound) = bound
+        && let Some(boot) = boot
         && !deadline.passed(runner)
-        && runner.until().is_none_or(|until| until > bound)
+        && runner.until().is_none_or(|until| until > boot.until)
     {
+        let bound = boot.bound();
         return Some(failed(
             STUCK_CODE,
             format!(
                 "Machine `{name}` didn't connect or start its agent within {} s",
-                START_BOUND.as_secs()
+                bound.as_secs()
             ),
-            json!({"machine_name": name, "bound_ms": START_BOUND.as_millis(), "why": "bound"}),
+            json!({"machine_name": name, "bound_ms": bound.as_millis(), "booted": boot.waited,
+                   "why": "bound"}),
             1,
         ));
     }
@@ -99,13 +220,76 @@ struct Released {
     gone: bool,
     /// Why it is not gone.
     error: Option<Value>,
+    /// What the machine said about itself before its delete ([`look`]), when it was looked at.
+    guest: Option<Value>,
 }
 
 impl Released {
     fn json(&self, name: &str, why: &Value) -> Value {
-        json!({"machine_name": name, "machine_id": self.machine_id, "why": why, "deleted": self.gone,
-               "error": self.error})
+        let mut row = json!({"machine_name": name, "machine_id": self.machine_id, "why": why,
+                             "deleted": self.gone, "error": self.error});
+        if let (Some(guest), Some(fields)) = (&self.guest, row.as_object_mut()) {
+            fields.insert("guest".to_owned(), guest.clone());
+        }
+        row
     }
+}
+
+/// How long the look at a stuck machine ([`LOOK`]) may take before its delete.
+pub(super) const LOOK_BOUND: Duration = Duration::from_secs(25);
+/// The most of the look's output kept in the answer.
+const LOOK_KEEP: usize = 4000;
+
+/// What a stuck machine is asked before its delete, over the Cloud exec route (the provider's exec, which needs no
+/// relay link): its resolver, whether each https host its cmux config names resolves and answers, its session host
+/// and server units, and their last log lines. Production, 2026-11-23 (cmuxterm-hq `cloud-chat-replies-production`,
+/// runs 45262141250 and 45272430608, cmux-platform#1719): every fresh machine a gateway-mode start made parked its
+/// dials for 88 s and was refused `disconnected`: its daemon never joined the relay, and the delete took with it
+/// whatever said why. The first line is the look's marker.
+pub(super) const LOOK: &str = r#"# cmux stuck-machine look
+exec 2>&1
+printf 'resolv: %s
+' "$(grep -E '^(nameserver|search|options)' /etc/resolv.conf 2>/dev/null | tr '
+' ' ')"
+for h in $(sudo -n grep -rhoE 'https://[A-Za-z0-9.-]+' /etc/cmux 2>/dev/null | cut -d/ -f3 | sort -u | head -4); do
+  a=$(timeout 2 getent hosts "$h" | head -1 | cut -d' ' -f1)
+  c=$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "https://$h/" 2>&1 | tail -1 | cut -c1-80)
+  printf 'host %s dns=%s http=%s
+' "$h" "${a:-fail}" "$c"
+done
+for u in cmux-host cmux-server; do printf '%s: %s
+' "$u" "$(systemctl is-active "$u" 2>&1)"; done
+sudo -n journalctl -u cmux-host -u cmux-server -n 15 --no-pager -o short-iso 2>&1 | cut -c1-240"#;
+
+/// The machine `id` asked [`LOOK`] within [`LOOK_BOUND`] (and the run's deadline): its exit code and output, or
+/// the route's error. Never fails the run: what it finds is evidence only.
+fn look(runner: &mut dyn Runner, id: &str, deadline: Deadline) -> Value {
+    let left = deadline.bound(runner, LOOK_BOUND);
+    let now = runner.now();
+    let until = now.checked_add(left).unwrap_or(now);
+    let Some(script) = super::internal::bounded::remote_script(LOOK, left) else {
+        return json!({"error": "no time left to look"});
+    };
+    let target = format!("machine:{id}");
+    let args = words(&["cloud", "exec", "--target", &target, "--command", &script, "--json"]);
+    match step_result(&runner.cmux_by(&args, until)) {
+        Ok(result) => {
+            let stdout = at(&result, "stdout").as_str().unwrap_or_default();
+            let kept: String = stdout.chars().take(LOOK_KEEP).collect();
+            json!({"exit_code": at(&result, "exit_code"), "stdout": kept})
+        }
+        Err(error) => json!({"error": error}),
+    }
+}
+
+/// The look's lines that name a host or a unit, on one line: what the run says before the delete.
+fn look_said(guest: &Value) -> Option<String> {
+    let stdout = at(guest, "stdout").as_str()?;
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.starts_with("host ") || line.starts_with("cmux-"))
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("; "))
 }
 
 /// How long a delete that cannot happen yet is tried again: a create of the machine still on its way, or a machine
@@ -120,15 +304,53 @@ const RELEASE_EVERY: Duration = Duration::from_secs(3);
 /// Deletes the machine named `name` this run made ([`release_once`]); a delete that cannot happen yet (its create
 /// still on its way, the machine pausing) is tried again every [`RELEASE_EVERY`] for up to [`RELEASE_WAIT`], within
 /// the run's deadline.
-fn release(runner: &mut dyn Runner, name: &str, deadline: Deadline) -> Released {
+///
+/// With `looked` (a stuck machine), the machine is first asked [`LOOK`], once, so what it says outlives it.
+fn release(runner: &mut dyn Runner, name: &str, deadline: Deadline, looked: bool) -> Released {
     let until = runner.now() + deadline.bound(runner, RELEASE_WAIT);
+    let mut guest = (!looked).then_some(Value::Null);
     loop {
-        let released = release_once(runner, name);
+        let mut released = release_once(runner, name, &mut guest, deadline);
         if released.gone || !not_yet(&released) || runner.now() + RELEASE_EVERY > until {
+            released.guest = guest.filter(|guest| !guest.is_null());
             return released;
         }
         runner.pause(RELEASE_EVERY);
     }
+}
+
+/// The fields of a `list-machines` row (a machine, or a create still on its way) kept beside a given-up machine: what
+/// the Cloud service says of it when the machine itself cannot answer. Production, 2026-11-26 (cmuxterm-hq
+/// `app-chat-production`, 11:30Z and 11:38Z): fresh machines on the new boot image ended `cloud.machine_stuck`, the
+/// look answered only "the machine is not running; start it first", and the delete then took whether the service had
+/// it provisioning, paused or failed; a create that never landed kept only "its create is still on its way".
+const LISTED_KEEP: &[&str] = &[
+    "status",
+    "state",
+    "phase",
+    "stage",
+    "reason",
+    "error",
+    "created_at",
+    "started_at",
+    "updated_at",
+    "region",
+    "provider",
+    "boot_image",
+    "image",
+    "spare",
+    "creation_id",
+];
+
+fn listed_facts(row: &Value) -> Value {
+    let kept = row.as_object().map(|fields| {
+        fields
+            .iter()
+            .filter(|(key, _)| LISTED_KEEP.contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<serde_json::Map<String, Value>>()
+    });
+    Value::Object(kept.unwrap_or_default())
 }
 
 /// The delete failed only for now: the machine's create is still on its way, or it is pausing.
@@ -138,29 +360,123 @@ fn not_yet(released: &Released) -> bool {
 }
 
 /// One delete of the machine named `name` this run made: its id from the app's list, then `cloud kill-machine`.
-fn release_once(runner: &mut dyn Runner, name: &str) -> Released {
+/// `guest` empty: the machine is asked [`LOOK`] first, and the answer kept there.
+fn release_once(
+    runner: &mut dyn Runner,
+    name: &str,
+    guest: &mut Option<Value>,
+    deadline: Deadline,
+) -> Released {
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
-        Err(error) => return Released { machine_id: None, gone: false, error: Some(error) },
+        Err(error) => {
+            return Released { machine_id: None, gone: false, error: Some(error), guest: None };
+        }
     };
     let rows = |key: &str| at(&listed, key).as_array().cloned().unwrap_or_default();
+    if at(&listed, "loaded").as_bool() == Some(false)
+        || listed.pointer("/account/signed_in").and_then(Value::as_bool) == Some(false)
+    {
+        return Released {
+            machine_id: None,
+            gone: false,
+            error: Some(json!({"message": "the machine list is not available"})),
+            guest: None,
+        };
+    }
     let named = |row: &Value, key: &str| at(row, key).as_str() == Some(name);
-    let Some(id) = rows("machines")
-        .iter()
-        .find(|row| named(row, "title"))
-        .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
+    let Some((id, row)) =
+        rows("machines").into_iter().find(|row| named(row, "title")).and_then(|row| {
+            let id = at(&row, "machine_id").as_str().map(str::to_owned)?;
+            Some((id, row))
+        })
     else {
-        // A create of it still on its way has no id to delete yet: it is not gone.
-        let creating = rows("creating").iter().any(|row| named(row, "name"));
-        let error = creating.then(|| json!({"message": "its create is still on its way"}));
-        return Released { machine_id: None, gone: !creating, error };
+        // A create of it still on its way has no id to delete yet: it is not gone. Its row says how far it got.
+        let creating = rows("creating").into_iter().find(|row| named(row, "name"));
+        let error = creating
+            .as_ref()
+            .map(|row| json!({"message": "its create is still on its way", "creating": listed_facts(row)}));
+        return Released { machine_id: None, gone: creating.is_none(), error, guest: None };
     };
+    if guest.is_none() {
+        let mut found = look(runner, &id, deadline);
+        if let Some(said) = look_said(&found) {
+            runner.say(&format!("Machine `{name}` before its delete: {said}"));
+        }
+        if let Some(fields) = found.as_object_mut() {
+            fields.insert("listed".to_owned(), listed_facts(&row));
+        }
+        *guest = Some(found);
+    }
+    release_id(runner, &id)
+}
+
+fn release_id(runner: &mut dyn Runner, id: &str) -> Released {
     let target = format!("machine:{id}");
     let kill = ["cloud", "kill-machine", "--target", target.as_str(), "--confirm", "--json"];
     match step_result(&runner.cmux(&words(&kill))) {
-        Ok(_) => Released { machine_id: Some(id), gone: true, error: None },
-        Err(error) => Released { machine_id: Some(id), gone: false, error: Some(error) },
+        Ok(_) => Released { machine_id: Some(id.to_owned()), gone: true, error: None, guest: None },
+        Err(error) => Released {
+            machine_id: Some(id.to_owned()),
+            gone: false,
+            error: Some(error),
+            guest: None,
+        },
     }
+}
+
+/// A definitive refusal before an agent exists rolls back only this run's newly created machine.
+/// A timeout or lost reply is ambiguous, so it keeps the existing retry/reconciliation path.
+/// The app wraps daemon refusal codes in its message; retain that original refusal as evidence.
+pub(super) fn release_refused(
+    runner: &mut dyn Runner,
+    fresh_name: Option<&str>,
+    made: Option<&str>,
+    mut outcome: Outcome,
+    deadline: Deadline,
+) -> Outcome {
+    let Outcome::Failed { error, .. } = &mut outcome else { return outcome };
+    if fresh_name.is_none() && made.is_none() {
+        return outcome;
+    }
+    let code = at(error, "code").as_str().unwrap_or_default();
+    let message = at(error, "message").as_str().unwrap_or_default();
+    let refused = [
+        "agent_session.bad_request",
+        "agent_session.not_trusted",
+        "agent_session.not_asking",
+        "agent_session.untrusted_folder",
+        "agent_session.harness_missing",
+        "agent_session.team_vm_blocked",
+        "agent_session.start_unsupported",
+    ];
+    if !refused.iter().any(|reason| code == *reason || message.contains(reason)) {
+        return outcome;
+    }
+    let released = match (made, fresh_name) {
+        (Some(id), _) => release_id(runner, id),
+        (None, Some(name)) => release(runner, name, deadline, false),
+        (None, None) => return outcome,
+    };
+    let next = if released.gone {
+        "The new machine was deleted because its agent could not start.".to_owned()
+    } else {
+        released.machine_id.as_ref().map_or_else(
+            || "The new machine could not be deleted; find it with `cmux cloud list-machines`, then run `cmux cloud kill-machine --target machine:ID --confirm`.".to_owned(),
+            |id| format!("The new machine could not be deleted; run `cmux cloud kill-machine --target machine:{id} --confirm`."),
+        )
+    };
+    // The app's retry command targets the machine we just deleted. Keep it in details.app,
+    // while the top-level error names the actual terminal outcome.
+    let reason = message.split(". Run `").next().unwrap_or(message);
+    error["message"] = json!(format!("{reason}. {next}"));
+    if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+        details.insert(
+            "cleanup".to_owned(),
+            released.json(fresh_name.unwrap_or_default(), &json!("agent_refused")),
+        );
+    }
+    outcome
 }
 
 /// `outcome` (the run's first start, begun at `began`), or, when its new machine was stuck ([`stuck`]), the start
@@ -185,7 +501,7 @@ pub(super) fn replace_stuck(
         let details = at(error, "details");
         let Some(name) = at(details, "machine_name").as_str().map(str::to_owned) else { break };
         let why = at(details, "why").clone();
-        let released = release(runner, &name, deadline);
+        let released = release(runner, &name, deadline, true);
         replaced.push(released.json(&name, &why));
         if !released.gone {
             // The very command `release` ran, so the person's retry of it is the same step.

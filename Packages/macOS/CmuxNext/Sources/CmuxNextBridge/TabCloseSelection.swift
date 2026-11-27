@@ -11,8 +11,8 @@ public import CmuxNextTabs
 /// A tab a person makes in the foreground (Cmd-T, the +, a New Tab action) keeps an opener: the tab its
 /// pane showed before. Its lifetime follows the placement: put right after the current tab (the default),
 /// the relation lasts as a link tab's does, until the person selects an unrelated tab; put at the end or
-/// the start, it is the quick look-up and ends when the pane's selection leaves the new tab. A tab a link
-/// or an action inside another tab makes keeps that tab as its opener (``made(_:from:in:quick:foreground:)``).
+/// the start, it is the quick look-up and ends when the pane's selection leaves the new tab. A link's tab keeps
+/// no opener here (``linkOpened(in:)``): its close selects by position, as every other tab's does.
 /// A tab made by the CLI, the socket, MCP, a script, a restore, a move or a drag has none. A relation never
 /// crosses panes: a tab that leaves its pane (closed, or moved) leaves the state.
 ///
@@ -95,6 +95,15 @@ public final class TabCloseSelection {
         openers.made(item, opener: parent, kind: quick ? .quick : .task, foreground: foreground) { home[$0] == pane }
         guard openers.opener(of: item) != nil else { return }
         (home[item], home[parent]) = (pane, pane)
+    }
+
+    /// A link's tab opened in the foreground of `pane` (a web link's tab, a chat's GitHub page). It gets no opener: its
+    /// close selects by position, as every tab's does (Lucas, 2026-11-23). The pane's older relations end first, as
+    /// Chrome's foreground link tab ends them (`InsertTabAtImpl`). With no relation held it reads nothing.
+    public func linkOpened(in pane: String) {
+        guard !home.isEmpty else { return }
+        openers.forgetAll { home[$0] == pane }
+        forgetWhenEmpty()
     }
 
     /// `pane` now selects `new`; it selected `old` before. `standIn`: the tab whose place `new` took.
