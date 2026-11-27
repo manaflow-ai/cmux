@@ -197,6 +197,34 @@ test("the Folder chip names its key with no folder picked too", async () => {
   expect(container.querySelector(".acpmux-location-button")!.getAttribute("title")).toBe("/Users/me/work/atlas-web");
 });
 
+test("No folder is checked with nothing picked, but not while a new empty project is the choice", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (newProject: boolean) =>
+    act(async () =>
+      root!.render(
+        <FolderPopover
+          label="Folder"
+          menu="Location"
+          face="New project"
+          folders={[]}
+          onPick={() => undefined}
+          onNoProject={() => undefined}
+          newProject={newProject}
+          sources={{ onEmpty: () => undefined }}
+        />,
+      ),
+    );
+  const noFolderChecked = () => !!document.querySelector("[data-no-folder] > svg.acpmux-icon");
+  await draw(false);
+  await act(async () => container.querySelector<HTMLElement>(".acpmux-location-button")!.click());
+  expect(document.querySelector("[data-no-folder]")).not.toBeNull();
+  expect(noFolderChecked()).toBe(true);
+  await draw(true);
+  expect(document.querySelector("[data-no-folder]")).not.toBeNull();
+  expect(noFolderChecked()).toBe(false);
+});
+
 test("Toggle Plan Mode's key runs the + menu's Plan row, and the row names the key", async () => {
   // Fleet check 2026-11-20: the app draws no Plan toggle chip (ComposerPickers showPlan={false});
   // Plan/Build is the + menu's row, so ⌃⌥⌘P had no opener and did nothing, and no tooltip named it.
@@ -253,19 +281,24 @@ test("the + menu's rows carry what Return does, and the none arm draws no hint",
   const verbOf = (name: string) =>
     rows.find((el) => el.textContent?.includes(name))?.querySelector(".acpmux-menu-return-verb")?.textContent;
   expect(verbOf("Plan mode")).toBe("Switch to");
-  expect(rows.every((row) => row.querySelector(".acpmux-menu-return .acpmux-keycap")?.textContent === "↩")).toBe(true);
+  expect(
+    rows.every((row) => row.querySelector(".acpmux-menu-return .ui-key-hint")?.getAttribute("data-keys") === "↩"),
+  ).toBe(true);
   expect(rows.every((row) => row.querySelector(".acpmux-menu-return")?.getAttribute("aria-hidden") === "true")).toBe(
     true,
   );
 
   await act(async () => root!.unmount());
   root = createRoot(container);
+  const hadExperiments = "cmuxExperiments" in globalThis;
+  const priorExperiments = globalThis.cmuxExperiments;
   globalThis.cmuxExperiments = { "composer-plus-return-hint": "none" };
   try {
     const plain = await draw();
     expect(plain.length).toBeGreaterThan(0);
     expect(plain.some((row) => row.querySelector(".acpmux-menu-return"))).toBe(false);
   } finally {
-    delete globalThis.cmuxExperiments;
+    if (hadExperiments) globalThis.cmuxExperiments = priorExperiments;
+    else delete globalThis.cmuxExperiments;
   }
 });

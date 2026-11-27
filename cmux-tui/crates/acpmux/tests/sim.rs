@@ -131,9 +131,16 @@ fn seeds_hold_the_delivery_invariants() {
     let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+    // The latest answer after its deadline, and its seed: the data the liveness budget is set on.
+    let mut latest: Option<(std::time::Duration, u64)> = None;
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         simulated += run.simulated;
+        for (_, late) in invariants::answer_lateness(&run.faulty) {
+            if latest.is_none_or(|(l, _)| late > l) {
+                latest = Some((late, seed));
+            }
+        }
         if let Err(failure) = invariants::check(&run) {
             let known =
                 if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
@@ -155,6 +162,14 @@ fn seeds_hold_the_delivery_invariants() {
         world::human(simulated),
         simulated.as_secs_f64() / wall.as_secs_f64().max(1e-9),
     );
+    if let Some((late, seed)) = latest {
+        eprintln!(
+            "sim: latest answer after heal: {} ({} ms, seed {seed}; budget {})",
+            world::human(late),
+            late.as_millis(),
+            world::human(invariants::LIVENESS_BUDGET)
+        );
+    }
     eprintln!("sim: not checked yet: {}", invariants::NOT_CHECKED.join("; "));
     for (gap, hit) in &shown {
         eprintln!(
@@ -226,5 +241,102 @@ fn a_seed_replays_exactly() {
     for seed in [1, 7, 23] {
         let (a, b) = (fingerprint(&world::run(seed, &opts)), fingerprint(&world::run(seed, &opts)));
         assert_eq!(a, b, "seed {seed} ran two ways: the simulation lost its determinism");
+    }
+}
+
+/// One way to break a run that a named invariant must catch.
+struct Mutation {
+    invariant: &'static str,
+    what: &'static str,
+    apply: fn(&mut world::Run),
+}
+
+/// For each invariant, a run broken the way it guards against. An invariant no mutation turns
+/// red could pass on anything, so a green sweep would say nothing about it: every entry of
+/// [`invariants::INVARIANTS`] needs one here.
+const MUTATIONS: &[Mutation] = &[
+    Mutation {
+        invariant: "the run finished",
+        what: "the faulty run stopped with an error",
+        apply: |run| run.faulty.error = Some("mutation: stopped".into()),
+    },
+    Mutation {
+        invariant: "no prompt or steer is lost",
+        what: "the agent never got the first send",
+        apply: |run| {
+            let text = run.faulty.app.items[0].0.text.clone();
+            run.faulty.given.retain(|g| g.text != text);
+        },
+    },
+    Mutation {
+        invariant: "no prompt or steer is applied twice",
+        what: "the agent got the first prompt it was given twice",
+        apply: |run| {
+            let g = run.faulty.given[0].clone();
+            run.faulty.given.push(g);
+        },
+    },
+    Mutation {
+        invariant: "event seq has no gaps",
+        what: "a chat's last record skips a seq",
+        apply: |run| {
+            let records = run.faulty.log.values_mut().next().expect("a chat log");
+            records.last_mut().expect("a record").seq += 1;
+        },
+    },
+    Mutation {
+        invariant: "a resumed chat ends as an uninterrupted one",
+        what: "the run without faults applied a prompt once more",
+        apply: |run| {
+            let calm = run.uninterrupted.as_mut().expect("an uninterrupted run");
+            let g = calm.given[0].clone();
+            calm.given.push(g);
+        },
+    },
+    Mutation {
+        invariant: "every send is answered within the liveness budget once faults heal",
+        what: "the first send's answer came just before the app gave up",
+        apply: |run| run.faulty.app.items[0].1.answered_at = Some(app::GIVE_UP),
+    },
+];
+
+/// Each invariant fails on a run broken the way it guards against, and holds on the same run
+/// unbroken (the checker's own mutation test: a check that never fails proves nothing).
+#[test]
+fn every_invariant_fails_on_its_mutation() {
+    for inv in invariants::INVARIANTS {
+        assert!(
+            MUTATIONS.iter().any(|m| m.invariant == inv.name),
+            "invariant \"{}\" has no mutation in MUTATIONS: add a broken run it must catch",
+            inv.name
+        );
+    }
+    let opts = Options { faults: Faults::standard(), resend: true, power_drops_unflushed: true };
+    // A seed every mutation can apply to: it holds, had faults (so it has a run without them),
+    // and the agent was given something and the log has records.
+    let usable = |run: &world::Run| {
+        invariants::check(run).is_ok()
+            && run.uninterrupted.as_ref().is_some_and(|c| !c.given.is_empty())
+            && !run.faulty.app.items.is_empty()
+            && !run.faulty.given.is_empty()
+            && run.faulty.log.values().next().is_some_and(|r| !r.is_empty())
+    };
+    let seed = (0..64)
+        .find(|&s| usable(&world::run(s, &opts)))
+        .expect("no seed in 0..64 holds with faults, sends and a log to mutate");
+    for m in MUTATIONS {
+        let inv = invariants::INVARIANTS
+            .iter()
+            .find(|i| i.name == m.invariant)
+            .unwrap_or_else(|| panic!("mutation names no invariant: {}", m.invariant));
+        let mut run = world::run(seed, &opts);
+        assert!((inv.check)(&run).is_ok(), "seed {seed}: \"{}\" fails unmutated", inv.name);
+        (m.apply)(&mut run);
+        assert!(
+            (inv.check)(&run).is_err(),
+            "seed {seed}: \"{}\" still holds after the mutation \"{}\": the check has no teeth",
+            inv.name,
+            m.what
+        );
     }
 }

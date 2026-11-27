@@ -133,3 +133,9 @@ pub trait AppsTransport {
 pub trait Listeners {
     fn holder(&self, port: u16) -> Result<Inferred, String>;
 }
+
+/// The version's first frame (RFD 0003, publish step 7): `http://127.0.0.1:port/` rendered
+/// once to a PNG, in a fresh headless browser profile with no cookies.
+pub trait Capture {
+    fn png(&self, port: u16) -> Result<Vec<u8>, String>;
+}

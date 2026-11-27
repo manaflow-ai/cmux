@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cmuxCdPath" : {
+      "comment" : "Agent pane: inline refusal for /cd with a path the pane cannot read (~ or a relative path with no chat folder).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type the folder's full path, starting with /, or a path relative to this chat's folder."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اكتب المسار الكامل للمجلد بدءًا بـ /، أو مسارًا نسبيًا إلى مجلد هذه الدردشة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upišite punu putanju mape koja počinje sa /, ili putanju u odnosu na mapu ovog razgovora."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv mappens fulde sti, der starter med /, eller en sti i forhold til denne chats mappe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib den vollständigen Pfad des Ordners ein, beginnend mit /, oder einen Pfad relativ zum Ordner dieses Chats."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escribe la ruta completa de la carpeta, empezando por /, o una ruta relativa a la carpeta de este chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Saisissez le chemin complet du dossier, commençant par /, ou un chemin relatif au dossier de cette discussion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digita il percorso completo della cartella, che inizia con /, o un percorso relativo alla cartella di questa chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "/ で始まるフォルダのフルパス、またはこのチャットのフォルダからの相対パスを入力してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វាយផ្លូវពេញរបស់ថតដែលចាប់ផ្តើមដោយ / ឬផ្លូវទាក់ទងនឹងថតរបស់ការជជែកនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "/로 시작하는 폴더의 전체 경로 또는 이 채팅 폴더 기준의 상대 경로를 입력하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv inn mappens fullstendige bane som starter med /, eller en bane relativt til denne chattens mappe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wpisz pełną ścieżkę folderu zaczynającą się od / lub ścieżkę względną wobec folderu tego czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digite o caminho completo da pasta, começando com /, ou um caminho relativo à pasta deste chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите полный путь к папке, начиная с /, или путь относительно папки этого чата."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พิมพ์พาธเต็มของโฟลเดอร์ที่ขึ้นต้นด้วย / หรือพาธที่สัมพันธ์กับโฟลเดอร์ของแชทนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klasörün / ile başlayan tam yolunu veya bu sohbetin klasörüne göre bir yol yazın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введіть повний шлях до папки, що починається з /, або шлях відносно папки цього чату."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhập đường dẫn đầy đủ của thư mục, bắt đầu bằng /, hoặc đường dẫn tương đối với thư mục của cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请输入以 / 开头的文件夹完整路径，或相对于此聊天文件夹的路径。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請輸入以 / 開頭的資料夾完整路徑，或相對於此聊天資料夾的路徑。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

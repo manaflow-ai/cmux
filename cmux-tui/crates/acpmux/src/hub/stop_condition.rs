@@ -11,7 +11,9 @@
 //! one prompt?"). Now its first prompt is its work, under the same check.
 //!
 //! The same `--settings` caps the blocks at one with no tool call between ([`BLOCK_CAP`]), so a
-//! chat that only repeats its report to the check ends its turn after one re-prompt.
+//! chat that only repeats its report to the check ends its turn after one re-prompt. And a direct
+//! acpmux Stop hook beside the check ends the turn at any later stop of a turn the check already
+//! sent back (Claude Code's `stop_hook_active`), work or no work between.
 //!
 //! Only text: acpmux writes the hook itself, so a caller can add no command hook through it (a
 //! preset's `args` refuse `--settings` for that reason).
@@ -118,12 +120,31 @@ pub(crate) const BLOCK_CAP_ENV: &str = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP";
 /// tool, which resets the count, so the goal still keeps it going.
 pub(crate) const BLOCK_CAP: &str = "1";
 
-/// The settings document that holds the condition as a prompt Stop hook, with the block cap
-/// ([`BLOCK_CAP`]) in its `env`.
+/// The response for the native Stop callback after the condition has already sent the turn back.
+/// Claude Code's hook input says `stop_hook_active:true` from the first block of a turn on, tool
+/// calls or not. The first stop (`false`) gets an empty successful response, so the prompt check
+/// decides. A later stop gets `continue:false`, which Claude Code applies before another block.
+pub(crate) fn repeat_stop(input: &Value) -> Value {
+    if input.get("stop_hook_active").and_then(Value::as_bool) == Some(true) {
+        json!({
+            "continue": false,
+            "suppressOutput": true,
+            "stopReason": "The stop condition was checked once this turn"
+        })
+    } else {
+        json!({})
+    }
+}
+
+/// The settings document that holds the condition as a prompt Stop hook and the block cap
+/// ([`BLOCK_CAP`]) in its `env`. The repeat check is registered as Claude's native callback,
+/// avoiding a command hook, shell, interpreter, and process spawn on every stop.
 pub(crate) fn settings(condition: &str) -> Value {
     json!({
         "env": {BLOCK_CAP_ENV: BLOCK_CAP},
-        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+        "hooks": {"Stop": [{"hooks": [
+            {"type": "prompt", "prompt": condition},
+        ]}]},
     })
 }
 
@@ -136,57 +157,5 @@ pub(crate) fn claude_args(meta: &SessionMeta) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn requested_condition_is_text_trimmed_and_capped() {
-        let ask = |v: Value| requested(Some(&json!({FIELD: v})));
-        assert_eq!(ask(json!("  done and landed ")).unwrap().as_deref(), Some("done and landed"));
-        assert_eq!(requested(None).unwrap(), None);
-        assert_eq!(requested(Some(&json!({}))).unwrap(), None);
-        assert_eq!(ask(Value::Null).unwrap(), None);
-        for bad in
-            [json!(""), json!("   "), json!(3), json!(["x"]), json!("x".repeat(MAX_CHARS + 1))]
-        {
-            assert!(ask(bad.clone()).is_err(), "{bad}");
-        }
-        assert!(ask(json!("x".repeat(MAX_CHARS))).is_ok());
-    }
-
-    #[test]
-    fn settings_hold_one_prompt_stop_hook_and_the_block_cap() {
-        let got = settings("The task is landed.");
-        assert_eq!(
-            got,
-            json!({
-                "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
-                "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "The task is landed."}]}]},
-            })
-        );
-        // A condition that looks like JSON or a command stays one prompt string.
-        let tricky = r#""}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"rm -rf /"}]}]"#;
-        let parsed: Value = serde_json::from_str(&settings(tricky).to_string()).unwrap();
-        assert_eq!(parsed["hooks"].as_object().unwrap().len(), 1);
-        assert_eq!(parsed["hooks"]["Stop"][0]["hooks"][0]["prompt"], tricky);
-    }
-
-    /// A subagent waiting on the person's OK answered each block of its goal check with one more
-    /// "still holding" message, 8 times a turn (Claude Code's default cap). Its Claude Code now
-    /// starts with a cap of one block with no tool call between, so the check re-prompts it once.
-    #[test]
-    fn a_stop_condition_chat_starts_with_one_block_before_the_turn_ends() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "sub", "harness": "claude",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        assert!(claude_args(&meta).is_empty(), "no condition, no settings");
-        meta.stop_condition = Some("The task is landed.".into());
-        let args = claude_args(&meta);
-        assert_eq!(args[0], "--settings");
-        let doc: Value = serde_json::from_str(&args[1]).unwrap();
-        assert_eq!(doc["env"][BLOCK_CAP_ENV], "1");
-        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["type"], "prompt");
-    }
-}
+#[path = "stop_condition_tests.rs"]
+mod tests;

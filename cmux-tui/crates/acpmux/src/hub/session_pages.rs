@@ -13,8 +13,9 @@
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
-//! `peer`, `status`, `localOnly` and `excludeStatus` narrow the list before it
-//! is paged. A caller that only needs this daemon's live sessions can therefore
+//! `peer`, `status`, `localOnly`, `topLevelOnly` and `excludeStatus` narrow the list before it
+//! is paged (`topLevelOnly`: no side chat and no session another chat's agent started, the rows a
+//! chat list shows on their own, `session_order::top_level_summary`). A caller that only needs this daemon's live sessions can therefore
 //! avoid walking the peer mirror. Only
 //! `_acpmux/sessions` takes them: a watch streams every session's changes, so
 //! a filtered first page would promise a scope its events do not keep
@@ -79,6 +80,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
     let peer = text_filter(params, "peer")?;
     let status = text_filter(params, "status")?;
     let local_only = bool_filter(params, "localOnly")?;
+    let top_level_only = bool_filter(params, "topLevelOnly")?;
     if order.is_some() && !local_only {
         return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
     }
@@ -89,6 +91,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
         .filter(|(_, s)| peer.is_none_or(|p| s.peer() == Some(p)))
         .filter(|(_, s)| status.is_none_or(|st| s.status() == Some(st)))
         .filter(|(_, s)| !local_only || s.peer().is_none())
+        .filter(|(_, s)| !top_level_only || s.top_level())
         .filter(|(_, s)| s.status().is_none_or(|st| !excluded.contains(&st)))
         .map(|(at, _)| at)
         .collect();
@@ -269,8 +272,10 @@ fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcE
 
 /// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
 pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
-    for name in ["peer", "status", "localOnly", "pendingOnly", "excludeStatus", "orderBy"] {
-        if name == "localOnly" || name == "pendingOnly" {
+    for name in
+        ["peer", "status", "localOnly", "topLevelOnly", "pendingOnly", "excludeStatus", "orderBy"]
+    {
+        if matches!(name, "localOnly" | "topLevelOnly" | "pendingOnly") {
             if bool_filter(params, name)? {
                 return Err(RpcError::invalid_params(format!(
                     "{name} filters _acpmux/sessions only: a watch streams every session"
@@ -375,9 +380,26 @@ fn peer<R: PageRow + ?Sized>(session: &R) -> Option<&str> {
 /// Where a row stands in [`byte_page`]'s order: two FNV-1a hashes of its `sessionId` and
 /// `peer` ([`row_key`]'s bytes), the same in every daemon run.
 fn page_key<R: PageRow + ?Sized>(session: &R) -> u128 {
-    let high = fnv(0xcbf2_9ce4_8422_2325, row_key_bytes(session));
-    let low = fnv(0x6c62_272e_07bb_0142, row_key_bytes(session));
+    page_key_of(session_id(session), peer(session))
+}
+
+/// [`page_key`] of the row with session id `id` and peer `peer`: what the list indexes keep each
+/// row under (`list_order.rs`, `remote_rows.rs`), so a byte page reads its own rows in order.
+pub(crate) fn page_key_of(id: &str, peer: Option<&str>) -> u128 {
+    let bytes = || {
+        id.bytes().chain(peer.map(|p| std::iter::once(0).chain(p.bytes())).into_iter().flatten())
+    };
+    let high = fnv(0xcbf2_9ce4_8422_2325, bytes());
+    let low = fnv(0x6c62_272e_07bb_0142, bytes());
     (u128::from(high) << 64) | u128::from(low)
+}
+
+/// The page key after which an `h` cursor of [`byte_page`] starts, with nothing after it (no
+/// `~k` filter); None for any other cursor.
+pub(crate) fn hash_cursor(params: &Value) -> Option<u128> {
+    let text = params.get("cursor")?.as_str()?;
+    let hex = text.strip_prefix('h').filter(|hex| hex.len() == 32)?;
+    u128::from_str_radix(hex, 16).ok()
 }
 
 /// FNV-1a of the session id, then, for a peer's row, a NUL and the peer's name: the same in
@@ -601,6 +623,124 @@ mod tests {
         assert!(refuse_watch_filters(&json!({"limit": 5, "peer": null, "status": ""})).is_ok());
         assert!(refuse_watch_filters(&json!({"localOnly": true})).is_err());
         assert!(refuse_watch_filters(&json!({"excludeStatus": ["closed"]})).is_err());
+        assert!(refuse_watch_filters(&json!({"topLevelOnly": true})).is_err());
+        assert!(refuse_watch_filters(&json!({"topLevelOnly": false})).is_ok());
+    }
+
+    /// `topLevelOnly` keeps the chats a list shows on their own: no side chat (a `side` tag) and
+    /// no session another chat's agent started (`spawnedBy`, `startedBy`), dropped before the
+    /// page is cut so `limit` counts only what the list draws and the cursor walks past them.
+    #[test]
+    fn top_level_only_drops_side_chats_and_children_before_paging() {
+        let mut rows = vec![
+            json!({"sessionId": "chat-new", "updatedAt": 9, "status": "idle"}),
+            json!({"sessionId": "side", "updatedAt": 8, "status": "idle", "tags": {"side": "1"}}),
+            json!({"sessionId": "child", "updatedAt": 7, "status": "idle", "spawnedBy": "chat-new"}),
+            json!({"sessionId": "sub", "updatedAt": 6, "status": "idle", "startedBy": "chat-new"}),
+            json!({"sessionId": "chat-mid", "updatedAt": 5, "status": "idle",
+                   "tags": {"side": null, "pin": "1"}, "spawnedBy": "", "startedBy": null}),
+            json!({"sessionId": "chat-old", "updatedAt": 1, "status": "closed", "tags": {}}),
+        ];
+        sort_session_summaries(&mut rows);
+        let top = ["chat-new", "chat-mid", "chat-old"];
+
+        assert_eq!(ids(&session_list_reply(rows.clone(), &json!({})).unwrap()).len(), 6);
+        assert_eq!(
+            ids(&session_list_reply(rows.clone(), &json!({"topLevelOnly": false})).unwrap()).len(),
+            6
+        );
+        assert_eq!(
+            ids(&session_list_reply(rows.clone(), &json!({"topLevelOnly": true})).unwrap()),
+            top
+        );
+        assert!(session_list_reply(rows.clone(), &json!({"topLevelOnly": "yes"})).is_err());
+
+        for limit in 1..=top.len() {
+            let (mut read, mut cursor) = (Vec::new(), Value::Null);
+            loop {
+                let reply = session_list_reply(
+                    rows.clone(),
+                    &json!({"topLevelOnly": true, "localOnly": true, "limit": limit, "cursor": cursor}),
+                )
+                .unwrap();
+                assert!(ids(&reply).len() <= limit);
+                read.extend(ids(&reply).into_iter().map(str::to_owned));
+                cursor = reply["nextCursor"].clone();
+                if cursor.is_null() {
+                    break;
+                }
+            }
+            assert_eq!(read, top, "limit {limit}");
+        }
+        assert_eq!(
+            ids(&session_list_reply(
+                rows,
+                &json!({"topLevelOnly": true, "excludeStatus": ["closed"]})
+            )
+            .unwrap()),
+            ["chat-new", "chat-mid"]
+        );
+    }
+
+    /// The Mac and the phone draw one list in one order: neither app sorts it. The phone's Cloud
+    /// chats read `{localOnly, limit: shown}` (grown by a page for Show Older Chats), its Mac
+    /// chats `{localOnly, limit, cursor}` page after page, and the Mac's lists the whole list
+    /// (the watch's first read). For the same sessions each reads this machine's chats in the
+    /// same order: newest `updatedAt` first, ties by `sessionId`. A session with no `updatedAt`
+    /// is the oldest, whatever its `lastTurn.endedAt` says (the phone used to fall back to it,
+    /// so a device could draw the list in another order).
+    #[test]
+    fn the_mac_and_the_phone_read_one_order() {
+        let mut rows = vec![
+            json!({"sessionId": "tie-b", "updatedAt": 7, "status": "idle"}),
+            json!({"sessionId": "old", "updatedAt": 1, "status": "closed"}),
+            json!({"sessionId": "no-stamp", "status": "idle", "lastTurn": {"endedAt": 99}}),
+            json!({"sessionId": "tie-a", "updatedAt": 7, "status": "running"}),
+            json!({"sessionId": "peer-new", "updatedAt": 50, "peer": "huge-blue", "status": "idle"}),
+            json!({"sessionId": "mid", "updatedAt": 4, "status": "idle"}),
+            json!({"sessionId": "tie-a", "updatedAt": 7, "peer": "cmux16", "status": "idle"}),
+            json!({"sessionId": "newest", "updatedAt": 9, "status": "idle"}),
+        ];
+        sort_session_summaries(&mut rows);
+        let mine = ["newest", "tie-a", "tie-b", "mid", "old", "no-stamp"];
+
+        // The Mac: the whole list, this machine's rows in the order it came.
+        let whole = session_list_reply(rows.clone(), &json!({})).unwrap();
+        let mac: Vec<&str> = whole["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| peer(*row).is_none())
+            .map(session_id)
+            .collect();
+        assert_eq!(mac, mine);
+
+        // The phone's Cloud chats: the first `shown`, and more when it grows by a page.
+        for shown in 1..=mine.len() + 1 {
+            let reply =
+                session_list_reply(rows.clone(), &json!({"localOnly": true, "limit": shown}))
+                    .unwrap();
+            assert_eq!(ids(&reply), &mine[..shown.min(mine.len())]);
+            assert_eq!(reply["nextCursor"].is_null(), shown >= mine.len(), "shown {shown}");
+        }
+
+        // The phone's Mac chats: page after page, at every page size.
+        for limit in 1..=mine.len() {
+            let (mut read, mut cursor) = (Vec::new(), Value::Null);
+            loop {
+                let reply = session_list_reply(
+                    rows.clone(),
+                    &json!({"localOnly": true, "limit": limit, "cursor": cursor}),
+                )
+                .unwrap();
+                read.extend(ids(&reply).into_iter().map(str::to_owned));
+                cursor = reply["nextCursor"].clone();
+                if cursor.is_null() {
+                    break;
+                }
+            }
+            assert_eq!(read, mine, "limit {limit}");
+        }
     }
 }
 

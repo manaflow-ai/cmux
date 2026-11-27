@@ -168,7 +168,7 @@ pub async fn serve_wireguard_hub(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 return Err(HubError::Io(io::Error::new(
                                     error.kind(),
                                     format!("hub Unix listener accept failed: {error}"),

@@ -90,6 +90,7 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
+import frame_timing  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import split_move_metrics as smm  # noqa: E402
 import split_scale_metrics as ssm  # noqa: E402
@@ -145,9 +146,18 @@ parser.add_argument("--moves", default="",
                     help=f"the move family instead of the transitions: 'all' or a comma list of {','.join(MOVES)}")
 parser.add_argument("--move-shapes", default=",".join(MOVE_SHAPES), help="rows of 2, 3 and 4 panes")
 parser.add_argument("--gate", action="store_true", help="exit 1 when a move fails its verdict (--moves)")
+parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
+                    help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
+                         "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
+APP_ENV = {}
+for pair in opts.app_env:
+    name, sep, value = pair.partition("=")
+    if not sep or not name.strip():
+        parser.error(f"--app-env takes NAME=VALUE, not {pair!r}")
+    APP_ENV[name.strip()] = value
 APP = os.path.realpath(opts.app.rstrip("/"))
 if opts.quick:
     opts.splits, opts.contents, opts.workspaces, opts.rounds = "1,4", "empty,browser", "1", 1
@@ -490,12 +500,45 @@ def background(run, count, measured):
 # One transition: a frame strip of the gesture with the motion trace around it.
 
 def record(run, gesture, label, content="focused", static=True):
+    tracker0 = cef_tracker(run)
     strip, trace = record_raw(run, gesture, label, content)
-    return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    cef = cef_delta(tracker0, cef_tracker(run))
+    if cef and isinstance(row, dict):
+        row["cef"] = cef
+    return row
 
 
-def record_raw(run, gesture, label, content="focused"):
-    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict)."""
+CEF_FIELDS = ("fence", "commit", "detaches", "attaches", "geometry_posts", "hosted_pages")
+
+
+def cef_tracker(run):
+    """The CEF tracker's counters (`debug.cef` tracker), {} with no engine: read around each round, untimed, so a row
+    says where a browser cell's frames went (fence joins, presented, missed, expired, join seconds, commit waits,
+    detaches) without an A/B run per guess."""
+    reply = run.rpc("debug.cef") or {}
+    tracker = reply.get("tracker") if isinstance(reply, dict) else None
+    return tracker if isinstance(tracker, dict) else {}
+
+
+def cef_delta(before, after):
+    """The round's change in each counter `CEF_FIELDS` names; nothing that did not move. A counter either read lacks
+    (a failed `debug.cef`) is left out, so a lost read never shows the running total as one round's change."""
+    delta = {}
+    for name, value in after.items():
+        start = before.get(name)
+        if (isinstance(value, (int, float)) and isinstance(start, (int, float))
+                and any(name.startswith(f) for f in CEF_FIELDS)):
+            moved = round(value - start, 4)
+            if moved:
+                delta[name] = moved
+    return delta
+
+
+def record_raw(run, gesture, label, content="focused", at=None):
+    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict).
+    `at="commit"`: each trace sample is what its tick shows (the views right after the last commit), not what they
+    hold mid-pass (MotionFrameTrace)."""
     folder = os.path.join(tempfile.gettempdir(), f"split-scale-{os.getpid()}", label)
     trace_path = os.path.join(folder, "trace.json")
     os.makedirs(folder, exist_ok=True)
@@ -503,7 +546,7 @@ def record_raw(run, gesture, label, content="focused"):
               "tolerance": opts.strip_tolerance}
     if content == "none":
         params["content"] = "none"
-    run.rpc("debug.motion", {"action": "trace_start"})
+    run.rpc("debug.motion", {"action": "trace_start", **({"at": at} if at else {})})
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
     stopped = run.rpc("debug.motion", {"action": "trace_stop", "path": trace_path}) or {}
     trace = {"error": stopped.get("error")} if stopped.get("error") else {"error": "trace never written"}
@@ -725,7 +768,7 @@ def move_row(run, workspace, gesture, label, static, expect=None, content="focus
     """One recorded move, judged (split_move_metrics.move). `expect`: a check that the move happened (returns a
     truthy value once it did); a move that did not happen is the round's error."""
     before = workspace_tabs(run, workspace)
-    strip, trace = record_raw(run, gesture, label, content)
+    strip, trace = record_raw(run, gesture, label, content, at="commit")
     done = STRESS.wait(expect, 5, step=0.05) if expect else True
     row = smm.move(strip, trace, static=static, tabs_before=list(before), tabs_after=list(workspace_tabs(run, workspace)))
     if not done:
@@ -794,10 +837,10 @@ def run_move_cell(run, workspace, panes, results, cell, content):
             stress.action(MOVE_ACTIONS[back], target=f"tab:{moving}")
             motion_ends(run, "the untimed move back")
 
-    def drag(source, target, edge, along=0.72):
+    def drag(source, target, edge, along=0.72, inset=14):
         """Mouse events: the pane at `source` dragged by its tab bar's empty space to the `edge` of the one at
-        `target` (Option-drag: a plain press in the window's top row moves the window)."""
-        to_x = target[0] + 14 if edge == "left" else target[0] + target[2] - 14
+        `target`, `inset` points in (Option-drag: a plain press in the window's top row moves the window)."""
+        to_x = target[0] + inset if edge == "left" else target[0] + target[2] - inset
         return {"gesture": "mouse", "mouse": {"action": "drag", "x": source[0] + source[2] * along, "y": source[1] + 16,
                                               "to_x": to_x, "to_y": target[1] + target[3] * 0.5, "steps": 30,
                                               "modifiers": ["option"]}}
@@ -820,9 +863,14 @@ def run_move_cell(run, workspace, panes, results, cell, content):
                     continue
                 source, target = (frames[0], frames[-1]) if edge == "right" else (frames[-1], frames[0])
                 row = {}
-                for along in (0.72, 0.5):  # the tab bar's empty space: right of the tabs, left of the pane's buttons
-                    row = move_row(run, workspace, drag(source, target, edge, along), f"{cell}-{name}-{rnd}", static)
+                # The tab bar's empty space (right of the tabs, left of the pane's buttons) and the drop's distance from
+                # the edge: a press on a tab drags that tab, and a drop too near the window's edge can miss the zone.
+                # Every half cell's forward drag took nothing at (0.72, 14) and (0.5, 14) (fleet job
+                # dddaf321bef3d1c25f19cc43), so a few more places are tried before the drag counts as unmeasured.
+                for along, inset in ((0.72, 14), (0.5, 14), (0.88, 40), (0.6, 40), (0.35, 40)):
+                    row = move_row(run, workspace, drag(source, target, edge, along, inset), f"{cell}-{name}-{rnd}", static)
                     if "nothing moved" not in str(row.get("error") or ""):
+                        row["drag_at"] = [along, inset]
                         break
                     run.rpc("debug.mouse", {"action": "up", "x": 4, "y": 4})  # untimed: no press stays down
                     time.sleep(opts.settle)  # test script: a drag that took nothing ends
@@ -911,6 +959,7 @@ def finish(results):
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
+    timeline = frame_timeline(results)
     if opts.json:
         with open(opts.json + ".tmp", "w") as handle:
             json.dump(results, handle, indent=1)
@@ -918,7 +967,32 @@ def finish(results):
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write("```\n" + text + "\n```\n")
+            if timeline:
+                handle.write("\nThe app's own frame timeline (frame_timing.py --table):\n\n```\n" + timeline + "\n```\n")
     pack_frames()
+
+
+def frame_timeline(results):
+    """The app's own frame-timing log over this run (TransitionFrameLog: every split, close, zoom, sidebar toggle and
+    divider drag the cells made), as `frame_timing.py --table`: one row per surface x transition, worst first. Into
+    `results["frame_timing_table"]` and the log between FRAME-TIMING-TABLE markers; "" when the app logged none."""
+    started = results.get("started_ms", 0)
+    lines = []
+    for paths in frame_timing.default_files().values():
+        for path in paths:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as handle:
+                    lines.extend(handle)
+            except OSError as error:  # a half the ring rotated away mid-read: the other still counts
+                say(f"split-scale: frame timing log {path}: {error}")
+    rows, _ = frame_timing.read_lines(lines)
+    table = frame_timing.table([r for r in rows if isinstance(r.get("at_ms"), (int, float)) and r["at_ms"] >= started])
+    results["frame_timing_table"] = table
+    if not table:
+        return ""
+    text = frame_timing.format_table(table)
+    print("FRAME-TIMING-TABLE-BEGIN\n" + text + "\nFRAME-TIMING-TABLE-END", flush=True)
+    return text
 
 
 def main():
@@ -927,7 +1001,7 @@ def main():
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
                "matrix": {"splits": SPLITS, "contents": WANTED_CONTENTS, "workspaces": WORKSPACES, "transitions": WANTED,
                           "rounds": opts.rounds, "scrollback": opts.scrollback, "chat_turns": opts.chat_turns},
-               "raw": {}, "errors": {}}
+               "raw": {}, "errors": {}, "started_ms": int(time.time() * 1000)}
     signal.signal(signal.SIGTERM, bm.interrupted)
     run, display = None, None
     try:
@@ -943,7 +1017,9 @@ def main():
                 if not wait_until(lambda: primary_screen_size() == want, f"a {want} main screen", timeout=20,
                                   interval=0.25, raise_on_timeout=False):
                     say(f"split-scale: the main screen is {primary_screen_size()!r}, not {want}, 20 s after the display came up")
-        env, chats = {}, []
+        env, chats = dict(APP_ENV), []
+        if APP_ENV:
+            results["app_env"] = dict(APP_ENV)
         if "chat" in WANTED_CONTENTS:
             say(f"split-scale: seeding a {opts.chat_turns}-turn chat")
             copies = sum(SPLITS) * len(WORKSPACES) + 2  # every chat cell's panes, each a fresh copy

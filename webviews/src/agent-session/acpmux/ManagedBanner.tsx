@@ -1,5 +1,7 @@
 import { useT } from "./i18n";
+import { Icon } from "./icons/Icon";
 import type { ManagedBy } from "./managedBy";
+import "./conversation/cardFit.css";
 import "./managedBanner.css";
 
 /// The line over the composer of a chat the Chief or another chat's agent is driving now
@@ -22,22 +24,34 @@ export function ManagedBanner({
   const name = manager.kind === "chief" ? "Chief" : manager.name;
   const [before, after = ""] = t("managed.sending", { name: "\u0000" }).split("\u0000");
   const opens = manager.kind === "agent" && onOpenManager ? manager.sessionId : undefined;
+  const hide = t("managed.hide");
+  // Its own width decides the layout (cardFit.css): a narrow pane puts Hide under the sentence, and a
+  // narrower one shows Hide as its icon.
   return (
-    <output className="acpmux-managed-banner" data-managed={manager.kind}>
-      <span className="acpmux-managed-text">
-        {before}
-        {opens ? (
-          <button type="button" className="acpmux-managed-name" onClick={() => onOpenManager?.(opens)}>
-            {name}
+    <output className="acpmux-managed-banner cv-fit" data-managed={manager.kind}>
+      <span className="acpmux-managed-row cv-fit-row">
+        <span
+          className="acpmux-managed-text cv-fit-text"
+          // tooltip-allow: a long name is cut to the line; the whole sentence is the tooltip
+          title={`${before}${name}${after}`}
+        >
+          {before}
+          {opens ? (
+            <button type="button" className="acpmux-managed-name" onClick={() => onOpenManager?.(opens)}>
+              {name}
+            </button>
+          ) : (
+            <strong className="acpmux-managed-name">{name}</strong>
+          )}
+          {after}
+        </span>
+        <span className="acpmux-managed-actions cv-fit-actions">
+          <button type="button" className="acpmux-managed-take-over" title={hide} aria-label={hide} onClick={onHide}>
+            <Icon name="action.hide" size={12} />
+            <span className="cv-fit-label">{hide}</span>
           </button>
-        ) : (
-          <strong className="acpmux-managed-name">{name}</strong>
-        )}
-        {after}
+        </span>
       </span>
-      <button type="button" className="acpmux-managed-take-over" onClick={onHide}>
-        {t("managed.hide")}
-      </button>
     </output>
   );
 }

@@ -504,6 +504,8 @@ pub(super) fn response_read_timeout(
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+                | cmux_tui_core::resource::ResourceOperation::GitReviewStart
+                | cmux_tui_core::resource::ResourceOperation::GitReviewComment
         )
     ) {
         return Some(Duration::from_secs(200));
@@ -695,6 +697,10 @@ fn run_response(
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::WorkspaceList,
                         ) => super::cloud_workspaces::merge(global, result),
+                        // A Screen Sharing tab carries the app's state of its share.
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::TabGet,
+                        ) => super::mac_screen_view::with_tab_state(global, result),
                         _ => result,
                     };
                     let result = match list_filter::apply(reader, plan, result) {

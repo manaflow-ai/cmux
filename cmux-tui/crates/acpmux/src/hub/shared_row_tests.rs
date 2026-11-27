@@ -22,7 +22,7 @@ fn watchers_share_a_row_while_one_sends_it() {
 #[test]
 fn the_ring_keeps_no_row_after_its_watchers_sent_it() {
     let event = row_log::row_event("a");
-    let [_, full] = &event.row.cells;
+    let [_, full, _] = &event.row.cells;
     let sent = full.get_or_build(|| Some(serde_json::json!({"spans": vec![0u64; 512]}))).unwrap();
     let held = Arc::downgrade(&sent);
     drop(sent);

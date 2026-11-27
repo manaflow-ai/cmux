@@ -28,20 +28,41 @@ pub(super) fn explains_exit(line: &str) -> bool {
 /// the record says what the process said, and the transcript says it exited and why
 /// (`transcript.rs`). A `rate_limit` exit also holds the chat until the reset and starts the
 /// harness again there on the same conversation, with no prompt (`rate_hold.rs` `hold_at_exit`).
+/// A process that said nothing explaining is `reason: agent_exited` with no `error`.
 pub(super) fn exited_data<C: serde::Serialize>(code: C, last: Option<&str>) -> serde_json::Value {
-    let mut data = serde_json::json!({"code": code});
-    if let (Some(line), Some(o)) = (last, data.as_object_mut()) {
-        o.insert("reason".to_owned(), exit_cause(line).into());
-        o.insert("error".to_owned(), line.into());
+    match last {
+        Some(line) => serde_json::json!({"code": code, "reason": exit_cause(line), "error": line}),
+        None => serde_json::json!({"code": code, "reason": "agent_exited"}),
     }
-    data
 }
 
-/// The last line of `lines` that explains an exit ([`explains_exit`]), trimmed.
-pub(super) fn last_explaining<'a>(
-    lines: impl DoubleEndedIterator<Item = &'a str>,
-) -> Option<&'a str> {
-    lines.rev().map(str::trim).find(|l| explains_exit(l))
+/// The last stderr line of the session's current agent process that could say why it quit
+/// ([`explains_exit`]), for the hub's `exited` record (`permissions.rs`). Not the session's
+/// `stderr_tail`: that is cleared only when a turn starts, so after a turn whose 429 was retried
+/// and answered it still held the 429, and a later quiet idle exit read as `rate_limit`. Here a
+/// turn the agent ended well clears the line (`turns.rs`), and each exit takes it, so the next
+/// process starts with none, as a hosted agent's tap keeps its own (`tap.rs`).
+#[derive(Debug, Default)]
+pub(super) struct ExitLine(Option<String>);
+
+impl ExitLine {
+    /// One cleaned stderr line of the process.
+    pub(super) fn heard(&mut self, line: &str) {
+        let line = line.trim();
+        if explains_exit(line) {
+            self.0 = Some(line.to_owned());
+        }
+    }
+
+    /// The agent answered a turn after the line: it did not end the process.
+    pub(super) fn turn_ended_well(&mut self) {
+        self.0 = None;
+    }
+
+    /// At the process's exit: its line, leaving none for the next process.
+    pub(super) fn take(&mut self) -> Option<String> {
+        self.0.take()
+    }
 }
 
 /// Why an agent process died, from the stderr line that says it: as a turn its death cut off is
@@ -51,6 +72,16 @@ pub(super) fn exit_cause(line: &str) -> &'static str {
     crate::turn_errors::resume_cause(crate::agent::AGENT_CLOSED, line)
         .or_else(|| crate::recovery::auth_kind(line).map(|_| "auth"))
         .unwrap_or("agent_exited")
+}
+
+/// An agent's answer to a prompt that ended its turn well, as the hosted agent's tap sees it
+/// (`tap.rs`): a result with a `stopReason` other than `cancelled`, the same rule `finish_turn`
+/// clears the hub's [`ExitLine`] by.
+pub(super) fn ends_a_turn_well(msg: &crate::rpc::Message) -> bool {
+    let crate::rpc::Message::Response { result: Some(result), error: None, .. } = msg else {
+        return false;
+    };
+    result.get("stopReason").and_then(serde_json::Value::as_str).is_some_and(|r| r != "cancelled")
 }
 
 /// `<program>: exit status <n>`, as Go's `exec.ExitError` prints it.
@@ -65,57 +96,5 @@ fn is_wrapper_exit_line(line: &str) -> bool {
 }
 
 #[cfg(test)]
-mod explains_exit_tests {
-    use super::explains_exit;
-
-    #[test]
-    fn a_wrapper_exit_line_does_not_hide_the_real_error() {
-        let tail = ["No conversation found with session ID: e140627e", "subrouter: exit status 1"];
-        let last = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l));
-        assert_eq!(last, Some("No conversation found with session ID: e140627e"));
-    }
-
-    /// acp-chief-issues.md #3: sr2 prints its route banner at every start; a
-    /// start that died after it must quote the real error, never the banner.
-    #[test]
-    fn the_sr2_route_banner_does_not_explain_the_exit() {
-        let tail = [
-            "claude2: read rotation: context deadline exceeded",
-            "sr2 route: profile settings name http://127.0.0.1:1; managed settings override it with the sr2 gateway",
-            "sr2 route: gateway http://sr2-gateway.tail137216.ts.net:4016",
-        ];
-        let last = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l));
-        assert_eq!(last, Some("claude2: read rotation: context deadline exceeded"));
-    }
-
-    #[test]
-    fn ordinary_lines_still_explain_the_exit() {
-        assert!(explains_exit("Error: exit status unknown to me"));
-        assert!(explains_exit("panic: index out of range"));
-        assert!(!explains_exit("at Object.<anonymous> (cli.js:1:1)"));
-        assert!(!explains_exit("[SYSTEM_ERROR] boom"));
-        assert!(!explains_exit(""));
-    }
-
-    /// An agent that printed its account's 429 and quit says so in its `exited` record.
-    #[test]
-    fn an_exit_after_a_429_is_classed_rate_limit_with_its_line() {
-        use super::{exit_cause, exited_data, last_explaining};
-        let tail = [
-            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
-            "subrouter: exit status 1",
-        ];
-        let last = last_explaining(tail.iter().copied());
-        assert_eq!(last, Some(tail[0]));
-        let data = exited_data(Some(0), last);
-        assert_eq!(data["code"], 0);
-        assert_eq!(data["reason"], "rate_limit");
-        assert_eq!(data["error"], tail[0]);
-        assert_eq!(exit_cause("API Error: 529 overloaded_error"), "capacity");
-        assert_eq!(exit_cause("Not logged in · Please run /login"), "auth");
-        assert_eq!(exit_cause("panic: index out of range"), "agent_exited");
-        // Nothing on stderr: the code alone, as before.
-        let quiet = exited_data(Some(1), None);
-        assert_eq!(quiet, serde_json::json!({"code": 1}));
-    }
-}
+#[path = "exit_reason_explains_exit_tests.rs"]
+mod explains_exit_tests;

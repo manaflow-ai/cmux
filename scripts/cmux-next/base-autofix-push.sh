@@ -89,11 +89,13 @@ output_areas() {
     case "$path" in
       Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
       */generated/strings.json) echo strings; echo webviews ;;
-      cmux-tui/bindings/*) echo sdk ;;
+      cmux-tui/bindings/* | cmux-tui/spec/api-compat.surface.json) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
       schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
+      # Grown from the settings schema by cmux-config's writer (base-autofix.sh 5c).
+      schemas/settings/published-keys.txt) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
       # The docs reference pages (base-autofix.sh 1e1): the settings reference from the settings export,
@@ -105,6 +107,8 @@ output_areas() {
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+      # The undeclared-job record (base-autofix.sh 6).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
@@ -112,6 +116,10 @@ output_areas() {
       # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
       # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
       Cargo.lock | */Cargo.lock) echo locks ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a).
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) echo iosffi ;;
+      # Undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac
@@ -196,6 +204,8 @@ held=""
 # Only a hold writes it (held_exit): a run that pushed nothing for another reason (the branch kept
 # moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
 held_exit=0
+# The names of the tests a swift_parity log reports FAILED, sorted, one per line.
+parity_failed_tests() { sed -n 's/^test \([^ ]*\) \.\.\. FAILED$/\1/p' "$1" | LC_ALL=C sort -u; }
 trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
 # The action catalog's swift_parity test in checkout DIR. land.sh injects its write token through
 # git's config environment. Cargo executes build scripts/tests: none may inherit publication
@@ -507,25 +517,52 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
   # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
   # loop: a green result for the old candidate does not cover the next one.
-  if ! action_parity "$(git rev-parse --show-toplevel)"; then
-    # A parity red the base tip already has, on a repair that writes none of the check's inputs, is
-    # not this repair's: it lands anyway. Refusing it kept a stale cmux-next-ios/rust/Cargo.lock on
-    # feat-cmux-next for 54 minutes on 2026-11-23 (run 45101521205: the lock was fixed, and the
-    # whole repair was dropped for the base's own swift_parity red).
-    # The test's own affected-reads line names its inputs; this default is that line on 2026-11-23.
-    parity_reads="$(sed -n 's#^ *// affected-reads: ##p' \
-      "$(git rev-parse --show-toplevel)/cmux-tui/crates/cmux-action-catalog/tests/swift_parity.rs" 2>/dev/null | head -1 || true)"
-    parity_reads="${parity_reads:-plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog}"
-    # shellcheck disable=SC2086 # parity_reads is a list of paths
-    if git diff --quiet "$tip" HEAD -- $parity_reads cmux-tui/Cargo.lock cmux-tui/Cargo.toml \
-      && ! action_parity_at "$tip"; then
-      echo "::warning::swift_parity fails at the base tip ${tip:0:12} too, and this repair writes none of its inputs; pushing the repair anyway. The base red is its own fix."
+  # A candidate that fails only tests the tip already fails is no worse than the tip and lands.
+  parity_log="$(mktemp)"
+  if ! action_parity "$(git rev-parse --show-toplevel)" 2>&1 | tee "$parity_log"; then
+    candidate_failed="$(parity_failed_tests "$parity_log")"
+    tip_failed=""
+    if [[ -n "$candidate_failed" ]]; then
+      tip_tree="$(mktemp -d)"
+      if git worktree add --quiet --detach "$tip_tree/tree" "$tip" >/dev/null 2>&1; then
+        echo "swift_parity failed on the candidate ($(echo $candidate_failed)); checking the tip ${tip:0:12}."
+        CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" \
+          action_parity "$tip_tree/tree" > "$parity_log.tip" 2>&1 || true
+        tip_failed="$(parity_failed_tests "$parity_log.tip")"
+        git worktree remove --force "$tip_tree/tree" >/dev/null 2>&1 || true
+      fi
+      rm -rf "$tip_tree" "$parity_log.tip"
+    fi
+    if [[ -n "$candidate_failed" ]]; then
+      new_failed="$(LC_ALL=C comm -23 <(printf '%s\n' "$candidate_failed") <(printf '%s\n' "$tip_failed") | sed '/^$/d')"
+      if [[ -n "$new_failed" ]]; then
+        echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+        echo "failing here but passing at the tip ${tip:0:12}: $(echo $new_failed)" >&2
+        echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+        rm -f "$parity_log"
+        exit 1
+      fi
+      echo "::warning::swift_parity fails at the tip ${tip:0:12} too ($(echo $tip_failed)); this repair adds no failure, so it lands. The tip's own red needs the action exports regenerated."
     else
-      echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
-      echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
-      exit 1
+      # Older parity runners can fail before naming tests. Preserve the existing safety rule:
+      # an unnamed failure is accepted only when the tip has the same red and this repair did
+      # not modify any input consumed by swift_parity.
+      parity_reads="$(sed -n 's#^ *// affected-reads: ##p' \
+        "$(git rev-parse --show-toplevel)/cmux-tui/crates/cmux-action-catalog/tests/swift_parity.rs" 2>/dev/null | head -1 || true)"
+      parity_reads="${parity_reads:-plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog}"
+      # shellcheck disable=SC2086 # parity_reads is a list of paths
+      if git diff --quiet "$tip" HEAD -- $parity_reads cmux-tui/Cargo.lock cmux-tui/Cargo.toml \
+        && ! action_parity_at "$tip"; then
+        echo "::warning::swift_parity fails at the base tip ${tip:0:12} too, and this repair writes none of its inputs; pushing the repair anyway. The base red is its own fix."
+      else
+        echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+        echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+        rm -f "$parity_log"
+        exit 1
+      fi
     fi
   fi
+  rm -f "$parity_log"
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
     echo "Pushed $(git rev-parse --short HEAD) to $branch."
