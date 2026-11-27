@@ -2135,8 +2135,18 @@ const TickList = memo(function TickList({
     const after = tail === undefined ? -1 : (ticks.keyIndex(tail) ?? -1);
     const pending = new Set(initial ? [] : entrance!.pending);
     if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
-      for (let index = Math.max(ticks.pendingCount, after + 1); index < ticks.length; index++)
-        pending.add(ticks.at(index)!.key);
+      // Only the newest prompts can still enter: past PENDING_ENTRANCES newer ones, a prompt no
+      // longer just arrived, so it draws in place.
+      const start = Math.max(ticks.pendingCount, after + 1, ticks.length - PENDING_ENTRANCES);
+      for (let index = start; index < ticks.length; index++) pending.add(ticks.at(index)!.key);
+    }
+    // A prompt that was never drawn (a hidden chat, a rail scrolled up while the chat grows) left
+    // its key here for good: the set grew with every prompt the chat gained, and was copied whole
+    // on each new one (Leo, 2026-11-14: "memory and cpu staying flat on infinite chats"). The
+    // oldest go first, so the set and its copy stay PENDING_ENTRANCES at most.
+    for (const key of pending) {
+      if (pending.size <= PENDING_ENTRANCES) break;
+      pending.delete(key);
     }
     entrance = { sessionId, ticks, pending };
   }
@@ -2319,6 +2329,9 @@ const Tick = memo(function Tick({
 }, tickPropsEqual);
 
 const MOUNT_ONLY = new Set(["place", "entering"]);
+
+/// The most prompts that wait to enter on the rail at once (TickList `pending`): the newest ones.
+const PENDING_ENTRANCES = 64;
 
 /// A tick's props as `memo` compares them, but for `place` and `entering`, which only its mount reads.
 function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
