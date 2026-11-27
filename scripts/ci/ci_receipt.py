@@ -336,6 +336,49 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str,
     return {"base": receipt_base, "run_url": url, "producer": producer}
 
 
+GIT_COMPARE_DEPTH = 600  # commits of the base's history read; ~a day of feat-cmux-next merges
+GIT_COMPARE_DEADLINE_S = 60
+
+
+def _git_compare(repo: str, older: str, base: str, *, files: bool, remote: str = "") -> dict | None:
+    """The REST compare's answer for OLDER...BASE from a throwaway git fetch of BASE's recent history: status
+    "ahead" when OLDER is in it, with the changed files when FILES (a blob-less fetch, so the trees are there).
+    None when git cannot tell (no token, a fetch error, or OLDER older than the depth or off BASE's history): the
+    caller asks REST. The token goes in through git's environment config, never argv."""
+    token = os.environ.get("GH_TOKEN", "")
+    if not token or not (SHA.match(older) and SHA.match(base)):
+        return None
+    import base64  # noqa: PLC0415
+    auth = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    env = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+           "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth}", "GIT_TERMINAL_PROMPT": "0"}
+    with tempfile.TemporaryDirectory(prefix="receipt-compare-") as scratch:
+        def git(*argv: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", "-C", scratch, *argv], env=env, capture_output=True, text=True,
+                                  timeout=GIT_COMPARE_DEADLINE_S)
+        try:
+            if git("init", "-q", "--bare").returncode:
+                return None
+            fetched = git("fetch", "-q", "--no-tags", "--no-recurse-submodules", f"--depth={GIT_COMPARE_DEPTH}",
+                          "--filter=blob:none" if files else "--filter=tree:0", remote or f"https://github.com/{repo}", base)
+            if fetched.returncode or git("cat-file", "-e", f"{older}^{{commit}}").returncode:
+                return None  # not fetched, or OLDER is not within BASE's recent history
+            if git("merge-base", "--is-ancestor", older, base).returncode:
+                return None
+            if not files:
+                return {"status": "ahead", "files": []}
+            changed = git("diff", "--name-only", "--no-renames", older, base)
+            if changed.returncode:
+                return None
+            return {"status": "ahead", "files": [{"filename": name} for name in changed.stdout.splitlines() if name]}
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+
+# Swapped by tests (tests/test_ci_receipt.py), which answer compares from their fake GitHub.
+git_compare: Callable[..., dict | None] = _git_compare
+
+
 def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: str, receipt_tree: str, base: str,
                 merge_tree: str, rust_roots: list[str] | None, same_head: bool = False) -> None:
     """A receipt's merge covers this run's: the same base and merge tree, or an older base that is an ancestor of
@@ -351,8 +394,12 @@ def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: 
         if receipt_tree != merge_tree:
             raise Rejected(f"{where} tested merge tree {receipt_tree}, not this run's {merge_tree} (same base {base})")
     else:
-        # One page of up to 300 files: the base's commits since the receipt's base.
-        compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
+        # The base's commits since the receipt's base, read with git first: the REST compare spent the
+        # installation's budget and answered 403 on 8 of 33 land dispatches on 2026-11-27 10:02-10:52Z, each a
+        # lane receipt dropped and the gates re-run. REST stays as the fallback (one page of up to 300 files).
+        compared = git_compare(repo, receipt_base, base, files=job == "rust-workspaces")
+        if compared is None:
+            compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
         if compared.get("status") not in ("ahead", "identical"):
             raise Rejected(f"{where} merged onto base {receipt_base}, which is {compared.get('status')} of this "
                            f"run's base {base}, not an ancestor")

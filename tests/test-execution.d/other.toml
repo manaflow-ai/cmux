@@ -1166,8 +1166,7 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_webviews_no_duplicate_import_names.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_webviews_no_duplicate_import_names.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_webviews_test_history.py"

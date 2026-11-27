@@ -1164,6 +1164,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
 
 [[test]]
+path = "tests/test_ci_workflow_apt_mirror_sync.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_concurrency.py"
 lane = "linux-guard"
 
