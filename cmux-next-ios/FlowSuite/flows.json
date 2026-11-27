@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "about": "iOS flows and the tests that prove them. select_flows.py reads this to run only the flows a change can affect. Sources: the iOS regressions of 2026-11 (regression:N, row N of the table in README.md) and Aziz's iOS testing notes (aziz:*), moved here from cmuxterm-hq. README.md has the format; CHECKLIST.md has the steps a person still does.",
+  "compile": {
+    "paths": [
+      "cmux-next-ios/**",
+      "Packages/iOS/**",
+      "scripts/ci/cmux-next-ios-sim.sh"
+    ],
+    "swift_roots": [
+      "cmux-next-ios/project.yml",
+      "cmux-next-ios/CmuxMobileKit/Package.swift"
+    ],
+    "cargo_roots": [
+      "cmux-next-ios/rust/Cargo.toml"
+    ],
+    "ignore": [
+      "cmux-next-ios/**/*.md",
+      "cmux-next-ios/verify/**",
+      "cmux-next-ios/design/**",
+      "cmux-next-ios/reliability-matrix/**",
+      "cmux-next-ios/AppStoreReview/screenshots/**"
+    ],
+    "scripts": [
+      "cargo check --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link"
+    ]
+  },
+  "flows": [
+    {
+      "id": "smoke-launch-sign-in",
+      "title": "The app launches, offers sign-in with Apple first, and every sign-in control responds",
+      "source": ["aziz:app-store-readiness#3", "aziz:app-store-readiness#4"],
+      "smoke": true,
+      "kit": [],
+      "ui": ["AppReviewGateUITests"],
+      "paths": []
+    },
+    {
+      "id": "terminal-first-attach",
+      "title": "Opening a terminal shows its content, not a skeleton, within 10 s of the link coming up",
+      "source": ["regression:1"],
+      "kit": ["CmuxMobileLiveTests/AttachWaitsForTheLinkTests"],
+      "ui": ["TerminalAttachFirstFrameUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/**",
+        "cmux-tui/crates/cmux-mobile-core/**",
+        "cmux-tui/crates/cmux-remote-protocol/**",
+        "cmux-tui/crates/cmux-relay-snapshot/**"
+      ]
+    },
+    {
+      "id": "terminal-key-row-layout",
+      "title": "The terminal key row shows only with the keyboard, sits over it and above the composer, never over terminal text",
+      "source": ["regression:2"],
+      "kit": [],
+      "ui": ["TerminalKeyRowOnDemandUITests", "TerminalComposerDockUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+        "Packages/iOS/CmuxTabsKit/**"
+      ]
+    },
+    {
+      "id": "workspace-row-selection-clears",
+      "title": "Going back from a workspace leaves no row highlighted",
+      "source": ["regression:3"],
+      "kit": [],
+      "ui": ["WorkspaceRowSelectionClearsUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/**",
+        "Packages/iOS/CmuxTabsKit/**"
+      ]
+    },
+    {
+      "id": "compile-app-and-tests",
+      "title": "The app, its UI tests, the kit tests and the mobile-link Rust build on the PR merged into today's base",
+      "source": ["regression:4", "regression:5", "regression:7"],
+      "build_for_testing": true,
+      "kit": [],
+      "ui": [],
+      "paths": [],
+      "note": "Selected whenever compile matches: build-for-testing of CmuxMobileApp plus compile.scripts. No flow paths needed."
+    },
+    {
+      "id": "screen-share-portrait-refused",
+      "title": "A refused portrait request during screen sharing does not crash",
+      "source": ["regression:6"],
+      "kit": ["CmuxMobileScreenSharingTests/ScreenSharingOrientationTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/**"
+      ]
+    },
+    {
+      "id": "terminal-composer-bar",
+      "title": "The composer's keys (Paste included) are visible and keep their glass",
+      "source": ["regression:8"],
+      "kit": [],
+      "ui": ["TerminalComposerBarUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesignCore/**"
+      ]
+    },
+    {
+      "id": "pairing-mac-identity",
+      "title": "Pairing keeps the Mac's identity across relaunch; no false 'Mac's identity changed'",
+      "source": ["regression:9"],
+      "kit": [],
+      "ui": [],
+      "swift": [
+        {"package": "Packages/macOS/CmuxNext", "filter": "MobileHostMacIdentityKeychainTests"}
+      ],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/**",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/**",
+        "Packages/iOS/CmuxMobilePairedMac/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/**"
+      ]
+    },
+    {
+      "id": "workspaces-empty-state",
+      "title": "With no Mac reachable, the Workspaces empty state names the real cause (offline, not asleep) and offers Retry",
+      "source": ["regression:10"],
+      "kit": ["CmuxMobileWorkspacesTests/WorkspaceInboxTests"],
+      "ui": ["OfflineWorkspaceAlertUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/**"
+      ],
+      "gap": "The empty-state copy test lands with its fix, cmux#57792; until then this flow runs the inbox and offline-alert tests."
+    },
+    {
+      "id": "workspaces-empty-mac-loads",
+      "title": "A Mac with no workspaces shows an empty list, not Loading forever, and the route does not flap",
+      "source": ["regression:11"],
+      "kit": ["CmuxMobileWorkspacesTests/WorkspaceInboxTests", "CmuxMobileTransportTests/NetworkPathFilterTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-tailnet/**",
+        "cmux-tui/crates/cmux-tailnet/**",
+        "cmux-tui/crates/cmux-braid-path/**"
+      ]
+    },
+    {
+      "id": "chat-mac-look",
+      "title": "The agent chat takes the Mac's theme and picture, top band included",
+      "source": ["regression:12"],
+      "kit": [],
+      "ui": ["ChatMacLookUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/**",
+        "Packages/iOS/CmuxConversation/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/**"
+      ]
+    },
+    {
+      "id": "app-review-dead-controls",
+      "title": "Sign-in, onboarding, Home and Settings have no dead controls; Delete Account asks; camera denied explains; largest text keeps controls reachable",
+      "source": ["aziz:app-store-readiness#3", "aziz:app-store-readiness#4", "aziz:app-store-readiness#5"],
+      "kit": [],
+      "ui": ["AppReviewGateUITests", "AccountDeletionAppStoreUITests"],
+      "scripts": ["python3 cmux-next-ios/scripts/app_review_gate.py lint --source-root . --lane appstore"],
+      "paths": [
+        "cmux-next-ios/App/**",
+        "cmux-next-ios/project.yml",
+        "cmux-next-ios/AppStoreReview/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/**"
+      ]
+    },
+    {
+      "id": "launch-session-restore",
+      "title": "Launch with an expired or slow session recovers the team scope instead of hanging",
+      "source": ["aziz:app-store-readiness#4"],
+      "kit": [],
+      "ui": [],
+      "swift": [
+        {"package": "Packages/Shared/CmuxAuthRuntime", "filter": "AuthCoordinatorTeamScopeRecoveryTests"}
+      ],
+      "paths": [
+        "Packages/Shared/CmuxAuthRuntime/**",
+        "Packages/Shared/CMUXAuthCore/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/**"
+      ]
+    },
+    {
+      "id": "tagged-simulator-isolation",
+      "title": "Local simulator checks use one simulator per tag, addressed by UDID, deleted at the end",
+      "source": ["aziz:ios-dogfood#parallel-simulators"],
+      "kit": [],
+      "ui": [],
+      "scripts": ["bash cmux-next-ios/FlowSuite/tagged-sim.sh self-test"],
+      "paths": ["cmux-next-ios/FlowSuite/tagged-sim.sh"]
+    }
+  ]
+}

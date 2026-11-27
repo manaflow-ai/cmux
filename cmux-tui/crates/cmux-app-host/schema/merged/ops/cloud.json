@@ -379,6 +379,11 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.op": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "873bd350087e96c1"
+    },
     "cloud.owner.turn_checkpoint": {
       "source": "local",
       "class": "mutation",
@@ -413,7 +418,7 @@
       "owner": "app:cmux/cloud",
       "class": "mutation",
       "risk": "mutate-own",
-      "digest": "5c87af31e3f9543f"
+      "digest": "68cbc6bebc57a65f"
     },
     "cloud.port.list": {
       "source": "app",
