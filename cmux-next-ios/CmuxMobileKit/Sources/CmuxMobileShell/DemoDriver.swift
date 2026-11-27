@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-attach", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
+    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "resume-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-attach", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -324,6 +324,18 @@ struct DemoDriver {
                 var summary = summary
                 summary.status = .idle
                 return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "resume-chat":
+            // The chat's link drops when the app goes to the background and comes back 12 s after it
+            // returns, past the old 10 s notice bound (ResumeNoConnectionChromeUITests): the chat
+            // shows its kept rows and takes a send, and says nothing about the link.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return DroppingOnBackgroundSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                                  backAfter: .seconds(12))
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -1495,6 +1507,70 @@ final class CatchingUpSource: AgentSessionSource {
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }
+}
+
+/// A chat whose link drops while the app is in the background and comes back `backAfter` once it
+/// returns, as a real link after a long background (`-cmux-mobile-demo resume-chat`). It says what
+/// the real source says (disconnected, catching up) and holds what is sent meanwhile.
+@MainActor
+final class DroppingOnBackgroundSource: AgentSessionSource {
+    let inner: MockAgentSession
+    let backAfter: Duration
+    private var down = false
+    private var held: [AgentClientIntent] = []
+    private var continuation: AsyncStream<AgentSessionEvent>.Continuation?
+    private var observers: [NSObjectProtocol] = []
+
+    init(inner: MockAgentSession, backAfter: Duration) {
+        self.inner = inner
+        self.backAfter = backAfter
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+    var loadsHistory: Bool { true }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        self.continuation = continuation
+        let inner = inner
+        Task { @MainActor in
+            for await event in inner.events() { continuation.yield(event) }
+            continuation.finish()
+        }
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drop() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.comeBackLater() }
+        })
+        return stream
+    }
+
+    private func drop() {
+        down = true
+        continuation?.yield(.status(.disconnected))
+        continuation?.yield(.historyLoading(true))
+    }
+
+    private func comeBackLater() {
+        let wait = backAfter
+        Task { @MainActor [weak self] in
+            // Demo only: stands in for a link that takes this long to come back.
+            try? await Task.sleep(for: wait)
+            guard let self, self.down else { return }
+            self.down = false
+            self.continuation?.yield(.status(.idle))
+            self.continuation?.yield(.historyLoading(false))
+            let held = self.held
+            self.held = []
+            for intent in held { self.inner.send(intent) }
+        }
+    }
+
+    func send(_ intent: AgentClientIntent) {
+        if down { held.append(intent) } else { inner.send(intent) }
+    }
 }
 /// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
 /// with Retry and Retry with another model (the mock offers three models).

@@ -76,15 +76,15 @@ impl Hub {
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
-                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                    && let Some(id) = e.msg.get("promptId")
-                {
-                    waiting.remove_other_turns(id, turn_id);
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started") {
+                    if let Some(id) = e.msg.get("promptId") {
+                        waiting.remove_other_turns(id, turn_id);
+                    }
                 }
-                if matches!(e.kind.as_str(), "queued" | "user_message")
-                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                {
-                    recorded.insert(id.to_owned());
+                if matches!(e.kind.as_str(), "queued" | "user_message") {
+                    if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
+                        recorded.insert(id.to_owned());
+                    }
                 }
                 match e.kind.as_str() {
                     "git" if e.dir == "mux" => {
@@ -96,24 +96,25 @@ impl Hub {
                         // `queue_order` (`restart_resume.rs`); a later reorder still holds.
                         if super::auto_resume::Cut::queued(
                             e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
-                        ) && let Some(id) = e.msg.get("promptId")
-                        {
-                            order.prioritize_restart(id);
+                        ) {
+                            if let Some(id) = e.msg.get("promptId") {
+                                order.prioritize_restart(id);
+                            }
                         }
                         // An accepted prompt a restart put back (`unstarted_prompt.rs`) stays at
                         // the head across a second restart before it ran.
-                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted")
-                            && let Some(id) = e.msg.get("promptId")
-                        {
-                            order.prioritize_restart(id);
+                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted") {
+                            if let Some(id) = e.msg.get("promptId") {
+                                order.prioritize_restart(id);
+                            }
                         }
                         // An inbox digest holds the queue's order with it in it, as its
                         // `queue_order` record does.
-                        if super::digest::inbox_digest::is_digest_record(&e.msg)
-                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
-                        {
-                            order.set(ids.iter());
-                            unstarted.lead(&mut order);
+                        if super::digest::inbox_digest::is_digest_record(&e.msg) {
+                            if let Some(ids) = e.msg.get("order").and_then(Value::as_array) {
+                                order.set(ids.iter());
+                                unstarted.lead(&mut order);
+                            }
                         }
                         // Put back after a failed turn (`requeue_joined`): this copy replaces
                         // the one the turn took (an inbox digest's message is still waiting).
@@ -223,10 +224,10 @@ impl Hub {
                     },
                     "queue_order" => {
                         // Sent now (`put_next`): no longer held.
-                        if e.msg.get("next") == Some(&Value::Bool(true))
-                            && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                        {
-                            held.remove(id);
+                        if e.msg.get("next") == Some(&Value::Bool(true)) {
+                            if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
+                                held.remove(id);
+                            }
                         }
                         let ids = e.msg.get("order").and_then(Value::as_array);
                         order.set(ids.into_iter().flatten());
