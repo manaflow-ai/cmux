@@ -331,6 +331,8 @@ struct TerminalCardScreenText: View {
     let text: String
     let topInset: CGFloat
     let width: CGFloat
+    /// The height the rows may fill: a page's room above its composer. Nil: a grid card's crop.
+    var visibleHeight: CGFloat? = nil
 
     var body: some View {
         let all = TerminalCardScreenLines.shown(text, capacity: .max)
@@ -340,7 +342,7 @@ struct TerminalCardScreenText: View {
         // Only the card's visible part counts: the last rows that fit, the prompt at the bottom (qa11).
         let lineHeight = UIFont.monospacedSystemFont(ofSize: size, weight: .regular).lineHeight
         let shown = TerminalCardScreenLines.shown(text, capacity: TerminalCardScreenLines.capacity(
-            visibleHeight: width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
+            visibleHeight: visibleHeight ?? width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
                 Text(String(line).isEmpty ? " " : String(line))

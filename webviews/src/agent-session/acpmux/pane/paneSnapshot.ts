@@ -162,7 +162,14 @@ import {
   reconnectRefusalStarts,
   RETRY_FIRST_MS,
 } from "../hostRetry";
-import { heldStartStop, pageClientLink, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import {
+  heldStartStop,
+  pageClientLink,
+  sendsHeldForHost,
+  untilHostAnswers,
+  acpmuxSendsReady,
+  paneSends,
+} from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -1236,11 +1243,13 @@ export function paneSnapshotEffect({
       // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
       browserSocket = !mock && !bridge;
       if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
-        // A host with no daemon to reach has nothing left to fail.
+        // A host with no daemon to reach has nothing left to fail, and no send waits for it.
+        paneSends.noAcpmux = true;
         setHostError(undefined);
         setHostErrorShown(false);
         return;
       }
+      paneSends.noAcpmux = false;
       // Native chats never load the in-page daemon or its fixture transcripts. Keep this
       // await in the mock branch so the native handshake still starts in the same turn.
       const mockModule = mock ? (preparedMockTransport() ?? (await import("../mock"))) : undefined;
@@ -2912,6 +2921,8 @@ export function paneSnapshotEffect({
       notifyDraftActionsChanged();
       // The sends made while no client was connected go now, on this one (sendWhenReady.ts).
       pageClientLink.back();
+      // Sends made while the page connected go now, in their order (sendWhenReady.ts).
+      acpmuxSendsReady();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future
