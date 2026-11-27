@@ -196,11 +196,14 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
 # CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
 # RUNNER_ADMISSION_CONTROLLER is the build controller's URL that expected_wait.py reads, not a runs-on label.
+# MERGE_FREEZE_OWN_RUNNER is a '1' switch (#57935): merge-freeze.yml and risk-tier.yml compare it to '1' to give the
+# feat-cmux-next merge freeze its own job again; it never names a runner.
 NON_LABEL_RUNNER_VARIABLES = {
     # A 1/0 switch (merge-freeze.yml runs its own job on feat-cmux-next), not a label.
     "MERGE_FREEZE_OWN_RUNNER",
     "CI_RUNNER_STATE",
     "CI_SEED_KEEP_LOCAL_RUNNERS",
+    "MERGE_FREEZE_OWN_RUNNER",
     "RUNNER_ADMISSION_CONTROLLER",
     "RUNNER_POOLS",
 }
@@ -234,7 +237,7 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             missing,
             set(),
             f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
-            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
+            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names or a switch",
         )
 
 
