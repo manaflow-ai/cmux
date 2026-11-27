@@ -469,13 +469,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # CI_LAND_KEEPS_SELECTOR=1 (repository variable, default off): the full-ci label follows the crate graph
+          # here as in cmux-tui-spec.yml (cmux#59250), instead of running every job; off, the call is unchanged.
+          FOLLOWS_GRAPH: ${{ vars.CI_LAND_KEEPS_SELECTOR == '1' && '--full-ci-follows-graph' || '' }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-sdks.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" $FOLLOWS_GRAPH
 
       # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
       # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
