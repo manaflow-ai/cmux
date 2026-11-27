@@ -39,8 +39,8 @@ struct ArtifactManifest {
     binaries: HashMap<String, String>,
 }
 
-/// The per-user cache for downloaded SSH payloads: `~/Library/Caches` on
-/// macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
+/// The per-user cache for downloaded SSH payloads: `~/Library/Caches/cmux-next` on
+/// macOS (never cmux Classic's `Caches/cmux`), `$XDG_CACHE_HOME/cmux` or `~/.cache/cmux` elsewhere.
 pub(crate) fn default_payload_cache() -> Option<PathBuf> {
     let base = if std::env::consts::OS == "macos" {
         PathBuf::from(std::env::var_os("HOME")?).join("Library/Caches")
@@ -50,7 +50,8 @@ pub(crate) fn default_payload_cache() -> Option<PathBuf> {
     } else {
         PathBuf::from(std::env::var_os("HOME")?).join(".cache")
     };
-    Some(base.join("cmux/cmux-tui-ssh"))
+    let own = if std::env::consts::OS == "macos" { "cmux-next" } else { "cmux" };
+    Some(base.join(own).join("cmux-tui-ssh"))
 }
 
 /// The SHA-256 digests this client build pins for every remote platform, read
