@@ -78,6 +78,8 @@ struct Fields<'a> {
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
     handle: Option<&'a str>,
+    /// When the session last changed on its machine, as its heartbeat says (`updatedAt`).
+    updated_at: Option<u64>,
 }
 
 impl<'a> Fields<'a> {
@@ -96,6 +98,7 @@ impl<'a> Fields<'a> {
             // Only a given handle: a derived one is every reader's to derive, and an invalid one
             // is no handle at all (`session_handle::valid`).
             handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
+            updated_at: s.updated_at.filter(|&at| at > 0),
         }
     }
 }
@@ -116,6 +119,7 @@ struct Bare {
     agent_session_id: Option<String>,
     host_build: Option<String>,
     handle: Option<String>,
+    updated_at: Option<u64>,
     read: u64,
 }
 
@@ -134,6 +138,7 @@ impl Bare {
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
             handle: own(fields.handle),
+            updated_at: fields.updated_at,
             read,
         }
     }
@@ -151,6 +156,7 @@ impl Bare {
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
             handle: self.handle.as_deref(),
+            updated_at: self.updated_at,
         }
     }
 
@@ -207,8 +213,9 @@ pub(crate) const ROW_KEYS: [&str; 11] = [
     "status",
 ];
 
-/// A hub session's row before `remote_summary` names it for its host. `updatedAt` is when this
-/// daemon first saw it as it is now, so a heartbeat that changes nothing changes no row.
+/// A hub session's row before `remote_summary` names it for its host. `updatedAt` is when it last
+/// changed on its machine (`SessionRow::updated_at`), or, from a hub that does not say, when this
+/// daemon first saw it as it is now; a heartbeat that changes nothing changes no row.
 fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
     let Fields {
         name,
@@ -327,8 +334,12 @@ impl Hub {
                     continue;
                 }
                 let bare = Bare::of(&fields, read);
+                // When it last changed on its machine, as its heartbeat says. A hub or daemon that
+                // does not send it leaves the old reading: when this daemon first saw the row as it
+                // is now, which a restart of this daemon moves for every row at once.
+                let updated_at = fields.updated_at.unwrap_or(now);
                 let mut fields = row_of(&s.session_id, &fields);
-                fields.set("updatedAt", json!(now));
+                fields.set("updatedAt", json!(updated_at));
                 let summary = Self::remote_summary(&s.host, fields);
                 let row = PeerRow::new(&summary);
                 changed.push((s.host.clone(), summary));
