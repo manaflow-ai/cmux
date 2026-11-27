@@ -92,6 +92,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(json!({}), "the person check refuses this connection"),
         ),
         (
+            method::MUX_BROWSER_WORKSPACE_SOURCE_SET,
+            Any(json!({}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_BROWSER_WORKSPACES,
+            Any(json!({}), "the connection is not an enrolled browser device"),
+        ),
+        (
             method::MUX_PERSON_HOLDS,
             Run(
                 json!({"nonce": "0000000000000000000000000000000000000000000000000000000000000000"}),
@@ -310,6 +318,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TAG, Run(json!({"sessionId": "$S", "set": {"lso": "1"}}))),
         (method::MUX_DETACH_PARENT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        (method::MUX_UNDELETE, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_DELETED, Run(json!({}))),
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
@@ -488,6 +498,21 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_LISTEN,
             Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_NAVIGATOR,
+            Any(json!({}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_PICK,
+            Any(json!({}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_SESSION_INFO,
+            Any(
+                json!({"sessionId": "$S"}),
+                "team messaging is off without a mesh relay (invalid params)",
+            ),
         ),
         (
             method::MUX_REGISTER,
