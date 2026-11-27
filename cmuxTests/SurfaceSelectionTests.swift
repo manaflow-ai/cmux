@@ -557,6 +557,7 @@ struct SurfaceSelectionTests {
             <html><body>
               <p id="passage">before needle words after</p>
               <p id="other">before second phrase after</p>
+              <p id="third">before third target after</p>
             </body></html>
             """,
             baseURL: URL(fileURLWithPath: "/tmp/cmux-use-selection-for-find/document.html"),
@@ -580,6 +581,16 @@ struct SurfaceSelectionTests {
         #expect(secondSelection == "second phrase")
         #expect(await panel.useSelectionForFind())
         #expect(panel.searchState?.needle == "second phrase")
+
+        // The selection read suspends. A query typed into the bar while the
+        // read is in flight wins, and the stale selection is dropped.
+        let thirdSelection = try await selectText("third target", inElement: "third", of: panel.webView)
+        #expect(thirdSelection == "third target")
+        let inFlight = Task { @MainActor in await panel.useSelectionForFind() }
+        await Task.yield()
+        panel.searchState?.needle = "typed"
+        #expect(await inFlight.value == false)
+        #expect(panel.searchState?.needle == "typed")
     }
 
     private func selectText(
