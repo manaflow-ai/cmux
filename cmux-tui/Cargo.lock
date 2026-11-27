@@ -1962,6 +1962,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -2578,6 +2579,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -2698,6 +2700,13 @@ dependencies = [
  "flate2",
  "libc",
  "rustc-demangle",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -3501,6 +3510,7 @@ dependencies = [
  "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
  "cmux-proxy",
@@ -4080,6 +4090,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
