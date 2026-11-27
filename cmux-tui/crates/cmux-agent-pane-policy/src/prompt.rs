@@ -116,6 +116,7 @@ pub fn cut(text: &str, limit: usize) -> String {
 
 pub fn input_summary(input: &Map<String, Value>) -> Option<Value> {
     let env = input.iter().find(|(key, _)| key.eq_ignore_ascii_case("env"));
+    // Swift treats every env value except an empty object as hidden input.
     let mut truncated = env.is_some_and(|(_, value)| !value.as_object().is_some_and(Map::is_empty));
     let mut shown: Vec<(&String, &Value)> = input
         .iter()

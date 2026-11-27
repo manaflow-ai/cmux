@@ -72,6 +72,17 @@ fn input_summary_hides_env_and_marks_redaction_or_overflow() {
 }
 
 #[test]
+fn input_summary_matches_swift_env_cast_semantics() {
+    for env in [Value::Null, json!("hidden"), json!(["hidden"])] {
+        let input = Map::from_iter([(String::from("env"), env)]);
+        assert_eq!(input_summary(&input), Some(json!({"fields": {}, "truncated": true})));
+    }
+    assert_eq!(input_summary(&Map::from_iter([(String::from("env"), json!({}))])), None);
+    let input = Map::from_iter([(String::from("env"), json!({"TOKEN": "hidden"}))]);
+    assert_eq!(input_summary(&input), Some(json!({"fields": {}, "truncated": true})));
+}
+
+#[test]
 fn option_and_request_read_are_fail_closed() {
     let offered = vec![
         json!({"kind": "allow_once", "optionId": "a"}),

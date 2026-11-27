@@ -435,6 +435,12 @@ fn c_abi_prompt_input_summary_and_invalid_requests() {
         ),
         Ok(json!({"summary": {"fields": {"cwd": "/tmp"}, "truncated": true}}))
     );
+    for env in [Value::Null, json!("hidden"), json!(["hidden"])] {
+        assert_eq!(
+            call(none, "prompt_input_summary", json!({"input": {"env": env}})),
+            Ok(json!({"summary": {"fields": {}, "truncated": true}}))
+        );
+    }
     for (op, request) in [
         ("prompt_scrub", json!({"text": null})),
         ("prompt_visible", json!({})),
