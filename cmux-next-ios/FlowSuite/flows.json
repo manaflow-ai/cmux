@@ -14,6 +14,7 @@
     "cargo_roots": [
       "cmux-next-ios/rust/Cargo.toml"
     ],
+    "ffi_closure": true,
     "ignore": [
       "cmux-next-ios/**/*.md",
       "cmux-next-ios/verify/**",
@@ -78,7 +79,7 @@
     {
       "id": "compile-app-and-tests",
       "title": "The app, its UI tests, the kit tests and the mobile-link Rust build on the PR merged into today's base",
-      "source": ["regression:4", "regression:5", "regression:7"],
+      "source": ["regression:4", "regression:5", "regression:7", "regression:15"],
       "build_for_testing": true,
       "kit": [],
       "ui": [],
@@ -195,6 +196,19 @@
       ]
     },
     {
+      "id": "reconnect-after-drop",
+      "title": "After the Mac's link drops for 10 s and for 60 s, the iPhone reattaches by itself within 30 s, no tap",
+      "source": ["leo-proxy:cmux#56894-never-tried-on-a-phone"],
+      "kit": [],
+      "ui": [],
+      "pair_e2e": ["reconnect-drops=10,60"],
+      "paths": [
+        "cmux-tui/crates/cmux-remote/**",
+        "cmux-tui/crates/cmux-tui/src/remote_runtime*"
+      ],
+      "note": "A pair-e2e run (scripts/ci/cmux_next_pair_e2e.py reconnect leg): the tagged Mac app and its cmux-mobile-host are frozen (SIGSTOP) for each drop, then resumed; the phone's own marks and the Mac's connected phones decide, and simctl records the screen (reconnect-after-drop.mp4 in the evidence zip)."
+    },
+    {
       "id": "tagged-simulator-isolation",
       "title": "Local simulator checks use one simulator per tag, addressed by UDID, deleted at the end",
       "source": ["aziz:ios-dogfood#parallel-simulators"],
@@ -202,6 +216,49 @@
       "ui": [],
       "scripts": ["bash cmux-next-ios/FlowSuite/tagged-sim.sh self-test"],
       "paths": ["cmux-next-ios/FlowSuite/tagged-sim.sh"]
+    },
+    {
+      "id": "terminal-keyboard-fullscreen-app",
+      "title": "Showing the soft keyboard over a full-screen app keeps its top rows (Claude Code's header) on screen and never resizes the Mac's terminal",
+      "source": ["regression:13"],
+      "kit": [],
+      "ui": ["TerminalKeyboardNoResizeUITests"],
+      "paths": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**"]
+    },
+    {
+      "id": "terminal-size-claim-release",
+      "title": "Backgrounding or locking the phone gives the Mac's terminal its own size back at once; a quick switch back sends nothing",
+      "source": ["regression:14"],
+      "kit": ["CmuxMobileTerminalTests/TerminalSizeClaimDebounceTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/**"
+      ]
+    },
+    {
+      "id": "chat-slow-history-loading",
+      "title": "A chat whose history is slow on a live link shows its spinner, then Loading chat after the quiet threshold",
+      "source": ["regression:16"],
+      "kit": ["CmuxMobileAgentChatTests/StartingAgentSourceTests"],
+      "ui": [],
+      "paths": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/**"]
+    },
+    {
+      "id": "kit-macos-swift-test",
+      "title": "The macOS half of CmuxMobileKit compiles and its tests run, so a macOS-only compile break can't hide the chat and model tests behind it",
+      "source": ["regression:17"],
+      "kit": [],
+      "ui": [],
+      "swift": [
+        {"package": "cmux-next-ios/CmuxMobileKit", "filter": "NoRawTimeoutCopyTests"},
+        {"package": "cmux-next-ios/CmuxMobileKit", "filter": "WorkedFoldTests"}
+      ],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/**",
+        "cmux-next-ios/CmuxMobileKit/Package.swift"
+      ]
     }
   ]
 }
