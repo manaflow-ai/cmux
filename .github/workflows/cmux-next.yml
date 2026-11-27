@@ -316,6 +316,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -474,7 +475,6 @@ on:
       - webviews/src/**
       # Why: note-467
       - webviews/**
-      - scripts/cmux-next/private-bun.sh
       - webviews/scripts/**
       - webviews/package.json
       - webviews/bun.lock
@@ -691,6 +691,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -841,6 +842,8 @@ jobs:
       key: cmux-next-pure-checks
       hold_minutes: 30
       no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
+      # A hand push compiles on its own commit, inside a taken window too (base-coalesce.yml); lander merges coalesce.
+      run_direct_pushes: true
 
   # Why: 2026-11-24-pure-checks-coalesce-1.md, note-11
   # Why: note-pr-control-pool
@@ -2516,6 +2519,7 @@ jobs:
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A push reads the tip check and falls back to the Mac canary when unavailable.
           # Why: 2026-11-24-swift-canary-fleet-3.md
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then

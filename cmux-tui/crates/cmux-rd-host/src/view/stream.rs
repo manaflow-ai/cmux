@@ -593,6 +593,7 @@ fn maybe_feedback(
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
+        acked_ltr_tokens: Vec::new(),
     });
     *last_feedback_ns = now;
     *released_since_feedback = false;
