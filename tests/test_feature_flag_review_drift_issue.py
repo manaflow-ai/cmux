@@ -22,7 +22,6 @@ class FeatureFlagReviewDriftIssueTests(unittest.TestCase):
         script = textwrap.dedent(workflow.split("          script: |\n", 1)[1])
         harness = """
 const writes = [];
-const warnings = [];
 let issue = null;
 let labelExists = false;
 const reportFiles = REPORTS;
@@ -31,8 +30,8 @@ const fs = {readFileSync: () => {
   if (currentReport === null) throw new Error('report file missing');
   return currentReport;
 }};
-// A warning is a log line, not an issue write: kept apart so the write lists below stay what reaches GitHub.
-const core = {warning: message => warnings.push(message)};
+const getOctokit = () => null;
+const core = {warning: message => writes.push(['warning', message])};
 const context = {repo: {owner: 'o', repo: 'r'}, serverUrl: 'https://github.com', runId: 1};
 const github = {rest: {issues: {
   listForRepo: async () => ({data: issue && issue.state === 'open' ? [issue] : []}),
@@ -48,11 +47,13 @@ const run = async () => {
     process.env.HEAD_SHA = String(context.runId).repeat(40);
     await (async function(require) { SCRIPT })(name => {
       if (name === 'fs') return fs;
+      // The workflow arms scripts/ci/incident_report.cjs (spare tokens); its own tests cover it.
+      if (name.endsWith('/scripts/ci/incident_report.cjs')) return {arm: () => {}};
       throw new Error('unexpected dependency: ' + name);
     });
     context.runId++;
   }
-  process.stdout.write(JSON.stringify({writes, warnings, issue}));
+  process.stdout.write(JSON.stringify({writes, issue}));
 };
 run().catch(error => { console.error(error); process.exitCode = 1; });
 """.replace("REPORTS", json.dumps(reports)).replace("SCRIPT", script)
@@ -68,9 +69,6 @@ run().catch(error => { console.error(error); process.exitCode = 1; });
         }]
         result = self.run_monitor([json.dumps(report), json.dumps(report)])
         self.assertEqual([kind for kind, _ in result["writes"]], ["label", "create", "update"])
-        # Without the failure report tools checked out (#55872), each run says so and reports on the job token.
-        self.assertEqual(len(result["warnings"]), 2)
-        self.assertTrue(all("incident_report.cjs is not here" in w for w in result["warnings"]), result["warnings"])
         self.assertIn("soon-release", result["issue"]["body"])
         self.assertIn("Sources/FeatureFlags.swift", result["issue"]["body"])
         self.assertIn("Approaching", result["issue"]["body"])

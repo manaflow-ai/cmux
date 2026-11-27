@@ -561,6 +561,11 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
     ".github/workflows/pr-router.yml",
+    ".github/workflows/ios-fast-verdict-dispatch.yml",  # same call as pr-router.yml (feat-cmux-next only)
+    # feat-cmux-next only; its ios job takes the ios-runner pool picker's output.
+    ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
+    # feat-cmux-next only; its probe job takes vars.CI_SIDE_LANE_RUNNER on attempts 1 and 2.
+    ".github/workflows/accounts-nightly-probe.yml",
     # feat-cmux-next only; its build job takes the pool picker job route's output (cmux#55612).
     ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
@@ -619,6 +624,7 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-ios-keyboard-motion.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-iphone-clips.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-perf-bench.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-split-table.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-stress-bench.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-tab-switch.yml": _GATEWAY_ONLY,
     ".github/workflows/fleet-compile-check.yml": _GATEWAY_ONLY,
@@ -668,6 +674,43 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
+    ".github/workflows/cmux-next-head-compile.yml":
+        "feat-cmux-next only; its compile job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a push-time compile data point; the next feat-cmux-next push compiles "
+        "again",
+    ".github/workflows/cmux-next-ios-energy-nightly.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; an energy bench that must run on an owned device host; the next push "
+        "measures again",
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a keyboard motion bench that must run on an owned device host; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-iphone-clips.yml":
+        "feat-cmux-next only; its record job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; records iPhone clips on an owned device host; the next push records again",
+    ".github/workflows/cmux-next-perf-bench.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-stress-bench.yml":
+        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-tab-switch.yml":
+        "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "
+        "measures again",
+    ".github/workflows/fleet-compile-check.yml":
+        "feat-cmux-next only; its compile-check job names the literal glaeda-gateway-xcode-26.6 label on every "
+        "attempt, so a re-run would not move it; a dispatched fleet compile check; its cmux-ci caller "
+        "re-dispatches it",
+    ".github/workflows/ios-base-bisect.yml":
+        "feat-cmux-next only; its bisect job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a bisect that nothing required waits on; the next base red starts another",
+    ".github/workflows/screen-stream-eval.yml":
+        "feat-cmux-next only; its eval job names the literal glaeda-gateway-xcode-26.6 label on every attempt, so "
+        "a re-run would not move it; a dispatched screen stream eval; a person re-runs it",
 }
 # Every workflow this rescue acts on (target_from_event()); owned_pool_sources.py
 # must find no owned workflow outside it and UNRESCUED_WORKFLOW_PATHS.

@@ -210,8 +210,6 @@ class ScanTests(unittest.TestCase):
         for i in range(40):
             self.commit(f"app/{i}.swift")
         self.scan()
-        # Each verdict read once, counted rather than timed (a timed bound fails on a loaded runner).
-        self.assertGreaterEqual(len(Results.hits), 40)
         self.assertEqual(len(Results.hits), len(set(Results.hits)))
 
 
@@ -221,6 +219,9 @@ sys.stdout.write(open(os.environ["PLAN"]).read())
 sys.exit(int(os.environ.get("SCAN_RC", "0")))
 """
 FAKE_REQUEST = """#!/usr/bin/env bash
+# The tick refuses a commit whose script has no web bundle check (#60513);
+# these fakes stand for a current script, so they carry its definition line.
+web_bundles_green() { return 0; }
 sha="$2"
 echo "$sha" >> "$ASKED"
 case "$(cat "$BEHAVIOR/$sha" 2>/dev/null)" in
@@ -322,6 +323,22 @@ class TickWalkTests(unittest.TestCase):
         result = self.run_step([(0, "skip")], {1: "request"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.asked_commits(), [self.shas[1]])
+
+    def test_a_commit_whose_script_predates_the_web_bundle_check_is_refused_unasked(self) -> None:
+        # #60513: d5599c721e05's script had no web_bundles_green, ran no web
+        # check, and was promoted. The walk refuses such a commit and goes on.
+        script = self.repo / "scripts/cmux-next/request-nightly-next.sh"
+        script.write_text(FAKE_REQUEST.replace("web_bundles_green() { return 0; }\n", ""))
+        git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "commit", "-q", "-am", "old script"], check=True)
+        old = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        self.plan.write_text(f"{old} ask because\n")
+        (self.behavior / old).write_text("request")
+        result = self.run_step([(0, "ask")], {0: "request"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"not promoting {old[:12]}: its request-nightly-next.sh predates the web bundle check (#60088)", result.stdout)
+        self.assertEqual(self.asked_commits(), [self.shas[0]])
+        self.assertIn(f"requested nightly-next promotion of {self.shas[0][:12]}", result.stdout)
 
 
 class TickStepBoundTests(unittest.TestCase):

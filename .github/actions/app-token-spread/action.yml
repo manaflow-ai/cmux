@@ -10,6 +10,11 @@ description: >-
   failing leaves the token empty and fails this step, exactly as the one
   create-github-app-token step it replaces did, so `outcome == 'failure'`
   fallbacks and `continue-on-error: true` callers behave as before.
+  A caller whose read fits a quota-goblin pool token (pool-tokens: the
+  one-hour, this-repository tokens the key home pushes as Actions secrets,
+  e.g. CI_POOL_TOKEN_1/2) gets that token when its installation has at least
+  pool-floor calls left, and then neither App is minted: the reads move off
+  the routing App's 5,000 (spent to 0 every hour on 2026-11-25..27).
 
 # The job's checkout needs .github/actions/app-token-spread (a sparse checkout of
 # that one path at github.sha is enough). Only for read-only permissions: a
@@ -64,6 +69,19 @@ inputs:
   permission-organization-self-hosted-runners:
     required: false
     default: ""
+  pool-tokens:
+    description: >-
+      Space- or comma-separated pre-minted quota-goblin tokens for this
+      repository (secrets.CI_POOL_TOKEN_1, ...). Used only when the requested
+      permissions are within contents, pull-requests, actions and checks read
+      on this repository (the pool tokens' scope); an expired or unreadable
+      token is skipped.
+    required: false
+    default: ""
+  pool-floor:
+    description: A pool token is picked before any mint when its core remaining is at least this.
+    required: false
+    default: "500"
   probe:
     description: The label of this mint in the app-budget log line.
     required: false
@@ -74,7 +92,7 @@ outputs:
     description: The picked installation token, or empty when neither App minted one.
     value: ${{ steps.pick.outputs.token }}
   app:
-    description: glaeda-route, cmux-bot, or empty.
+    description: quota-goblin-pool-N, glaeda-route, cmux-bot, or empty.
     value: ${{ steps.pick.outputs.app }}
   remaining:
     description: The picked installation's core remaining at mint time (-1 unread).
@@ -83,9 +101,60 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Read the quota-goblin pool tokens
+      id: pool
+      if: inputs.pool-tokens != ''
+      shell: bash
+      env:
+        POOL_TOKENS: ${{ inputs.pool-tokens }}
+        POOL_FLOOR: ${{ inputs.pool-floor }}
+        WANT_OWNER: ${{ inputs.owner }}
+        WANT_REPOS: ${{ inputs.repositories }}
+        P_ADMIN: ${{ inputs.permission-administration }}
+        P_ISSUES: ${{ inputs.permission-issues }}
+        P_RUNNERS: ${{ inputs.permission-organization-self-hosted-runners }}
+        P_ACTIONS: ${{ inputs.permission-actions }}
+        P_CHECKS: ${{ inputs.permission-checks }}
+        P_CONTENTS: ${{ inputs.permission-contents }}
+        P_PRS: ${{ inputs.permission-pull-requests }}
+      run: |
+        # The pool tokens hold contents, pull-requests and checks read plus actions on this
+        # repository only (leo-workspace machines/gh-app-roles.json quota-goblin-9008/9009,
+        # quota-goblin-9006). Any other permission or repository keeps today's two mints.
+        fits=1
+        [ -z "$P_ADMIN$P_ISSUES$P_RUNNERS" ] || fits=0
+        for v in "$P_ACTIONS" "$P_CHECKS" "$P_CONTENTS" "$P_PRS"; do
+          case "$v" in ""|read) ;; *) fits=0 ;; esac
+        done
+        [ -z "$WANT_OWNER" ] || [ "$WANT_OWNER" = "${GITHUB_REPOSITORY%%/*}" ] || fits=0
+        [ -z "$WANT_REPOS" ] || [ "$WANT_REPOS" = "${GITHUB_REPOSITORY#*/}" ] || fits=0
+        best="" best_left=-1 best_n="" n=0 seen=""
+        if [ "$fits" = 1 ]; then
+          for t in ${POOL_TOKENS//,/ }; do
+            n=$((n + 1))
+            # GET /rate_limit is free; an expired token answers 401 with no "core" and is skipped.
+            body="$(curl -sS --max-time 10 -H "Authorization: Bearer $t" \
+              -H "Accept: application/vnd.github+json" "${GITHUB_API_URL:-https://api.github.com}/rate_limit" 2>/dev/null | tr -d ' \t\r\n')" || body=""
+            case "$body" in *'"core":'*) ;; *) seen="$seen pool-$n=unread"; continue ;; esac
+            core="${body#*\"core\":}"; core="${core%%\}*}"
+            left="$(printf '%s' "$core" | grep -o '"remaining":[0-9]*' | head -n 1 | cut -d: -f2)"
+            [ -n "$left" ] || { seen="$seen pool-$n=unread"; continue; }
+            seen="$seen pool-$n=$left"
+            if [ "$left" -gt "$best_left" ]; then best="$t" best_left="$left" best_n="$n"; fi
+          done
+        fi
+        if [ -n "$best" ] && [ "$best_left" -ge "${POOL_FLOOR:-500}" ]; then
+          {
+            echo "token=$best"
+            echo "app=quota-goblin-pool-$best_n"
+            echo "remaining=$best_left"
+          } >> "$GITHUB_OUTPUT"
+        fi
+        echo "pool-budget fits=$fits floor=${POOL_FLOOR:-500}${seen}"
+
     - name: Mint on the glaeda-route App
       id: route
-      if: inputs.route-app-id != '' && inputs.route-private-key != ''
+      if: steps.pool.outputs.token == '' && inputs.route-app-id != '' && inputs.route-private-key != ''
       continue-on-error: true
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       with:
@@ -104,7 +173,7 @@ runs:
 
     - name: Mint on the cmux-bot App
       id: bot
-      if: inputs.bot-app-id != '' && inputs.bot-private-key != ''
+      if: steps.pool.outputs.token == '' && inputs.bot-app-id != '' && inputs.bot-private-key != ''
       continue-on-error: true
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       with:
@@ -127,6 +196,9 @@ runs:
       env:
         ROUTE_TOKEN: ${{ steps.route.outputs.token }}
         BOT_TOKEN: ${{ steps.bot.outputs.token }}
+        POOL_TOKEN: ${{ steps.pool.outputs.token }}
+        POOL_APP: ${{ steps.pool.outputs.app }}
+        POOL_LEFT: ${{ steps.pool.outputs.remaining }}
         PROBE: ${{ github.workflow }}/${{ inputs.probe || github.job }}
       run: |
         # GET /rate_limit is free: it does not count against the installation's budget.
@@ -143,6 +215,15 @@ runs:
           value="$(printf '%s' "$core" | grep -o '"remaining":[0-9]*' | head -n 1 | cut -d: -f2)"
           echo "${value:--1}"
         }
+        if [ -n "$POOL_TOKEN" ]; then
+          echo "app-budget $PROBE picked=$POOL_APP $POOL_APP=$POOL_LEFT glaeda-route=unminted cmux-bot=unminted at=$(date +%s)"
+          {
+            echo "token=$POOL_TOKEN"
+            echo "app=$POOL_APP"
+            echo "remaining=$POOL_LEFT"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         route="$(remaining "$ROUTE_TOKEN")"
         bot="$(remaining "$BOT_TOKEN")"
         app="" token="" left=""
