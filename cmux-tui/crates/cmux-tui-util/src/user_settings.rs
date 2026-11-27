@@ -706,6 +706,23 @@ mod tests {
     }
 
     #[test]
+    fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+        use serde_json::json;
+        for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+            for doc in [
+                json!({"transport.tailnetCarrier": value}),
+                json!({"transport": {"tailnetCarrier": value}}),
+            ] {
+                assert_eq!(
+                    super::tailnet_carrier_from_config_text(&doc.to_string()),
+                    super::TailnetCarrier::Off,
+                    "{doc}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn agent_share_idle_minutes_is_fifteen_unless_the_file_names_a_value_in_range() {
         use super::agent_share_idle_minutes_from_config_text as minutes;
         assert_eq!(minutes(""), 15);

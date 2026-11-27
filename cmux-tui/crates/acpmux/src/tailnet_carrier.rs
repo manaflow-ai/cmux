@@ -92,18 +92,21 @@ impl Mode {
         }
         let setting = || {
             let doc = crate::user_settings::document(&crate::user_settings::text()?)?;
-            let value = crate::user_settings::value(&doc, SETTING)?;
-            value.as_str().map(str::to_owned)
+            crate::user_settings::value(&doc, SETTING)
         };
         Self::resolve(env.as_deref(), setting)
     }
 
     /// The mode of an environment value, else of the settings value `setting` reads, else
     /// the default. A value present but not understood is off.
-    pub fn resolve(env: Option<&str>, setting: impl FnOnce() -> Option<String>) -> Self {
+    pub fn resolve(env: Option<&str>, setting: impl FnOnce() -> Option<serde_json::Value>) -> Self {
         match env {
             Some(text) => Self::resolve_text(text),
-            None => setting().map_or_else(Self::default, |text| Self::resolve_text(&text)),
+            None => match setting() {
+                None | Some(serde_json::Value::Null) => Self::default(),
+                Some(serde_json::Value::String(text)) => Self::resolve_text(&text),
+                Some(_) => Self::Off,
+            },
         }
     }
 

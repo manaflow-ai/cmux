@@ -233,7 +233,7 @@ async fn a_cold_localapi_read_is_awaited_briefly_and_never_runs_the_cli() {
 
 #[test]
 fn the_default_is_direct_only_and_off_or_garbage_turns_it_off() {
-    let none = || None::<String>;
+    let none = || None::<serde_json::Value>;
     assert_eq!(Mode::default(), Mode::DirectOnly);
     assert_eq!(Mode::resolve(None, none), Mode::DirectOnly, "nothing set: direct-only");
     assert_eq!(Mode::resolve(None, || Some("off".into())), Mode::Off, "the setting off");
@@ -245,6 +245,22 @@ fn the_default_is_direct_only_and_off_or_garbage_turns_it_off() {
     // DERP and peer relays stay out of the default (RFD 0164; hq#26023).
     assert!(!Mode::default().offers(PeerPath::Derp));
     assert!(!Mode::default().offers(PeerPath::PeerRelay));
+}
+
+#[test]
+fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+    use serde_json::json;
+    for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+        for doc in [
+            json!({"transport.tailnetCarrier": value}),
+            json!({"transport": {"tailnetCarrier": value}}),
+        ] {
+            let setting = || crate::user_settings::value(&doc, crate::tailnet_carrier::SETTING);
+            assert_eq!(Mode::resolve(None, setting), Mode::Off, "{doc}");
+            assert_eq!(Mode::resolve(Some("direct-only"), setting), Mode::DirectOnly);
+        }
+    }
+    assert_eq!(Mode::resolve(None, || Some(json!(null))), Mode::DirectOnly);
 }
 
 #[test]
