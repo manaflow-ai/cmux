@@ -43,6 +43,14 @@ describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
   }
 });
 
+// A turn the agent sent nothing draws its prompt and footer only (map.ts empty-turn); d-action-only
+// flags only a turn whose thoughts, calls or words all went missing. Found by the fold baseline for
+// cmux#52785 (Leo: "we need to compare against current behaviour").
+describe("chat simulator: no scenario ends a turn with only its action row", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(name, () => expect(broken(runSimulation(make()), "d-action-only")).toEqual([]));
+});
+
 /** Turn 2's rows at the first step its live line stands under the line that opened it (its calls fold into the live line). */
 const openedTurn = (name: string) => {
   for (const step of runSimulation(SCENARIOS[name]!()).traces) {
