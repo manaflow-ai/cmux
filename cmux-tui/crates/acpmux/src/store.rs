@@ -291,6 +291,22 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
     }
+    /// `scan_back` for a reader that wants only some records: a line `may_match(line, dir, kind)`
+    /// is false for holds none of them, and a file store passes it without parsing it (a store
+    /// that holds parsed records may ignore it; `visit` still decides on the rest). A subagent
+    /// pane's newest page of a long chat parsed every line back to that subagent's records (Leo,
+    /// 2026-11-27: "these take way too long to load").
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        _may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -1740,7 +1756,19 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, false)
+        self.scan_back_in(id, after, before, skip, None, visit, false)
+    }
+
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, Some(may_match), visit, false)
     }
 
     fn scan_back_indexed(
@@ -1751,7 +1779,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, true)
+        self.scan_back_in(id, after, before, skip, None, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
