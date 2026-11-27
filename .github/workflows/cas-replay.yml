@@ -129,6 +129,9 @@ jobs:
               "source_sha": source_sha,
               "runner_os": os.environ["RUNNER_OS"],
               "runner_arch": os.environ["RUNNER_ARCH"],
+          "build_profile": "release",
+          "cargo_package": "cmux-cas",
+          "cargo_bin": "cas-replay",
               "rust_toolchain_sha256": toolchain_sha,
               "binary_sha256": binary_sha,
           }
