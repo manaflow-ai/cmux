@@ -45,11 +45,12 @@ async fn machine_on(
 /// What `peer_wg_learn.rs` does with `b`'s `node.wireguard`: `b` admits `a`, `a` learns `b`.
 async fn learn(a: &Transport, b: &Transport) -> SocketAddr {
     let ad = a.advert();
-    let admitted = b
-        .admit(ad["publicKey"].as_str().unwrap(), ad["address"].as_str().unwrap().parse().unwrap())
-        .await
-        .unwrap();
-    assert!(admitted);
+    let key = ad["publicKey"].as_str().unwrap();
+    let address = ad["address"].as_str().unwrap().parse().unwrap();
+    b.admit(key, address).await.unwrap();
+    // After a restart this admission may already be persisted; either answer must leave
+    // the origin admitted at its current address.
+    assert_eq!(load(&b.state_dir).admitted.get(key), Some(&address));
     let bd = b.advert();
     let route = StaticPeer {
         public_key: bd["publicKey"].as_str().unwrap().to_owned(),
