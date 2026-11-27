@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.surface.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Separate shades the sidebar darker than the main pane."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「別にする」では、サイドバーをメインペインより暗く表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«منفصلة» تجعل الشريط الجانبي أغمق من اللوحة الرئيسية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odvojeno čini bočnu traku tamnijom od glavnog okna."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Separat gør sidepanelet mørkere end hovedruden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Getrennt“ macht die Seitenleiste dunkler als den Hauptbereich."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Separado oscurece la barra lateral más que el panel principal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Séparé rend la barre latérale plus sombre que le panneau principal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Separato rende la barra laterale più scura del pannello principale."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដាច់ដោយឡែក ធ្វើឱ្យរបារចំហៀងងងឹតជាងផ្ទាំងមេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "'분리'는 사이드바를 메인 창보다 어둡게 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Separat gjør sidepanelet mørkere enn hovedruten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Osobne przyciemnia pasek boczny względem panelu głównego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Separado deixa a barra lateral mais escura que o painel principal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Отдельный» делает боковую панель темнее основной."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แยกกัน จะทำให้แถบด้านข้างเข้มกว่าบานหลัก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ayrı, kenar çubuğunu ana bölmeden daha koyu yapar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Окремий» робить бічну панель темнішою за основну."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tách riêng làm thanh bên tối hơn khung chính."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“分开”会让边栏比主窗格更暗。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「分開」會讓側邊欄比主窗格更暗。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -9,20 +9,38 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_capacity_failover.rs"]
+mod capacity_failover;
+
 #[path = "auto_resume_context.rs"]
 mod context;
 
 #[path = "auto_resume_rate_hold.rs"]
 mod rate_hold;
 
+#[path = "auto_resume_exit_429.rs"]
+mod exit_429;
+
 #[path = "auto_resume_429_storm.rs"]
 mod storm_429;
+
+#[path = "auto_resume_overload_storm.rs"]
+mod overload_storm;
+
+#[path = "auto_resume_529_chaos.rs"]
+mod chaos_529;
 
 #[path = "auto_resume_limits.rs"]
 mod limits;
 
 #[path = "auto_resume_retry.rs"]
 mod retry;
+
+#[path = "auto_resume_refused.rs"]
+mod refused;
+
+#[path = "auto_resume_race.rs"]
+mod race;
 
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {

@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 import Foundation
 import Network
@@ -42,10 +43,11 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
-    /// The peers of the daemon's `_acpmux/status`. It waits for the answer however long a loaded
-    /// daemon takes (#28083); the caller's cancel ends the wait (a picker that closed).
-    @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
-        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: nil))
+    /// The peers of the daemon's `_acpmux/status`. It waits for the answer as long as a loaded
+    /// daemon takes (#28083), up to `deadline` (the caller's share of ``AcpmuxHost/lookupDeadline``),
+    /// then ``AgentPaneDeadlineExceeded``; the caller's cancel ends the wait sooner (a picker that closed).
+    @concurrent static func chatPeers(socketPath: String, deadline: Duration) async throws -> [AgentChatPeer] {
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline))
     }
 
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
@@ -265,7 +267,7 @@ nonisolated enum AcpmuxStatusClient {
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
+        let connection = CmuxEgress.connection(to: try unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxStatusClient")
         defer { connection.cancel() }
         let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),

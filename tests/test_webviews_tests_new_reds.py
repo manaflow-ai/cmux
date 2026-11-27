@@ -445,6 +445,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
             shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
+            shutil.copy(ROOT / "scripts/ci/webviews_retry_pool.py", head / "scripts/ci/webviews_retry_pool.py")
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
@@ -584,6 +585,22 @@ class Workflow(unittest.TestCase):
             self.assertLessEqual(deadline(minutes), (minutes - 6) * 60)
         # A job whose setup ate its minutes retries nothing rather than reading a negative deadline as none.
         self.assertEqual(deadline(40, 40 * 60), 0)
+
+        # 11-26 13:15Z to 11-27 01:47Z: 44 post-merge shards (45 min dispatch) were cancelled still in their
+        # first pass, with no result. A push or dispatch stops its first pass at the retry deadline's point
+        # (CMUX_WEB_TEST_STOP_AT, an epoch second), so its uploads run; a pull request keeps its first pass whole.
+        def stop_at(event, minutes=45, setup=300):
+            started = int(time.time()) - setup
+            env = {"PATH": os.environ["PATH"], "CMUX_WEB_TEST_JOB_MINUTES": str(minutes),
+                   "CMUX_WEB_TEST_JOB_STARTED": str(started), "GITHUB_EVENT_NAME": event}
+            out = subprocess.run(["bash", "-euc", block + 'echo "${CMUX_WEB_TEST_STOP_AT:-none}"'],
+                                 env=env, check=True, capture_output=True, text=True).stdout.strip()
+            return started, out
+
+        for event in ("workflow_dispatch", "push"):
+            started, out = stop_at(event)
+            self.assertEqual(int(out), started + 45 * 60 - 480, event)
+        self.assertEqual(stop_at("pull_request")[1], "none")
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):

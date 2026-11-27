@@ -90,8 +90,9 @@ test("the waiting line is a pill with the dot; once answered the dot shrinks bef
 
 // Review (gpt-6-astra) at 888717437c8: the pill's look is the Thinking line's alone. The activity and
 // Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) also mark a waiting turn with `cv-waiting`, as
-// bare text, so the shared class keeps its old full-text-colour look and the pill rule names Thinking.
-test("only the Thinking line draws the pill; the other waiting lines keep plain text", () => {
+// bare text, so the shared class keeps its old look and the pill rule names Thinking. The pill's words
+// take the live spot's one shimmer, never a colour of their own (Leo, 2026-11-22).
+test("only the Thinking line draws the pill, and no waiting line has a white colour of its own", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
     "utf8",
@@ -101,7 +102,8 @@ test("only the Thinking line draws the pill; the other waiting lines keep plain 
     expect(at).toBeGreaterThanOrEqual(0);
     return css.slice(at, css.indexOf("}", at));
   };
-  expect(rule(".cv-waiting")).toContain("color: var(--cv-text)");
-  expect(rule(".cv-waiting")).not.toContain("inline-flex");
-  expect(rule(".cv-thinking.cv-waiting")).toContain("var(--acpmux-needs-you-mark)");
+  // No waiting line is white any more (Leo, 2026-11-22: "this is still white. stop having white
+  // things"): the bare `.cv-waiting` rule is gone, so no line takes a colour from it.
+  expect(css.indexOf("\n.cv-waiting {")).toBe(-1);
+  expect(rule(".cv-thinking.cv-waiting")).not.toContain("color:");
 });

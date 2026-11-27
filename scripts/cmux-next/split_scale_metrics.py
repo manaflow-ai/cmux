@@ -317,7 +317,13 @@ def transition(strip, trace, tolerance=TOLERANCE, static=True):
             settled = None if pixel is None else max(settled, pixel)
         out["settled_ms"] = settled
         if timed.get("layout_first_ms") is None:
-            errors.append("nothing moved after the input")
+            # A static round whose pixels changed after the input did move: the trace missed its tick (a one-tick
+            # close with a dropped mover, nightly f3b932edb s9-chat-w30 close_down). Time it by its pixels, as
+            # split_move_metrics does, instead of failing the round.
+            if static and pixels.get("first_frame_ms") is not None:
+                out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
+            else:
+                errors.append("nothing moved after the input")
     elif static:
         out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
     else:

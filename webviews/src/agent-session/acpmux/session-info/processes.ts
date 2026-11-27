@@ -281,7 +281,13 @@ export function useProcessRegistry(
   const [refused, setRefused] = useState<string>();
   const windowed = window !== undefined && source?.listProcessCalls !== undefined && refused !== sessionId;
   const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
-  const on = live || running;
+  // The chat whose registry was read once since it opened. A quiet chat is read once as it opens, so
+  // a command still running from an earlier turn is in the composer hat before the next send, not
+  // brought in by the turn that send starts, a beat after the composer cleared (Leo, 2026-11-24:
+  // "composer hat seems to be getting a lot of flickers recently. it needs to stay tight like the
+  // composer"). Nothing running, the read ends there: a quiet chat holds no subscription.
+  const [openRead, setOpenRead] = useState<string>();
+  const on = live || running || (sessionId !== undefined && openRead !== sessionId);
   // The window's calls as of now, for a read in flight; and the calls read for the chat so far.
   const calls = useRef<readonly string[]>([]);
   const windowCalls = window?.calls;
@@ -324,7 +330,8 @@ export function useProcessRegistry(
     // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, SessionInfoProcess>();
     let awaitingList = true;
-    setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
+    // Another chat's records are not reset here: the return reads them as none already, and a reset
+    // rendered the pane a second time before a chat switch's first frame painted.
     const stop = source.watchProcesses((value) => {
       const process = processOf(value, sessionId);
       if (!process) return;
@@ -338,6 +345,7 @@ export function useProcessRegistry(
     const settle = () => {
       awaitingList = false;
       pending.clear();
+      if (current) setOpenRead(sessionId);
     };
     const whole = (reply: unknown) => {
       const listed = processesOf(reply, sessionId);

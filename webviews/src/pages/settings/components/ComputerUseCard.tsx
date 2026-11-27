@@ -1,6 +1,7 @@
 // Settings > Computer Use: every cmux Computer Use setting on one page. cmux Computer Use is built
 // in, so the card leads with one line saying no install is needed, then the status (engine,
-// macOS permissions with Grant buttons that run the shared catalog actions, the worker), the mode
+// macOS permissions with Grant buttons that run the shared catalog actions, which open the guided
+// Computer Use window at that grant and start its Allow there, the worker), the mode
 // with a plain line per choice, the denied apps, the saved approvals and the switches. The status
 // comes from the host lists' `computer_use`, live through cmux.settings.host.changed; every
 // setting is a schema row (`settings.group.computerUse`), which SectionView does not draw a

@@ -5,8 +5,9 @@ import CmuxNextWakeups
 /// `AcpmuxInstallCanary`, which this package does not link).
 nonisolated public enum InstallCanaryResult: Equatable, Sendable {
     case passed
-    /// The hello was refused; the refusal as a chat would see it.
-    case refused(String)
+    /// The hello was refused; the refusal as a chat would see it, and whether the daemon marked it
+    /// retryable (cmux-install-check takes a retryable refusal as inconclusive).
+    case refused(String, retryable: Bool)
     /// No answer either way; nothing is recorded and the next launch checks again.
     case inconclusive(String)
 }
@@ -16,8 +17,10 @@ nonisolated public enum InstallCanaryResult: Equatable, Sendable {
 /// connection. The bundled CLI's Rust (`cmux __install-check`, cmux-tui `cmux-install-check`)
 /// decides from the result and the record of earlier builds' results: keep; roll app and daemon
 /// back together to the newest kept build that passed this same check and reads the stores; or,
-/// with none, stay and report. A refused build is pinned. The person reads one line saying what
-/// happened, why, and how to undo it. Swift here only gathers the inputs and acts.
+/// with none, stay and report. A refused build is pinned. The person reads one notice, one line,
+/// saying what happened, why, and how to undo it. A rollback's notice is held in the record and
+/// shown by the next launch (the relaunch would lose a notice sent before the swap); Rust decides
+/// which notice that launch shows. Swift here only gathers the inputs and acts.
 @MainActor
 public struct NightlyInstallCheck {
     public let updater: UpdaterService
@@ -42,6 +45,7 @@ public struct NightlyInstallCheck {
                     notify: @escaping @MainActor (_ title: String, _ body: String) -> Void) async {
         guard isEnabled else { return }
         let build = updater.identity.build
+        await showHeld(build: build, notify: notify)
         guard await due(build: build) else { return }
         guard let result = await canary() else { return }
         let kept = await keptBuilds(refused: result, running: build, stateDirectories: stateDirectories)
@@ -52,19 +56,27 @@ public struct NightlyInstallCheck {
             return
         case .report:
             pin()
-            let notice = NightlyInstallCheckNotice(decision.notice, rolledBack: false)
+            let notice = NightlyInstallCheckNotice(decision.notice)
             notify(notice.title, notice.body)
         case .rollBack:
             guard let target = decision.action.to else { return }
-            // Said before the swap: the relaunch ends this process.
-            let notice = NightlyInstallCheckNotice(decision.notice, rolledBack: true)
-            notify(notice.title, notice.body)
-            if let failure = await UpdateDropBack(updater).failure(to: target, stateDirectories: stateDirectories) {
+            // `decide` held the notice in the record: the target build's launch shows it, since the
+            // relaunch ends this process. Automatic, so no pick: the next newer NIGHTLY installs as set.
+            if let failure = await UpdateDropBack(updater).failure(to: target, stateDirectories: stateDirectories, picksBuild: false) {
                 pin()
-                let stayed = NightlyInstallCheckNotice.rollbackFailed(build: build, reason: decision.notice?.reason ?? "", failure: failure)
-                notify(stayed.title, stayed.body)
+                _ = await runCLI(["failed", "--record", recordFile.path, "--failure", failure], input: nil)
+                await showHeld(build: build, notify: notify)
             }
         }
+    }
+
+    /// Shows the held rollback notice once, as `cmux __install-check show` decides for `build`.
+    func showHeld(build: String, notify: @MainActor (_ title: String, _ body: String) -> Void) async {
+        guard let output = await runCLI(["show", "--record", recordFile.path, "--build", build], input: nil),
+              let shown = await Self.decoded(InstallCheckShow.self, from: output) else { return }
+        updater.log.append("install check: showing \(shown.kind.rawValue) for \(shown.notice.build)")
+        let notice = NightlyInstallCheckNotice(shown)
+        notify(notice.title, notice.body)
     }
 
     /// The updater's existing skip pin (a rollback sets the same): this build and older are not offered again.
@@ -77,7 +89,8 @@ public struct NightlyInstallCheck {
     /// Whether the record holds no result for `build` yet.
     func due(build: String) async -> Bool {
         let output = await runCLI(["due", "--record", recordFile.path, "--build", build, "--nightly"], input: nil)
-        return output.flatMap { try? JSONDecoder().decode([String: Bool].self, from: $0) }?["due"] == true
+        guard let output else { return false }
+        return await Self.decoded([String: Bool].self, from: output)?["due"] == true
     }
 
     /// The kept builds and whether each reads the stores now (the existing rollback check), read only
@@ -85,10 +98,10 @@ public struct NightlyInstallCheck {
     func keptBuilds(refused result: InstallCanaryResult, running: String, stateDirectories: [URL?]) async -> [InstallCheckKept] {
         guard case .refused = result else { return [] }
         let store = updater.keptVersions
-        let listed = (try? await updater.work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
+        let listed = (try? await updater.work.run(.userVisible, mayBlock: .files) { store.list(teams: false) }) ?? []
         var kept: [InstallCheckKept] = []
         for version in listed where version.build != running {
-            let inputs = await updater.rollbackInputs(to: version.build, checkOnly: true, stateDirectories: stateDirectories)
+            let inputs = await updater.rollbackInputs(to: version.build, stateDirectories: stateDirectories)
             let reads = (try? updater.rollbackDecision(to: version.build, inputs: inputs).get()) != nil
             kept.append(InstallCheckKept(build: version.build, readsStore: reads))
         }
@@ -96,9 +109,19 @@ public struct NightlyInstallCheck {
     }
 
     func decide(_ request: InstallCheckRequest) async -> InstallCheckDecision? {
-        guard let input = try? JSONEncoder().encode(request),
+        guard let input = await Self.encoded(request),
               let output = await runCLI(["decide", "--record", recordFile.path], input: input) else { return nil }
-        return try? JSONDecoder().decode(InstallCheckDecision.self, from: output)
+        return await Self.decoded(InstallCheckDecision.self, from: output)
+    }
+
+    /// The CLI's output (a process's, unbounded) decoded off the main actor.
+    @concurrent nonisolated private static func decoded<Value: Decodable & Sendable>(_ type: Value.Type, from output: Data) async -> Value? {
+        try? JSONDecoder().decode(type, from: output)
+    }
+
+    /// The request (every kept build) encoded off the main actor.
+    @concurrent nonisolated private static func encoded(_ request: InstallCheckRequest) async -> Data? {
+        try? JSONEncoder().encode(request)
     }
 
     /// `cmux __install-check arguments`; nil on a launch failure, a non-zero exit or a timeout (logged).
@@ -113,15 +136,16 @@ public struct NightlyInstallCheck {
 }
 
 /// The request `cmux __install-check decide` reads (cmux-install-check `Request`).
-nonisolated struct InstallCheckRequest: Encodable, Equatable {
+nonisolated struct InstallCheckRequest: Encodable, Equatable, Sendable {
     var nightly = true
     var build: String
     var canary: Canary
     var kept: [InstallCheckKept]
 
-    struct Canary: Encodable, Equatable {
+    nonisolated struct Canary: Encodable, Equatable, Sendable {
         var result: String
         var reason: String?
+        var retryable: Bool?
     }
 
     init(build: String, result: InstallCanaryResult, kept: [InstallCheckKept]) {
@@ -129,27 +153,27 @@ nonisolated struct InstallCheckRequest: Encodable, Equatable {
         self.kept = kept
         switch result {
         case .passed: canary = Canary(result: "passed")
-        case .refused(let reason): canary = Canary(result: "refused", reason: reason)
+        case .refused(let reason, let retryable): canary = Canary(result: "refused", reason: reason, retryable: retryable)
         case .inconclusive: canary = Canary(result: "inconclusive")
         }
     }
 }
 
-nonisolated struct InstallCheckKept: Codable, Equatable {
+nonisolated struct InstallCheckKept: Codable, Equatable, Sendable {
     var build: String
     var readsStore: Bool
 }
 
 /// The decision `cmux __install-check decide` prints (cmux-install-check `Decision`).
-nonisolated struct InstallCheckDecision: Decodable, Equatable {
-    struct Action: Decodable, Equatable {
-        enum Kind: String, Decodable { case keep, rollBack, report }
+nonisolated struct InstallCheckDecision: Decodable, Equatable, Sendable {
+    nonisolated struct Action: Decodable, Equatable, Sendable {
+        nonisolated enum Kind: String, Decodable, Sendable { case keep, rollBack, report }
         var kind: Kind
         var to: String?
         var why: String?
     }
 
-    struct Notice: Decodable, Equatable {
+    nonisolated struct Notice: Decodable, Equatable, Sendable {
         var build: String
         var target: String?
         var why: String?
@@ -169,31 +193,41 @@ nonisolated struct InstallCheckDecision: Decodable, Equatable {
     }
 }
 
-/// The one line the person reads, in their language.
+/// The notice a launch shows for a held rollback (cmux-install-check `Show`).
+nonisolated struct InstallCheckShow: Decodable, Equatable, Sendable {
+    nonisolated enum Kind: String, Decodable, Sendable { case rolledBack, rollbackFailed }
+    var kind: Kind
+    var notice: InstallCheckDecision.Notice
+    var failure: String?
+}
+
+/// The one notice the person reads, in their language: a title and one line saying what, why and
+/// how to undo or recover.
 nonisolated struct NightlyInstallCheckNotice: Equatable {
     var title: String
     var body: String
 
-    init(title: String, body: String) {
-        self.title = title
-        self.body = body
-    }
-
-    init(_ notice: InstallCheckDecision.Notice?, rolledBack: Bool) {
+    /// A refused build that stayed (no rollback target).
+    init(_ notice: InstallCheckDecision.Notice?) {
         let build = notice?.build ?? "", reason = notice?.reason ?? ""
-        if rolledBack, let target = notice?.target {
-            title = UpdaterStrings.installCheckRolledBackTitle(target)
-            body = UpdaterStrings.installCheckRolledBack(build, reason, target)
-        } else {
-            title = UpdaterStrings.installCheckStayedTitle
-            body = notice?.why == "storeUnreadable"
-                ? UpdaterStrings.installCheckStoreUnreadable(build, reason)
-                : UpdaterStrings.installCheckNoPassingBuild(build, reason)
-        }
+        title = UpdaterStrings.installCheckStayedTitle
+        body = notice?.why == "storeUnreadable"
+            ? UpdaterStrings.installCheckStoreUnreadable(build, reason)
+            : UpdaterStrings.installCheckNoPassingBuild(build, reason)
     }
 
-    static func rollbackFailed(build: String, reason: String, failure: String) -> Self {
-        Self(title: UpdaterStrings.installCheckStayedTitle, body: UpdaterStrings.installCheckRollbackFailed(build, reason, failure))
+    /// A held rollback's notice, as the launch that shows it found it.
+    init(_ shown: InstallCheckShow) {
+        let notice = shown.notice, target = notice.target ?? ""
+        switch shown.kind {
+        case .rolledBack:
+            title = UpdaterStrings.installCheckRolledBackTitle(target)
+            body = UpdaterStrings.installCheckRolledBack(notice.build, notice.reason, target)
+        case .rollbackFailed:
+            title = UpdaterStrings.installCheckStayedTitle
+            body = UpdaterStrings.installCheckRollbackFailed(notice.build, notice.reason, target,
+                                                             shown.failure ?? UpdaterStrings.installCheckRollbackUnfinished)
+        }
     }
 }
 
@@ -204,23 +238,25 @@ nonisolated extension UpdaterStrings {
     }
     static func installCheckRolledBack(_ build: String, _ reason: String, _ target: String) -> String {
         format("updater.installCheck.rolledBack.body",
-               "Build %1$@ could not open chats (%2$@), so cmux went back to build %3$@, the last one that could. To undo, install build %1$@ again in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@), so cmux went back to build %3$@; to undo, install build %1$@ again in Settings > Updates.",
                build, reason, target)
     }
     static var installCheckStayedTitle: String { text("updater.installCheck.stayed.title", "This update cannot open chats") }
     static func installCheckNoPassingBuild(_ build: String, _ reason: String) -> String {
         format("updater.installCheck.noPassingBuild",
-               "Build %1$@ could not open chats (%2$@). No earlier build that could is kept on this Mac, so cmux stayed on it. Reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@) and no earlier working build is kept; reinstall the previous NIGHTLY in Settings > Updates.",
                build, reason)
     }
     static func installCheckStoreUnreadable(_ build: String, _ reason: String) -> String {
         format("updater.installCheck.storeUnreadable",
-               "Build %1$@ could not open chats (%2$@). The earlier builds kept on this Mac cannot read your data, so cmux stayed on it. Reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data; reinstall the previous NIGHTLY in Settings > Updates.",
                build, reason)
     }
-    static func installCheckRollbackFailed(_ build: String, _ reason: String, _ failure: String) -> String {
+    static func installCheckRollbackFailed(_ build: String, _ reason: String, _ target: String, _ failure: String) -> String {
         format("updater.installCheck.rollbackFailed",
-               "Build %1$@ could not open chats (%2$@), and rolling back did not work: %3$@ Reinstall the previous NIGHTLY in Settings > Updates.",
-               build, reason, failure)
+               "Build %1$@ could not open chats (%2$@); going back to %3$@ failed (%4$@). Reinstall the previous NIGHTLY in Settings > Updates.",
+               build, reason, target, failure)
     }
+    /// The failure a held rollback shows when the app ended before saying one.
+    static var installCheckRollbackUnfinished: String { text("updater.installCheck.rollbackUnfinished", "cmux quit before it finished") }
 }

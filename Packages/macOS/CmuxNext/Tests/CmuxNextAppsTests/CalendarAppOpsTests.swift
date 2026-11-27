@@ -97,7 +97,7 @@ nonisolated struct CalendarAppOpsTests {
         let answer = try await ops(calendar).handle(request("system_calendar.events"))
         let events = try #require(answer["events"]?.arrayValue)
         let first = try #require(events.first?.objectValue)
-        #expect(first["title"]?.stringValue?.count == CalendarAppOps.maxText)
+        #expect(first["title"]?.stringValue?.count == 200)
         #expect(first["start"]?.numberValue == (Self.now.timeIntervalSince1970 + Self.hour) * 1_000)
         #expect(first["end"]?.numberValue == (Self.now.timeIntervalSince1970 + 2 * Self.hour) * 1_000)
         #expect(first["allDay"]?.boolValue == true)

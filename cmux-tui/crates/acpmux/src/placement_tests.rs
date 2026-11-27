@@ -604,9 +604,11 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
         assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
     }
     assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
-    // A machine only the hub lists reads as connected, but no session can start there from here.
+    // A machine only the hub lists is a candidate (its start goes through the hub), but no
+    // direct link reaches it.
     let hub = json!({"name": "swarm-01", "connected": true, "state": "connected", "via": "hub"});
-    let why = peer_down(&hub).expect("a hub-only machine is no candidate");
+    assert_eq!(peer_down(&hub), None);
+    let why = link_down(&hub).expect("a hub-only machine has no link");
     assert!(why.starts_with("only the mesh hub reaches it"), "{why}");
     assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 
@@ -672,6 +674,7 @@ fn an_unknown_hosts_line_says_why_and_what_to_do() {
     assert!(old.contains("`acpmux machine update big`"), "{old}");
     let hub = why(Candidate { via_hub: true, ..c("big", Value::Null) });
     assert!(hub.contains("only the mesh hub reaches it"), "{hub}");
+    assert!(hub.contains("health read through the hub"), "{hub}");
     assert!(!hub.contains("build"), "a hub machine's build is not the reason: {hub}");
     let fresh = why(c("big", Value::Null));
     assert!(fresh.contains("no health reading yet"), "{fresh}");
@@ -768,4 +771,24 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+#[test]
+fn role_holders_fold_into_machine_roles() {
+    let mut reg = json!({
+        "machines": {"mac": {"roles": ["ci-runner"]}, "air": {}, "other": {"roles": ["x"]}},
+        "role_holders": {"leo-mac": ["mac", "ghost"], "attended": ["air", "mac"], "ci-runner": ["mac"]}
+    });
+    fold_role_holders(&mut reg);
+    // Held by role_holders, appended in sorted role order, no duplicate of the legacy ci-runner.
+    assert_eq!(reg["machines"]["mac"]["roles"], json!(["ci-runner", "attended", "leo-mac"]));
+    assert_eq!(reg["machines"]["air"]["roles"], json!(["attended"]));
+    assert_eq!(reg["machines"]["other"]["roles"], json!(["x"]));
+    // A holder that is no machine is ignored, not added.
+    assert!(reg["machines"].get("ghost").is_none());
+    assert!(interactive(Some(&reg), "air") && interactive(Some(&reg), "mac"));
+    // Idempotent.
+    let once = reg.clone();
+    fold_role_holders(&mut reg);
+    assert_eq!(reg, once);
 }

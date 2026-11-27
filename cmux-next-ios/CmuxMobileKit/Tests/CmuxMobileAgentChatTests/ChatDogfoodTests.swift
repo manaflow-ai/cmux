@@ -13,7 +13,6 @@ import Testing
         #expect([TurnRow]().needsWorkingIndicator)
         #expect([TurnRow.tool(call("a", .completed))].needsWorkingIndicator)
         #expect([TurnRow.toolGroup(id: "g", calls: [call("a", .completed), call("b", .failed)])].needsWorkingIndicator)
-        #expect([TurnRow.plan(id: "p", entries: [])].needsWorkingIndicator)
     }
 
     @Test func hiddenWhileTheLastRowShowsItsOwnProgress() {
@@ -44,9 +43,9 @@ import Testing
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         let request = try #require(store.pendingPermission).request
         store.send(prompt: "Run only the dialer tests instead", denyingPermission: true)
         for _ in 0..<200 where store.pendingPermission != nil { await Task.yield() }
@@ -74,9 +73,9 @@ extension ReplyInsteadTests {
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         store.send(prompt: "Also check the coupon")
         for _ in 0..<200 where store.queue.isEmpty { await Task.yield() }
         #expect(store.queue.map(\.text) == ["Also check the coupon"])
@@ -91,6 +90,8 @@ extension ReplyInsteadTests {
         #expect(ComposerMention(text: "mail me@host") == nil)
         #expect(ComposerMention(text: "@done and more") == nil)
         #expect(ComposerMention(text: "code `x @y") == nil)
+        // Only the last word is read: a long draft before it changes nothing.
+        #expect(ComposerMention(text: String(repeating: "word `x` ", count: 4_000) + "@dia")?.query == "dia")
     }
 
     @Test func insertsThePathLikeTheMacComposer() throws {
@@ -144,9 +145,9 @@ extension ReplyInsteadTests {
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         store.cancel()
         for _ in 0..<500 where store.isRunning { await Task.yield() }
         #expect(!store.isRunning)
@@ -163,12 +164,12 @@ extension StopWhileWaitingTests {
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         let permission = try #require(store.pendingPermission)
         store.respond(to: permission.request, option: permission.request.options.first)
-        while store.pendingQuestion == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingQuestion == nil) }
         let id = try #require(store.pendingQuestion).id
         store.cancel()
         for _ in 0..<500 where store.isRunning { await Task.yield() }

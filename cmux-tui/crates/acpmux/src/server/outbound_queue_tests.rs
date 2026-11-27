@@ -261,6 +261,85 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
     assert!(cli.is_closed());
 }
 
+/// Duress bigchat leg, 2026-11-26: a hundred readers that never read each held under their own
+/// bound until every queue together reached the daemon-wide one, a GiB swapped out past a 768 MiB
+/// memory ceiling, and `acpmux ls` waited on it. A stalled reader over its fair share ends with
+/// the total far under its bound, so what never-read readers hold does not grow with their count;
+/// one under its share that never reads keeps its connection.
+#[tokio::test]
+async fn a_stalled_reader_over_its_fair_share_ends_with_the_total_far_under_its_bound() {
+    const FAIR: usize = 8 << 10;
+    const OWN: usize = 1 << 20;
+    const STALL: Duration = Duration::from_millis(200);
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let pool = own_pool();
+    // A total no queue here comes near: only the stall and the share decide.
+    let limits = || Limits { pool, total_bound: 1 << 40, fair_share: FAIR, reader_stall: STALL };
+    let mut readers = vec![];
+    let mut held = vec![];
+    for _ in 0..20 {
+        let (t, rx) = mpsc::channel(1);
+        let (q, _) = start_limited(&scope, None, t, OWN, limits());
+        held.push(rx);
+        readers.push(q);
+    }
+    let (t, _quiet_rx) = mpsc::channel(1);
+    let (quiet, _) = start_limited(&scope, None, t, OWN, limits());
+    // Each fills past its share while new: none is stalled yet.
+    let mut n = 0;
+    for q in &readers {
+        for _ in 0..(2 * FAIR / 200) {
+            assert!(q.push(note(n)), "a reader within its stall bound is kept");
+            n += 1;
+        }
+    }
+    assert!(quiet.push(note(0)));
+    let cuts = TOTAL_OVERRUNS.load(Ordering::Relaxed);
+    tokio::time::sleep(STALL + Duration::from_millis(50)).await;
+    for q in &readers {
+        assert!(!q.push(note(n)), "a stalled reader over its share ends at its next line");
+        assert!(q.is_closed());
+    }
+    assert!(TOTAL_OVERRUNS.load(Ordering::Relaxed) >= cuts + 20, "counted as stall cuts");
+    assert!(quiet.push(note(1)), "a reader under its share that never reads is still served");
+    assert!(!quiet.is_closed());
+    assert!(
+        pool.load(Ordering::Relaxed) < 2 * FAIR,
+        "the stalled readers' bytes left the total: {}",
+        pool.load(Ordering::Relaxed)
+    );
+}
+
+/// The duress bigchat leg after the stall cut above: a hundred readers attached to quiet chats
+/// each kept the pages of its replay, since no next line came to end them. The pump, waiting on
+/// a reader that takes nothing, ends it itself once it is stalled over its fair share; one under
+/// its share is kept.
+#[tokio::test]
+async fn a_stalled_reader_over_its_share_ends_with_no_next_line() {
+    const FAIR: usize = 8 << 10;
+    const OWN: usize = 1 << 20;
+    const STALL: Duration = Duration::from_millis(200);
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let pool = own_pool();
+    let limits = || Limits { pool, total_bound: 1 << 40, fair_share: FAIR, reader_stall: STALL };
+    let (t1, _stuck_rx) = mpsc::channel(1);
+    let (t2, _quiet_rx) = mpsc::channel(1);
+    let (stuck, _) = start_limited(&scope, None, t1, OWN, limits());
+    let (quiet, _) = start_limited(&scope, None, t2, OWN, limits());
+    for n in 0..(4 * FAIR / 200) {
+        assert!(stuck.push(note(n)));
+    }
+    assert!(quiet.push(note(0)) && quiet.push(note(1)));
+    assert!(stuck.held() > FAIR);
+    tokio::time::timeout(STALL * 10, stuck.closed())
+        .await
+        .expect("the pump ends a stalled reader over its share with no next line");
+    assert!(stuck.is_closed());
+    tokio::time::sleep(STALL * 2).await;
+    assert!(!quiet.is_closed(), "a stalled reader under its share is kept");
+    assert!(pool.load(Ordering::Relaxed) < 2 * FAIR, "the stalled reader's bytes left the total");
+}
+
 fn list_row(n: usize) -> String {
     row_of(n, 400)
 }
@@ -495,3 +574,35 @@ async fn rows_past_their_bound_end_the_connection_once() {
 }
 
 mod flood_bulk;
+mod flood_interactive;
+
+/// A peer link's send window (`Outbound::set_window`, `ACPMUX_PEER_SEND_WINDOW_KB`): the transport
+/// holds at most that many bytes of the bulk lane, the rest waits in the queue, and every line
+/// still comes, in order, as the reader reads.
+#[tokio::test]
+async fn a_set_window_bounds_the_bulk_bytes_in_the_transport() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(4096);
+    let (out, _) = start_bounded(&scope, None, transport, OUTBOUND_BYTE_BOUND);
+    let size = note(0).len();
+    out.set_window(2 * size);
+    for n in 0..40 {
+        assert!(out.push(note(n)));
+    }
+    // The pump fills the window and stops: two lines, not all forty.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while rx.len() < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the window fills");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(rx.len(), 2, "the transport holds only the window");
+    for n in 0..40 {
+        let line = next(&mut rx).await.expect("a line");
+        assert_eq!(line["params"]["n"], n, "in order, none skipped");
+        assert!(rx.len() <= 2, "past the window: {}", rx.len());
+    }
+}
+mod stall_check_order;

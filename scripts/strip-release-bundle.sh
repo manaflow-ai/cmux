@@ -94,9 +94,11 @@ fi
 # its macOS crash reports go to Sentry as image offsets, which the binary's
 # cmux-tui.dSYM (same UUID) resolves to functions and lines: the tree build
 # uploads it (cmux-tui-artifacts.yml sentry-dsyms), the fast nightly client too.
+# --reader: a nightly can bundle a fallback tree's client that predates the
+# CMXSYM2 map format (app-bundle-cmux-tui-client.sh); its map is then CMXSYM1.
 if [ -f "$APP_PATH/Contents/Resources/bin/cmux" ] && [ ! -L "$APP_PATH/Contents/Resources/bin/cmux" ]; then
   python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
-    "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/cmux-tui-symbols.bin"
+    --reader "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/cmux-tui-symbols.bin"
 fi
 strip_executable "$APP_PATH/Contents/Resources/bin/cmux"
 strip_executable "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"

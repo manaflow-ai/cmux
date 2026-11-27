@@ -51,6 +51,11 @@ export interface StatsSummary {
   limitErrors?: number;
   /** Agent turn time summed over sessions: two agents for an hour is two hours. */
   workingMs: number;
+  /**
+   * Clock time with at least one agent working (the union of working time), so
+   * `workingMs / busyMs` is the hours of agent work each clock hour bought. Absent from an older acpmux.
+   */
+  busyMs?: number;
   /** Time agents waited on a permission answer. */
   waitingMs: number;
   peakParallel: number;

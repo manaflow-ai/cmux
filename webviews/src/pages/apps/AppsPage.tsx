@@ -1,14 +1,43 @@
 // The App Store page (plans/cmux-next/react-pages.md 3.3; behavior of the Swift App Store in
 // CmuxNextApps/Store). It fills an app screen or a narrow tab: the grid adapts its columns, the
 // detail keeps a readable width, split stacks below 640 px. State lives in `AppsStore`.
-import { useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type ReactNode,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { CustomizeFeature } from "./CustomizeFeature";
+import { CommunityView, useCommunity } from "./CommunityView";
+import type { CommunityStore } from "./community";
+import { FeaturesView } from "./FeaturesView";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
-import { categoryLabel, featuredApps, filterApps, type StoreTab } from "./model";
+import {
+  categoryLabel,
+  featuredApps,
+  filterApps,
+  type StoreTab,
+  catalogRows,
+  GRID_GAP,
+  GRID_ROW_ESTIMATE,
+  gridColumns,
+  LIST_GAP,
+  LIST_ROW_ESTIMATE,
+  type CardStyle,
+  type CatalogRows,
+  type StoreLayout,
+} from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
 import { Skeleton } from "../../ui/Skeleton";
@@ -16,26 +45,67 @@ import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 
-/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
-type ToolbarTab = StoreTab | "examples";
+/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement, plus Community. */
+type ToolbarTab = StoreTab | "examples" | "community";
 
-export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
+export function AppsPage({
+  store,
+  strings,
+  community,
+}: {
+  store: AppsStore;
+  strings: Strings;
+  /** The Community tab (community.ts); absent, the page has no Community tab. */
+  community?: CommunityStore;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const communitySnap = useCommunity(community);
+  const onCommunity = !!community && communitySnap?.active === true;
   const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
   // A lost owner link keeps the listings it had and says so only once it lasts (a launch, a daemon
   // restart: the store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
   const downLasting = useConnectionQuiet(down);
+  // A catalog read that failed with the link up is read again on its own (the store's `reload`, which
+  // also loads a deep-linked detail); the page keeps its loading grid and only a failure that lasts the
+  // deadline says one quiet line, with no Reload (Leo, 2026-11-22: "vacuous decisions like that should
+  // be just done").
+  const catalogFailing = !down && snap.catalogStatus === "error";
+  const catalogFailed = catalogFailing ? (snap.catalogError ?? true) : undefined;
+  const { stillTrying: catalogStillTrying } = useAutoRetry(catalogFailed, () => void store.reload(), {
+    busy: !down && snap.catalogStatus === "loading",
+  });
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
-  const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
-  const current: ToolbarTab =
-    snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+  // Features (Leo, 10-21): every built-in feature as a switch, between Discover and Installed, only
+  // while Settings > Advanced > Experiments > App Store Features is on (off by default). A
+  // `#/features` route waits on the first read before it falls back to Discover.
+  const featuresShown =
+    snap.featuresEnabled ||
+    (snap.tab === "features" && (snap.featuresStatus === "idle" || snap.featuresStatus === "loading"));
+  const tabs: ToolbarTab[] = [
+    "discover",
+    ...(examplesTab ? (["examples"] as const) : []),
+    ...(snap.featuresEnabled ? (["features"] as const) : []),
+    ...(community ? (["community"] as const) : []),
+    "installed",
+  ];
+  const onFeatures = snap.tab === "features" && featuresShown;
+  const current: ToolbarTab = onCommunity
+    ? "community"
+    : snap.tab === "installed" || onFeatures
+      ? snap.tab
+      : examplesTab && snap.shelf === "example"
+        ? "examples"
+        : "discover";
   // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
+    community?.setActive(tab === "community");
+    if (tab === "community") return;
     if (tab === "examples") store.setShelf("example");
     else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
     else store.setTab(tab);
@@ -80,28 +150,22 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           type="search"
           placeholder={t("store.search")}
           aria-label={t("store.search")}
-          value={snap.query}
-          disabled={snap.connection === "disconnected"}
-          onChange={(event) => store.setQuery(event.target.value)}
+          value={onCommunity ? communitySnap!.query : snap.query}
+          // The search filters the list on screen: it stays live while the link comes back (Leo, 2026-11-24 11:57Z).
+          onChange={(event) =>
+            onCommunity ? community!.setQuery(event.target.value) : store.setQuery(event.target.value)
+          }
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && snap.query) {
-              store.setQuery("");
+            const query = onCommunity ? communitySnap!.query : snap.query;
+            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && query) {
+              if (onCommunity) community!.setQuery("");
+              else store.setQuery("");
               event.preventDefault();
             }
           }}
         />
       </header>
-      {snap.catalogError && snap.connection !== "disconnected" && (
-        <div className="apps-error" role="alert">
-          <span className="apps-error-copy">
-            <strong>{t("store.error.load")}</strong>
-            <span className="selectable">{snap.catalogError}</span>
-          </span>
-          <button type="button" className="apps-button" onClick={() => void store.reload()}>
-            {t("store.action.reload")}
-          </button>
-        </div>
-      )}
+      {catalogStillTrying && <output className="apps-error apps-muted">{t("store.stillLoading")}</output>}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -109,6 +173,10 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
         // Nothing read yet and the link is down: blank, and no false empty shelf either.
         <div className="apps-state" />
+      ) : onCommunity ? (
+        <CommunityView snap={communitySnap!} store={community!} strings={strings} />
+      ) : onFeatures ? (
+        <FeaturesView snap={snap} store={store} strings={strings} />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
@@ -121,36 +189,37 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
 function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t } = strings;
   const selected = snap.selection;
-  if (snap.layout !== "split" && selected) {
-    return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
-  }
   const onStore = snap.shelf !== "example";
   const home = onStore && !snap.query.trim() && !snap.category;
   // The browse styles (`browse=`) lay out the grid's home; a search, a category, the list and
   // split layouts and the Examples shelf show the plain catalog.
   const framed = home && snap.layout === "grid";
   // The `section` placement (DEV, examples=section) lists the examples under the store's apps.
-  const examplesSection =
-    snap.examplesOffered && snap.examplesStyle === "section" && onStore
-      ? filterApps(snap.catalog, snap.query, undefined, "example")
-      : [];
+  // Once per catalog, not per render: the page draws again on each store change.
+  const examplesOn = snap.examplesOffered && snap.examplesStyle === "section" && onStore;
+  const examplesSection = useMemo(
+    () => (examplesOn ? filterApps(snap.catalog, snap.query, undefined, "example") : []),
+    [examplesOn, snap.catalog, snap.query],
+  );
+  // What scrolls the catalog: the page's scroll area, the split's list, or, when the split stacks
+  // below 640 px (styles.css), the whole split.
+  const stacked = useStackedSplit(snap.layout === "split");
+  const scroller = stacked ? ".apps-split" : ".apps-scroll, .apps-split-list";
+  if (snap.layout !== "split" && selected) {
+    return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
+  }
   const banner = home && (!framed || snap.browse === "pair");
+  // Windowed (CatalogList): only the rows near the viewport are mounted.
   const appList = (apps: readonly CatalogApp[]) => (
-    <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
-      {apps.map((app) =>
-        snap.layout === "grid" ? (
-          <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
-        ) : (
-          <ItemRow
-            key={app.id}
-            app={app}
-            selected={snap.layout === "split" && app.id === selected}
-            store={store}
-            strings={strings}
-          />
-        ),
-      )}
-    </div>
+    <CatalogList
+      apps={apps}
+      layout={snap.layout}
+      card={snap.card}
+      selected={snap.layout === "split" ? selected : undefined}
+      store={store}
+      strings={strings}
+      scroller={scroller}
+    />
   );
   const listing = (
     <div className="apps-discover-list" data-browse-style={framed ? snap.browse : undefined}>
@@ -168,7 +237,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         strings={strings}
       />
       {snap.notice === "notInStore" && <output className="apps-notice">{t("store.notice.notInStore")}</output>}
-      {snap.loading && snap.visible.length === 0 ? (
+      {/* A catalog read that failed with the link up keeps the loading grid while the page asks again. */}
+      {(snap.loading || (snap.connection !== "disconnected" && snap.catalogStatus === "error")) &&
+      snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
       ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
         <output className="apps-state apps-state-empty">
@@ -181,7 +252,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
       ) : (
         <>
           {framed ? (
-            <BrowseHome snap={snap} store={store} strings={strings} />
+            <BrowseHome snap={snap} store={store} strings={strings} scroller={scroller} />
           ) : (
             <section className="apps-catalog-section" data-store-section="grid" aria-label={t("store.category.all")}>
               {appList(snap.visible)}
@@ -225,6 +296,243 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   );
 }
 
+/** Whether the split view stacks its list above the detail (styles.css, max-width 640 px). */
+const STACKED = "(max-width: 640px)";
+function useStackedSplit(split: boolean): boolean {
+  const query = useMemo(
+    () => (split && typeof window.matchMedia === "function" ? window.matchMedia(STACKED) : undefined),
+    [split],
+  );
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      query?.addEventListener("change", changed);
+      return () => query?.removeEventListener("change", changed);
+    },
+    [query],
+  );
+  const stacked = useCallback(() => query?.matches ?? false, [query]);
+  return useSyncExternalStore(subscribe, stacked, stacked);
+}
+
+/** About a viewport of rows above and below the visible ones: grid rows, or list rows. */
+const GRID_OVERSCAN = 6;
+const LIST_OVERSCAN = 16;
+
+/**
+ * The catalog, windowed: only the rows near the viewport are mounted (a grid row holds as many
+ * cards as the grid has columns), plus the selected and the focused row so focus and the split's
+ * selection are never unmounted. The first measured row of each kind sizes the rows not yet
+ * mounted. Rows and cards are memoized on their listings, so a change to one listing draws its own
+ * card, and a scroll step draws only the rows it brings in.
+ */
+function CatalogList({
+  apps,
+  layout,
+  card,
+  selected,
+  store,
+  strings,
+  scroller,
+}: {
+  apps: readonly CatalogApp[];
+  layout: StoreLayout;
+  card: CardStyle;
+  selected?: string;
+  store: AppsStore;
+  strings: Strings;
+  /** The ancestor that scrolls the catalog. Found from the catalog's own node: on mount this
+   *  component's layout effects run before an ancestor's ref is set. */
+  scroller: string;
+}) {
+  const space = useRef<HTMLDivElement | null>(null);
+  const scrollElement = useCallback(() => space.current?.closest<HTMLElement>(scroller) ?? null, [scroller]);
+  const grid = layout === "grid";
+  // The catalog's width (for its columns) and its offset in the scroll area (the banner, chips and
+  // featured row above it), read on mount and when the listing around it resizes.
+  const [box, setBox] = useState({ width: 0, margin: 0 });
+  const place = useCallback(() => {
+    const element = space.current;
+    const scroll = scrollElement();
+    if (!element || !scroll) return;
+    const width = element.offsetWidth;
+    const margin = Math.round(
+      element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
+    );
+    setBox((old) => (old.width === width && old.margin === margin ? old : { width, margin }));
+  }, [scrollElement]);
+  useLayoutEffect(place, [place, apps.length === 0, layout, card]);
+  useEffect(() => {
+    const listing = space.current?.closest(".apps-discover-list");
+    if (!listing || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(listing);
+    return () => observer.disconnect();
+  }, [place]);
+  const columns = grid ? gridColumns(box.width) : 1;
+  const previous = useRef<CatalogRows | undefined>(undefined);
+  const model = useMemo(() => catalogRows(apps, columns, previous.current), [apps, columns]);
+  // The committed rows, whose unchanged rows the next build keeps.
+  useLayoutEffect(() => {
+    previous.current = model;
+  }, [model]);
+  const { rows, rowOf } = model;
+  // The listing that holds focus (a click or Tab focuses one) stays mounted however far it scrolls.
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  const kept = [selected, focused].map((id) => (id === undefined ? -1 : (rowOf.get(id) ?? -1)));
+  const kind = grid ? `grid:${card}` : "list";
+  const sizes = useRef(new Map<string, number>());
+  const itemKey = useCallback((index: number) => rows[index]![0]!.id, [rows]);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the catalog stays uncompiled on purpose; it lays out rows of columns and keeps the selected and focused listings mounted, so ui/VirtualList does not fit.
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: scrollElement,
+    estimateSize: () => sizes.current.get(kind) ?? (grid ? GRID_ROW_ESTIMATE : LIST_ROW_ESTIMATE),
+    getItemKey: itemKey,
+    gap: grid ? GRID_GAP : LIST_GAP,
+    overscan: grid ? GRID_OVERSCAN : LIST_OVERSCAN,
+    scrollMargin: box.margin,
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      for (const index of kept)
+        if (index >= 0 && !indexes.includes(index)) {
+          indexes.push(index);
+          indexes.sort((a, b) => a - b);
+        }
+      return indexes;
+    },
+  });
+  // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
+  // in measure as estimated: TanStack places all N rows again whenever a measure differs.
+  const measure = useCallback(
+    (node: HTMLElement | null) => {
+      const size = node?.dataset.size;
+      if (node && size && !sizes.current.has(size) && node.offsetHeight > 0) sizes.current.set(size, node.offsetHeight);
+      virtualizer.measureElement(node);
+    },
+    [virtualizer],
+  );
+  return (
+    <div
+      ref={space}
+      className="apps-catalog-space"
+      role={grid ? undefined : "list"}
+      style={{ height: virtualizer.getTotalSize() }}
+      onFocus={(event) => setFocused((event.target as HTMLElement).closest<HTMLElement>("[data-app]")?.dataset.app)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
+      }}
+    >
+      {virtualizer
+        .getVirtualItems()
+        .map(({ index, key, start }) =>
+          grid ? (
+            <CatalogGridRow
+              key={key}
+              index={index}
+              top={start - box.margin}
+              size={kind}
+              apps={rows[index]!}
+              first={index * columns}
+              count={apps.length}
+              card={card}
+              store={store}
+              strings={strings}
+              measure={measure}
+            />
+          ) : (
+            <CatalogListRow
+              key={key}
+              index={index}
+              top={start - box.margin}
+              app={rows[index]![0]!}
+              count={apps.length}
+              selected={rows[index]![0]!.id === selected}
+              store={store}
+              strings={strings}
+              measure={measure}
+            />
+          ),
+        )}
+    </div>
+  );
+}
+
+/** Where a windowed row sits: its index (TanStack measures it by `data-index`) and offset. */
+interface Placed {
+  index: number;
+  top: number;
+  measure: (element: HTMLElement | null) => void;
+  /** Every listing in the catalog: the screen reader's "3 of 1000". */
+  count: number;
+  store: AppsStore;
+  strings: Strings;
+}
+
+/** One row of the grid: the same `auto-fill` grid as before, holding one row's cards. */
+const CatalogGridRow = memo(function CatalogGridRow({
+  index,
+  top,
+  size,
+  measure,
+  apps,
+  first,
+  count,
+  card,
+  store,
+  strings,
+}: Placed & { size: string; apps: readonly CatalogApp[]; first: number; card: CardStyle }) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size={size}
+      className="apps-grid"
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      {apps.map((app, column) => (
+        <ItemCard
+          key={app.id}
+          app={app}
+          store={store}
+          strings={strings}
+          style={card}
+          position={first + column + 1}
+          count={count}
+        />
+      ))}
+    </div>
+  );
+});
+
+/** One row of the list and split layouts. */
+const CatalogListRow = memo(function CatalogListRow({
+  index,
+  top,
+  measure,
+  app,
+  count,
+  selected,
+  store,
+  strings,
+}: Placed & { app: CatalogApp; selected: boolean }) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size="list"
+      data-app={app.id}
+      // A positioned row of the windowed list (no list markers or spacing to reset), as in the grid.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="listitem"
+      aria-posinset={index + 1}
+      aria-setsize={count}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <ItemRow app={app} selected={selected} store={store} strings={strings} />
+    </div>
+  );
+});
+
 /** A titled group of Discover's home: a category, Featured, or the rest. */
 function Shelf({
   id,
@@ -258,9 +566,31 @@ const SMALL_STORE = 3;
  * first-party app as a hero (each of them, in a small store), then a shelf per category with two or
  * more apps and one for the rest. `pair`: two featured cards, then every app. `list`: store rows.
  */
-function BrowseHome({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
+function BrowseHome({
+  snap,
+  store,
+  strings,
+  scroller,
+}: {
+  snap: AppsSnapshot;
+  store: AppsStore;
+  strings: Strings;
+  scroller: string;
+}) {
   const { t } = strings;
   const apps = snap.visible;
+  // Once per catalog, not per render: the page draws again on each store change, and the grids
+  // below are windowed (CatalogList), which keep their rows while their listings stay the same.
+  const { featured, rest, shelves } = useMemo(() => {
+    if (snap.browse === "list") return { featured: [], rest: [], shelves: [] };
+    const featured = featuredApps(apps, snap.browse === "pair" ? 2 : apps.length <= SMALL_STORE ? 2 : 1);
+    const ids = new Set(featured.map((app) => app.id));
+    const rest = apps.filter((app) => !ids.has(app.id));
+    return { featured, rest, shelves: snap.browse === "pair" ? [] : categoryShelves(rest) };
+  }, [apps, snap.browse]);
+  const grid = (list: readonly CatalogApp[]) => (
+    <CatalogList apps={list} layout="grid" card={snap.card} store={store} strings={strings} scroller={scroller} />
+  );
   if (snap.browse === "list") {
     return (
       <Shelf id="apps-all-title">
@@ -273,9 +603,6 @@ function BrowseHome({ snap, store, strings }: { snap: AppsSnapshot; store: AppsS
     );
   }
   if (snap.browse === "pair") {
-    const featured = featuredApps(apps, 2);
-    const ids = new Set(featured.map((app) => app.id));
-    const rest = apps.filter((app) => !ids.has(app.id));
     return (
       <>
         {featured.length > 0 && (
@@ -289,23 +616,13 @@ function BrowseHome({ snap, store, strings }: { snap: AppsSnapshot; store: AppsS
         )}
         {rest.length > 0 && (
           <Shelf id="apps-all-title" title={featured.length ? t("store.browse.allApps") : undefined}>
-            <div className="apps-grid">
-              {rest.map((app) => (
-                <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
-              ))}
-            </div>
+            {grid(rest)}
           </Shelf>
         )}
       </>
     );
   }
-  const heroes = featuredApps(apps, apps.length <= SMALL_STORE ? 2 : 1);
-  const ids = new Set(heroes.map((app) => app.id));
-  const rest = apps.filter((app) => !ids.has(app.id));
-  const shelves = categoryShelves(rest);
-  const card = (app: CatalogApp) => (
-    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
-  );
+  const heroes = featured;
   return (
     <>
       {heroes.length > 0 && (
@@ -327,7 +644,7 @@ function BrowseHome({ snap, store, strings }: { snap: AppsSnapshot; store: AppsS
                 : undefined
           }
         >
-          <div className="apps-grid">{shelf.map(card)}</div>
+          {grid(shelf)}
         </Shelf>
       ))}
     </>
@@ -342,7 +659,9 @@ function categoryShelves(apps: readonly CatalogApp[]): { category?: string; apps
   const by = new Map<string, CatalogApp[]>();
   for (const app of apps) {
     const category = app.categories[0] ?? "";
-    by.set(category, [...(by.get(category) ?? []), app]);
+    const list = by.get(category);
+    if (list) list.push(app);
+    else by.set(category, [app]);
   }
   const shelves = [...by]
     .filter(([category, list]) => category && list.length >= 2)
