@@ -74,6 +74,8 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.environment.boot", Kind::UserOnly),
     ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
+    // The team's allotment and the scheduler's proposal (Settings Compute card): a read.
+    ("cloud.allotment.get", Kind::Read),
     ("cloud.usage.current", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
@@ -552,7 +554,9 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, &mut self.lifecycle, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
-            "plan" | "usage" | "billing" | "retention" => plan::run(&mut ctx, name, args),
+            "plan" | "usage" | "billing" | "retention" | "allotment" => {
+                plan::run(&mut ctx, name, args)
+            }
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
