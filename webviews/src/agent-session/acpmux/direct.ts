@@ -238,6 +238,7 @@ import { recordedConversationEvents } from "./conversation/exportEvents";
 import { parseSessionIcon } from "../shared/harnessIcons";
 import { liveModes, permissionModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
+import { sendDrawsBeforeAsks } from "./sendDrawsFirst.experiment";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
 import { bridgedWatch, terminalWatch } from "./watchBannerModel";
@@ -12583,11 +12584,10 @@ export class AcpmuxDirectClient {
   ): Promise<ComposerAttachment[] | undefined> {
     const sessionId = this.creating ? undefined : this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const rowId = `local-${promptId}`;
     const at = Date.now();
     // The bubble names each file while it still goes; its link is drawn once it is one.
     const shown = attachments.map((chip) => (isBehindSend(chip) ? { ...chip, path: chip.path ?? chip.name } : chip));
-    const { inline, text, pasted } = sentPromptShape(input, shown, { dropped: () => false });
+    const { inline, text } = sentPromptShape(input, shown, { dropped: () => false });
     const queued = Boolean(sessionId) && !steer && this.workingNow();
     if (sessionId && queued) {
       const entry = queuedEntry(
@@ -12603,25 +12603,7 @@ export class AcpmuxDirectClient {
       this.queue = [...this.queue.filter((each) => each.id !== promptId), entry];
       this.aheadDrawn.set(promptId, entry);
     } else if (sessionId) {
-      const drawn: AcpmuxRow = {
-        id: rowId,
-        version: (this.rows.get(rowId)?.version ?? 0) + 1,
-        at,
-        kind: "user",
-        text,
-        ...(pasted.length ? { pasted } : {}),
-        ...(inline ? { inlineParts: inline.parts } : {}),
-        ...(attachments.some((chip) => !isBehindSend(chip)) ? { images: attachedImages(attachments) } : {}),
-        pending: true,
-        delivery: { state: "sending", promptId, sessionId, sentAt: at, ...(steer ? { queued: true } : {}) },
-      };
-      this.rows.set(rowId, drawn);
-      this.aheadDrawn.set(promptId, drawn);
-      this.promptRowKeys.set(promptId, rowId);
-      this.optimisticPromptRows.set(promptId, rowId);
-      this.optimisticPromptTexts.set(promptId, text);
-      // The perf watch's per-send span (perfReporter.ts); one boolean check while it is off.
-      acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
+      this.drawSentAhead(sessionId, promptId, input, attachments, steer, false);
     }
     if (sessionId) this.emit();
     const standIns = attachments.filter(isBehindSend).map((chip) => chip.id);
@@ -12645,6 +12627,60 @@ export class AcpmuxDirectClient {
     // The chat left the screen while its files went: the prompt waits there as not sent.
     this.keepUnsent(sessionId, { promptId, input, attachments: settled, at });
     return undefined;
+  }
+
+  /// Draws a sent prompt's bubble in the chat shown before its send can draw it (files still
+  /// attaching, `sendAheadOfFiles`; a Cloud chat's asks, `asksBeforeSend`): its send draws over it
+  /// under the same row id, and `dropAheadDrawing` takes it away if the send never did.
+  private drawSentAhead(
+    sessionId: string,
+    promptId: string,
+    input: string,
+    attachments: ComposerAttachment[],
+    steer: boolean,
+    emit = true,
+  ): void {
+    const rowId = `local-${promptId}`;
+    const at = Date.now();
+    const shown = attachments.map((chip) => (isBehindSend(chip) ? { ...chip, path: chip.path ?? chip.name } : chip));
+    const { inline, text, pasted } = sentPromptShape(input, shown, { dropped: () => false });
+    const drawn: AcpmuxRow = {
+      id: rowId,
+      version: (this.rows.get(rowId)?.version ?? 0) + 1,
+      at,
+      kind: "user",
+      text,
+      ...(pasted.length ? { pasted } : {}),
+      ...(inline ? { inlineParts: inline.parts } : {}),
+      ...(attachments.some((chip) => !isBehindSend(chip)) ? { images: attachedImages(attachments) } : {}),
+      pending: true,
+      delivery: { state: "sending", promptId, sessionId, sentAt: at, ...(steer ? { queued: true } : {}) },
+    };
+    this.rows.set(rowId, drawn);
+    this.aheadDrawn.set(promptId, drawn);
+    this.promptRowKeys.set(promptId, rowId);
+    this.optimisticPromptRows.set(promptId, rowId);
+    this.optimisticPromptTexts.set(promptId, text);
+    // The perf watch's per-send span (perfReporter.ts); one boolean check while it is off.
+    acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
+    if (emit) this.emit();
+  }
+
+  /// Whether this send asks anything before its row draws, so its bubble draws first: the chat is
+  /// the one shown and idle, the prompt is new (a Retry draws over its failed row once it goes), and
+  /// a Cloud chat's hand-off turn ask or an unread handoff stands between the Enter and the row.
+  private asksBeforeSend(promptId: string, steer: boolean, emptyContinuation?: () => boolean): boolean {
+    if (emptyContinuation || !sendDrawsBeforeAsks() || this.aheadDrawn.has(promptId)) return false;
+    const sessionId = this.creating ? undefined : this.selectedSessionId;
+    if (!sessionId || this.shownSessionId !== sessionId || this.rows.has(`local-${promptId}`)) return false;
+    if (this.workingNow() || this.queue.length > 0) return false;
+    const readsHandoff = this.handoffSupported && !this.handoff.state.ready;
+    const asksTurn =
+      Boolean(this.handoffTurn) &&
+      !(steer && this.turnOpen) &&
+      !namesHandoffTurn(promptId) &&
+      !this.retriedPrompts.has(promptId);
+    return readsHandoff || asksTurn;
   }
 
   /// A prompt sent ahead of its files that did not go: its row in the chat shown fails with
@@ -12703,6 +12739,12 @@ export class AcpmuxDirectClient {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
+    // A Cloud chat asks before its prompt goes (the app opening its hand-off turn, up to
+    // TURN_WAIT_MS, or a handoff read): the bubble draws now, in the Enter's frame, and the send
+    // draws over it under the same row id (Leo, 2026-11-25: "when you press enter, the stuff should
+    // just start playing. we dont need to wait/get blocked by anything on rendering").
+    if (this.asksBeforeSend(promptId, steer, emptyContinuation))
+      this.drawSentAhead(this.selectedSessionId!, promptId, input, attachments, steer);
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
     // ends: each pass waits out a hold, and every hold ends by its limit (holdSnapshots' timer) or on close
@@ -12850,7 +12892,15 @@ export class AcpmuxDirectClient {
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
     const { blocks, inline, fileDisplay, text, pasted } = sentPromptShape(input, carried, options);
-    const rowId = `local-${promptId}`;
+    // The prompt's own id keys its row even once a hand-off turn names it: the bubble drawn ahead
+    // of the ask (`asksBeforeSend`) is the row this send draws over, never a second one. The named
+    // id finds it through `promptRowKeys`, as acpmux's echo does.
+    const rowId = `local-${ownPromptId}`;
+    if (promptId !== ownPromptId) {
+      this.promptRowKeys.delete(ownPromptId);
+      this.optimisticPromptRows.delete(ownPromptId);
+      this.optimisticPromptTexts.delete(ownPromptId);
+    }
     const at = Date.now();
     // The send's trace begins at the Enter that sent it (actionTrace.ts).
     actionTrace.beginSend(promptId, sessionId);
@@ -12859,7 +12909,7 @@ export class AcpmuxDirectClient {
       this.optimisticPromptRows.set(promptId, rowId);
       this.optimisticPromptTexts.set(promptId, text);
       // The perf watch's per-send span (perfReporter.ts), unless the row is already drawn ahead of its files.
-      if (!this.aheadDrawn.has(promptId)) acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
+      if (!this.aheadDrawn.has(ownPromptId)) acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
     }
     if (attachments.length) {
       this.optimisticPromptAttachments.set(promptId, attachments);
@@ -13306,7 +13356,7 @@ export class AcpmuxDirectClient {
       entry.timers = [];
     }
     const recovered = timedOut && next.state !== "failed";
-    if (recovered) this.failedPrompts.delete(`local-${promptId}`);
+    if (recovered) this.failedPrompts.delete(entry.rowId);
     const row = this.rows.get(entry.rowId);
     if (row) {
       this.rows.set(entry.rowId, {
