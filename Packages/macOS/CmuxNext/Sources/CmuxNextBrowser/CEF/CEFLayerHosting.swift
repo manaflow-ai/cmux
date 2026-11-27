@@ -113,6 +113,10 @@ final class CEFLayerHosting {
     nonisolated static let liveResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_LIVE_RESIZE_SYNC_MS"] ?? "") ?? 0
     nonisolated static let dragResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_RESIZE_SYNC_MS"] ?? "") ?? 0
     nonisolated static let resizeFenceTimeoutOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE_MS"] ?? "") ?? 0
+    /// `CMUX_CEF_DRAG_KEEP_ATTACHED=1` keeps a hosted page attached through a pane motion (a divider drag), so the
+    /// page follows its pane every frame instead of freezing detached and jumping once at the landing (an A/B on one
+    /// build for split_scale divider_drag; off, the default, detaches as before). A window's live resize still detaches.
+    nonisolated static let dragKeepsAttached = ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_KEEP_ATTACHED"] == "1"
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -487,6 +491,7 @@ final class CEFLayerHosting {
         if inResizeMotion {
             // A live resize nobody drives (a display change's frame adjustment) moves the page once: no detach.
             motionKeepsAttached = holdsFocus() || (motionHolders == 0 && !liveResizeByPerson)
+                || (Self.dragKeepsAttached && !inLiveResize)
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false
