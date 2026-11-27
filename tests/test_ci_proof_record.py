@@ -188,7 +188,7 @@ class TokenFallbackTest(unittest.TestCase):
 
         with self.assertRaises(urllib.error.HTTPError) as got:
             pr.with_tokens(always, ["a", "b"])
-        self.assertEqual(pr.unread(got.exception), "HTTPError 403")
+        self.assertEqual(pr.read_error(got.exception), "HTTPError 403")
         tried = []
 
         def missing(token: str):
