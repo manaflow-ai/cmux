@@ -30,6 +30,7 @@ const BY_CODE: Readonly<Record<string, GitHubNext>> = {
   rate_limited: { next: "GitHub asked cmux to slow down: wait for the time shown, then try again." },
   "integration.unavailable": { next: "cmux could not reach GitHub or its own services just now: try again in a minute." },
   "auth.required": { next: "Sign in to cmux again, then try again." },
+  "github.permissions_pending": { next: `An owner of the GitHub account accepts the cmux GitHub App's updated permissions on GitHub's page (configure_url), ${again}.` },
   "integration.state_invalid": { next: `This connection link expired or belongs to another sign-in: ${CONNECT_GITHUB} to start again.`, next_action: "accounts.githubConnect" },
 }
 

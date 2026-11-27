@@ -5663,27 +5663,132 @@
     "onboarding.computerUse.done.line": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Setup is complete. You can now ask agents to use apps on your Mac."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "اكتمل الإعداد. يمكنك الآن أن تطلب من الوكلاء استخدام التطبيقات على جهاز Mac."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Postavljanje je završeno. Sada možete tražiti od agenata da koriste aplikacije na vašem Macu."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Opsætningen er færdig. Nu kan du bede agenter om at bruge apps på din Mac."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Die Einrichtung ist abgeschlossen. Du kannst Agents jetzt bitten, Apps auf deinem Mac zu nutzen."}},
-        "es": {"stringUnit": {"state": "translated", "value": "La configuración ha terminado. Ahora puedes pedir a los agentes que usen apps en tu Mac."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "La configuration est terminée. Vous pouvez maintenant demander aux agents d’utiliser des apps sur votre Mac."}},
-        "it": {"stringUnit": {"state": "translated", "value": "La configurazione è completa. Ora puoi chiedere agli agenti di usare le app sul tuo Mac."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "設定が完了しました。エージェントに Mac のアプリを使うよう頼めるようになりました。"}},
-        "km": {"stringUnit": {"state": "translated", "value": "ការរៀបចំបានបញ្ចប់។ ឥឡូវនេះ អ្នកអាចស្នើឱ្យភ្នាក់ងារប្រើកម្មវិធីនៅលើ Mac របស់អ្នក។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "설정이 완료되었습니다. 이제 에이전트에게 Mac의 앱을 사용하도록 요청할 수 있습니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Oppsettet er fullført. Nå kan du be agenter om å bruke apper på Mac-en din."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Konfiguracja zakończona. Teraz możesz prosić agentów o używanie aplikacji na Twoim Macu."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "A configuração foi concluída. Agora você pode pedir aos agentes que usem apps no seu Mac."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Настройка завершена. Теперь вы можете просить агентов работать в приложениях на вашем Mac."}},
-        "th": {"stringUnit": {"state": "translated", "value": "ตั้งค่าเสร็จแล้ว ตอนนี้คุณขอให้เอเจนต์ใช้แอปบน Mac ของคุณได้"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Kurulum tamamlandı. Artık ajanlardan Mac’inizdeki uygulamaları kullanmalarını isteyebilirsiniz."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Налаштування завершено. Тепер ви можете просити агентів працювати в застосунках на вашому Mac."}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Đã thiết lập xong. Giờ bạn có thể yêu cầu tác tử dùng ứng dụng trên máy Mac của bạn."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "设置已完成。现在你可以让代理使用 Mac 上的 App。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "設定已完成。現在你可以讓代理使用 Mac 上的 App。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup is complete. Agents can now use apps on your Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتمل الإعداد. يمكن للوكلاء الآن استخدام التطبيقات على جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje je završeno. Agenti sada mogu koristiti aplikacije na tvom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsætningen er færdig. Agenter kan nu bruge apps på din Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einrichtung ist abgeschlossen. Agents können jetzt Apps auf deinem Mac nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración está completa. Los agentes ya pueden usar apps en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration est terminée. Les agents peuvent désormais utiliser les apps de votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurazione completata. Ora gli agenti possono usare le app sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定が完了しました。エージェントが Mac のアプリを使えるようになりました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំបានបញ្ចប់។ ភ្នាក់ងារអាចប្រើកម្មវិធីនៅលើ Mac របស់អ្នកឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정이 완료되었습니다. 이제 에이전트가 Mac의 앱을 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsettet er ferdig. Agenter kan nå bruke apper på Macen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja zakończona. Agenci mogą teraz używać aplikacji na Twoim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configuração foi concluída. Agentes já podem usar apps no seu Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка завершена. Теперь агенты могут пользоваться приложениями на вашем Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าเสร็จแล้ว ตอนนี้เอเจนต์ใช้แอปบน Mac ของคุณได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum tamamlandı. Ajanlar artık Mac'inizdeki uygulamaları kullanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування завершено. Тепер агенти можуть користуватися застосунками на вашому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã thiết lập xong. Giờ tác tử có thể dùng ứng dụng trên Mac của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置完成。智能体现在可以使用你 Mac 上的应用了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定完成。代理現在可以使用你 Mac 上的 App 了。"
+          }
+        }
       }
     },
     "onboarding.computerUse.screenshots.confirm": {
@@ -17476,127 +17581,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque and calm. Banners only when cmux is in the background; agents ask first."
+            "value": "Opaque and calm. Banners only in the background; agents ask first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مصمت وهادئ. لا إشعارات إلا عندما يكون cmux في الخلفية، والوكلاء يسألون أولًا."
+            "value": "معتم وهادئ. اللافتات في الخلفية فقط؛ والوكلاء يسألون أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neprozirno i mirno. Obavijesti samo kad je cmux u pozadini; agenti prvo pitaju."
+            "value": "Neprozirno i mirno. Baneri samo u pozadini; agenti prvo pitaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uigennemsigtig og rolig. Bannere kun når cmux er i baggrunden; agenter spørger først."
+            "value": "Uigennemsigtig og rolig. Bannere kun i baggrunden; agenter spørger først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deckend und ruhig. Banner nur, wenn cmux im Hintergrund ist; Agenten fragen zuerst."
+            "value": "Deckend und ruhig. Banner nur im Hintergrund; Agenten fragen zuerst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco y tranquilo. Avisos solo con cmux en segundo plano; los agentes preguntan primero."
+            "value": "Opaco y tranquilo. Banners solo en segundo plano; los agentes preguntan primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque et calme. Bannières seulement quand cmux est en arrière-plan ; les agents demandent d'abord."
+            "value": "Opaque et calme. Bannières seulement en arrière-plan ; les agents demandent d’abord."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banner solo con cmux in secondo piano; gli agenti chiedono prima."
+            "value": "Opaco e calmo. Banner solo in background; gli agenti chiedono prima."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明で落ち着いた見た目。通知はcmuxが背面のときだけ、エージェントはまず確認します。"
+            "value": "不透明で落ち着いた見た目。通知は背面のときだけ、エージェントはまず確認します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនថ្លា និងស្ងប់។ ផ្ទាំងជូនដំណឹងតែពេល cmux នៅខាងក្រោយ ហើយភ្នាក់ងារសួរមុន។"
+            "value": "ស្រអាប់ និងស្ងប់។ បដាតែនៅផ្ទៃខាងក្រោយ; ភ្នាក់ងារសួរជាមុន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "불투명하고 차분하게. 배너는 cmux가 뒤에 있을 때만, 에이전트는 먼저 묻습니다."
+            "value": "불투명하고 차분하게. 배너는 백그라운드에서만, 에이전트는 먼저 묻습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ugjennomsiktig og rolig. Bannere bare når cmux er i bakgrunnen; agenter spør først."
+            "value": "Ugjennomsiktig og rolig. Bannere bare i bakgrunnen; agenter spør først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieprzezroczysty i spokojny. Banery tylko, gdy cmux jest w tle; agenci najpierw pytają."
+            "value": "Nieprzezroczysty i spokojny. Banery tylko w tle; agenci pytają najpierw."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banners só com o cmux em segundo plano; os agentes perguntam antes."
+            "value": "Opaco e calmo. Banners só em segundo plano; agentes perguntam antes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозрачно и спокойно. Баннеры только когда cmux в фоне; агенты сначала спрашивают."
+            "value": "Непрозрачно и спокойно. Баннеры только в фоне; агенты сначала спрашивают."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทึบและสงบ แจ้งเตือนเฉพาะเมื่อ cmux อยู่เบื้องหลัง และเอเจนต์จะถามก่อน"
+            "value": "ทึบและสงบ แบนเนอร์เฉพาะตอนอยู่เบื้องหลัง เอเจนต์ถามก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opak ve sakin. Bildirimler yalnızca cmux arka plandayken; ajanlar önce sorar."
+            "value": "Opak ve sakin. Afişler yalnızca arka planda; ajanlar önce sorar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозоро й спокійно. Банери лише коли cmux у фоні; агенти спершу питають."
+            "value": "Непрозоро й спокійно. Банери лише у фоні; агенти спершу питають."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đặc và yên tĩnh. Chỉ báo khi cmux ở nền; agent hỏi trước."
+            "value": "Đục và yên tĩnh. Biểu ngữ chỉ khi ở nền; tác tử hỏi trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安静。只在 cmux 位于后台时显示横幅；智能体先询问。"
+            "value": "不透明且安静。仅在后台时显示横幅；智能体先询问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安靜。只在 cmux 位於背景時顯示橫幅；代理先詢問。"
+            "value": "不透明且安靜。僅在背景時顯示橫幅；代理先詢問。"
           }
         }
       }
