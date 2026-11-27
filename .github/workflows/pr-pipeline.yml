@@ -13,6 +13,28 @@ name: pr pipeline
 on:
   workflow_call:
     inputs:
+      defer_web_browser:
+        description: The router runs web-browser separately after the bundle producer.
+        required: false
+        type: boolean
+        default: false
+      web_browser_only:
+        description: Do not plan the iOS fast verdict in the web-only invocation.
+        required: false
+        type: boolean
+        default: false
+      web_bundle_key:
+        required: false
+        type: string
+        default: ""
+      web_bundle_transport:
+        required: false
+        type: string
+        default: ""
+      web_bundle_artifact:
+        required: false
+        type: string
+        default: ""
       # The table's jobs the change routes, a JSON list (pr-router.yml's `table` output). Empty: every job runs
       # its routed steps (a job with none routed prints so and passes).
       jobs:
@@ -250,7 +272,7 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next
     # runs this job only once it is handed to land (`ready-to-land` or `full-ci`), not on every push; then the label guard.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !inputs.defer_web_browser && (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
     # step, then each `alone` step (tests/test_ci_step_table.py holds this).
@@ -371,6 +393,41 @@ jobs:
           shared-key: agent-pane-real-acpmux
           save-if: false
           workspaces: cmux-tui -> target
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          CMUX_WEB_NODE_VERSION: "24.22.1"
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+      - name: Validate the producer source key
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          PRODUCER_KEY: ${{ inputs.web_bundle_key }}
+          SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: test -z "$PRODUCER_KEY" || test "$PRODUCER_KEY" = "$SOURCE_KEY"
+      - name: Restore this run's web bundles from R2
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Restore this run's web bundles without a fleet identity
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Verify this run's web bundles
+        id: web-bundle-run
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          KEY: ${{ steps.web-bundle-key.outputs.key }}
+          TRANSPORT: ${{ inputs.web_bundle_transport }}
+        run: |
+          test "$TRANSPORT" = r2 || test "$TRANSPORT" = github
+          python3 -I scripts/ci/compile_preflight.py web-artifact verify "$RUNNER_TEMP/web" "$KEY"
+          echo hit=true >> "$GITHUB_OUTPUT"
+
       - name: Run the routed web-browser steps (ci/steps.toml)
         if: ${{ steps.receipt.outputs.run == '' }}
         # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
@@ -378,6 +435,7 @@ jobs:
           CI_PR_BASE_REF: ${{ github.base_ref }}
           CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_WEB_BUNDLES_FROM: ${{ steps.web-bundle-run.outputs.hit == 'true' && format('{0}/web', runner.temp) || '' }}
           CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
           CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
           CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
@@ -722,7 +780,7 @@ jobs:
   # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
