@@ -6722,7 +6722,6 @@ function TranscriptView({
       },
       top,
     );
-  };
   /// Jump up (jumpControl.ts): to the first unseen row, near the top of the view, twice the thread's
   /// top padding over it (clear of the scroller's 18 px top fade), with the "New" line right over it
   /// and everything after it below to read down through (Leo, 2026-11-11: "you eventually can jump
