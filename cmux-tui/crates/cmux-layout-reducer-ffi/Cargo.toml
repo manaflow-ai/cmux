@@ -25,6 +25,7 @@ cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
 cmux-error-journal = { path = "../cmux-error-journal" }
 cmux-focus-core = { path = "../cmux-focus-core" }
+cmux-hang-report = { path = "../cmux-hang-report" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-mobile-host-core = { path = "../cmux-mobile-host-core" }

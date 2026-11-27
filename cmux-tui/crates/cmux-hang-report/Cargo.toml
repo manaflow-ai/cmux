@@ -1,0 +1,16 @@
+[package]
+name = "cmux-hang-report"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux macOS app's hang and stall reports: which frames are named, the leak scan, the watchdog aggregate, the report's build, fit and wire bytes, and the send rules (daily cap, outbox, install id), for the app over the app FFI. Pure: the app reads MetricKit, dyld and the disk and applies the result"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true
