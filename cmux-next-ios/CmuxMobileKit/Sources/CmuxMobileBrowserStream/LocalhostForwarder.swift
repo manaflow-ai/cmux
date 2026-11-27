@@ -301,10 +301,10 @@ public final class LocalhostForwarder {
         // A port stopped meanwhile forwards nothing (never to some other Mac).
         counts.accepted += 1
         guard let forward = forwards[port], !suspended else { return connection.cancel() }
-        let openHost = openHost
+        let opener = self.openHost
         let opened = { @Sendable (macID: String?, host: String?, port: UInt16) async throws -> any LinkChannel in
             await MainActor.run { self.counts.opened += 1 }
-            return try await openHost(macID, host, port)
+            return try await opener(macID, host, port)
         }
         let refusal = await Self.pump(connection, host: forward.host, port: port, macID: forward.macID, open: opened) { @Sendable in
             await MainActor.run { self.counts.refused += 1 }

@@ -44,6 +44,10 @@ public final class BrowserTabModel: BrowserTabState {
     /// The address this tab itself is loading (the address bar, Open on iPhone, a
     /// restored page): a navigation the person started, which may open a new port.
     @ObservationIgnored var ownLoad: URL?
+    /// A named private host is fetched through the phone's loopback listener. Keep
+    /// the original URL so the toolbar and navigation policy retain that origin.
+    @ObservationIgnored private var forwardedOrigin: URL?
+    @ObservationIgnored private var forwardingLoad: Task<Void, Never>?
     /// Whether the page's port already forwards to this tab's Mac (its redirects and
     /// same-port links need no new port).
     @ObservationIgnored var loopbackIsOpen: (@MainActor (URL) -> Bool)?
@@ -104,6 +108,9 @@ public final class BrowserTabModel: BrowserTabState {
         let reach = PhoneReach(target)
         macFileRead?.cancel()
         macFileRead = nil
+        forwardingLoad?.cancel()
+        forwardingLoad = nil
+        forwardedOrigin = nil
         if guardian != nil, BrowserPagePlacement.isMacHTMLFile(target), let read = readMacHTML {
             loadMacFile(target, read: read)
             return
@@ -120,6 +127,34 @@ public final class BrowserTabModel: BrowserTabState {
             }
             ownLoad = target
         }
+        if guardian != nil, reach == .privateNetwork,
+           case .forwarded = loopbackPolicy?(target) {
+            ownLoad = target
+            problem = nil
+            url = target
+            urlChanged?(target)
+            forwardingLoad = Task { [weak self] in
+                guard let self else { return }
+                switch await self.forwardLoopback?(target) ?? .macOnly(detail: nil) {
+                case .forwarded:
+                    guard !Task.isCancelled else { return }
+                    self.forwardedOrigin = target
+                    guard let local = Self.localForwardURL(for: target) else {
+                        self.refuse(target)
+                        return
+                    }
+                    var request = URLRequest(url: local)
+                    if let host = target.host(percentEncoded: false) {
+                        request.setValue(host, forHTTPHeaderField: "Host")
+                    }
+                    self.webView.load(request)
+                case .macOnly(let detail):
+                    self.refuse(target, detail: detail)
+                }
+            }
+            return
+        }
+        ownLoad = nil
         problem = nil
         // The address bar shows where the page is going at once (as Safari's does).
         url = target
@@ -162,6 +197,7 @@ public final class BrowserTabModel: BrowserTabState {
     }
 
     func unreachable(_ target: URL, _ error: any Error) {
+        let target = logicalForwardedURL(for: target) ?? target
         let code = (error as NSError).code
         url = target
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
@@ -171,6 +207,26 @@ public final class BrowserTabModel: BrowserTabState {
     }
 
     public func clearProblem() { problem = nil }
+
+    /// Maps a web view URL on the phone's listener back to the named host it
+    /// represents. URLs that are already logical addresses pass through.
+    func logicalForwardedURL(for candidate: URL) -> URL? {
+        guard let origin = forwardedOrigin,
+              let candidateHost = candidate.host(percentEncoded: false)?.lowercased(),
+              ["localhost", "127.0.0.1", "::1"].contains(candidateHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))),
+              PhoneReach.portForAddress(candidate) == PhoneReach.portForAddress(origin),
+              candidate.scheme?.lowercased() == origin.scheme?.lowercased(),
+              var components = URLComponents(url: candidate, resolvingAgainstBaseURL: false) else { return nil }
+        components.host = origin.host(percentEncoded: false)
+        components.port = origin.port
+        return components.url
+    }
+
+    private static func localForwardURL(for target: URL) -> URL? {
+        guard var components = URLComponents(url: target, resolvingAgainstBaseURL: false) else { return nil }
+        components.host = "127.0.0.1"
+        return components.url
+    }
 
     /// Stops loading and media behind the mirror (the page stays for the next visit).
     func pause() {
@@ -197,8 +253,9 @@ public final class BrowserTabModel: BrowserTabState {
                 model.url = file
                 return
             }
-            model.url = value
-            model.urlChanged?(value)
+            let logical = model.logicalForwardedURL(for: value) ?? value
+            model.url = logical
+            model.urlChanged?(logical)
         }
         watch(\.title) { model, value in model.title = value ?? "" }
         watch(\.canGoBack) { model, value in model.historyBack = value }
@@ -305,11 +362,13 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         }
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
-        let reach = PhoneReach(target)
+        let logicalTarget = model?.logicalForwardedURL(for: target) ?? target
+        let reach = PhoneReach(logicalTarget)
+        let privateForward = reach == .privateNetwork && model?.loopbackPolicy?(logicalTarget) == .forwarded
         if let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback,
-           reach == .macLoopback || (reach == .privateNetwork && policy(target) == .forwarded) {
-            if case .macOnly(let detail) = policy(target) {
-                model.refuse(target, detail: detail)
+           reach == .macLoopback || privateForward {
+            if case .macOnly(let detail) = policy(logicalTarget) {
+                model.refuse(logicalTarget, detail: detail)
                 decisionHandler(.cancel)
                 return
             }
@@ -317,26 +376,33 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             // the same loopback origin (the dev app's own links); never a page's
             // script or form sending this iPhone into the Mac's loopback.
             // WebKit normalizes the address (`localhost:3000` asks for `localhost:3000/`).
-            let own = model.ownLoad.map { Self.sameOrigin($0, target) } ?? false
+            let own = model.ownLoad.map { Self.sameOrigin($0, logicalTarget) } ?? false
             model.ownLoad = nil
             // `sourceFrame` is nil for some navigations despite its Swift type.
-            let source = (action.sourceFrame as WKFrameInfo?)?.request.url
-            let sameOrigin = source.map { Self.sameOrigin($0, target) } ?? false
-            let open = model.loopbackIsOpen?(target) ?? false
-            let privateForward = reach == .privateNetwork
-            guard privateForward || own || open || sameOrigin || [.linkActivated, .backForward].contains(action.navigationType) else {
-                model.refuse(target, detail: String(localized: "A page tried to open \(WorkspaceTabsSource.addressLabel(target)). Type it in the address bar to open it on this iPhone, or mirror it from the Mac."))
+            let source = (action.sourceFrame as WKFrameInfo?)?.request.url.flatMap { model.logicalForwardedURL(for: $0) ?? $0 }
+            let sameOrigin = source.map { Self.sameOrigin($0, logicalTarget) } ?? false
+            let open = model.loopbackIsOpen?(logicalTarget) ?? false
+            guard own || open || sameOrigin || [.linkActivated, .backForward].contains(action.navigationType) else {
+                model.refuse(logicalTarget, detail: String(localized: "A page tried to open \(WorkspaceTabsSource.addressLabel(logicalTarget)). Type it in the address bar to open it on this iPhone, or mirror it from the Mac."))
                 decisionHandler(.cancel)
+                return
+            }
+            // WebKit reached the named host directly. Replace that navigation
+            // with the already-authorized loopback URL; a local target can pass
+            // through because its listener is the forwarder.
+            if reach == .privateNetwork && PhoneReach(target) != .macLoopback {
+                decisionHandler(.cancel)
+                model.load(logicalTarget)
                 return
             }
             // The Mac's dev server: this iPhone's listener on the port must be up first.
             // task-owner: one navigation's decision; WebKit waits for it
             Task { @MainActor in
-                switch await forward(target) {
+                switch await forward(logicalTarget) {
                 case .forwarded:
                     decisionHandler(.allow)
                 case .macOnly(let detail):
-                    model.refuse(target, detail: detail)
+                    model.refuse(logicalTarget, detail: detail)
                     decisionHandler(.cancel)
                 }
             }
@@ -373,7 +439,10 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         let space = challenge.protectionSpace
         guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
               let model, Self.trustsDevCertificate(host: space.host, port: space.port,
-                                                   isForwarded: { model.loopbackIsOpen?($0) ?? false })
+                                                   isForwarded: { url in
+                                                       let logical = model.logicalForwardedURL(for: url) ?? url
+                                                       return model.loopbackIsOpen?(logical) ?? false
+                                                   })
         else {
             completionHandler(.performDefaultHandling, nil)
             return
@@ -384,8 +453,7 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
     /// Whether a TLS server at `host:port` is a Mac loopback dev server this iPhone forwards.
     static func trustsDevCertificate(host: String, port: Int, isForwarded: (URL) -> Bool) -> Bool {
         let name = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        guard (1...65535).contains(port), let url = URL(string: "https://\(name):\(port)/"),
-              PhoneReach(url) == .macLoopback else { return false }
+        guard (1...65535).contains(port), let url = URL(string: "https://\(name):\(port)/") else { return false }
         return isForwarded(url)
     }
 

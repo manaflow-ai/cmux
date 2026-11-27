@@ -351,7 +351,8 @@ public final class NativeBrowserTabs {
         }
         model.loopbackIsOpen = { [weak self] url in
             guard let target = PhoneReach.forwardingTarget(url) else { return false }
-            return self?.forwarder?.ports.contains(target.port) == true
+            let macID = Self.macID(ofKey: key)
+            return self?.forwarder?.isForwarded(host: target.host, port: target.port, macID: macID) == true
         }
         model.loopbackRefusal = { [weak self] url in
             guard let target = PhoneReach.forwardingTarget(url) else { return nil }
