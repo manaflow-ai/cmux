@@ -61,6 +61,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 import pr_status  # noqa: E402
 
 LEGACY_MARKER = "<!-- cmux-red-checks -->"
@@ -82,7 +83,7 @@ NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never
 # compared with the base on their own. react-apps-check comes first: Web status gathers it too.
 AGGREGATES = {
-    "web / react-apps-check": re.compile(r"^web / (?:react-apps-(?:base-)?check \(\d+\)|react-doctor)$"),
+    "web / react-apps-check": re.compile(r"^web / react-apps-(?:base-)?check \(\d+\)$"),
     "web / Web status": re.compile(r"^web / (?!Web status$)"),  # it needs every routed web job
 }
 # A gathered job that ended with no verdict: the aggregate failed on it, and no base red explains that. Skipped is
@@ -170,8 +171,9 @@ class GitHub:
                                      headers={"Authorization": f"Bearer {self.token}",
                                               "Accept": "application/vnd.github+json",
                                               "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read() or b"null")
+        # A read is asked again on a passing refusal (gh_http); a write is sent once.
+        _, body, _ = gh_http.request(req, 30, raise_errors=True)
+        return json.loads(body or b"null")
 
     def pages(self, path, key=None):
         out, page = [], 1

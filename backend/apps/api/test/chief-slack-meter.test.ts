@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import type { Env } from "../src/env.ts"
-import { SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, setSlackAllowance, slackAllowance, slackSpend, validSlackAllowance, awakeFact, awakeSeconds, meterSlackTurn, recordSlackSender, reportSlackAwake, senderAwakeSeconds, slackAwakeLabel, slackMayWake, utcDay, type SlackSender } from "../src/chief-brain/slack-meter.ts"
+import { SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, setSlackAllowance, slackAllowance, slackSpend, validSlackAllowance, awakeFact, awakeSeconds, meterSlackTurn, recordSlackSender, reportSlackAwake, slackNames, senderAwakeSeconds, slackAwakeLabel, slackMayWake, utcDay, type SlackSender } from "../src/chief-brain/slack-meter.ts"
 
 // RFD 0123 (Chief in Slack), Plan and billing: the brain's awake-time meter per Slack sender.
 
@@ -91,6 +91,23 @@ describe("slack awake meter", () => {
         { slack_team: "T0TEAM", slack_user: "U0GUEST", sender_is_owner: false, day: "2026-11-24", seconds: 5, turns: 1 }
       ])
       expect(slackSpend(b.sql, NOON, 1).map((r) => r.day)).toEqual(["2026-11-25", "2026-11-25"])
+    })
+  })
+
+  it("names each sender in the spend by their latest Slack name, and leaves an unnamed sender out", async () => {
+    await inBrain((b) => {
+      recordSlackSender(b.sql, "msg_g1", { ...guest, slackUserName: "Guest Old" })
+      recordSlackSender(b.sql, "msg_g2", { ...guest, slackUserName: "  Guest  " })
+      recordSlackSender(b.sql, "msg_o", owner)
+      // A blank name keeps the one already recorded.
+      recordSlackSender(b.sql, "msg_g3", { ...guest, slackUserName: " " })
+      meterSlackTurn(b.sql, "run_g", "msg_g2", NOON, NOON + 30_000)
+      meterSlackTurn(b.sql, "run_o", "msg_o", NOON, NOON + 60_000)
+      const spend = slackSpend(b.sql, NOON, 7)
+      expect(slackNames(b.sql, spend)).toEqual({ U0GUEST: "Guest" })
+      expect(slackNames(b.sql, [])).toEqual({})
+      recordSlackSender(b.sql, "msg_o2", { ...owner, slackUserName: "Leo" })
+      expect(slackNames(b.sql, spend)).toEqual({ U0GUEST: "Guest", U0OWNER: "Leo" })
     })
   })
 

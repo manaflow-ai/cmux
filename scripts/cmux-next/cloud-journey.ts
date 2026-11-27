@@ -31,7 +31,8 @@
  *   -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
- *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
+ *   -> carrier dial (an identify answered over the machine's relay slot) -> terminal scroll (the scroll-stress probe
+ *   across `carrier serve`, report only, `--skip scroll`; SCROLL_PROBE_STEP) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
@@ -147,6 +148,29 @@ export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; d
   const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
   return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
 }
+type SizeRow = { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined;
+const sizeText = (size: SizeRow) => `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
+/**
+ * The DEFAULT_SIZE_STEP verdict: the create's size is the one cloud.machine.get read when the machine first ran
+ * (`atRunning`, before any agent turn), never the one read after the reply (`now`). AutoSize (cmux-platform
+ * CloudDO.pressCloudGrow, RFD 0133) grows a machine whose guest reports `cpu: pegged`, and since cmux#59118 the guest
+ * reports a pegged CPU within 2 s, so an agent start on 2 vCPUs grew the journey's machine to xl (16/32768/131072)
+ * before this step read it (cmux-vm.yml run 45916791099, roll 3bd974c4): every staging deploy rolled back on a size
+ * the create never had. A later size at least as big on every axis is AutoSize's and is named in the detail; a
+ * smaller one, or a running read with no size, is judged as before. Null and the detail, or the problem.
+ */
+export function defaultSizeVerdict(atRunning: SizeRow, now: SizeRow): { problem: string | null; detail: string } {
+  const created = atRunning?.cpu === undefined ? now : atRunning;
+  const problem = defaultSizeProblem(created);
+  const n = (v: unknown) => (typeof v === "number" ? v : Number.NaN);
+  const grew = created !== now && sizeText(now) !== sizeText(created)
+    && n(now?.cpu) >= n(created?.cpu) && n(now?.memory_mb) >= n(created?.memory_mb) && n(now?.disk_mb) >= n(created?.disk_mb);
+  if (problem === null && created !== now && sizeText(now) !== sizeText(created) && !grew) {
+    return { problem: `${defaultSizeProblem(now)}; it ran at ${sizeText(created)} (a size below the create's is no grow)`, detail: "" };
+  }
+  const later = grew ? `; ${sizeText(now)} after the reply (AutoSize grew it, cmux-platform pressCloudGrow)` : "";
+  return { problem: problem === null ? null : `${problem}${later}`, detail: `size ${sizeText(created)} when it first ran${later}` };
+}
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
  * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
@@ -239,6 +263,12 @@ export class FirstTextTiming {
   /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
   guest(part: string, ms: number | null): void {
     if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
+  /** Forget every mark: a create the team's machine cap refused (createWithRoom) is asked again, and the clock starts at that ask. */
+  reset(): void {
+    this.start = undefined;
+    this.marks = {};
+    this.onGuest = {};
   }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
@@ -507,23 +537,46 @@ const stepNotes = new AsyncLocalStorage<string[]>();
  *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
 export const CREATE_OP_TIMEOUT_MS = 300_000;
 
+/** /v1/auth/token's expires_at is seconds or ms since the epoch; a missing one reads as never (no re-mint). */
+export function expiresAtMs(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return Infinity;
+  return v < 1e12 ? v * 1000 : v;
+}
+
 export class Api {
   bearer = "";
+  /** An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts): a journey that holds one
+   *  past that (the clean-room walk alone takes ~150 s) got connect_info HTTP 401 on job 139905166641. `remint`
+   *  signs a fresh one; every call through this Api mints again when the token has under a minute left. */
+  remint?: () => Promise<{ token: string; expiresAt: number }>;
+  expiresAt = Infinity;
   constructor(readonly origin: string, readonly team?: string) {}
+  async fresh(): Promise<void> {
+    if (!this.remint || this.expiresAt - Date.now() > 60_000) return;
+    const t = await this.remint();
+    this.bearer = t.token;
+    this.expiresAt = t.expiresAt;
+  }
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
    *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
+  /** `deadlineAt` (epoch ms): no attempt waits past it and none starts after it, so the op's whole wait has one
+   *  bound; without it each of OP_ATTEMPTS attempts gets the full `timeoutMs`. */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000, deadlineAt?: number): Promise<any> {
     let ownerRetried = false;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
       let r: Answer;
+      const left = deadlineAt === undefined ? timeoutMs : Math.min(timeoutMs, deadlineAt - Date.now());
+      if (left <= 0) throw new Error(`${op}: no answer within its bound (${attempt - 1} attempts)`);
       try {
-        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...(await this.headers()), ...extra }, left, !!key);
       } catch (error) {
         // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
-        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
+        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error) && (deadlineAt === undefined || Date.now() + 2000 * attempt < deadlineAt)) { await sleep(2000 * attempt); continue; }
+        if (deadlineAt !== undefined && requestTimedOut(error)) throw new Error(`${op}: no answer within its bound (${attempt} attempts)`);
         throw error;
       }
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
@@ -546,25 +599,28 @@ export class Api {
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
+    await this.fresh();
     let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
     // A read changes nothing, so an owner reset is read once more.
     if (ownerUnreachable(r.body)) {
       stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
       await sleep(OWNER_RETRY_MS);
-      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, await this.headers(), timeoutMs, true);
     }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
+    await this.fresh();
     return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
   }
 }
@@ -1985,6 +2041,81 @@ export async function runPreclaimBurst(args: {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** A create the platform refused because the team holds its active-machine cap or its machine count (a refusal makes no machine). */
+export const ROOM_REFUSAL = /cloud\.quota\.(exceeded|vm_limit)\b/;
+/** How long a journey create that hits ROOM_REFUSAL waits for room before it fails: CLOUD_JOURNEY_ROOM_WAIT_MS, default 4 min. */
+export const ROOM_WAIT_MS = 240_000;
+const ROOM_POLL_MS = 15_000;
+
+/**
+ * Runs `create` and, while the platform answers it with ROOM_REFUSAL, asks again every ROOM_POLL_MS until `budgetMs`
+ * has passed, then throws the last refusal with the time it waited. Production's test team holds 5 active machines
+ * (plan max, ledger off), and every journey there shares it: cloud-journey-prod.yml's legs and the deploy gate's
+ * baseline and after runs, each holding its chat machine while it makes the cold one. CI run 45873634668 (cmux-platform,
+ * 2026-11-26 18:18Z): both prod runs' "cold create (asked size)" failed in 230 ms with `cloud.quota.exceeded`, "this
+ * plan allows 5 active machines" (used 6, then 5, busy: other journeys' `cloud journey auto jr-*` machines), and the
+ * deploy gate read the live commit's journey as red. Those machines are deleted within minutes, so the create waits
+ * for one to go. Each attempt gets its own number (`attempt`, from 0) for its idempotency key: a refused create made
+ * nothing, and a key reused after a refusal could answer the refusal again.
+ */
+export async function createWithRoom<T>(create: (attempt: number) => Promise<T>, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ value: T; waitedMs: number; refusals: number }> {
+  const t0 = now();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { value: await create(attempt), waitedMs: now() - t0, refusals: attempt };
+    } catch (e) {
+      const m = String((e as Error)?.message ?? e);
+      if (!ROOM_REFUSAL.test(m)) throw e;
+      if (now() - t0 >= budgetMs) throw new Error(`${m.slice(0, 600)} (no room after ${Math.round((now() - t0) / 1000)} s, ${attempt + 1} refusals)`);
+      await pause(ROOM_POLL_MS);
+    }
+  }
+}
+
+/** The capacity preflight's step: read before the first create, so a full cap is named before any create is refused. */
+export const CAPACITY_PREFLIGHT_STEP = "capacity preflight (quota headroom)";
+
+/**
+ * The team's room for `need` machines at once, from its cloud.plan.get answer (limits.max_active, which carries the
+ * team's CLOUD_TEAM_MAX_ACTIVE floor, usage.active, and spend_cap where the cap is on). `reason` names what is short in
+ * one token a gate can show: `quota_headroom:TEAM used A/M, need N`, `quota_cap:TEAM max_active M < need N` (a cap
+ * that never holds this run: final) or `spend_cap:TEAM at cap`. Each reason carries the `cloud.quota.headroom` code,
+ * so cmux-platform journey-after-deploy.sh reads it as a capacity refusal (verdict not-run), never as the deploy's
+ * own red.
+ */
+export function capacityHeadroom(plan: any, need: number, team: string): { ok: true; detail: string } | { ok: false; final: boolean; reason: string } {
+  const max = Number(plan?.limits?.max_active);
+  const active = Number(plan?.usage?.active);
+  if (!Number.isInteger(max) || !Number.isInteger(active)) return { ok: true, detail: `cloud.plan.get named no max_active/active (${JSON.stringify({ limits: plan?.limits ?? null, usage: plan?.usage ?? null }).slice(0, 200)}); not judged` };
+  if (plan?.spend_cap?.state === "at_cap") return { ok: false, final: true, reason: `cloud.quota.headroom spend_cap:${team} at cap (${plan.spend_cap.spent_usd ?? "?"} of ${plan.spend_cap.cap_usd ?? "?"} USD)` };
+  if (max < need) return { ok: false, final: true, reason: `cloud.quota.headroom quota_cap:${team} max_active ${max} < need ${need}` };
+  if (max - active < need) return { ok: false, final: false, reason: `cloud.quota.headroom quota_headroom:${team} used ${active}/${max}, need ${need}` };
+  return { ok: true, detail: `quota_headroom:${team} used ${active}/${max}, need ${need}: room` };
+}
+
+/**
+ * The preflight before the journey's first create: reads cloud.plan.get, and while the team lacks room for `need`
+ * machines asks again every ROOM_POLL_MS until `budgetMs` (createWithRoom's budget: other journeys' machines are
+ * deleted within minutes), then throws the named reason. A final reason (a cap below `need`, the spend cap) throws at
+ * once. A read that fails is no verdict on capacity: it answers `ok` with the error, and the creates judge room.
+ */
+export async function capacityPreflight(read: () => Promise<any>, need: number, team: string, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ detail: string; waitedMs: number }> {
+  const t0 = now();
+  for (let reads = 1; ; reads++) {
+    let plan: any;
+    try {
+      plan = await read();
+    } catch (e) {
+      return { detail: `cloud.plan.get failed, not judged: ${String((e as Error)?.message ?? e).slice(0, 200)}`, waitedMs: now() - t0 };
+    }
+    const h = capacityHeadroom(plan, need, team);
+    if (h.ok) return { detail: reads > 1 ? `${h.detail} (after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)` : h.detail, waitedMs: now() - t0 };
+    if (h.final) throw new Error(h.reason);
+    if (now() - t0 >= budgetMs) throw new Error(`${h.reason} (no room after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)`);
+    await pause(ROOM_POLL_MS);
+  }
+}
+
 /**
  * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
  * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use), the
@@ -1998,6 +2129,9 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  // The pause policy (cmux-platform PausePolicy.ts) sets the window a turn's end starts, over the idle policy above:
+  // named apart, so "idle policy 1800 s" is never read as the window an `aggressive` or `turn_end` machine runs.
+  if (typeof m?.pause_policy === "string") bits.push(`pause policy ${m.pause_policy}`);
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
   // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
   // process, port and timer names, so a walk that never paused names what held it.
@@ -2054,6 +2188,15 @@ export async function waitMachine(api: Api, machine: string, want: (m: any) => b
  * (cmux-platform NeverBoundProbe.ts); a delete before then leaves no cause in its log (prod journey 45767907054).
  */
 export const PLATFORM_VERDICT_GRACE_MS = 90_000;
+/**
+ * The cold create's one bound, from its request to running: the platform's own (a create not settled 300 s after its
+ * bind token is failed cloud.machine.create_overdue) plus the up to 30 s before that token is minted. Run 45874526877
+ * spent 847 s on this cell: two 300 s create attempts the client cut and sent again under the same key, the third
+ * answered with the platform's create_overdue, then a 180 s delete of the failed machine, all inside the step.
+ */
+export const COLD_CREATE_BOUND_MS = 330_000;
+/** After that bound, how long the cell waits for the platform's verdict on a machine it never saw running. */
+export const COLD_CREATE_VERDICT_GRACE_MS = 45_000;
 
 /** The platform's failure code for a machine stuck before running, waited at most graceMs; null if it never failed. */
 export async function platformVerdict(api: Api, machine: string, graceMs = PLATFORM_VERDICT_GRACE_MS, pollMs = 3000): Promise<string | null> {
@@ -2223,8 +2366,45 @@ export async function observeFirstText(exec: Exec, session: string, budgetMs: nu
 
 /** The reply step's timeout names what it last saw: an exec that never reached the session (its exit and stderr, e.g.
  * 503 vm_unavailable), and with the model stub, how many model requests the stub logged (0: the model was never asked). */
-export function noReplyError(budgetMs: number, last: string, lastExec?: ExecResult, stubRequests?: number | null): string {
+/** The kinds that say why a turn made no text: the agent's API retries, its stderr, its exit, a failed resume, a turn error. */
+const TAIL_WHY_KINDS = new Set(["claude.system.api_retry", "stderr", "exited", "resume_failed", "turn_error"]);
+
+/**
+ * One line from a session's `acp tail` records for a reply that never came: how many records of each kind, then the
+ * newest of each kind that says why (run 45879010786: 300 s with no reply and an empty last, nothing else to go on).
+ */
+export function tailFacts(tail: string): string {
+  const counts = new Map<string, number>();
+  const why = new Map<string, string>();
+  for (const line of tail.split("\n")) {
+    let r: any;
+    try { r = JSON.parse(line); } catch { continue; }
+    const kind = typeof r?.kind === "string" ? r.kind : "";
+    if (!kind) continue;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    if (!TAIL_WHY_KINDS.has(kind)) continue;
+    const m = r.msg ?? {};
+    const text = kind === "claude.system.api_retry"
+      ? `attempt ${m.attempt ?? "?"}/${m.max_retries ?? "?"} ${m.error ?? ""}`.trim()
+      : String(m.error ?? m.text ?? m.code ?? m.status ?? JSON.stringify(m)).trim();
+    why.delete(kind);
+    why.set(kind, text.slice(-160));
+  }
+  if (!counts.size) return "the session's records could not be read";
+  const kinds = [...counts].map(([k, n]) => `${k}=${n}`).join(" ");
+  const reasons = [...why].map(([k, t]) => `${k}: ${t}`).join("; ");
+  return `session records ${kinds}${reasons ? `; ${reasons}` : ""}`.slice(0, 600);
+}
+
+/** {@link tailFacts} for a session on the guest; never throws. */
+export async function sessionTailFacts(exec: Exec, session: string): Promise<string> {
+  const r = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>/dev/null | tail -n 400`, 45_000).catch(() => null);
+  return tailFacts(r?.stdout ?? "");
+}
+
+export function noReplyError(budgetMs: number, last: string, lastExec?: ExecResult, stubRequests?: number | null, facts?: string): string {
   const parts = [`no reply within ${budgetMs / 1000} s; last: ${last.slice(-300)}`];
+  if (facts) parts.push(facts);
   if (lastExec) parts.push(`last exec without an acp wait answer: exit ${lastExec.code} ${(lastExec.stderr || lastExec.stdout).trim().slice(-200)}`);
   if (stubRequests !== undefined) parts.push(stubRequests === null ? "the stub's request log could not be read" : `the model stub logged ${stubRequests} model request(s)${stubRequests === 0 ? ": the model was never asked" : ""}`);
   return parts.join("; ");
@@ -2704,6 +2884,116 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
   }
 }
 
+/**
+ * The Cloud surface of goal terminal-scroll-integrity ("A scroll-stress probe on local, SSH and Cloud terminals shows
+ * 0 blank or missing rows and 0 viewport jumps while scrolled up"): `cmux carrier serve` for the machine behind a
+ * private Unix socket, then `cmux-tui __scroll-probe --socket S --surface-label cloud --json` against it, the probe the
+ * perf cron runs on the local and SSH surfaces (scripts/measure/terminal-scroll-stress-linux.sh). So the byte mirror
+ * and the daemon's render viewport are read across the carrier, the route the app's Cloud terminal takes. The report's
+ * counts go into probe.json as `terminal_scroll` (counts only: no id, path or text), which cmuxterm-hq's
+ * cloud_journey_probe.py publishes as the `terminal.scroll.cloud.*` rows NOW's terminal_scroll reads.
+ */
+export const SCROLL_PROBE_STEP = "terminal scroll (carrier serve)";
+export type ScrollCounts = { blank_rows: number; missing_rows: number; jumps: number };
+export type TerminalScroll = { surface: "cloud"; bad: number; views: { mirror: ScrollCounts; daemon: ScrollCounts }; seconds: number | null };
+
+const count = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/** The probe's one JSON report, reduced to its counts; throws on anything else (a report that is not whole is no 0). */
+export function parseScrollReport(stdout: string): TerminalScroll {
+  const line = stdout.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  let r: any;
+  try {
+    r = JSON.parse(line);
+  } catch {
+    throw new Error(`scroll probe: not a JSON report: ${line.slice(0, 160)}`);
+  }
+  const views = {} as TerminalScroll["views"];
+  for (const name of ["mirror", "daemon"] as const) {
+    const v = r?.views?.[name];
+    if (!count(v?.blank_rows) || !count(v?.missing_rows) || !count(v?.jumps)) throw new Error(`scroll probe: the ${name} view has no whole counts`);
+    views[name] = { blank_rows: v.blank_rows, missing_rows: v.missing_rows, jumps: v.jumps };
+  }
+  const sum = (v: ScrollCounts) => v.blank_rows + v.missing_rows + v.jumps;
+  if (!count(r?.bad) || r.bad !== sum(views.mirror) + sum(views.daemon)) throw new Error("scroll probe: bad is not the sum of both views");
+  const seconds = typeof r.seconds === "number" && Number.isFinite(r.seconds) && r.seconds >= 0 ? Math.round(r.seconds * 10) / 10 : null;
+  return { surface: "cloud", bad: r.bad, views, seconds };
+}
+
+export function scrollDetail(t: TerminalScroll): string {
+  const v = (c: ScrollCounts) => `${c.blank_rows} blank, ${c.missing_rows} missing, ${c.jumps} jumps`;
+  return `bad ${t.bad} (mirror: ${v(t.views.mirror)}; daemon: ${v(t.views.daemon)})${t.seconds === null ? "" : `, ${t.seconds} s`}`;
+}
+
+/** `carrier serve` + `__scroll-probe` (see SCROLL_PROBE_STEP): the report's counts, or a throw naming what stopped it. */
+export async function carrierScrollProbe(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, probeSeconds = 300): Promise<TerminalScroll> {
+  // mkdtemp makes the dir 0700: carrier serve refuses a socket dir another user can write.
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-scroll-"));
+  carrierStateDirs.add(stateDir);
+  const socket = path.join(stateDir, "s.sock");
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const serve = spawn(cmux, ["carrier", "serve", "--machine", machine, "--socket", socket, ...(api.team ? ["--team", api.team] : [])], { env, stdio: ["pipe", "ignore", "pipe"] });
+  carrierDials.add(serve);
+  serve.on("exit", () => carrierDials.delete(serve));
+  serve.stdin!.on("error", () => undefined);
+  // serve's stderr: its ready line, then one line per connection (its dial's outcome); kept for a failure's detail.
+  const served: string[] = [];
+  let buffered = "";
+  let ready: (line: string | null) => void = () => undefined;
+  const readyLine = new Promise<string | null>((resolve) => (ready = resolve));
+  serve.stderr!.setEncoding("utf8");
+  serve.stderr!.on("data", (chunk: string) => {
+    buffered += chunk;
+    for (let at = buffered.indexOf("\n"); at >= 0; at = buffered.indexOf("\n")) {
+      const line = buffered.slice(0, at).trim();
+      buffered = buffered.slice(at + 1);
+      if (!line) continue;
+      if (served.length === 0) ready(line);
+      served.push(line);
+    }
+  });
+  serve.on("exit", () => ready(null));
+  serve.on("error", () => ready(null));
+  const lastServed = () => (served.length > 1 ? `; carrier serve: ${served.slice(1).slice(-2).map(short).join(" | ")}` : "");
+  try {
+    const timer = new Promise<"late">((resolve) => setTimeout(() => resolve("late"), 30_000).unref());
+    const first = await Promise.race([readyLine, timer]);
+    if (first === "late") throw new Error("carrier serve: no ready line within 30 s");
+    if (first === null) throw new Error(`carrier serve: exited ${serve.exitCode ?? "?"} before its ready line`);
+    let status: any;
+    try {
+      status = JSON.parse(first);
+    } catch {
+      throw new Error(`carrier serve: not a ready line: ${short(first)}`);
+    }
+    if (status?.ok !== true || status.route !== "carrier") throw new Error(`carrier serve: ${short(status)}`);
+    const probe = spawn(cmux, ["__scroll-probe", "--socket", socket, "--surface-label", "cloud", "--json", "--timeout-seconds", String(probeSeconds)], { env: inherited, stdio: ["ignore", "pipe", "pipe"] });
+    carrierDials.add(probe);
+    let out = "";
+    let err = "";
+    probe.stdout!.setEncoding("utf8").on("data", (c: string) => (out += c));
+    probe.stderr!.setEncoding("utf8").on("data", (c: string) => (err = (err + c).slice(-2000)));
+    const code = await new Promise<number | string>((resolve) => {
+      const kill = setTimeout(() => probe.kill("SIGKILL"), (probeSeconds + 60) * 1000);
+      probe.on("error", (e) => resolve(e.message));
+      probe.on("close", (c, signal) => {
+        clearTimeout(kill);
+        resolve(c ?? `signal ${signal}`);
+      });
+    });
+    carrierDials.delete(probe);
+    if (code !== 0) throw new Error(`scroll probe: exit ${code}: ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}${lastServed()}`);
+    return parseScrollReport(out);
+  } finally {
+    // stdin's end is serve's own way out; a SIGTERM after it covers one that does not go.
+    serve.stdin!.end();
+    setTimeout(() => serve.kill("SIGTERM"), 2_000).unref();
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
+  }
+}
+
 /** A `cmux.rd/1` frame on the dial's stdin and stdout: u8 type (1 control JSON, 2 datagram), u32 little-endian length, payload. */
 export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5);
@@ -2926,6 +3216,8 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
+  terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -3053,6 +3345,8 @@ const FACTS_READ_MS = 10_000;
 /** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
 export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
 export const COLD_CREATE_STEP = "cold create (asked size)";
+/** Journey-only checks whose red is recorded while the run goes on: the platform's own record of the machine. */
+export const RECORD_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP] as const;
 export const JOURNEY_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP, "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
@@ -3631,7 +3925,7 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   // The send's W3C trace id (cmux#55505 perf_trace.rs reads params._meta.traceId); only hex, so it is safe inline.
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
-import json, os, socket, sys, uuid
+import json, os, socket, sys, time, uuid
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -3647,49 +3941,117 @@ def call(f, s, i, method, p):
         m = json.loads(line)
         if m.get('id') == i:
             if m.get('error'):
-                raise RuntimeError(method + ': ' + json.dumps(m['error'])[:400])
+                err = m['error']
+                text = method + ': ' + json.dumps(err)[:400]
+                raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
             return m.get('result')
-errors = []
-for path in paths:
-    if not os.path.exists(path):
-        continue
-    try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(110)
-        s.connect(path)
-        f = s.makefile('r')
-        call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-        r = call(f, s, 2, 'session/new', params)
-        sid = (r or {}).get('sessionId')
-        print('@@session ' + str(sid), flush=True)
-    except Exception as e:
-        errors.append(path + ': ' + str(e))
-        continue
+class Retryable(RuntimeError):
+    pass
+# acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
+# few seconds"), and while it restarts its socket refuses connections or is not there yet. The start sends it again
+# for up to RETRY_S, as the app does, and gives up on anything else. A cut start may still have made the session
+# (run 45885585817): the resend's "name is taken" then names that session, which the start takes by name.
+RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
+deadline = time.monotonic() + RETRY_S
+# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it.
+cut = False
+while True:
+    errors = []
+    sid = None
+    retry = False
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(110)
+            try:
+                s.connect(path)
+            except (ConnectionRefusedError, FileNotFoundError) as e:
+                raise Retryable('connect: ' + str(e))
+            f = s.makefile('r')
+            call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            try:
+                r = call(f, s, 2, 'session/new', params)
+                sid = (r or {}).get('sessionId')
+            except RuntimeError as e:
+                # A start cut by acpmux's restart can have made the session before its answer was lost: the
+                # resend then finds its name taken. Only after such a cut is that name this start's own session.
+                if not cut or 'is taken' not in str(e) or isinstance(e, Retryable):
+                    raise
+                r = call(f, s, 3, '_acpmux/resolve', {'query': params['_meta']['acpmux']['name']})
+                sid = ((r or {}).get('session') or {}).get('sessionId')
+                if sid is None:
+                    raise
+                print('@@adopted ' + str(sid), flush=True)
+            print('@@session ' + str(sid), flush=True)
+            used = path
+            break
+        except Retryable as e:
+            errors.append(path + ': ' + str(e))
+            retry = True
+            cut = cut or str(e).startswith('session/new')
+        except Exception as e:
+            errors.append(path + ': ' + str(e))
+    if not errors and sid is None:
+        retry = True
+        errors.append('no acpmux socket at ' + ', '.join(paths))
+    if sid is not None or not retry or time.monotonic() >= deadline:
+        break
+    print('@@retry ' + '; '.join(errors)[:400], flush=True)
+    time.sleep(2)
+if sid is not None:
     if first is None:
         sys.exit(0)
-    # The session exists now: a failed prompt never starts a second session on another socket.
-    try:
-        pid = str(uuid.uuid4())
-        meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
-        if trace:
-            meta['traceId'] = trace
-        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
-        while True:
-            line = f.readline()
-            if not line:
-                raise RuntimeError('session/prompt: the daemon closed the connection')
-            m = json.loads(line)
-            if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
-                break
-            if m.get('id') == 3:
-                if m.get('error'):
-                    raise RuntimeError('session/prompt: ' + json.dumps(m['error'])[:400])
-                break
-        print('@@prompted', flush=True)
-        sys.exit(0)
-    except Exception as e:
-        print('@@noprompt ' + str(e))
-        sys.exit(2)
+    # The session exists now: a failed prompt never starts a second session on another socket. A prompt cut by
+    # acpmux's restart (retryable, a closed or refused connection) is sent again on the same socket with the same
+    # promptId, which acpmux runs at most once ("a send with the same --prompt-id never runs twice").
+    pid = str(uuid.uuid4())
+    meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
+    if trace:
+        meta['traceId'] = trace
+    deadline = time.monotonic() + RETRY_S
+    while True:
+        try:
+            if s is None:
+                s = socket.socket(socket.AF_UNIX)
+                s.settimeout(110)
+                try:
+                    s.connect(used)
+                except (ConnectionRefusedError, FileNotFoundError) as e:
+                    raise Retryable('connect: ' + str(e))
+                f = s.makefile('r')
+                call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
+            while True:
+                line = f.readline()
+                if not line:
+                    raise Retryable('session/prompt: the daemon closed the connection')
+                m = json.loads(line)
+                if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
+                    break
+                if m.get('id') == 3:
+                    if m.get('error'):
+                        err = m['error']
+                        text = 'session/prompt: ' + json.dumps(err)[:400]
+                        raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
+                    break
+            print('@@prompted', flush=True)
+            sys.exit(0)
+        except Retryable as e:
+            if time.monotonic() >= deadline:
+                print('@@noprompt ' + str(e))
+                sys.exit(2)
+            print('@@retry ' + str(e)[:400], flush=True)
+            try:
+                s.close()
+            except Exception:
+                pass
+            s = None
+            time.sleep(2)
+        except Exception as e:
+            print('@@noprompt ' + str(e))
+            sys.exit(2)
 print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
 sys.exit(1)
 CMUX_JOURNEY_START`;
@@ -4915,6 +5277,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
       .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
   };
+  // The cold create cell's deletes, started in its step and awaited by cleanup.
+  const coldDeletes: Promise<void>[] = [];
+  const deleteByName = async (name: string, key: string): Promise<void> => {
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    const id = rows.find((r) => r?.name === name && r.status !== "deleted")?.id;
+    if (!id) return;
+    await api.deleteMachine(id, key).then(() => undefined, (e) => console.log(`delete ${name} (${id}) failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+  };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
@@ -4948,6 +5318,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
+    // The cold create cell's machine, deleted off that step's clock (even with --keep, as the cell always did).
+    await Promise.all(coldDeletes.splice(0));
     if (keep || !api.bearer) return;
     // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
     if (journeyInstall) {
@@ -5078,7 +5450,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, expiresAt: Number(tok.body.expires_at) || Infinity, user: userId, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
     journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
@@ -5114,6 +5486,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+    installApi.expiresAt = expiresAtMs(install.expiresAt);
+    installApi.remint = async () => {
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: install.user, install: install.id }, {});
+      if (ch.status !== 200) throw new Error(`install token re-mint: challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`install token re-mint: token HTTP ${tok.status} ${short(tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      return { token: tok.body.access_token as string, expiresAt: expiresAtMs(Number(tok.body.expires_at)) };
+    };
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
@@ -5198,6 +5579,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
       }
     }
+    // Capacity preflight (cmuxterm-hq goal dead-lanes-zero): the team's room for this run's machines at once, read
+    // before any create, so a full cap fails here with its name (quota_headroom:TEAM used 5/5, need 2) instead of as
+    // 16 refused creates over 246 s (cmux-platform run 45900673648). The chat machine, plus the cold cell's.
+    if (!reuse) {
+      const need = 1 + (only.has("cold") ? 0 : 1);
+      await J.step(CAPACITY_PREFLIGHT_STEP, async () => {
+        const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
+        return { value: null, detail: r.detail };
+      });
+    }
     // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
     // copied on spare.ready. Anything short of a spare with the login installed starts the agent on its launch credential.
     let prepared: PreparedSpare | null = null;
@@ -5259,9 +5650,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
-          J.firstText.mark("create");
-          createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`, sendTrace.headers);
+          // The test team's active-machine cap is shared with every other journey (createWithRoom): a refused create made
+          // no machine and is asked again under a new key, and the first-text clock starts at the ask that got room.
+          const room = await createWithRoom((n) => {
+            if (n) J.firstText.reset();
+            J.firstText.mark("create");
+            createSentAt = Date.now();
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+          });
+          const v = room.value;
+          if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -5270,7 +5668,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const spare = spareFields(v);
           Object.assign(probeExtra, spare, { claimed_spare: null });
           if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
-          return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
+          return { value: v.machine, detail: `${machine} status ${v.machine.status}${room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : ""}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitRunning(api, created.id, 300_000);
@@ -5368,18 +5766,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
         return { value: null, detail: `${detail}${size}` };
-      });
+      }).catch(() => undefined);
+      // "listed" and DEFAULT_SIZE_STEP record what the platform says about the machine; a red one is recorded and the
+      // run goes on (RECORD_ONLY_STEPS): nothing after them needs it, and ending there left a --chaos-move run with no
+      // drill at all (run 45896711769 kill-src: staging recorded 4/8192/32768 for a default create, the move never ran).
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
+      // Judged on the size it first ran at (defaultSizeVerdict): by now AutoSize may have grown it under the agent's start.
       if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
         const m = await Promise.race([
           api.read("cloud.machine.get", { machine: created.id }),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
         ]);
-        const why = defaultSizeProblem(m?.size);
-        if (why) throw new Error(why);
-        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
-      });
+        const verdict = defaultSizeVerdict(bound?.size, m?.size);
+        if (verdict.problem) throw new Error(verdict.problem);
+        return { value: null, detail: `${created.id} ${verdict.detail}` };
+      }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
         // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).
@@ -5418,11 +5820,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (only.has("cold") || reuse) J.skip(COLD_CREATE_STEP, reuse ? "--machine" : "--skip cold");
       else {
         await J.step(COLD_CREATE_STEP, async () => {
-          const v = await api.op("cloud.machine.create", { name: `${machineName} cold`, size: COLD_CREATE_SIZE }, `${tag}-cold-create`);
+          const coldName = `${machineName} cold`;
+          // The test team's active-machine cap is shared with every other journey: wait for room (createWithRoom).
+          // Each attempt gets its own COLD_CREATE_BOUND_MS for create and boot; the room wait is outside it.
+          let deadline = Date.now() + COLD_CREATE_BOUND_MS;
+          let room: { value: any; waitedMs: number; refusals: number };
+          try {
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
+          } catch (error) {
+            // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
+            coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
+            throw error;
+          }
+          const v = room.value;
+          const roomNote = room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : "";
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitRunning(api, id, 300_000);
+            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS);
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");
@@ -5430,9 +5845,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const asked = `asked ${COLD_CREATE_SIZE.cpu}/${COLD_CREATE_SIZE.memory_mb}/${COLD_CREATE_SIZE.disk_mb}`;
             const why = sizeReadingProblem(r.stdout, COLD_CREATE_SIZE);
             if (why) throw new Error(`${id} ${asked}: ${why}${listed}`);
-            return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}` };
+            return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}${roomNote}` };
           } finally {
-            await api.deleteMachine(id, `${tag}-cold-delete`).catch((e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+            // Off the step's clock: a failed machine's delete can retry an indeterminate answer for DELETE_BUDGET_MS
+            // (180 s in run 45874526877). Cleanup awaits it.
+            coldDeletes.push(api.deleteMachine(id, `${tag}-cold-delete`).then(() => undefined, (e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`)));
           }
           // Recorded as failed, and the run fails on it, but the checks after it still run.
         }).catch(() => undefined);
@@ -5756,7 +6173,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // plain exec_command turn never spawns the host, so the journey checks the file itself.
       await J.step("Codex has its code-mode host", async () => {
         const r = await exec(
-          `p=$(bash -lc 'command -v codex' 2>/dev/null </dev/null); [ -n "$p" ] || p=/opt/cmux/current/bin/codex; ` +
+          // type -P, not command -v: a login shell where codex is a function or alias prints the bare name "codex",
+          // which readlink -f resolved against the working directory to /home/cmux/codex (a false red, 2026-11-26).
+          `p=$(bash -lc 'type -P codex' 2>/dev/null </dev/null); case "$p" in /*) ;; *) p=/opt/cmux/current/bin/codex ;; esac; ` +
             `r=$(readlink -f "$p"); h="$(dirname "$r")/codex-code-mode-host"; ` +
             `if [ -x "$h" ]; then echo "@@host $h"; else echo "@@missing $r"; fi`,
         );
@@ -5833,7 +6252,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
       const stubRequests = modelStub || gatewayStub ? await stubTurns().then((t) => t.length, () => null) : undefined;
-      throw new Error(noReplyError(chatBudget, last, lastExec, stubRequests));
+      throw new Error(noReplyError(chatBudget, last, lastExec, stubRequests, await sessionTailFacts(exec, session)));
     };
     const send = async (text: string, pre = ""): Promise<number | null> => {
       const r = await exec(guestTimed(`${pre}${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
@@ -5920,10 +6339,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       probeExtra.reserved_hit ??= false;
     };
+    // An owner machine's agents run on what their launch carries only once its kind record reads owner
+    // (OWNER_KIND_PROGRAM); both chat starts below wait for it before session_start.
+    const ownerKindStep = async () => {
+      if (!provider || team || gatewayAny) return;
+      await J.step("machine kind owner", async () => {
+        const k = await waitOwnerKind(exec);
+        return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
+      });
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
     } else if (homeChat === "reserved") {
+      // As the acp start below: until /etc/cmux/vm-kind reads owner, agent-auth.sh runs claude in team mode
+      // (shared-machine), over settings.json's stub endpoint (run 45791887919: the stub leg's turn answered
+      // "No cmux inference gateway is online"). Before session_start, so the send window does not carry it.
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let reservedChat: ChatClient | null = null;
       let started = false;
@@ -6008,13 +6440,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      // An owner machine's agents run on what their launch carries only once its kind record reads owner (OWNER_KIND_PROGRAM).
-      if (provider && !team && !gatewayAny) {
-        await J.step("machine kind owner", async () => {
-          const k = await waitOwnerKind(exec);
-          return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
-        });
-      }
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
@@ -6281,6 +6707,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
+      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+      // instead of turning the chat journey red. `--skip scroll` leaves it out.
+      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      else {
+        const t0 = Date.now();
+        try {
+          const t = await carrierScrollProbe(cmux, api, created.id);
+          probeExtra.terminal_scroll = t;
+          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+        } catch (e) {
+          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+        }
+      }
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
