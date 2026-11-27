@@ -465,7 +465,7 @@ class GeneratedFoldTest(unittest.TestCase):
             self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
                           self.step(self.daemon, name)["if"])
         key = self.step(self.fast, "Fingerprint this job's inputs")["run"]
-        self.assertIn('--extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)"', key)
+        self.assertIn('--extra "generated_base="', key)
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]
