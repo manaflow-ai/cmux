@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -13,6 +14,8 @@ use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
+#[cfg(unix)]
+mod agent_hook_links;
 #[cfg(unix)]
 mod agent_hook_status;
 mod agent_list;
@@ -146,6 +149,15 @@ impl Flags {
         self.values.remove(name).flatten()
     }
 
+    fn take_hook_emit_budget(&mut self) -> Result<Option<Duration>, UsageError> {
+        let Some(value) = self.values.remove("deadline-ms") else { return Ok(None) };
+        let millis = value
+            .as_deref()
+            .and_then(|s| s.parse::<std::num::NonZeroU64>().ok())
+            .ok_or_else(|| UsageError::new("--deadline-ms needs a positive integer"))?;
+        Ok(Some(Duration::from_millis(millis.get())))
+    }
+
     fn required(&mut self, name: &str) -> Result<String, UsageError> {
         self.take(name).ok_or_else(|| UsageError::new(format!("--{name} is required")))
     }
@@ -172,6 +184,21 @@ struct Tokens {
     words: Vec<String>,
     flags: Flags,
     argv: Option<Vec<String>>,
+}
+
+/// Inspect an emit budget before the command parser reads the native payload from stdin.
+pub(super) fn hook_emit_budget(args: &[String]) -> Result<Option<Duration>, UsageError> {
+    if args.first().is_none_or(|word| word != "agent" && !word.starts_with('-'))
+        || !args.iter().any(|word| word == "--deadline-ms" || word.starts_with("--deadline-ms="))
+    {
+        return Ok(None);
+    }
+    // The regular parser reports tokenization errors before reading the payload.
+    let Ok(mut tokens) = tokenize(args) else { return Ok(None) };
+    if tokens.words != ["agent", "hook", "emit"] || tokens.argv.is_some() {
+        return Ok(None);
+    }
+    tokens.flags.take_hook_emit_budget()
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
@@ -1161,6 +1188,7 @@ fn parse_agent(
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
             let native_event = flags.required("event")?;
+            let _ = flags.take_hook_emit_budget()?;
             let native = match flags.take("payload-json") {
                 Some(payload) => serde_json::from_str(&payload).map_err(|error| {
                     UsageError::new(format!("invalid --payload-json JSON: {error}"))
@@ -1942,7 +1970,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
     #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut result = crate::agent_hook_install::run(&plan);
+    let mut result = run_hooks_and_links(&plan);
     #[cfg(unix)]
     if plan.action == crate::agent_hook_install::Action::Status {
         result.value =
@@ -1959,6 +1987,44 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// `agent hook` over the hook providers and the `link-` rows (agent_hook_links.rs): a status
+/// with no ids lists both; an install or uninstall with no ids touches hooks only; ids that are
+/// all `link-` run no hook step.
+#[cfg(unix)]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    use crate::agent_hook_install::{Action, Plan, RunResult};
+    let (apps, hooks, mut errors) = agent_hook_links::split(&plan.providers);
+    let every = plan.providers.is_empty();
+    let hooks_run = every || !hooks.is_empty();
+    let base = if hooks_run {
+        crate::agent_hook_install::run(&Plan { action: plan.action, providers: hooks })
+    } else {
+        let action = match plan.action {
+            Action::Install => "install",
+            Action::Uninstall => "uninstall",
+            Action::Status => "status",
+        };
+        RunResult { value: json!({"action": action, "providers": [], "errors": []}), failed: false }
+    };
+    let (rows, link_errors) = if every && plan.action != Action::Status {
+        (Vec::new(), Vec::new())
+    } else {
+        agent_hook_links::run(plan.action, &apps, every)
+    };
+    errors.extend(link_errors);
+    let failed = base.failed || !errors.is_empty();
+    RunResult { value: agent_hook_links::merge(base.value, rows, errors), failed }
+}
+
+#[cfg(not(unix))]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    crate::agent_hook_install::run(plan)
 }
 
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.

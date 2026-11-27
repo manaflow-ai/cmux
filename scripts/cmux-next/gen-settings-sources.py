@@ -137,8 +137,10 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until", "migrated_by_app"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until, migrated_by_app): %r" % (RETIRED_SOURCE, entry))
+        if "migrated_by_app" in entry and not isinstance(entry["migrated_by_app"], bool):
+            raise SystemExit("%s: migrated_by_app must be a boolean for %r" % (RETIRED_SOURCE, entry["key"]))
         check_window(entry)
         key = entry["key"]
         parts = key.split(".")
@@ -206,7 +208,9 @@ def retired_swift(entries):
         rows.append("        %s: %s," % (swift_string(entry["key"]), swift_string(entry["reason"])))
     def path(key):
         return "[%s]" % ", ".join(swift_string(part) for part in key.split("."))
-    replaced = []
+    # One row may replace several old keys (updates.automatic replaced three toggles): its entries keep the
+    # file's order, the order they are read in.
+    by_row = {}
     for entry in entries:
         if "replaced_by" not in entry:
             continue
@@ -216,7 +220,8 @@ def retired_swift(entries):
             values = "[%s]" % (pairs or ":")
         else:
             values = "nil"
-        replaced.append("        %s: (old: %s, values: %s)," % (path(entry["replaced_by"]), path(entry["key"]), values))
+        by_row.setdefault(entry["replaced_by"], []).append("(old: %s, values: %s)" % (path(entry["key"]), values))
+    replaced = ["        %s: [%s]," % (path(row), ", ".join(olds)) for row, olds in by_row.items()]
     return """// {header}
 
 extension SettingsSchema {{
@@ -229,12 +234,13 @@ extension SettingsSchema {{
 {rows}
     ]
 
-    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
-    /// rename, every value reads as is). While the row is unset Settings shows the old key's
-    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
-    /// the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
+    /// Retired keys a row took the place of, by the row's path: each old key's path and what its
+    /// values read as in the row (`nil`: a plain rename, every value reads as is), in the order
+    /// they are read (the first old key whose value is listed wins; any other value reads as the
+    /// row's default). While the row is unset Settings shows that value, and every write or reset
+    /// of the row removes every old key (``RenamedSettingKeys``), as the daemon does (cmux-config
+    /// `schema::retired`).
+    static let replacedKeys: [[String]: [(old: [String], values: [JSONValue: JSONValue]?)]] = [
 {replaced}
     ]
 }}
@@ -883,7 +889,14 @@ def section_swift(section, data):
         pieces.append(("list", joined_var_swift(section, data), None, []))
     # The type of each list body: the section type while it stays under MAX_TYPE_LINES, then
     # <type>2, <type>3... (a list the section type forwards). Joins stay on the section type.
-    home, used, index = {}, 0, 0
+    # The section type's own lines count first: its parser constants (a row without a swift_owner puts them in an
+    # `extension <type>` block) and its joins, so the lists only fill what is left (agent-pane-display's 232 lines of
+    # constants took AgentPaneDisplaySettingsSchema to 1029, 2026-11-27).
+    used = sum(line_count(block) + 1 for block in constant_blocks if block[0] == "extension %s {" % section["type"])
+    used += sum(line_count(piece[1]) + 1 for piece in pieces if isinstance(piece, tuple) and piece[0] == "join")
+    used += sum(line_count(piece[1]) + 3 for piece in pieces
+                if isinstance(piece, tuple) and piece[0] == "list" and not piece[2])
+    home, index = {}, 0
     for piece in pieces:
         if isinstance(piece, tuple) and piece[0] in ("list", "part") and piece[2]:
             size = line_count(piece[1]) + 3

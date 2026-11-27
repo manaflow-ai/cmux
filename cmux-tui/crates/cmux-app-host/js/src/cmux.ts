@@ -3,7 +3,7 @@
 // Everything goes through the host's `__cmuxAppNative` ABI; the host checks
 // scopes and grants (the VM is untrusted), this layer only shapes the calls.
 
-import { batch, onCleanup, signal, type Read } from "./reactive.ts"
+import { batch, onAfterFlush, onCleanup, signal, type Read, type Write } from "./reactive.ts"
 
 export interface Native {
   call(name: string, paramsJSON: string, optionsJSON: string, cbId: number): void
@@ -24,6 +24,8 @@ export interface Native {
   watch?(name: string, paramsJSON: string, mountId: string, everySeconds: number): number
   /** Leaves a watch, or with `refresh` asks its entry for a read now. */
   unwatch?(watchId: number, refresh: boolean): void
+  /** Every `cmux.state` value as one JSON object; the host keeps the last one across a reload (ABI.md, Kept state). */
+  keepState?(valuesJSON: string): void
 }
 
 export class CmuxError extends Error {
@@ -56,7 +58,7 @@ export interface CallOptions {
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close"])
+export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close", "app.view.state"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -319,6 +321,75 @@ export interface ToastOptions {
   tone?: string
 }
 
+/** `cmux.state`: the values the last host kept (`init.state`), the signals made so far, and what goes to the host. */
+const kept = {
+  seed: {} as Record<string, unknown>,
+  values: Object.create(null) as Record<string, unknown>,
+  signals: new Map<string, { pair: [Read<unknown>, Write<unknown>]; set: Write<unknown> }>(),
+  dirty: false
+}
+
+/** `__cmuxAppInit`: the values a previous host of this app kept (a reload); every key stays kept until written.
+ * A signal the script's top level already made takes its seeded value. */
+export function seedKeptState(values: unknown) {
+  const seed = values && typeof values === "object" && !Array.isArray(values) ? (values as Record<string, unknown>) : {}
+  kept.seed = { ...seed }
+  kept.values = { ...kept.values, ...seed }
+  let restored = false
+  for (const [name, entry] of kept.signals) {
+    if (Object.prototype.hasOwnProperty.call(seed, name)) {
+      entry.set(seed[name])
+      restored = true
+    }
+  }
+  // A top-level signal can be created before init. Its restored value must be
+  // mirrored back after seeding, even when no later write occurs.
+  if (restored) kept.dirty = true
+}
+
+// One message per flush, after every effect settled: the host keeps the last object it got.
+onAfterFlush(() => {
+  if (!kept.dirty) return
+  kept.dirty = false
+  const keep = state.native?.keepState
+  if (!keep) return
+  let json: string
+  try {
+    json = JSON.stringify(kept.values)
+  } catch (e) {
+    log("warn", `cmux.state: the values are not JSON (${e instanceof Error ? e.message : String(e)}); not kept`)
+    return
+  }
+  keep.call(state.native, json)
+})
+
+/**
+ * `cmux.state(key, initial)`: a signal the host keeps across a reload of the app (`cmux ext dev`, a
+ * save in a local app's folder). It starts at the value the last host kept under `key`, else at
+ * `initial`. Values must be JSON; all keys together at most 64 KiB and 256 keys. In memory only:
+ * a crash, an uninstall or a daemon restart starts over (use `cmux.storage` for what must persist).
+ * The same key gives the same signal.
+ */
+export function keptState<T>(key: string, initial: T): [Read<T>, Write<T>] {
+  const name = String(key)
+  const have = kept.signals.get(name)
+  if (have) return have.pair as unknown as [Read<T>, Write<T>]
+  const start = Object.prototype.hasOwnProperty.call(kept.seed, name) ? (kept.seed[name] as T) : initial
+  const [read, write] = signal<T>(start)
+  const keep: Write<T> = (next) => {
+    write(next)
+    const value = read.peek()
+    if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value)) return
+    Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true })
+    kept.dirty = true
+    // A write with no reader schedules no flush; the host still hears of it on the next one.
+    batch(() => {})
+  }
+  const pair: [Read<T>, Write<T>] = [read, keep]
+  kept.signals.set(name, { pair: pair as unknown as [Read<unknown>, Write<unknown>], set: write as Write<unknown> })
+  return pair
+}
+
 /** Members other modules add to every `cmux` object (`palette`, `act`); set once by index.ts. */
 export const sharedMembers: Record<string, unknown> = {}
 
@@ -381,6 +452,7 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
     }),
     timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
     time: { zone: timeZone },
+    state: keptState,
     app: {
       get id() {
         return state.app.id

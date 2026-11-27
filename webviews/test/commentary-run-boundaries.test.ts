@@ -54,7 +54,10 @@ function expectSeparate(rows: AcpmuxRow[], text: string) {
 for (const family of ["codex", "claude", "gemini", "muse", undefined])
   for (const phase of ["commentary", undefined] as const)
     test(`${family ?? "default"}: ${phase ?? "unphased"} prose keeps consecutive tool groups separate while live and in an opened turn`, () => {
-      for (const text of ["I'll check the other caller.", "This longer commentary remains its own paragraph. ".repeat(5)]) {
+      for (const text of [
+        "I'll check the other caller.",
+        "This longer commentary remains its own paragraph. ".repeat(5),
+      ]) {
         const commentary = row("commentary", "assistant", { text, assistantPhase: phase });
         const source = [prompt, first, commentary, second];
         const options = { working: true, agentFamily: family };

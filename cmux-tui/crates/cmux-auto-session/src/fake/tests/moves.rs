@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::consts::{LEASE_MS, MOVE_MS};
+use crate::holder::Answer;
 use crate::wire::{
     CreateRequest, FirstMessage, MoveRefusal, MoveRequest, MoveTo, MoveWish, Repo, Role, State,
 };
@@ -126,6 +127,46 @@ fn a_laptop_that_stopped_standing_by_is_not_given_the_chat() {
     owner.advance(LEASE_MS);
     assert_eq!(refusal(give(&machine, &vm(), 2)), MoveRefusal::NoLaptop);
     assert_eq!(chat(&owner).holder, vm());
+}
+
+#[test]
+fn the_holders_lease_answer_says_when_the_person_asked_and_asking_again_says_a_new_time() {
+    let (owner, machine) = taken_over();
+    // With no wish the answer names no time.
+    let quiet = renew(&machine, &vm(), 2, true);
+    assert_eq!((quiet.move_to, quiet.move_at), (None, None));
+    stand_by(&owner, &mac(), 1);
+    let first = move_to(&owner, &MoveRequest::local()).moving.expect("the wish").at;
+    assert_eq!(first, owner.now());
+    let told = renew(&machine, &vm(), 2, true);
+    assert_eq!((told.move_to, told.move_at), (Some(MoveTo::Local), Some(first)));
+    // Only the holder is told: a standby's answer names neither the wish nor its time.
+    let waits = stand_by(&owner, &mac(), 1);
+    assert_eq!((waits.role, waits.move_to, waits.move_at), (Role::Standby, None, None));
+
+    // The laptop stops standing by, so the give is refused. The wish still waits, with the
+    // time it was asked.
+    assert_eq!(append_as(&machine, &vm(), 2, 1..=1), Ok(1));
+    assert_eq!(snapshot_as(&machine, &vm(), 2, b"the folder", 1), Ok(1));
+    owner.advance(LEASE_MS);
+    assert_eq!(refusal(give(&machine, &vm(), 2)), MoveRefusal::NoLaptop);
+    assert_eq!(renew(&machine, &vm(), 2, true).move_at, Some(first));
+
+    // The laptop is open again and the person asks again: the same wish, with a new time.
+    stand_by(&owner, &mac(), 1);
+    let second = move_to(&owner, &MoveRequest::local()).moving.expect("the wish").at;
+    assert_eq!(second, first + LEASE_MS);
+    let told = renew(&machine, &vm(), 2, true);
+    assert_eq!((told.move_to, told.move_at), (Some(MoveTo::Local), Some(second)));
+    // The holder reads the wish with its time, and nothing from an answer that is not its own.
+    let heard = Answer::from_lease(&told);
+    assert_eq!((heard.wish, heard.wish_at), (Some(MoveTo::Local), Some(second)));
+    let heard = Answer::from_lease(&waits);
+    assert_eq!((heard.wish, heard.wish_at), (None, None));
+    assert_eq!(give(&machine, &vm(), 2).expect("given").holder, mac());
+    // The chat is another holder's: no answer names a wish.
+    let lost = renew(&machine, &vm(), 2, true);
+    assert_eq!((lost.role, lost.move_to, lost.move_at), (Role::Lost, None, None));
 }
 
 #[test]

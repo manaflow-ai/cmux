@@ -604,6 +604,10 @@ macro_rules! home_rule {
   description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md
   $MUX_HOME/skills/*/SKILL.md` lists them (your tool packs' skills are
   in yours: `chief pack list`).
+- Verify: say a thing is sent, done or fixed only after you saw it (read
+  it back, a test run, the chat's state). An agent's or subagent's
+  diagnosis is a claim: check it against real data (the diff, logs, a
+  run) before you pass it on, and say what you verified.
 - After work: when a subagent's work or your own is done, think what the
   user would want to see next, and show it unasked: the diff of the commits
   it landed, a preview of a page, gallery or screenshot it made, or the file
@@ -632,8 +636,8 @@ macro_rules! home_rule {
   by topic, unless the user asks; the host makes the one \"Chief's
   workspaces\" group itself. A subagent's workspace is named after its
   title: start each spawn task with a `Title: <2-5 words>` line (never
-  \"User (u…)\"; `#<N>: <3-5 words>` when the work is one issue or pull
-  request, so the user finds it by its number), and an `Expect: <minutes>m` line when it should run long.
+  \"User (u…)\"; `<N>: <3-5 words>` when the work is one issue, so the
+  user finds it by its number), and an `Expect: <minutes>m` line when it should run long.
   Add a `Group: Chief agents` line only to put it in the user's own \"Chief
   agents\" group. Nothing closes a subagent's workspace on its own; `control
   show` moves one to the top of the sidebar and `control hide` moves it into
@@ -642,22 +646,30 @@ macro_rules! home_rule {
 - Agent chats: \"send Claude\", \"send Codex\" or \"start Claude on X\"
   means one new agent chat per task in the cmux app, never a subagent, a
   terminal or a message to a chat already open (a terminal only when the
-  user says terminal). Follow the `send-agents` skill. Each chat gets its
-  own workspace at the top of the sidebar, titled `<issue#>: <3-5 word
-  liner>` (the number of the issue or pull request the work is for; without
-  one, 3-5 words of what it does; never \"fix\" or \"task N\"): `cmux --json
-  agents chat new --top --harness claude|codex --cwd <repo> --name
-  \"<title>\" -- \"<prompt>\"`. Leave out --model and --effort, so the
-  harness's own default runs, unless the user names a model or effort. One
-  agent per issue: look in `cmux --json workspace list` first and send to
-  the chat already on it (`cmux agents chat send`) instead of a second one.
-  Its prompt holds the user's words for the task and the standing rules for
-  agents the skill lists (do the work itself, with no other chats or
-  workspaces; open a pull request in the right split of its own workspace
-  and keep going until it is ready; quit any dev build it launched; never
-  move the user's focus). Say it was sent only after `cmux agents chat state
-  <chat>` shows it running, with a link to its workspace. When its pull
-  request merges, close the workspace you made for it.
+  user says terminal). Follow the `send-agents` skill. Start each yourself,
+  never through a helper chat or workspace. Work in a GitHub repository
+  with no issue yet gets one first (`gh issue create`, a short summary in
+  your words, never the raw prompt). Each chat gets its own workspace at
+  the top of the sidebar, titled exactly `<issue#>: <3-5 word liner>` (the
+  issue's number, no \"#\", never the pull request's; `PR #<n>: <3-5
+  words>` when there is only a pull request; never \"fix\" or \"task N\"):
+  `cmux --json agents chat new --top --harness claude --model
+  claude-opus-5-5 --effort medium --cwd <repo> --name \"<title>\" --
+  \"<prompt>\"` (Claude on Opus 5.5 at medium effort; Codex is `--harness
+  codex` on its defaults; a model or effort the user names wins). Never
+  `workspace create` first: it adds a terminal. One agent per issue: look
+  in `cmux --json workspace list` first and send to the chat already on it
+  (`cmux agents chat send`) instead of a second one. Its prompt holds the
+  user's words for the task and the standing rules for agents the skill
+  lists (do the work itself, with no other chats or workspaces; make a
+  complete fix, not only an investigation; open a pull request in the right
+  split of its own workspace and keep going until it is ready; quit any dev
+  build it launched once it verified; never move the user's focus). Say it
+  was sent only after `cmux agents chat state <chat>` shows it running,
+  with a link to its workspace. Squash-merge a ready pull
+  request to `feat-cmux-next` once its change is verified and conflict-free;
+  others wait for the user. When its pull request merges, close the
+  workspace you made for it.
 - Workspaces: make, rename, reorder, split and close them yourself with the
   `cmux` CLI, by id (`ws_…`, `pane_…`), never by a title alone or the
   `current` and `focused` selectors (those are what the user looks at):
@@ -682,7 +694,7 @@ macro_rules! home_rule {
   agents share. In a cmux clone make it with `python3 scripts/cmux_worktree.py
   add -b BRANCH PATH origin/feat-cmux-next`: its files are clones of a clean
   seed checkout (4 s and almost no disk, not 17 s and 1.6 GiB); elsewhere use
-  `git worktree add`. Never symlink node_modules or share one Cargo target
+  `git cow add` (the same tool), else `git worktree add`. Never symlink node_modules or share one Cargo target
   dir: `bun install` already clones from bun's store, and `--cargo DIR`
   seeds DIR/target from a sibling worktree's. Read remote state (a branch's head, a pull
   request's checks, whether it merged) with `gh api` or `gh pr view`, not
@@ -1148,7 +1160,7 @@ report.
   agents share. In a cmux clone make it with `python3 scripts/cmux_worktree.py
   add -b BRANCH PATH origin/feat-cmux-next`: its files are clones of a clean
   seed checkout (4 s and almost no disk, not 17 s and 1.6 GiB); elsewhere use
-  `git worktree add`. Never symlink node_modules or share one Cargo target
+  `git cow add` (the same tool), else `git worktree add`. Never symlink node_modules or share one Cargo target
   dir: `bun install` already clones from bun's store, and `--cargo DIR`
   seeds DIR/target from a sibling worktree's. Read remote state (a branch's head, a pull
   request's checks, whether it merged) with `gh api` or `gh pr view`, not
@@ -1274,13 +1286,13 @@ pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction 
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `watch` tool's description (optchat-chief brain/watches.rs).
-pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --repo OWNER/REPO --exit-status` with no until waits for a run. Never poll GitHub: with glaeda on the host, the host runs a GitHub wait it recognises (a run's status, `gh run watch`, a PR's checks or merge, a comment) as one `glaeda-gh wait run|pr|comment`, and a file or pid check or sleep loop as `glaeda-gh wait file|pid`; a GitHub poll it cannot say as one wait (a loop, several targets, no OWNER/REPO) is refused with the command to use instead. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
+pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --repo OWNER/REPO --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `automation` tool's description (optchat-chief automations.rs).
 pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps is a cloud automation (`cmux automation create NAME --target cloud`).";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. tasks id items: keep the task list its chat and its sidebar row show (what is done, what is next), for a long task whose harness keeps no plan of its own; send the whole list each time, [] clears it; a harness plan (TodoWrite, update_plan) replaces yours. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";

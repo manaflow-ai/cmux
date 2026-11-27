@@ -130,6 +130,45 @@ pub fn resolve(git_dir: &Path, rev: &str) -> anyhow::Result<(String, i64)> {
     Ok((id.to_owned(), time.parse()?))
 }
 
+/// The id of `commit`'s tree: what a kept listing is keyed by, so a commit that changed no file
+/// (a merge, a message edit) remounts from the listing of the commit before it.
+pub fn tree_of(git_dir: &Path, commit: &str) -> anyhow::Result<String> {
+    let mut command = git(git_dir);
+    command.args(["rev-parse"]).arg(format!("{commit}^{{tree}}"));
+    Ok(String::from_utf8(output(command)?)?.trim().to_owned())
+}
+
+/// The ids in `oids` the object store does not have. Never fetches (`GIT_NO_LAZY_FETCH`), so a
+/// partial clone's promisor is not asked one blob at a time.
+pub fn absent(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<Vec<String>> {
+    if oids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let path =
+        std::env::temp_dir().join(format!("cmux-projection-oids-{}-{nanos}", std::process::id()));
+    std::fs::write(&path, input)?;
+    let file = std::fs::File::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let mut command = git(git_dir);
+    command
+        .args(["cat-file", "--batch-check"])
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .stdin(Stdio::from(file?))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let out = command.output()?;
+    anyhow::ensure!(out.status.success(), "cat-file --batch-check failed");
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.strip_suffix(" missing"))
+        .map(str::to_owned)
+        .collect())
+}
+
 /// The blobs `commit` names that the object store does not have (a partial clone's mirror).
 pub fn missing(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<String>> {
     let mut command = git(git_dir);
@@ -174,17 +213,23 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
 /// git only for the blobs that one lacks: `ls-tree` without sizes reads only trees (1.2 s cold
 /// for cmux, against 11.9 s with them).
 pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Result<Vec<TreeItem>> {
+    ls_tree_cached_with(git_dir, commit, cache, &|_| Ok(()))
+}
+
+/// [`ls_tree_cached`] for a store that may lack blobs: a blob's size is the one thing a mount
+/// needs of it, so only blobs with no size in a kept listing and none in the store are handed to
+/// `fill` (before the mount, in one call); every other missing blob waits for its first read.
+pub fn ls_tree_cached_with(
+    git_dir: &Path,
+    commit: &str,
+    cache: &Path,
+    fill: &dyn Fn(&[String]) -> anyhow::Result<()>,
+) -> anyhow::Result<Vec<TreeItem>> {
     if let Some(items) = std::fs::read(cache).ok().and_then(|bytes| parse_ls_tree(&bytes).ok()) {
         return Ok(items);
     }
-    let bytes = match sizes_kept_beside(cache) {
-        Some(sizes) => listing_with_sizes(git_dir, commit, &sizes)?,
-        None => {
-            let mut command = git(git_dir);
-            command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
-            output(command)?
-        }
-    };
+    let sizes = sizes_kept_beside(cache).unwrap_or_default();
+    let bytes = listing_with_sizes(git_dir, commit, &sizes, fill)?;
     let items = parse_ls_tree(&bytes)?;
     if let Some(parent) = cache.parent() {
         std::fs::create_dir_all(parent)?;
@@ -214,6 +259,7 @@ fn listing_with_sizes(
     git_dir: &Path,
     commit: &str,
     sizes: &HashMap<String, u64>,
+    fill: &dyn Fn(&[String]) -> anyhow::Result<()>,
 ) -> anyhow::Result<Vec<u8>> {
     let mut command = git(git_dir);
     command.args(["ls-tree", "-r", "-z", "--full-tree", commit]);
@@ -234,6 +280,10 @@ fn listing_with_sizes(
             unknown.insert(oid);
         }
         rows.push((mode, kind, oid, path));
+    }
+    let gone = absent(git_dir, &unknown)?;
+    if !gone.is_empty() {
+        fill(&gone)?;
     }
     let found = object_sizes(git_dir, &unknown)?;
     let mut listing = Vec::with_capacity(bytes.len() + rows.len() * 8);
@@ -651,20 +701,44 @@ pub struct Worktree {
 }
 
 impl Worktree {
-    /// Validates a name and refuses to take over an ordinary or differently mounted worktree.
+    /// Checks that an existing admin directory belongs to this projection, without writing it.
     pub fn validate(git_dir: &Path, name: &str, at: &Path) -> anyhow::Result<Self> {
-        let path = Path::new(name);
+        let name_path = Path::new(name);
         anyhow::ensure!(
-            path.components().count() == 1
-                && matches!(path.components().next(), Some(std::path::Component::Normal(_))),
+            name_path.components().count() == 1
+                && matches!(name_path.components().next(), Some(std::path::Component::Normal(_))),
             "invalid worktree name {name:?}"
         );
-        let admin = git_dir.join("worktrees").join(path);
-        if admin.exists() {
-            let expected = format!("{}\n", at.join(".git").display());
-            let held = std::fs::read_to_string(admin.join("gitdir"))
-                .map_err(|error| anyhow::anyhow!("cannot inspect worktree {name:?}: {error}"))?;
-            anyhow::ensure!(held == expected, "worktree {name:?} is not owned by this projection");
+        let admin = git_dir.join("worktrees").join(name_path);
+        match std::fs::symlink_metadata(&admin) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.file_type().is_dir(),
+                    "worktree admin {} is not a directory",
+                    admin.display()
+                );
+                let expected_gitdir = format!("{}\n", at.join(".git").display());
+                let checks = [
+                    ("commondir", b"../..\n".as_slice()),
+                    ("gitdir", expected_gitdir.as_bytes()),
+                    ("locked", b"a cmux-projection mount\n".as_slice()),
+                ];
+                for (file, expected) in checks {
+                    let held = std::fs::read(admin.join(file)).map_err(|error| {
+                        anyhow::anyhow!(
+                            "worktree admin {} is not owned by this projection: cannot read {file}: {error}",
+                            admin.display()
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        held == expected,
+                        "worktree admin {} is not owned by this projection",
+                        admin.display()
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
         Ok(Self { admin })
     }
@@ -682,8 +756,52 @@ impl Worktree {
         excludes: &[String],
     ) -> anyhow::Result<Self> {
         let worktree = Self::validate(git_dir, name, at)?;
-        let admin = worktree.admin.clone();
-        std::fs::create_dir_all(&admin)?;
+        let admin = &worktree.admin;
+
+        let mut bare = git(git_dir);
+        bare.args(["config", "--bool", "core.bare"]);
+        let bare = output(bare).is_ok_and(|out| config_is_true(&out));
+        let mut shared_bare = Command::new("git");
+        shared_bare
+            .arg("config")
+            .arg("--file")
+            .arg(git_dir.join("config"))
+            .args(["--bool", "core.bare"]);
+        let shared_bare = output(shared_bare).is_ok_and(|out| config_is_true(&out));
+        let mut extension = git(git_dir);
+        extension.args(["config", "--bool", "extensions.worktreeConfig"]);
+        let extension_enabled = output(extension).is_ok_and(|out| config_is_true(&out));
+        if shared_bare {
+            // A bare mirror's `core.bare=true` used to live in the shared config.  Once
+            // worktreeConfig is enabled that value is inherited by every ordinary worktree,
+            // making `git status` there fail with "must be run in a work tree".  Move the
+            // setting to the mirror's own worktree config before enabling the extension, then
+            // remove it from the shared config so ordinary worktrees stay non-bare.
+            let main_config = git_dir.join("config.worktree");
+            let mut command = Command::new("git");
+            command.arg("config").arg("--file").arg(&main_config);
+            command.args(["core.bare", "true"]);
+            output(command)?;
+            if !extension_enabled {
+                let mut command = git(git_dir);
+                command.args(["config", "extensions.worktreeConfig", "true"]);
+                output(command)?;
+            }
+            let mut command = git(git_dir);
+            command.args(["config", "--unset", "core.bare"]);
+            output(command)?;
+        }
+
+        std::fs::create_dir_all(git_dir.join("worktrees"))?;
+        match std::fs::create_dir(admin) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A concurrent claimant may have created this directory after the first
+                // validation. Re-read all ownership markers before touching any file.
+                Self::validate(git_dir, name, at)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         // Each file is written only when its bytes change: build scripts watch `HEAD` (cmux's
         // build identity does), and a rewrite with the same commit would rerun them.
         write_if_changed(&admin.join("commondir"), b"../..\n")?;
@@ -698,11 +816,9 @@ impl Worktree {
         }
         write_if_changed(&exclude, text.as_bytes())?;
         write_if_changed(&admin.join("index"), index)?;
-        // git reads a worktree's own config only with extensions.worktreeConfig (the lane mirrors
-        // have it); without it the build output links show as untracked, and nothing else differs.
-        let mut command = git(git_dir);
-        command.args(["config", "--bool", "extensions.worktreeConfig"]);
-        if output(command).is_ok_and(|out| out.starts_with(b"true")) {
+        // Git reads a worktree's own config only with extensions.worktreeConfig. Enable it for
+        // bare mirrors too; without it the build output links show as untracked.
+        if bare || extension_enabled {
             let config = admin.join("config.worktree");
             let mut read = Command::new("git");
             read.arg("config").arg("--file").arg(&config).args(["--get", "core.excludesFile"]);
@@ -711,6 +827,12 @@ impl Worktree {
                 let mut command = Command::new("git");
                 command.arg("config").arg("--file").arg(&config);
                 command.arg("core.excludesFile").arg(&exclude);
+                output(command)?;
+            }
+            if bare {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config);
+                command.args(["core.bare", "false"]);
                 output(command)?;
             }
         }
@@ -777,6 +899,23 @@ impl Worktree {
     }
 }
 
+/// Whether remounting may replace the worktree's HEAD and index.  A symbolic HEAD means that
+/// somebody used ordinary Git in the mounted checkout (for example `git switch -c topic`), so a
+/// non-fresh remount must refuse instead of silently discarding that branch and its staged state.
+pub fn remount_needs_reset(admin: &Path, commit: &str, fresh: bool) -> anyhow::Result<bool> {
+    let head = std::fs::read_to_string(admin.join("HEAD")).ok();
+    if !fresh && head.as_deref().is_some_and(|head| head.trim_start().starts_with("ref:")) {
+        anyhow::bail!(
+            "existing projection worktree has a symbolic HEAD; refusing remount without --fresh"
+        );
+    }
+    Ok(fresh || head.is_none_or(|head| head.trim() != commit) || !admin.join("index").exists())
+}
+
+fn config_is_true(value: &[u8]) -> bool {
+    value.strip_suffix(b"\n").unwrap_or(value) == b"true"
+}
+
 /// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
 /// moves only when its content does.
 fn write_if_changed(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {
@@ -817,7 +956,22 @@ struct CatFile {
     _child: Child,
 }
 
+impl Drop for CatFile {
+    /// Ends and reaps the process, so a retired one keeps no pack open and leaves no zombie. Only
+    /// a process no read is using is dropped: the pool hands each to one read at a time.
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+        let _ = self._child.wait();
+    }
+}
+
 impl CatFile {
+    /// The process id (tests: which packs it maps).
+    #[cfg(test)]
+    fn pid(&self) -> u32 {
+        self._child.id()
+    }
+
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
         Self::spawn_from(git(git_dir))
     }
@@ -831,6 +985,12 @@ impl CatFile {
         let mut command = git(git_dir);
         command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "none");
         Self::spawn_from(command)
+    }
+
+    /// `lazy_fetch` false: a blob the store lacks is answered from nothing, not fetched from the
+    /// promisor remote (the caller asks its own sources first; see [`CatFile::spawn_local`]).
+    fn spawn_with(git_dir: &Path, lazy_fetch: bool) -> anyhow::Result<Self> {
+        if lazy_fetch { Self::spawn(git_dir) } else { Self::spawn_local(git_dir) }
     }
 
     fn spawn_from(mut command: Command) -> anyhow::Result<Self> {
@@ -891,6 +1051,36 @@ impl CatFile {
             return Err(FetchError::Failed);
         }
         Ok(bytes)
+    }
+
+    /// The next `len` bytes of the payload [`CatFile::record`] announced.
+    fn take(&mut self, len: u64) -> Result<Vec<u8>, FetchError> {
+        let mut bytes = Vec::with_capacity(usize::try_from(len).map_err(|_| FetchError::Failed)?);
+        self.stdout.by_ref().take(len).read_to_end(&mut bytes).map_err(|_| FetchError::Failed)?;
+        if bytes.len() as u64 != len {
+            return Err(FetchError::Failed);
+        }
+        Ok(bytes)
+    }
+
+    /// Skips the next `len` bytes of the payload, holding none of them.
+    fn skip(&mut self, len: u64) -> Result<(), FetchError> {
+        let mut limited = self.stdout.by_ref().take(len);
+        std::io::copy(&mut limited, &mut std::io::sink()).map_err(|_| FetchError::Failed)?;
+        if limited.limit() != 0 {
+            return Err(FetchError::Failed);
+        }
+        Ok(())
+    }
+
+    /// Reads the newline after a payload read to its end: the stream is at the next header.
+    fn newline(&mut self) -> Result<(), FetchError> {
+        let mut newline = [0_u8; 1];
+        self.stdout.read_exact(&mut newline).map_err(|_| FetchError::Failed)?;
+        if newline != *b"\n" {
+            return Err(FetchError::Failed);
+        }
+        Ok(())
     }
 
     fn blob_limited(&mut self, oid: &str, max: u64) -> Result<Vec<u8>, FetchError> {
@@ -954,6 +1144,62 @@ impl ObjectReader {
 /// object read.
 const RECENT_FILES: usize = 64;
 const RECENT_BYTES: usize = 64 * 1024 * 1024;
+/// Blobs up to this size are read whole and kept. A bigger one is read a range at a time, and only
+/// the ranges asked for are held: reading any part of a 5 GiB blob used to hold all 5 GiB.
+const WHOLE_BYTES: u64 = 8 * 1024 * 1024;
+/// The most `git cat-file` processes held part way through a big blob, ready to go on from where
+/// they stopped. Fewer than [`MAX_CATS`], so a small file's read always finds a process; a read at
+/// the cap ends the oldest stream first.
+const STREAMS: usize = 2;
+/// A stream ended with at most this much of its blob left is read to the end, so its process
+/// serves again; with more left the process ends.
+const DRAIN_BYTES: u64 = 1024 * 1024;
+
+/// Bytes held from a blob: the whole of it (`start` 0, `bytes` of length `size`) or one range.
+struct Piece {
+    entry: u32,
+    start: u64,
+    /// The blob's size.
+    size: u64,
+    bytes: Arc<Vec<u8>>,
+}
+
+impl Piece {
+    /// `len` bytes at `offset` (fewer at the blob's end), when this holds all of them.
+    fn get(&self, entry: u32, offset: u64, len: u64) -> Option<Vec<u8>> {
+        if entry != self.entry || offset < self.start {
+            return None;
+        }
+        let end = self.start.saturating_add(self.bytes.len() as u64);
+        if offset.saturating_add(len).min(self.size) > end {
+            return None;
+        }
+        Some(range(&self.bytes, self.start, offset, len))
+    }
+}
+
+/// A `git cat-file --batch` part way through blob `entry`'s payload, at byte `at` of its `size`.
+struct Stream {
+    entry: u32,
+    at: u64,
+    size: u64,
+    cat: CatFile,
+    generation: u64,
+    used: Instant,
+}
+
+/// `len` bytes at `offset` of a blob whose bytes from `start` on are `bytes` (fewer at its end).
+fn range(bytes: &[u8], start: u64, offset: u64, len: u64) -> Vec<u8> {
+    let from = usize::try_from(offset.saturating_sub(start)).unwrap_or(usize::MAX).min(bytes.len());
+    let to = from.saturating_add(usize::try_from(len).unwrap_or(usize::MAX)).min(bytes.len());
+    bytes.get(from..to).unwrap_or_default().to_vec()
+}
+
+/// What [`GitBlobs::open`] found: a small blob's bytes, or a stream at the start of a big one.
+enum Opened {
+    Whole(Arc<Vec<u8>>),
+    Stream(Stream),
+}
 
 /// How long a pooled `git cat-file --batch` may sit unused, and the recent blobs stay held, before
 /// the mount gives that memory back. Each process keeps its own delta-base cache and heap (tens of
@@ -962,6 +1208,11 @@ const RECENT_BYTES: usize = 64 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(30);
 /// How often the reaper looks.
 const SWEEP: Duration = Duration::from_secs(10);
+/// How often the reaper checks the store's packs. A `git cat-file --batch` opens the packs it
+/// finds and keeps them open for its life: after a `git repack -ad` (gc, or the mirror's own
+/// maintenance) deletes them, a pooled process that is never idle for [`IDLE`] keeps their bytes
+/// on the disk, out of sight of `du` (a lane VM had 62 GB held so, by processes days old).
+const PACK_CHECK: Duration = Duration::from_secs(60);
 /// The most `git cat-file --batch` processes one mount runs at once. The pool starts empty, the
 /// first read starts one, and a second (up to this cap) starts only while every live one is busy;
 /// past the cap a read waits for the next free one (a blob read takes about a millisecond). The
@@ -974,6 +1225,47 @@ const MAX_CATS: usize = 4;
 struct Pooled {
     cat: CatFile,
     used: Instant,
+    /// The store's [`Packs::generation`] when the process started.
+    generation: u64,
+}
+
+/// The store's `objects/pack` folder, as last seen: its mtime moves whenever a pack is added or
+/// deleted, and each move is a new generation. A process from an older generation is retired.
+struct Packs {
+    dir: PathBuf,
+    mtime: Option<std::time::SystemTime>,
+    checked: Instant,
+    generation: u64,
+}
+
+impl Packs {
+    fn new(git_dir: &Path) -> Self {
+        let dir = objects_dir(git_dir).join("pack");
+        let mtime = std::fs::metadata(&dir).and_then(|meta| meta.modified()).ok();
+        Self { dir, mtime, checked: Instant::now(), generation: 0 }
+    }
+
+    /// Reads the folder's mtime when [`PACK_CHECK`] (`every`) has passed, and starts a new
+    /// generation when it moved.
+    fn check(&mut self, now: Instant, every: Duration) {
+        if now.saturating_duration_since(self.checked) < every {
+            return;
+        }
+        self.checked = now;
+        let mtime = std::fs::metadata(&self.dir).and_then(|meta| meta.modified()).ok();
+        if mtime != self.mtime {
+            self.mtime = mtime;
+            self.generation += 1;
+        }
+    }
+}
+
+/// The object folder of `git_dir`, or of the repository it shares one with (`commondir`).
+fn objects_dir(git_dir: &Path) -> PathBuf {
+    let common = std::fs::read_to_string(git_dir.join("commondir"))
+        .map(|text| git_dir.join(text.trim()))
+        .unwrap_or_else(|_| git_dir.to_owned());
+    common.join("objects")
 }
 
 /// The pool's processes: the free ones, and how many are alive (free and in use).
@@ -991,38 +1283,140 @@ struct Held {
     freed: Condvar,
     /// The most processes alive at once (tests and the bench).
     peak: AtomicUsize,
-    recent: Mutex<VecDeque<(u32, Arc<Vec<u8>>)>>,
+    recent: Mutex<VecDeque<Piece>>,
+    /// Processes part way through a big blob, most recently used first (at most [`STREAMS`]).
+    streams: Mutex<VecDeque<Stream>>,
     last_read: Mutex<Instant>,
+    packs: Mutex<Packs>,
 }
 
 impl Held {
-    /// A free process, a new one while fewer than [`MAX_CATS`] live, or the next one freed.
-    fn take(&self, git_dir: &Path) -> Result<CatFile, FetchError> {
+    /// The store's pack generation now.
+    fn generation(&self) -> u64 {
+        self.packs.lock().unwrap_or_else(PoisonError::into_inner).generation
+    }
+
+    /// A free process, a new one while fewer than [`MAX_CATS`] live, or the next one freed;
+    /// with the pack generation it started in.
+    /// `lazy_fetch` false: the new process never fetches a blob the store lacks
+    /// ([`CatFile::spawn_with`]); every process of one mount is spawned the same way.
+    fn take(&self, git_dir: &Path, lazy_fetch: bool) -> Result<(CatFile, u64), FetchError> {
         let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(pooled) = pool.free.pop() {
-                return Ok(pooled.cat);
+                return Ok((pooled.cat, pooled.generation));
             }
             if pool.live < MAX_CATS {
                 pool.live += 1;
                 self.peak.fetch_max(pool.live, Ordering::Relaxed);
                 drop(pool);
-                return CatFile::spawn(git_dir).map_err(|_| {
-                    self.ended(1);
-                    FetchError::Failed
-                });
+                let generation = self.generation();
+                return match CatFile::spawn_with(git_dir, lazy_fetch) {
+                    Ok(cat) => Ok((cat, generation)),
+                    Err(_) => {
+                        self.ended(1);
+                        Err(FetchError::Failed)
+                    }
+                };
             }
-            pool = self.freed.wait(pool).unwrap_or_else(PoisonError::into_inner);
+            // At the cap: a process held part way through a big blob makes way first.
+            drop(pool);
+            let retired = self.retire_stream();
+            pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
+            if !retired && pool.free.is_empty() && pool.live >= MAX_CATS {
+                pool = self.freed.wait(pool).unwrap_or_else(PoisonError::into_inner);
+            }
         }
     }
 
-    /// Puts a process that answered back in the pool.
-    fn give(&self, cat: CatFile) {
-        self.pool
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .free
-            .push(Pooled { cat, used: Instant::now() });
+    /// Ends the least recently used stream; false when none is held.
+    fn retire_stream(&self) -> bool {
+        let oldest = self.streams.lock().unwrap_or_else(PoisonError::into_inner).pop_back();
+        match oldest {
+            Some(stream) => {
+                self.finish(stream);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Ends `stream`: a short rest is read so the process goes back to the pool; else it ends.
+    fn finish(&self, mut stream: Stream) {
+        let rest = stream.size.saturating_sub(stream.at);
+        if rest <= DRAIN_BYTES && stream.cat.skip(rest).and_then(|()| stream.cat.newline()).is_ok()
+        {
+            self.give(stream.cat, stream.generation);
+        } else {
+            drop(stream);
+            self.ended(1);
+        }
+    }
+
+    /// Holds `stream` for the next range, ending the least recently used past [`STREAMS`].
+    fn keep_stream(&self, mut stream: Stream) {
+        stream.used = Instant::now();
+        let retired = {
+            let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+            streams.push_front(stream);
+            if streams.len() > STREAMS { streams.pop_back() } else { None }
+        };
+        if let Some(retired) = retired {
+            self.finish(retired);
+        }
+    }
+
+    /// The stream of `entry` furthest along that has not passed `offset`.
+    fn take_stream(&self, entry: u32, offset: u64) -> Option<Stream> {
+        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+        let at = streams
+            .iter()
+            .enumerate()
+            .filter(|(_, stream)| stream.entry == entry && stream.at <= offset)
+            .max_by_key(|(_, stream)| stream.at)
+            .map(|(at, _)| at)?;
+        streams.remove(at)
+    }
+
+    /// `len` bytes at `offset` of `entry` when a held piece has all of them.
+    fn piece(&self, entry: u32, offset: u64, len: u64) -> Option<Vec<u8>> {
+        let recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        recent.iter().find_map(|piece| piece.get(entry, offset, len))
+    }
+
+    /// Holds `piece`, forgetting the oldest until at most [`RECENT_FILES`] pieces and
+    /// [`RECENT_BYTES`] bytes are held. A piece over [`WHOLE_BYTES`] is not held.
+    fn hold(&self, piece: Piece) {
+        if piece.bytes.len() as u64 > WHOLE_BYTES || piece.bytes.is_empty() {
+            return;
+        }
+        let mut recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        recent.push_front(piece);
+        let mut total = 0;
+        let mut keep = 0;
+        for piece in recent.iter() {
+            if keep >= RECENT_FILES || total + piece.bytes.len() > RECENT_BYTES {
+                break;
+            }
+            total += piece.bytes.len();
+            keep += 1;
+        }
+        recent.truncate(keep);
+    }
+
+    /// Puts a process that answered back in the pool, or ends it when it started before the
+    /// store's packs last changed (a repack may have deleted a pack it holds open).
+    fn give(&self, cat: CatFile, generation: u64) {
+        if generation != self.generation() {
+            drop(cat);
+            self.ended(1);
+            return;
+        }
+        self.pool.lock().unwrap_or_else(PoisonError::into_inner).free.push(Pooled {
+            cat,
+            used: Instant::now(),
+            generation,
+        });
         self.freed.notify_one();
     }
 
@@ -1035,19 +1429,41 @@ impl Held {
     }
 
     /// Ends every pooled process unused for `idle` (dropping it closes its stdin, and git exits),
-    /// and, when the mount was not read for `idle`, drops the recent blobs and gives the freed
-    /// heap back to the system.
-    fn sweep(&self, now: Instant, idle: Duration) {
+    /// and every one that started before the store's packs last changed (checked once per
+    /// `pack_check`: a repack that deletes a pack moves the folder's mtime); when the mount was
+    /// not read for `idle`, drops the recent blobs and gives the freed heap back to the system.
+    /// A process a read is using is not in the pool: it finishes that read, and is ended instead
+    /// of pooled when it comes back ([`Held::give`]).
+    fn sweep(&self, now: Instant, idle: Duration, pack_check: Duration) {
+        let generation = {
+            let mut packs = self.packs.lock().unwrap_or_else(PoisonError::into_inner);
+            packs.check(now, pack_check);
+            packs.generation
+        };
         let ended: Vec<Pooled> = {
             let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
-            let (old, fresh): (Vec<_>, Vec<_>) =
-                pool.free.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
+            let (old, fresh): (Vec<_>, Vec<_>) = pool.free.drain(..).partition(|p| {
+                now.saturating_duration_since(p.used) >= idle || p.generation != generation
+            });
             pool.free = fresh;
             pool.live = pool.live.saturating_sub(old.len());
             old
         };
-        let any_ended = !ended.is_empty();
+        let streams: VecDeque<Stream> = {
+            let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+            let (old, fresh): (VecDeque<_>, VecDeque<_>) = streams.drain(..).partition(|s| {
+                now.saturating_duration_since(s.used) >= idle || s.generation != generation
+            });
+            *streams = fresh;
+            old
+        };
+        let any_ended = !ended.is_empty() || !streams.is_empty();
         drop(ended);
+        if !streams.is_empty() {
+            let count = streams.len();
+            drop(streams);
+            self.ended(count);
+        }
         let quiet = now.saturating_duration_since(
             *self.last_read.lock().unwrap_or_else(PoisonError::into_inner),
         ) >= idle;
@@ -1081,7 +1497,12 @@ pub struct GitBlobs {
     git_dir: PathBuf,
     sources: Vec<Source>,
     held: Arc<Held>,
+    filler: Option<Filler>,
 }
+
+/// Gets one blob into the object store (peers, the controller disk, R2, then a blobless fetch),
+/// true when it is there afterwards: what a first read of a missing blob calls.
+pub type Filler = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 impl GitBlobs {
     #[must_use]
@@ -1091,7 +1512,9 @@ impl GitBlobs {
             freed: Condvar::new(),
             peak: AtomicUsize::new(0),
             recent: Mutex::new(VecDeque::new()),
+            streams: Mutex::new(VecDeque::new()),
             last_read: Mutex::new(Instant::now()),
+            packs: Mutex::new(Packs::new(git_dir)),
         });
         let weak: Weak<Held> = Arc::downgrade(&held);
         // Without the thread (spawn refused) the mount still works; it only keeps its memory.
@@ -1099,10 +1522,17 @@ impl GitBlobs {
             loop {
                 std::thread::sleep(SWEEP);
                 let Some(held) = weak.upgrade() else { return };
-                held.sweep(Instant::now(), IDLE);
+                held.sweep(Instant::now(), IDLE, PACK_CHECK);
             }
         });
-        Self { git_dir: git_dir.to_owned(), sources, held }
+        Self { git_dir: git_dir.to_owned(), sources, held, filler: None }
+    }
+
+    /// Blobs the store lacks are got by `filler` on their first read, not before the mount.
+    #[must_use]
+    pub fn with_filler(mut self, filler: Filler) -> Self {
+        self.filler = Some(filler);
+        self
     }
 
     /// How many `git cat-file` processes wait in the pool (tests).
@@ -1117,59 +1547,157 @@ impl GitBlobs {
         self.held.peak.load(Ordering::Relaxed)
     }
 
-    fn bytes(&self, entry: u32) -> Result<Arc<Vec<u8>>, FetchError> {
-        *self.held.last_read.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
-        {
-            let recent = self.held.recent.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some((_, bytes)) = recent.iter().find(|(at, _)| *at == entry) {
-                return Ok(bytes.clone());
+    /// Bytes held in memory now, never more than [`RECENT_BYTES`] (tests).
+    #[cfg(test)]
+    fn retained(&self) -> usize {
+        let recent = self.held.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        recent.iter().map(|piece| piece.bytes.len()).sum()
+    }
+
+    /// A process at the header of blob `oid`, with its generation and the blob's size. A process
+    /// that answered anything else ends: its stream state is unknown.
+    fn start(&self, oid: &str, lazy: bool) -> Result<(CatFile, u64, u64), FetchError> {
+        let (mut cat, generation) = self.held.take(&self.git_dir, lazy)?;
+        match cat.record(oid) {
+            Ok((kind, size)) if kind == "blob" => Ok((cat, generation, size)),
+            Ok(_) => {
+                drop(cat);
+                self.held.ended(1);
+                Err(FetchError::Failed)
+            }
+            Err(error) => {
+                drop(cat);
+                self.held.ended(1);
+                Err(error)
             }
         }
-        let bytes = match self.sources.get(entry as usize) {
-            Some(Source::Blob(oid)) => {
-                let mut cat = self.held.take(&self.git_dir)?;
-                match cat.blob(oid) {
-                    Ok(bytes) => {
-                        self.held.give(cat);
-                        bytes
-                    }
-                    Err(e) => {
-                        drop(cat);
-                        self.held.ended(1);
-                        return Err(e);
-                    }
+    }
+
+    /// Starts reading blob `entry`: the whole of it, held, when it is at most [`WHOLE_BYTES`];
+    /// else a stream at its start. A mount with a filler reads only what the store holds; a blob
+    /// it lacks is filled, then read by a fresh process (the one that answered `missing` ended).
+    fn open(&self, entry: u32, oid: &str) -> Result<Opened, FetchError> {
+        let lazy = self.filler.is_none();
+        let started = match self.start(oid, lazy) {
+            Ok(started) => started,
+            Err(error) => {
+                if !self.filler.as_ref().is_some_and(|fill| fill(oid)) {
+                    return Err(error);
                 }
+                self.start(oid, lazy)?
             }
-            Some(Source::Bytes(bytes)) => bytes.clone(),
-            _ => return Err(FetchError::Failed),
         };
-        let bytes = Arc::new(bytes);
-        let mut recent = self.held.recent.lock().unwrap_or_else(PoisonError::into_inner);
-        recent.push_front((entry, bytes.clone()));
-        let mut total = 0;
-        let mut keep = 0;
-        for (_, held) in recent.iter() {
-            total += held.len();
-            if keep >= RECENT_FILES || (keep > 0 && total > RECENT_BYTES) {
-                break;
-            }
-            keep += 1;
+        let (mut cat, generation, size) = started;
+        if size > WHOLE_BYTES {
+            return Ok(Opened::Stream(Stream {
+                entry,
+                at: 0,
+                size,
+                cat,
+                generation,
+                used: Instant::now(),
+            }));
         }
-        recent.truncate(keep);
-        Ok(bytes)
+        let bytes = match cat.take(size).and_then(|bytes| cat.newline().map(|()| bytes)) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                drop(cat);
+                self.held.ended(1);
+                return Err(error);
+            }
+        };
+        self.held.give(cat, generation);
+        let bytes = Arc::new(bytes);
+        self.held.hold(Piece { entry, start: 0, size, bytes: bytes.clone() });
+        Ok(Opened::Whole(bytes))
+    }
+
+    /// `len` bytes at `offset` of big blob `stream`, holding only them; the stream goes on from
+    /// where they end.
+    fn read_stream(
+        &self,
+        mut stream: Stream,
+        offset: u64,
+        len: u64,
+    ) -> Result<Vec<u8>, FetchError> {
+        if offset >= stream.size {
+            self.held.keep_stream(stream);
+            return Ok(Vec::new());
+        }
+        let len = len.min(stream.size - offset);
+        let read =
+            stream.cat.skip(offset.saturating_sub(stream.at)).and_then(|()| stream.cat.take(len));
+        let bytes = match read {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                drop(stream);
+                self.held.ended(1);
+                return Err(error);
+            }
+        };
+        stream.at = offset + len;
+        let bytes = Arc::new(bytes);
+        self.held.hold(Piece {
+            entry: stream.entry,
+            start: offset,
+            size: stream.size,
+            bytes: bytes.clone(),
+        });
+        if stream.at == stream.size {
+            self.held.finish(stream);
+        } else {
+            self.held.keep_stream(stream);
+        }
+        Ok(Arc::unwrap_or_clone(bytes))
     }
 }
 
 impl Fetch for GitBlobs {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
-        let bytes = self.bytes(entry)?;
-        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-        let end = start.saturating_add(len as usize).min(bytes.len());
-        Ok(bytes.iter().skip(start).take(end.saturating_sub(start)).copied().collect())
+        *self.held.last_read.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        let len = u64::from(len);
+        let oid = match self.sources.get(entry as usize) {
+            Some(Source::Blob(oid)) => oid,
+            Some(Source::Bytes(bytes)) => return Ok(range(bytes, 0, offset, len)),
+            _ => return Err(FetchError::Failed),
+        };
+        if let Some(bytes) = self.held.piece(entry, offset, len) {
+            return Ok(bytes);
+        }
+        let stream = match self.held.take_stream(entry, offset) {
+            Some(stream) => stream,
+            None => match self.open(entry, oid)? {
+                Opened::Whole(bytes) => return Ok(range(&bytes, 0, offset, len)),
+                Opened::Stream(stream) => stream,
+            },
+        };
+        self.read_stream(stream, offset, len)
     }
 
+    /// Whole files, for small ones only: a blob over [`WHOLE_BYTES`] is refused (the overlay asks
+    /// whole only for files up to its chunk size, and reads a big file a range at a time).
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
-        entries.iter().map(|entry| self.bytes(*entry).map(|bytes| bytes.to_vec())).collect()
+        *self.held.last_read.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        entries
+            .iter()
+            .map(|entry| {
+                let oid = match self.sources.get(*entry as usize) {
+                    Some(Source::Blob(oid)) => oid,
+                    Some(Source::Bytes(bytes)) => return Ok(bytes.clone()),
+                    _ => return Err(FetchError::Failed),
+                };
+                if let Some(bytes) = self.held.piece(*entry, 0, WHOLE_BYTES + 1) {
+                    return Ok(bytes);
+                }
+                match self.open(*entry, oid)? {
+                    Opened::Whole(bytes) => Ok(Arc::unwrap_or_clone(bytes)),
+                    Opened::Stream(stream) => {
+                        self.held.finish(stream);
+                        Err(FetchError::Failed)
+                    }
+                }
+            })
+            .collect()
     }
 
     fn cache(&self) -> bool {

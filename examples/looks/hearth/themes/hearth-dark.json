@@ -7,7 +7,7 @@
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#1f1c19", "foreground": "#ece6dc", "selection": "#3a332c", "accent": "#e08a63" },
+  "colors": { "background": "#1f1c19", "foreground": "#ece6dc", "selection": "#857565", "accent": "#e08a63" },
   "appearance.accent": "theme",
 
   "appearance.background": "none",

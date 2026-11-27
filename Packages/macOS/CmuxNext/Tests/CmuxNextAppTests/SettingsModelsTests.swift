@@ -278,6 +278,22 @@ import Testing
         #expect(models.state["personal"]?["connections"]?.arrayValue?.contains { $0["kind"] == "chatgpt-plan" } == true)
     }
 
+    /// Leo, 2026-11-25: "what about other ones? chatgpt?": OpenAI's sign-in opens in cmux's own browser,
+    /// as Claude's does, never the person's.
+    @Test func chatGPTSignInOpensInCmuxsOwnBrowser() async throws {
+        let daemon = Daemon()
+        daemon.waits.withLock { $0 = ["done"] }
+        let opened = Opened()
+        let inApp = Opened()
+        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { _ in false },
+                                          openSignInPage: { url, _ in inApp.urls.append(url); return {} })
+        let models = make(daemon: daemon, opened: opened, harnesses: harnesses)
+        _ = try await models.run(["action": "connectChatGPT"], context: click)
+        #expect(inApp.urls.map(\.host) == ["auth.openai.com"])
+        #expect(opened.urls.isEmpty)
+        await models.chatgptTask?.value
+    }
+
     @Test func chatGPTSignInShowsItsFailure() async throws {
         let daemon = Daemon()
         daemon.waits.withLock { $0 = ["pending", "failed"] }

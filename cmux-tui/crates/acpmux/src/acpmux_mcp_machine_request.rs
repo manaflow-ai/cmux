@@ -25,15 +25,15 @@ const MAX_REPLY: u64 = 1 << 20;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Ask for more capacity for THIS cmux Cloud machine (vCPU, memory), as `cmux machine request` does. Answers at once: fits (already has it), grow (resizing now, within the plan), over_plan (the largest the plan takes, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, answered as a handle with each machine id), or unavailable. Only on a cmux Cloud machine.",
+        "description": "Ask for more vCPU or memory for THIS cmux Cloud machine (`cmux machine request`). Answers at once: fits (has it), grow (resizing now, within the plan), over_plan (the plan's largest, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, a handle with each id), or unavailable. Cloud machines only.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "vcpu": {"type": "integer", "minimum": 1, "description": "Total vCPUs wanted."},
-                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total GiB of memory (default 2 per vCPU)."},
+                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total memory GiB (default 2 per vCPU)."},
                 "fanout": {"type": "integer", "minimum": 1, "maximum": 64, "description": "Split over this many machines."},
                 "kind": {"type": "string", "enum": ["linux", "mac", "gpu"]},
-                "for": {"type": "string", "description": "What the capacity is for."},
+                "for": {"type": "string", "description": "What it is for."},
                 "until": {"type": "string", "description": "DONE (default) or a duration: 30m, 2h, 1d."}
             },
             "required": ["vcpu", "for"]
@@ -82,8 +82,15 @@ pub(super) async fn call(args: &Value) -> Value {
 async fn ask_socket(socket: &std::path::Path, line: &Value) -> Result<Value, String> {
     let unreachable = || "this machine's cmux Cloud agent is not reachable".to_owned();
     let exchange = async {
+        #[cfg(unix)]
         let mut stream =
             tokio::net::UnixStream::connect(socket).await.map_err(|_| unreachable())?;
+        // The Cloud agent's socket is a unix socket, on a Cloud machine: none elsewhere.
+        #[cfg(not(unix))]
+        let mut stream: tokio::io::DuplexStream = {
+            let _ = socket;
+            return Err(unreachable());
+        };
         let mut text = line.to_string();
         text.push('\n');
         stream.write_all(text.as_bytes()).await.map_err(|_| unreachable())?;

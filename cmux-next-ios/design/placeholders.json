@@ -298,7 +298,7 @@
     },
     {
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
-      "text": "CmuxSpinner(label: Text(\"Connecting to your Mac…\")).frame(height: 120)",
+      "text": "CmuxSpinner(label: Text(\"Loading chats…\")).frame(height: 120)",
       "reason": "design gallery"
     },
     {
@@ -357,5 +357,11 @@
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
     }
   ],
-  "known_layout_shifts": []
+  "known_layout_shifts": [
+    {
+      "flow": "offline-send",
+      "max_shift_frames": 4,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
+    }
+  ]
 }

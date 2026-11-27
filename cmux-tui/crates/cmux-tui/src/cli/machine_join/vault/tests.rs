@@ -410,6 +410,15 @@ fn machine_adds_switches_leave_json_to_the_global_output_mode() {
         vec!["machine", "add", "--vault", "--yes", "--json"],
         vec!["machine", "add", "--wait", "--json"],
         vec!["machine", "vault", "ls", "--cloud-token-stdin", "--json"],
+        // The screen-share probe's revoke: `--cloud-token-stdin` swallowed `--json` here.
+        vec!["machine", "revoke", "probe-vm", "--yes", "--cloud-token-stdin", "--json"],
+        vec!["machine", "revoke", "probe-vm", "--cloud-token-stdin", "--json", "--yes"],
+        vec!["machine", "rotate", "probe-vm", "--cloud-token-stdin", "--json"],
+        // The desktop-agent probe's revoke exited 2 with the usage text: `--json` was read as
+        // `--cloud-token-stdin`'s value.
+        vec!["machine", "revoke", "probe-1", "--yes", "--cloud-token-stdin", "--json"],
+        vec!["machine", "revoke", "probe-1", "--cloud-token-stdin", "--yes", "--json"],
+        vec!["machine", "rotate", "probe-1", "--cloud-token-stdin", "--json"],
     ] {
         let (global, rest) = match crate::cli::parse_globals(&words(&args)) {
             Ok(parsed) => parsed,

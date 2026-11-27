@@ -10,9 +10,12 @@
 //! - [`signals`]: a hub event read as a change of the chat's work.
 //! - [`settle`]: work that ends with no hub event, read again when the hub says it settled.
 //! - [`effects`]: what the loop does for each effect, and what comes back of it.
+//! - [`give`]: a chat the person moved: its turn stopped, the store asked to take it, and what
+//!   the loop does when it stays.
 //! - [`tasks`]: the work that calls the store or reads the disk. Each runs as a task of its own
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
 //! - [`inbox`]: the Cloud inbox's messages into the chat's queue, each once.
+//! - [`moves`]: the person moves a chat now, or sets it to run on this machine only.
 //! - [`switch`]: Auto switched on or off for a chat, and a prompt to a chat held elsewhere.
 //! - [`register`]: the store's answer to Auto on, which answers whoever switched it on.
 //! - [`away`]: the person's Auto chats this laptop does not have, which it stands by for.
@@ -30,7 +33,9 @@ mod away;
 mod chats;
 pub mod clock;
 mod effects;
+mod give;
 mod inbox;
+mod moves;
 pub(crate) mod projection;
 mod register;
 mod run;
@@ -44,7 +49,7 @@ use std::sync::Arc;
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::cloud::AutoCloudError;
 use cmux_auto_session::holder::{Change, Event};
-use cmux_auto_session::wire::{Assignment, Holder, InboxPost, SessionView};
+use cmux_auto_session::wire::{Assignment, Holder, InboxPost, MoveTo, SessionView};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -54,7 +59,7 @@ use super::export::Copied;
 use super::export::snapshot::Failed;
 use super::record::Leftover;
 use super::{HolderHandle, ImportError, Imported, SessionImporter};
-use crate::hub::Hub;
+use crate::hub::{Hub, TurnStop};
 use crate::rpc::RpcError;
 
 /// What the holder loop runs with besides its transport.
@@ -117,6 +122,21 @@ pub(crate) enum Command {
     Kept { id: String, result: Result<SessionView, AutoCloudError>, reply: Option<Reply> },
     /// The chat's lane finished what it was doing. `drained`: it was the inbox.
     LaneDone { id: String, drained: bool },
+    /// A give's `StopTurn` ended (`give.rs`). `needs_run`: the chat's work as it is now, the
+    /// continuation of the turn that was stopped included.
+    TurnStopped { id: String, stop: TurnStop, needs_run: bool },
+    /// The person moves a chat now (`moves.rs`).
+    Move { id: String, to: MoveTo, reply: Reply },
+    /// The person set a chat to run on this machine only (`moves.rs`).
+    Local { id: String, reply: Reply },
+    /// The store answered a move. `leave`: it was the first step of "this machine only".
+    Moved {
+        id: String,
+        to: MoveTo,
+        leave: bool,
+        result: Result<SessionView, AutoCloudError>,
+        reply: Reply,
+    },
 }
 
 pub(crate) type Commands = mpsc::UnboundedSender<Command>;
@@ -150,6 +170,11 @@ where
 }
 
 impl HolderHandle {
+    /// This daemon is a Cloud machine's, which holds chats for the person's devices.
+    pub(crate) fn on_machine(&self) -> bool {
+        self.me.is_vm()
+    }
+
     fn tell(&self, command: Command) {
         // The loop ends only with its daemon: a command after that has nobody to act on it.
         let _ = self.commands.send(command);
@@ -189,6 +214,22 @@ impl HolderHandle {
         let id = session_id.to_owned();
         self.ask(|reply| Command::Switch { id, auto, keep: keep_in_cloud, reply: Some(reply) })
             .await
+    }
+
+    /// Moves an Auto chat now (`_acpmux/auto_session/move`): to the Cloud machine, or to this
+    /// laptop. Answers the chat's row once the store took the move; the chat's holder then
+    /// hands it over. A move the store refuses is the error, in plain words.
+    pub async fn move_to(&self, session_id: &str, to: MoveTo) -> Result<Value, RpcError> {
+        let id = session_id.to_owned();
+        self.ask(|reply| Command::Move { id, to, reply }).await
+    }
+
+    /// Sets a chat to run on this machine only (`mode: "local"`). A chat that is here has Auto
+    /// switched off. A chat the Cloud has is moved home first, and Auto goes off once it is
+    /// here: the answer is its row with the move under way.
+    pub async fn set_local(&self, session_id: &str) -> Result<Value, RpcError> {
+        let id = session_id.to_owned();
+        self.ask(|reply| Command::Local { id, reply }).await
     }
 
     /// A prompt for a chat this machine may not run now: it goes to the chat's Cloud inbox, or

@@ -18,8 +18,6 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     /// `{op:"manage"}`: Settings at its Shared links card.
     case manage
 
-    static let roles: Set<String> = ["view", "talk"]
-
     /// A link or an invite shows the chat to someone new: only the person's click makes one.
     public var needsGesture: Bool {
         switch self {
@@ -35,18 +33,18 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             return value.isEmpty || value.utf8.count > limit ? nil : value
         }
-        func role(_ fallback: String?) -> String? {
+        func role(_ allowed: Set<String>, default fallback: String? = nil) -> String? {
             guard params?["role"] != nil else { return fallback }
-            return (params?["role"] as? String).map { $0.lowercased() }.flatMap { Self.roles.contains($0) ? $0 : nil }
+            return (params?["role"] as? String).map { $0.lowercased() }.flatMap { allowed.contains($0) ? $0 : nil }
         }
         switch params?["op"] as? String {
         case "state": self = .state
         case "manage": self = .manage
         case "link":
-            guard let role = role("view") else { return nil }
+            guard let role = role(["view", "talk"], default: "view") else { return nil }
             self = .link(role: role)
         case "invite":
-            guard let account = text("account", limit: 320), let role = role(nil) else { return nil }
+            guard let account = text("account", limit: 320), let role = role(["view", "talk", "drive"]) else { return nil }
             self = .invite(account: account, role: role)
         case "uninvite":
             guard let account = text("account", limit: 320) else { return nil }

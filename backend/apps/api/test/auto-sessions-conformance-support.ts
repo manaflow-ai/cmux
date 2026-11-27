@@ -33,8 +33,12 @@ type World = { readonly owner: Person; readonly bearers: Map<string, string>; re
 
 const ROOT = "/v1/auto-sessions"
 
-/** How `expect` differs from `actual` ("" when it matches): an object by the keys it names, a list item by item, anything else by value. */
+/**
+ * How `expect` differs from `actual` ("" when it matches): an object by the keys it names, a list item by item, anything else by
+ * value. `"$set"` matches any value that is there and not null: a time, which no vector can name.
+ */
 export const differs = (expected: unknown, actual: unknown, at = "answer"): string => {
+  if (expected === "$set") return (actual ?? null) === null ? `${at}: expected a value, got ${JSON.stringify(actual)}` : ""
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual) || actual.length !== expected.length) return `${at}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
     return expected.map((e, i) => differs(e, actual[i], `${at}[${i}]`)).find((d) => d !== "") ?? ""

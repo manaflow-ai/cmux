@@ -3,7 +3,7 @@ import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { ACTIVITY_LINE, DATE, NEXT_STEP, RENDER, THINKING, WALKTHROUGH, WORKED, WORKING } from "../conversation/turns";
+import { DATE, NEXT_STEP, RENDER, THINKING, WALKTHROUGH, WORKED, WORKING } from "../conversation/turns";
 import { SHELL_ROW } from "../shell/shellRuns";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { SubagentEmptyRow } from "../subagents/SubagentEmptyRow";
@@ -30,13 +30,11 @@ import { MessageRunRow } from "./MessageRunRow";
 import { DateRow } from "./DateRow";
 import { ThinkingRow } from "./ThinkingRow";
 import { WorkingRow } from "./WorkingRow";
-import { ActivityLineRow } from "./ActivityLineRow";
 import { NextStepRow } from "./NextStepRow";
 import { WalkthroughRow } from "./WalkthroughRow";
 import { ReadOnlyNextStepRow } from "./ReadOnlyNextStepRow";
 import { RenderRow } from "./RenderRow";
 import { SummaryRow } from "./SummaryRow";
-import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
@@ -85,14 +83,12 @@ export const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
-  [ACTIVITY_LINE]: ActivityLineRow,
   [NEXT_STEP]: NextStepRow,
   [WALKTHROUGH]: WalkthroughRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
-  plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,

@@ -51,6 +51,14 @@ also an item {title, author, pr} (newest first; pr from a "(#1234)" suffix)
 for the update card's "What's changed" popover; older notes without items
 still decode, and the app then reads the PR from each subject.
 
+Which PRs are in which build (additive; older notes lack these keys):
+  "items" are every commit of the span (no MAX_CHANGES cap once the span has a start), each
+  also with "area" (change_area), "url" (its PR, when it has one) and "mergedAt"
+  (ISO 8601 UTC). The notes gain "since": {"build", "head"} of the published build the span
+  starts at (absent without a start) and "publishedAt" (ISO 8601 UTC).
+  notes/pr-index.json (signed): {"version": 1, "prs": {"<number>": {"build", "shortVersion",
+  "publishedAt"}}}, each PR's first published build, merged from the previous copy (pr_index).
+
 The notes also carry "summary": at most SUMMARY_LIMIT user-facing lines
 {group, title} (group new / fixed / changed) from the same commit subjects,
 with internal commits (ci, test, refactor, docs, chore, red tests, lint and
@@ -58,9 +66,11 @@ fleet work) left out. The update cards show its first lines, and `appcast`
 writes the same lines as plain text into the build's appcast <description>.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR] [--pr-media] [--pr-descriptions]
+                   [--repo O/R] [--previous-index index.json] [--published-at ISO]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
+  release-notes.py pr-index --notes DIR/B.json [--previous pr-index.json] --out DIR/pr-index.json
   release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
@@ -73,9 +83,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
-MAX_CHANGES = 200
+MAX_CHANGES = 600
 SUMMARY_LIMIT = 8
-PR_LIMIT = 40
+PR_LIMIT = 300
 DESCRIPTION_LIMIT = 240
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
@@ -127,6 +137,35 @@ TOOLING_PATHS = re.compile(
     r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
     r"|^(?:webviews/)?scripts/(?:cmux-next/)?(?:check[-_]|lint[-_]|guardrails|bench[-_]|perf-(?:gate|cron)|prepush-gate"
     r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")
+
+
+# The area a change is in, for "What's in this build" (Leo 2026-11-26: "do we display which prs go into
+# which nightly maybe that'd be useful per thing?"): the first rule matching most of its shipped files.
+AREAS = (
+    ("Agent chat", re.compile(r"^(?:webviews/|agent-chat/|Native/OptChat/)")),
+    ("Terminal and CLI", re.compile(r"^(?:cmux-tui/|daemon/|mux/|ghostty(?:-next)?/)")),
+    ("iOS", re.compile(r"^(?:cmux-next-ios/|Packages/iOS/)")),
+    ("Mac app", re.compile(r"^(?:Packages/(?:macOS|Shared)/|App/|Native/|Resources/|schemas/settings/|cmux\.xcodeproj/)")),
+    ("Cloud", re.compile(r"^(?:backend/|server/|services/|workers/|deploy/|clients/)")),
+    ("Website", re.compile(r"^web/")),
+)
+
+
+def change_area(paths):
+    """The area most of a commit's files are in (AREAS), "Tooling" when every file is CI or tooling,
+    else None (no files, or none in an area)."""
+    if tooling_only(paths):
+        return "Tooling"
+    counts = {}
+    for path in paths:
+        if TOOLING_PATHS.search(path):
+            continue
+        for name, pattern in AREAS:
+            if pattern.search(path):
+                counts[name] = counts.get(name, 0) + 1
+                break
+    order = [name for name, _ in AREAS]
+    return max(counts, key=lambda name: (counts[name], -order.index(name))) if counts else None
 
 
 def tooling_only(paths):
@@ -907,20 +946,26 @@ def find_pr_media(highlight, path, head):
         return
 
 
-def change_item(subject, author, paths=(), descriptions=None):
+def change_item(subject, author, paths=(), descriptions=None, merged_at=None, repo=None):
     """One structured change (UPDATE-CARD): title, author, PR, and a deterministic one-line
     description from the PR body when the release job has enabled PR descriptions.
+    With `repo` (the notes `build` passes it) the item also carries its PR's "url" and "mergedAt"
+    (the squash commit's time): the notes schema's per-item PR fields.
     """
     description = ""
     match = PR_SUFFIX.match(subject)
     if match and descriptions is not None:
         description = descriptions.get(int(match["pr"]), "")
     item = {"title": subject.strip(), "author": author.strip() or None,
-            "internal": internal_change(subject, paths, description) or None}
+            "internal": internal_change(subject, paths, description) or None, "area": change_area(paths)}
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
         if description:
             item["description"] = description
+    if repo:
+        if "pr" in item:
+            item["url"] = f"https://github.com/{repo}/pull/{item['pr']}"
+        item["mergedAt"] = merged_at
     return {k: v for k, v in item.items() if v is not None}
 
 
@@ -1059,13 +1104,22 @@ def span_commits(since, head, limit=MAX_CHANGES):
     """(subject, author, paths) of each non-merge commit in the span, newest first, at most `limit`
     (None: all). `paths` are the files the commit touches (none for an empty commit). NUL-separated
     and keyed by hash, so no subject or file name can shift a path onto another commit."""
+    return [(subject, author, paths) for subject, author, paths, _ in span_details(since, head, limit)]
+
+
+def span_details(since, head, limit=MAX_CHANGES):
+    """span_commits with each commit's committer time (ISO 8601 UTC, "...Z"): when its PR merged,
+    since feat-cmux-next lands squash commits."""
     span = rev_range(since, head)
-    commits = []
-    for record in git("log", "--no-merges", "-z", "--format=%H%x1f%an%x1f%s", span).split("\0"):
+    commits, dates = [], {}
+    for record in git("log", "--no-merges", "-z", "--format=%H%x1f%ct%x1f%an%x1f%s", span).split("\0"):
         sha, _, rest = record.strip("\n").partition("\x1f")
+        stamp, _, rest = rest.partition("\x1f")
         author, _, subject = rest.partition("\x1f")
         if sha:
             commits.append((sha, subject, author))
+            dates[sha] = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(stamp)))
+                          if stamp.isdigit() else None)
     paths, current = {sha: [] for sha, _, _ in commits}, None
     # "-z --name-only": each commit's marked hash, then "\n" and its files, every field ended by NUL.
     # The marker (\x01) keeps a file named like a hash from passing for a commit.
@@ -1077,7 +1131,7 @@ def span_commits(since, head, limit=MAX_CHANGES):
             current = marked
         elif name and current:
             paths[current].append(name)
-    return [(subject, author, paths[sha]) for sha, subject, author in commits if subject.strip()][:limit]
+    return [(subject, author, paths[sha], dates[sha]) for sha, subject, author in commits if subject.strip()][:limit]
 
 
 def pr_lines(items, repo, limit=PR_LIMIT):
@@ -1094,7 +1148,8 @@ def pr_lines(items, repo, limit=PR_LIMIT):
     lines = ["### PRs in this build", ""]
     # A subject's "@login" would ping that person and a "<" could open an HTML comment.
     escape = lambda text: text.replace("&", "&amp;").replace("<", "&lt;").replace("@", "&#64;")
-    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}' for i in prs[:limit]]
+    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}'
+              + (f' by {escape(i["author"])}' if i.get("author") else "") for i in prs[:limit]]
     if len(prs) > limit:
         lines.append(f"- and {len(prs) - limit} more")
     if not prs:
@@ -1113,7 +1168,13 @@ def prs(args):
 def build(args):
     require_whole_span(args.since, args.head)
     span = rev_range(args.since, args.head)
-    commits = span_commits(args.since, args.head)
+    # Every commit of a span that starts at the previous build: the notes are what `cmux nightly`,
+    # the update card and pr-index.json read for "which PRs are in this build", so a cap drops PRs
+    # (build 4572038238101 stopped at exactly 200). With no start the span is the head's whole
+    # history, and MAX_CHANGES still bounds it.
+    details = span_details(args.since, args.head, limit=None if args.since else MAX_CHANGES)
+    commits = [(subject, author, paths) for subject, author, paths, _ in details]
+    merged = [merged_at for _, _, _, merged_at in details]
     changes = [subject for subject, _, _ in commits]
     descriptions = {}
     pr_descriptions = {}
@@ -1136,8 +1197,9 @@ def build(args):
                 fallback_title = fallback[1] if fallback else match["title"]
                 pr_descriptions[number] = pr_description(bodies.get(number, ""), fallback_title)
             descriptions[subject] = pr_descriptions[number]
-    items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
-             for subject, author, paths in commits]
+    items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None,
+                         merged_at=merged_at, repo=args.repo)
+             for (subject, author, paths), merged_at in zip(commits, merged)]
     # The summary (and the What's New digest made from it) never names tooling-only or backend-only commits.
     user_changes = [subject for subject, _, paths in commits
                     if not internal_change(subject, paths, descriptions.get(subject, ""))]
@@ -1176,7 +1238,11 @@ def build(args):
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
-             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes, descriptions=descriptions)}
+             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes, descriptions=descriptions),
+             "publishedAt": args.published_at or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    since = since_build(args.since, args.previous_index)
+    if since:
+        notes["since"] = since  # {"build", "head"}: the published build (and commit) the span starts after
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
@@ -1199,13 +1265,79 @@ def build(args):
     print(path)
 
 
+def since_build(since, index_path):
+    """The notes' "since": {"build", "head"} of the published build this span starts at, or None
+    when the span has no start. The build is the index entry (a verified notes/index.json) whose
+    head is `since`; a start no entry records keeps its head with an empty build."""
+    if not re.fullmatch(r"[0-9a-f]{40}", since or ""):
+        return None
+    build = ""
+    if index_path and os.path.exists(index_path):
+        with open(index_path, encoding="utf-8") as f:
+            entries = json.load(f).get("builds", [])
+        build = next((str(e.get("build") or "") for e in entries
+                      if isinstance(e, dict) and e.get("head") == since), "")
+    return {"build": build, "head": since}
+
+
+def pr_index(args):
+    """notes/pr-index.json: {"version": 1, "prs": {"<number>": {"build", "shortVersion",
+    "publishedAt"}}}, each PR mapped to the first published build that carried it. Merged into the
+    previous published (verified) copy: a PR already listed keeps its build, so a rebuilt or
+    re-signed span never moves it later. With no previous copy (the first one) and --seed-index,
+    the published notes of each build that index lists (oldest first, each verified from the
+    first --base that serves it) fill it in before this build's."""
+    with open(args.notes, encoding="utf-8") as f:
+        notes = json.load(f)
+    prs = {}
+    if args.previous and os.path.exists(args.previous):
+        with open(args.previous, encoding="utf-8") as f:
+            previous = json.load(f)
+        if isinstance(previous, dict) and isinstance(previous.get("prs"), dict):
+            prs = {k: v for k, v in previous["prs"].items() if k.isdigit() and isinstance(v, dict)}
+    elif args.seed_index and os.path.exists(args.seed_index) and args.base and args.public_key:
+        with open(args.seed_index, encoding="utf-8") as f:
+            builds = [b.get("build", "") for b in json.load(f).get("builds", []) if isinstance(b, dict)]
+        for build in reversed(builds):
+            if not re.fullmatch(r"[0-9.]+", str(build)) or build == notes["build"]:
+                continue
+            try:
+                older = fetch_verified_notes(build, args.base, args.public_key)
+            except Exception as error:  # one unreadable build never stops the index
+                print(f"pr-index: skipped {build}: {error}", file=sys.stderr)
+                continue
+            if isinstance(older, dict) and older.get("build") == build:
+                add_prs(prs, older)
+    add_prs(prs, notes)
+    with open(args.out, "w", encoding="utf-8") as out:
+        json.dump({"version": 1, "prs": prs}, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    print(args.out)
+
+
+def add_prs(prs, notes):
+    """Adds each PR of `notes` (its items, else its "(#N)" subjects) that `prs` does not list yet."""
+    entry = {"build": str(notes.get("build", "")), "shortVersion": str(notes.get("shortVersion", "")),
+             "publishedAt": str(notes.get("publishedAt") or notes.get("builtAt") or notes.get("date") or "")}
+    numbers = [item.get("pr") for item in notes.get("items") or [] if isinstance(item, dict)]
+    if not notes.get("items"):
+        numbers = [int(m["pr"]) for m in (PR_SUFFIX.match(c) for c in notes.get("changes") or []
+                                           if isinstance(c, str)) if m]
+    for number in numbers:
+        if isinstance(number, int) and not isinstance(number, bool) and str(number) not in prs:
+            prs[str(number)] = dict(entry)
+
+
 def appcast(args):
     """Writes the build's short changelog into its item in every published appcast."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
     from nightly_release_notes import update_appcasts
     lines = summarize_changes(commit_subjects(args.since, args.head))
     text = summary_text(lines) or "Maintenance and internal improvements."
-    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds))
+    # The PR list rides in the item, beside its sourceCommit: the span is the feed's own (the previous item's source).
+    numbers = list(dict.fromkeys(item["pr"] for item in (change_item(subject, author)
+                   for subject, author in commits_with_authors(args.since, args.head, limit=None)) if "pr" in item))
+    since = args.since if re.fullmatch(r"[0-9a-f]{40}", args.since or "") else None
+    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds), since=since, pull_requests=numbers)
     print(text)
 
 
@@ -1367,6 +1499,9 @@ def main():
                    help="give each highlight the first pr-media picture of the pull request that added it (needs gh)")
     b.add_argument("--pr-descriptions", action="store_true",
                    help="derive one-line descriptions from PR bodies at release time (needs gh)")
+    b.add_argument("--repo", default="manaflow-ai/cmux", help="each item's PR url")
+    b.add_argument("--previous-index", help="the published notes/index.json (verified): names the since build")
+    b.add_argument("--published-at", default="", help="ISO 8601 UTC; default now")
     a = sub.add_parser("appcast")
     a.add_argument("--head", required=True)
     a.add_argument("--since", default="")
@@ -1383,6 +1518,13 @@ def main():
     i.add_argument("--previous")
     i.add_argument("--keep", type=int, default=50)
     i.add_argument("--out", required=True)
+    r = sub.add_parser("pr-index")
+    r.add_argument("--notes", required=True)
+    r.add_argument("--previous")
+    r.add_argument("--out", required=True)
+    r.add_argument("--seed-index", help="with no --previous: a verified index.json whose builds' notes seed it")
+    r.add_argument("--base", action="append", help="feed bases to fetch the seed notes from")
+    r.add_argument("--public-key", help="verifies the seed notes")
     f = sub.add_parser("backfill")
     f.add_argument("--index", required=True)
     f.add_argument("--base", action="append", required=True)
@@ -1403,7 +1545,7 @@ def main():
     c.add_argument("--notes", required=True)
     args = parser.parse_args()
     return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill,
-            "sign": sign, "verify": verify, "check": check}[args.cmd](args) or 0
+            "sign": sign, "verify": verify, "check": check, "pr-index": pr_index}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

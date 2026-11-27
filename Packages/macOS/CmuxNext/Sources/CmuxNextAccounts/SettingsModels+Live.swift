@@ -50,8 +50,8 @@ public struct KeychainModelKeyStore: ModelKeyStoring {
 }
 
 extension SettingsModels {
-    /// Continue with ChatGPT: acpmux starts the attempt and its callback listener, the person's browser
-    /// opens OpenAI's sign-in page in the background, and acpmux's answer is awaited off the main thread
+    /// Continue with ChatGPT: acpmux starts the attempt and its callback listener, OpenAI's sign-in page
+    /// opens in cmux's own browser (the person's when there is none), and acpmux's answer is awaited off the main thread
     /// (`chatgpt.wait`, a long poll the loop calls again while pending). `id`: an existing
     /// chatgpt-plan connection to sign in again.
     func connectChatGPT(id: String?) async throws -> JSONValue {
@@ -68,7 +68,7 @@ extension SettingsModels {
             throw PageError(code: "cmux.models.chatgpt_bad_reply", message: "acpmux did not start a ChatGPT sign-in")
         }
         setChatGPT(attempt: attempt, error: nil)
-        openSignIn(url)
+        await openInAppSignIn(url)
         // task-owner: SettingsModels.chatgptTask: one attempt's wait loop; a new attempt or Cancel replaces it.
         replaceChatGPTTask(Task { [weak self] in await self?.awaitChatGPT(attempt, environment) })
         return ["attempt": .string(attempt)]

@@ -12,10 +12,12 @@ import { useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
+import { poolOf, spendLimitEnabled } from "./pool";
+import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
-import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter } from "./usage";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, ratePrice, testMode, type UsageMeter } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";
@@ -53,10 +55,10 @@ function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => s
   );
 }
 
-const METERS: { meter: UsageMeter; label: string; unit: string }[] = [
-  { meter: "vcpu", label: L.usageVcpu, unit: L.usageVcpuHours },
-  { meter: "memory", label: L.usageMemory, unit: L.usageGibHours },
-  { meter: "stored", label: L.usageStored, unit: L.usageGibMonths },
+const METERS: { meter: UsageMeter; label: string; unit: string; rate: string }[] = [
+  { meter: "vcpu", label: L.usageVcpu, unit: L.usageVcpuHours, rate: L.usageRateVcpu },
+  { meter: "memory", label: L.usageMemory, unit: L.usageGibHours, rate: L.usageRateGibHour },
+  { meter: "stored", label: L.usageStored, unit: L.usageGibMonths, rate: L.usageRateGibMonth },
 ];
 
 /** This month's usage and its cost, and the payment method on file. */
@@ -97,12 +99,20 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
         <span className="cloud-month-total">{usd(monthTotal(usage), language)}</span>
       </div>
       <dl className="cloud-month-lines">
-        {METERS.map(({ meter, label, unit }) => {
-          const { amount, usd: dollars } = meterAmount(usage, meter);
+        {METERS.map(({ meter, label, unit, rate: rateLabel }) => {
+          const { amount, usd: dollars, rate } = meterAmount(usage, meter);
           return (
             <div key={meter} className={`cloud-month-line cloud-month-${meter}`}>
               <dt>{t(label)}</dt>
-              <dd className="cloud-month-amount">{format(t(unit), { value: quantity(amount, language) })}</dd>
+              <dd className="cloud-month-amount">
+                {format(t(unit), { value: quantity(amount, language) })}
+                {rate !== undefined && (
+                  <span className="cloud-month-rate">
+                    {" × "}
+                    {format(t(rateLabel), { price: ratePrice(rate, language) })}
+                  </span>
+                )}
+              </dd>
               <dd className="cloud-month-usd">{usd(dollars, language)}</dd>
             </div>
           );
@@ -160,6 +170,8 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
   // The team's spend against its spending cap this period (cloud.plan.get `spend_cap`, absent without the cap).
   const capSpent = finite(plan?.spend_cap?.spent_usd);
   const capLimit = finite(plan?.spend_cap?.cap_usd);
+  // The plan's hours and the spend limit past them (RFD 0081), behind the default-off switch (pool.ts).
+  const pool = spendLimitEnabled() ? poolOf(plan) : undefined;
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -232,6 +244,7 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
             )}
           </div>
           <MonthUsage store={store} state={state} strings={strings} />
+          {pool && <PoolPanel store={store} state={state} pool={pool} strings={strings} />}
           {plan.retention && !unavailable.includes(CloudOps.retentionSet) && (
             <CleanupSettings store={store} state={state} retention={plan.retention} strings={strings} />
           )}

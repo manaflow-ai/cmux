@@ -3,6 +3,7 @@
   "families": [
     "agent",
     "agents",
+    "appkv",
     "automation",
     "browser",
     "browser_import",
@@ -16,7 +17,6 @@
     "closed",
     "cloud",
     "codemirror",
-    "coderouter",
     "column",
     "conductor_import",
     "conversation",

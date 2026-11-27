@@ -54,6 +54,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine unreachable",
+        &[
+            (
+                "Keep a machine out of the pick after a copy to it failed",
+                "acpmux machine unreachable build-1 --why 'scp: Connection closed'",
+            ),
+            ("Let the pick use it again", "acpmux machine unreachable build-1 --clear"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
@@ -540,5 +550,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux channel open review --text hi --reply",
             ),
         ],
+    ),
+    ("machine vault audit", &[("Audit this machine's vault state", "acpmux machine vault audit")]),
+    (
+        "machine approvals grant",
+        &[("Record a standing pre-grant on this machine", "acpmux machine approvals grant")],
     ),
 ];
