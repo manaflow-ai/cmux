@@ -6,14 +6,14 @@ import Testing
 /// the handwritten Swift mirrors move to schema-generated request types.
 struct GeneratedRequestPayloadGoldenTests {
     private static let workspaceKey = WorkspaceKey(rawValue: "018f6e21-7b70-7e70-8000-0000000000d1")
-    private static let terminalID = TerminalID(rawValue: "018f6e217b707e7080000000000000f1")
+    private static let terminalID = TerminalID(rawValue: "018f6e217b704e7080000000000000f1")
 
-    private func line(_ request: some DaemonRequest, id: UInt64 = 7) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: id))
+    private func line(_ request: some DaemonRequest) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 7))
     }
 
-    private func envelope(_ command: String, _ fields: [String: JSONValue], id: JSONValue = .number(7)) -> JSONValue {
-        .object(fields.merging(["id": id, "cmd": .string(command)]) { $1 })
+    private func envelope(_ command: String, _ fields: [String: JSONValue]) -> JSONValue {
+        .object(fields.merging(["id": .number(7), "cmd": .string(command)]) { $1 })
     }
 
     private func baseOptions() -> SpawnOptions {
@@ -90,6 +90,12 @@ struct GeneratedRequestPayloadGoldenTests {
             "tab_id": .string("tab-client-2"),
         ])))
 
+        #expect(try line(NewPaneRequest(pane: 3, options: columnOptions)) == envelope("new-pane", spawnFields([
+            "pane": .number(3),
+            "pane_id": .string("pane-client-2"),
+            "tab_id": .string("tab-client-2"),
+        ])))
+
         var rowOptions = baseOptions()
         rowOptions.paneID = "pane-client-3"
         rowOptions.tabID = "tab-client-3"
@@ -106,14 +112,14 @@ struct GeneratedRequestPayloadGoldenTests {
     }
 
     @Test func closeRequestsEncodeOnlyEnabledOptions() throws {
-        #expect(try line(CloseTabGroupRequest(group: TabGroupID("group-1"))) ==
+        #expect(try line(CloseTabGroupRequest(group: "group-1")) ==
             envelope("close-tab-group", ["group": .string("group-1")]))
         #expect(try line(ClosePaneRequest(pane: PaneID(rawValue: 3), endTerminals: true)) ==
             envelope("close-pane", ["pane": .number(3), "end_terminals": .bool(true)]))
         #expect(try line(CloseScreenRequest(screen: ScreenID(rawValue: 4))) ==
             envelope("close-screen", ["screen": .number(4)]))
 
-        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-close", expectedRevision: UInt64.max)
+        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-close", expectedRevision: 42)
         #expect(try line(CloseTabsRequest(
             surfaces: [SurfaceID(rawValue: 2), SurfaceID(rawValue: 5)],
             endTerminals: true,
@@ -127,16 +133,14 @@ struct GeneratedRequestPayloadGoldenTests {
             "reason": .string("session_end"),
             "origin": .string("golden-test"),
             "mutation_id": .string("mutation-close"),
-            "expected_revision": .number(Double(UInt64.max)),
+            "expected_revision": .number(42),
         ]))
     }
 
     @Test func createTerminalKeepsPostInitShellAndWorkspaceFields() throws {
-        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-terminal", expectedRevision: UInt64.max)
+        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-terminal", expectedRevision: 42)
         var request = CreateTerminalRequest(
             workspace: .key(Self.workspaceKey),
-            argv: ["bash"],
-            command: "bash",
             cwd: "/tmp",
             name: "build",
             size: CellSize(cols: 100, rows: 30),
@@ -151,8 +155,6 @@ struct GeneratedRequestPayloadGoldenTests {
 
         #expect(try line(request) == envelope("create-terminal", [
             "key": .string(Self.workspaceKey.rawValue),
-            "argv": .array([.string("bash")]),
-            "command": .string("bash"),
             "cwd": .string("/tmp"),
             "name": .string("build"),
             "cols": .number(100),
@@ -165,12 +167,12 @@ struct GeneratedRequestPayloadGoldenTests {
             "workspace_name": .string("Build"),
             "origin": .string("golden-test"),
             "mutation_id": .string("mutation-terminal"),
-            "expected_revision": .number(Double(UInt64.max)),
+            "expected_revision": .number(42),
         ]))
     }
 
     @Test func workspaceMutationsFlattenReferencesAndMutationKeys() throws {
-        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-workspace", expectedRevision: UInt64.max)
+        let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-workspace", expectedRevision: 42)
         #expect(try line(RenameWorkspaceRequest(
             workspace: .key(Self.workspaceKey),
             name: "Build",
@@ -182,11 +184,11 @@ struct GeneratedRequestPayloadGoldenTests {
             "key": .string(Self.workspaceKey.rawValue),
             "name": .string("Build"),
             "source": .string("auto"),
-            "expected_name_revision": .string(String(UInt64.max)),
+            "expected_name_revision": .string("18446744073709551615"),
             "release": .bool(true),
             "origin": .string("golden-test"),
             "mutation_id": .string("mutation-workspace"),
-            "expected_revision": .number(Double(UInt64.max)),
+            "expected_revision": .number(42),
         ]))
         #expect(try line(MoveWorkspaceRequest(
             workspace: .key(Self.workspaceKey),
@@ -197,15 +199,14 @@ struct GeneratedRequestPayloadGoldenTests {
             "index": .number(2),
             "origin": .string("golden-test"),
             "mutation_id": .string("mutation-workspace"),
-            "expected_revision": .number(Double(UInt64.max)),
+            "expected_revision": .number(42),
         ]))
         #expect(try line(CloseWorkspaceRequest(
             workspace: .key(Self.workspaceKey),
             endTerminals: true,
             reason: .sessionEnd,
             ifEmpty: true,
-            mutation: mutation,
-            reportClosedIDs: true
+            mutation: mutation
         )) == envelope("close-workspace", [
             "key": .string(Self.workspaceKey.rawValue),
             "end_terminals": .bool(true),
@@ -213,7 +214,7 @@ struct GeneratedRequestPayloadGoldenTests {
             "if_empty": .bool(true),
             "origin": .string("golden-test"),
             "mutation_id": .string("mutation-workspace"),
-            "expected_revision": .number(Double(UInt64.max)),
+            "expected_revision": .number(42),
         ]))
     }
 
