@@ -3,9 +3,10 @@
     "scripts/cmux-next/check-keychain-no-prompt.py": {"count": 1, "reason": "safe: the keychain no-prompt ratchet names SecItemCopyMatching as a pattern to find; it reads no keychain item"},
     "scripts/cmux-next/tests/test_check_keychain_no_prompt.py": {"count": 3, "reason": "safe: test fixture strings naming SecItemCopyMatching for the keychain no-prompt ratchet; it reads no keychain item"},
     "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a key provider's bootstrap token (service cmux-key-provider)"},
-    "plans/cmux-next/swift-logic-classes.tsv": {"count": 2, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
+    "plans/cmux-next/swift-logic-classes.tsv": {"count": 4, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
+    "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the VNC login item manaflow-fleet-login, only when the step has no --vnc-login file, into a 0600 file removed at exit (never argv, env or logs)"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
     "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
     "cmux-tui/crates/acpmux/src/config/profile_env.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the service an acpmux profile names for its own key"},
@@ -20,6 +21,7 @@
     "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_mac.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials), borrowed read-only by the person's own gateway"},
     "scripts/measure/gui-user-per-job.sh": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the probe's test item dev.cmux.gup-probe, to see which account's keychain it landed in"},
+    "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, into a 0600 file the step removes"},
     "scripts/measure/gui-user-isolation.sh": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the isolation test's items dev.cmux.gupiso, to assert each pool account sees only its own"},
     "cmux-tui/crates/acpmux/src/cli/host_vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials)"},
     "cmux-tui/crates/acpmux/src/vault/store.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the acpmux vault's own service"},
@@ -136,7 +138,7 @@
     "scripts/cmux-next/own-machine-parity.test.ts": {"count": 2, "reason": "safe: a test assertion that the cleanup command contains no pkill or killall"},
     "scripts/cmux-next/pkg/postinstall": {"count": 1, "reason": "safe: the sweep kills only processes whose command line is under the copy this postinstall pre-warmed ($1/Contents/); the ps listing filters on that path, never a name"},
     "scripts/cmux-next/side-instance.sh": {"count": 2, "reason": "safe: the pattern carries this copy's own --pid-file $dir/pid argument, unique to the park display this copy started; park_stop re-checks the recorded PID's command line"},
-    "scripts/measure/persona-walk.sh": {"count": 1, "reason": "safe: reap kills only processes whose command line is under this run's own mktemp dir ($work/), never a name or another run's copy"},
+    "scripts/measure/persona-walk.sh": {"count": 3, "reason": "safe: reap kills only processes whose command line is under this run's own mktemp dir ($work/), never a name or another run's copy; launch finds the pid of its own scratch copy ($work/Applications/...); probe only lists running cmux processes, killing none"},
     "webviews/src/agent-session/acpmux/permissions/holdToApprove.ts": {"count": 2, "reason": "safe: a regex that recognizes kill/pkill/killall in a command an agent asks to run, to hold it for approval; it signals nothing"}
   },
   "big-red": {

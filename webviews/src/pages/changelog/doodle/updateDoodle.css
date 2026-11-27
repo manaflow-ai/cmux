@@ -111,7 +111,7 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: none;
   font: inherit;
   cursor: default;

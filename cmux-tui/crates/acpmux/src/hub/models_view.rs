@@ -7,9 +7,11 @@
 //!    catalog entry whose `modelSource` is `catalog`. For an ACP harness that
 //!    already reported its models, only the curated ones it reported (the
 //!    agent decides what it runs; the catalog adds names, order and
-//!    metadata), unless the entry `runsAnyModel` (Gemini CLI: its ACP menu is
-//!    fixed per release, `--model` takes any Gemini API id), which gets every
-//!    curated model, the ones newer than its whole menu leading `topModels`.
+//!    metadata), plus the curated releases newer than the newest it reported of
+//!    the same family (an older Codex still offers the new Sol), unless the
+//!    entry `runsAnyModel` (Gemini CLI: its ACP menu is fixed per release,
+//!    `--model` takes any Gemini API id), which gets every curated model, the
+//!    ones newer than its whole menu leading `topModels`.
 //!    Claude Code reports none, so its list comes from the catalog after the
 //!    "default" choice;
 //! 3. the models the harness reported that the catalog does not list, marked
@@ -150,8 +152,10 @@ fn offered(
     let picks = (*kind == HarnessKind::Acp || live)
         && !reported.is_empty()
         && curated.runs_any_model != Some(true);
+    // A newer release of a family it already runs shows even when this CLI predates it.
+    let newer = if picks { newer_than_menu(curated, catalog, reported) } else { Vec::new() };
     for model in &curated.models {
-        if !picks || lists(reported, model) {
+        if !picks || lists(reported, model) || newer.contains(&model.id) {
             out.push(curated_json(model, catalog));
         }
     }
@@ -173,32 +177,54 @@ fn drop_disabled(models: &mut Vec<Value>, disabled: &[String]) {
     models.retain(|m| m["id"].as_str().is_none_or(|id| !disabled.iter().any(|d| d == id)));
 }
 
-/// For a harness that runs any model id (`runsAnyModel`: Gemini CLI, whose ACP menu is fixed in
-/// each release), the catalog models released after every model its menu names, in catalog
-/// order: they lead its picker menu, so a model the harness's release predates still shows
-/// first the day the catalog or the feed lists it. Empty for any other harness, or when no menu
-/// model has a known release date.
+/// The catalog models a harness's menu predates, in catalog order: they lead its picker menu,
+/// so a model shows the day the catalog or the feed lists it, without a CLI update (Leo,
+/// 2026-11-20: "enable seeing new models even when ppl dont upgradetheir stuff").
+///
+/// - A harness that runs any model id (`runsAnyModel`: Gemini CLI, whose ACP menu is fixed in
+///   each release): every catalog model released after every model its menu names.
+/// - Any other harness (Codex, whose `model/list` is what this account runs): a catalog model
+///   released after the newest one its menu names of the same family (`models[ref].family`,
+///   gpt-sol): an older Codex that lists GPT-6.1 Sol gets GPT-6.2 Sol, and a family the account
+///   runs none of (an API-only release) stays out. Codex takes any id (`session/set_model`).
+///
+/// Empty when no menu model has a known release date (and family, for the second).
 fn newer_than_menu(
     curated: &CatalogHarness,
     catalog: &Catalog,
     reported: &[(String, String)],
 ) -> Vec<String> {
-    if curated.runs_any_model != Some(true) {
-        return Vec::new();
+    let info =
+        |model: &HarnessModel| model.reference.as_deref().and_then(|r| catalog.models.get(r));
+    let released = |model: &HarnessModel| info(model).and_then(|i| i.release_date.clone());
+    let family = |model: &HarnessModel| info(model).and_then(|i| i.family.clone());
+    let listed = || curated.models.iter().filter(|m| lists(reported, m));
+    if curated.runs_any_model == Some(true) {
+        let Some(newest) = listed().filter_map(released).max() else { return Vec::new() };
+        return curated
+            .models
+            .iter()
+            .filter(|m| !lists(reported, m) && released(m).is_some_and(|date| date > newest))
+            .map(|m| m.id.clone())
+            .collect();
     }
-    let released = |model: &HarnessModel| {
-        model
-            .reference
-            .as_deref()
-            .and_then(|r| catalog.models.get(r))
-            .and_then(|i| i.release_date.clone())
-    };
-    let newest = curated.models.iter().filter(|m| lists(reported, m)).filter_map(released).max();
-    let Some(newest) = newest else { return Vec::new() };
+    let mut newest = std::collections::BTreeMap::<String, String>::new();
+    for model in listed() {
+        if let (Some(family), Some(date)) = (family(model), released(model)) {
+            let slot = newest.entry(family).or_default();
+            if date > *slot {
+                *slot = date;
+            }
+        }
+    }
     curated
         .models
         .iter()
-        .filter(|m| !lists(reported, m) && released(m).is_some_and(|date| date > newest))
+        .filter(|m| m.status.as_deref() != Some("deprecated") && !lists(reported, m))
+        .filter(|m| {
+            let (Some(family), Some(date)) = (family(m), released(m)) else { return false };
+            newest.get(&family).is_some_and(|newest| date > *newest)
+        })
         .map(|m| m.id.clone())
         .collect()
 }
@@ -251,11 +277,11 @@ impl Hub {
     /// Every configured harness with the models known for it, and the catalog in use.
     pub async fn models_catalog(&self) -> Value {
         let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let efforts = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
+        let health = self.health.rows();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
             // A terminal harness has no models and no ACP session.
@@ -271,7 +297,7 @@ impl Hub {
             let live = self.live_models_for(name).filter(|l| !l.is_empty());
             let reported: Vec<(String, String)> = match &live {
                 Some(live) => live.iter().map(|m| (m.id.clone(), m.name.clone())).collect(),
-                None => known.get(name).cloned().unwrap_or_default(),
+                None => self.model_lists.acp(name).unwrap_or_default(),
             };
             for entry in
                 offered(&profile.kind, curated.as_ref(), &catalog, &reported, live.is_some())
@@ -280,6 +306,29 @@ impl Hub {
             }
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
+            }
+            // A live model (including an explicit profile declaration) always wins over
+            // a release note. A newer bundle alone cannot prove account access.
+            let mut added = Vec::new();
+            if live.is_some()
+                && !probe_errors.contains_key(name)
+                && profile.models.is_empty()
+                && crate::codex_app_server::is_profile_launch(&profile.argv)
+                && let Some(row) = health.iter().find(|r| r.id == *name && r.outdated)
+                && let (Some(new), Some(version)) = (&row.new_codex_models, &row.latest)
+            {
+                for (id, display) in new {
+                    if !models.iter().any(|m| {
+                        m["id"].as_str() == Some(id)
+                            || m["aliases"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(id)))
+                    }) {
+                        models.push(json!({"id": id, "name": display, "curated": false, "codexUpdateVersion": version,
+                            "unavailable": format!("Included in Codex {version}. Update Codex to check availability for this account.")}));
+                        added.push(id.clone());
+                    }
+                }
             }
             if let Some(levels) = efforts.get(name) {
                 add_variant_efforts(&mut models, levels);
@@ -298,6 +347,7 @@ impl Hub {
                         .map(|c| newer_than_menu(c, &catalog, &reported))
                         .unwrap_or_default();
                     top.retain(|id| !menu.contains(id));
+                    top.extend(added);
                     top.extend(menu);
                     top.retain(|id| !disabled.contains(id));
                     Some(top)
