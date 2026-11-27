@@ -197,6 +197,12 @@ public struct TerminalLoadStalledPanel: View {
         }
     }
 
+    /// Whether the panel draws Retry: for every state it can show in, words or none. A
+    /// connecting or reattaching page says nothing (``notice(_:linkStatus:)`` is nil) yet
+    /// still has its way out (Leo, 2026-11-27: "Hidden-error changes keep Retry tested.";
+    /// held by `HiddenWordsKeepRetryTests`).
+    static func offersRetry(_ state: TerminalConnectionState) -> Bool { !state.isAttached }
+
     public var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "terminal")
@@ -213,8 +219,10 @@ public struct TerminalLoadStalledPanel: View {
                     .foregroundStyle(Color.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
-            RetryButton(action: retry)
-                .accessibilityIdentifier("terminal.connecting.retry")
+            if Self.offersRetry(state) {
+                RetryButton(action: retry)
+                    .accessibilityIdentifier("terminal.connecting.retry")
+            }
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

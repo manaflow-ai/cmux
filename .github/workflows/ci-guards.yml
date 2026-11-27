@@ -3018,6 +3018,14 @@ jobs:
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
 
+      # Leo, 2026-11-27: "Hidden-error changes keep Retry tested." The terminal page's hidden-words states
+      # keep a test that a long outage shows Retry (skills/cmux-ios/SKILL.md, "Quiet-state rules keep the way out").
+      - name: Validate hidden connection words keep a Retry test
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-hidden-words-keep-retry.py --self-test
+          python3 scripts/lint-hidden-words-keep-retry.py
+
       - name: Validate no short fixed gates on Cloud and daemon slow paths
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
