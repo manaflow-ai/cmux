@@ -175,9 +175,10 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
              for step in routed.get(job, [])]
     # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
     # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    # `**` next to named inputs (tooling-tests-5's, which route it under --pr-scope) is still that whole-tree route.
     if files and docs_only_paths.docs_only(files):
         table = ci_steps.load(table or ci_steps.TABLE).steps
-        steps = [step for step in steps if table[step].inputs != ("**",)]
+        steps = [step for step in steps if "**" not in table[step].inputs]
     return steps
 
 
@@ -277,7 +278,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
         if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
-            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
+            # The tier's own reason says what gives this head the full tier (a draft marked ready, full-ci, or the
+            # land label when CI_LAND_FULL_PER_PR is on): a fixed "ready-to-land or marked ready" here sent a ready
+            # pull request looking for a run its own marking could not start.
+            why[name] = f"cheap tier: its jobs ({', '.join(config['table_jobs'])}) run only on the full tier: {tier_reason}"
             continue
         if files is None:
             start.append(name)
@@ -510,6 +514,26 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
 
 
+def ui_status(event: dict, files: list[str] | None) -> tuple[str, str]:
+    """The `cmux/ui-proof` commit status for EVENT's head (pr-router.yml posts it; its ui-proof-status job replaces a
+    `pending` one with the proof record's verdict, scripts/ci/ui_proof_verdict.py): ("", "") where the land rule does
+    not apply. `success` at once for a head that changes nothing a desktop user sees, so a ruleset can require it;
+    `pending` for a visual head until a look at that head is on the PR. Leo, 2026-11-27: "obviously for visuals
+    we'll need to do better before getting them in but you know"."""
+    if not head_tier.land_rule_applies(event):
+        return "", ""
+    if os.environ.get("CI_UI_PROOF", "").strip() == "0":
+        return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
+    try:
+        import ui_proof_verdict
+        need = "app" if files is None else ui_proof_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        need = "app"
+    if not need:
+        return "success", "Touches nothing a user sees (docs, copy, tests, CI, iOS has cmux/ios-fast)"
+    return "pending", f"Visual change ({need}): waiting for a look at this head (hot-verify.py look --record)"
+
+
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
     """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
     onto a previous head where some run was not green and the router's own run there was not green either (a green
@@ -525,13 +549,16 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
+                  ui: tuple[str, str] = ("", "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
+        out.write(f"ui_status={ui[0]}\n")
+        out.write(f"ui_status_description={ui[1]}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -566,7 +593,8 @@ def main(argv: list[str]) -> int:
         # rule's rerun is the land tier itself, on the label land pulsed, so it keeps success (else land pulses again).
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
-        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
+                      ui_status(event, files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
