@@ -2878,7 +2878,7 @@ impl<'a> Socket<'a> {
             // simultaneous open attempts (MUST-10)."
             (State::SynSent, TcpControl::Syn, None) => (),
             // ACKs in the SYN-SENT state are invalid.
-            (State::SynSent, TcpControl::None, Some(ack_number)) => {
+            (State::SynSent, TcpControl::None | TcpControl::Psh, Some(ack_number)) => {
                 // If the sequence number matches, ignore it instead of RSTing.
                 // I'm not sure why, I think it may be a workaround for broken TCP
                 // servers, or a defense against reordering. Either way, if Linux
