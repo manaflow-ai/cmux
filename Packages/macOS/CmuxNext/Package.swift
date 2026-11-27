@@ -33,7 +33,7 @@ import PackageDescription
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
-//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
+//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, the daemon's Cloud API calls, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CCmuxAppFFI (phone host model, pairing and the mobile.* compat adapter; no UI; the rules in Rust)
@@ -104,9 +104,9 @@ import PackageDescription
 //     updates as owner-bound terminal jobs: intents, receipts, outcomes; the App supplies the route glue)
 //   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
 //     out, drop reading, Quick Look and the command menu; it reads and changes no files)
-//   CmuxNextScreenshots -> Compat, Design, FileGrid, Files, Settings, Wakeups (the Screenshots pane, screenshot
-//     sources and file operations, and window capture with page and overlay compositing; the App supplies the
-//     workspace and Chromium page images)
+//   CmuxNextScreenshots -> CCmuxAppFFI, Compat, Design, FileGrid, Files, Settings, Wakeups (the Screenshots pane,
+//     screenshot sources and file operations, and window capture with page and overlay compositing; the rules are
+//     cmux-screenshots' through the app FFI; the App supplies the workspace and Chromium page images)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, cx-v9k2f, the sidebar's Priority view and its Chief item with its App Store card)
 //   CmuxNextApps -> Actions, Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -195,7 +195,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 5f93af951b575ab0de6ccd5a619aebfc428e7b4a75054c773c652c290698c7ac
+// app-ffi-pin-checksum: 3491ee0d72b80bcc67ee19fc8508772952bcc226f5fee78455ee4b37a3a73b05
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -993,6 +993,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Header-only: the Screenshots pane's C ABI (cmux-screenshots); CCmuxAppFFI links the symbols.
+        .target(name: "CCmuxScreenshots"),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
         // QuartzCore's CALayerHost, declared for a typed call (layer-hosted Chromium pages).
@@ -1714,8 +1716,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
+            // CCmuxScreenshots declares the pane's rules (cmux-screenshots), CCmuxAppFFI links them.
             // Wakeups: ScreenshotMask waits out a window's frames on a DemandTimer.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CCmuxScreenshots",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextFileGrid",
@@ -1935,6 +1940,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextRemoteViewSessions",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -2853,6 +2859,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Writes schemas/settings/settings-schema.json and docs/mdm from CmuxNextSettings alone, so
+        // scripts/cmux-next/regenerate-settings-exports.sh needs no test bundle (any test target that
+        // fails to compile used to hold every settings export back). Not linked into the app.
+        .executableTarget(
+            name: "CmuxNextSettingsExport",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextSettings",
             ],
             swiftSettings: daemonSwiftSettings
         ),
