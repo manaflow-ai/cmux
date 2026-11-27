@@ -1013,6 +1013,14 @@ export function paneSnapshotEffect({
       liveCallLine.follow(received, next);
       return;
     }
+    // A draw still pending, and this one need not draw at once: the newest owed draws once it
+    // commits, through the bypasses above from what it drew (paneSnapshotLane.ts `PendingPaneDraw`).
+    const pendingBase = drawnSnapshot.current;
+    if (pendingPaneDraw.pending && pendingBase && !drawsAtOnce(pendingBase, next)) {
+      if (acpmuxPerf.enabled) acpmuxPerf.render("record:owed");
+      pendingPaneDraw.owe(replayOwed);
+      return;
+    }
     if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
     if (acpmuxPerf.enabled && received) {
       const cause = redrawCause(received, next);
@@ -1022,14 +1030,6 @@ export function paneSnapshotEffect({
         acpmuxPerf.render(`miss:${miss}`);
         if (miss.includes("thought/")) acpmuxPerf.render(`thought:${thoughtMiss(received, next)}`);
       }
-    }
-    // A draw still pending, and this one need not draw at once: the newest owed draws once it
-    // commits, through the bypasses above from what it drew (paneSnapshotLane.ts `PendingPaneDraw`).
-    const pendingBase = drawnSnapshot.current;
-    if (pendingPaneDraw.pending && pendingBase && !drawsAtOnce(pendingBase, next)) {
-      if (acpmuxPerf.enabled) acpmuxPerf.render("record:owed");
-      pendingPaneDraw.owe(replayOwed);
-      return;
     }
     redrawPane(next, false);
   };

@@ -23,6 +23,7 @@
 import { startTransition } from "react";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { turnPhase } from "./turnPhase";
+import { holdSettle, releaseSettle } from "./paneSettle";
 
 /// The id of the last row the person wrote, scanning back from the end (a sent prompt is appended
 /// there, so this reads a few rows, not the chat).
@@ -127,7 +128,10 @@ export class PendingPaneDraw {
   /// The pane set `next` (urgent: at once, which overtakes any pending draw and what it owed).
   drew(next: AcpmuxSnapshot, urgent: boolean): void {
     this.rows = urgent ? undefined : next.rows;
-    if (urgent) this.owed = undefined;
+    if (urgent) {
+      this.owed = undefined;
+      releaseSettle(this);
+    } else holdSettle(this);
   }
   /// What runs once the pending draw commits; the newest replaces any before it.
   owe(then: () => void): void {
@@ -136,11 +140,14 @@ export class PendingPaneDraw {
   /// The pane stopped: it owes nothing.
   forget(): void {
     this.owed = undefined;
+    releaseSettle(this);
   }
   /// The pane committed `snapshot` (its layout effect).
   committed(snapshot: AcpmuxSnapshot): void {
     if (snapshot.rows !== this.rows) return;
     this.rows = undefined;
+    // The live stores' news first (paneSettle.ts), then the record the draw owed.
+    releaseSettle(this);
     const owed = this.owed;
     this.owed = undefined;
     owed?.();

@@ -12,6 +12,7 @@
 import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
+import { whenSettled } from "./paneSettle";
 
 /// The reply's raw row (the client's), how many chunks it is ahead of the row the pane drew, and
 /// that drawn row's text.
@@ -27,7 +28,9 @@ const listeners = new Set<() => void>();
 function publish(next: StreamingRow | undefined): void {
   if (current === next) return;
   current = next;
-  for (const listener of listeners) listener();
+  whenSettled("stream", () => {
+    for (const listener of listeners) listener();
+  });
 }
 
 export const streamingRow = {

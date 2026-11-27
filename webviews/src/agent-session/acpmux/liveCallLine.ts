@@ -16,10 +16,11 @@
 // older snapshot while the line is ahead of it (the fold opened, a held call let go, any row the
 // transcript draws again) asks the pane to draw the newest snapshot at once (`flush`), from the
 // layout effect, before that pass paints.
-import { useCallback, useLayoutEffect, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { LIVE_THINKING, THINKING, liveTurnShapes, sameShape, type LiveTurnShape } from "./conversation/turns";
 import { oneRowChangeFrom } from "./rowChanges";
+import { settledRead, whenSettled } from "./paneSettle";
 import { sameButRows } from "./liveToolOutput";
 import { drewUnderClosedFold, hiddenUnderFold } from "./drawnRows";
 import { isThought } from "./conversation/thoughts";
@@ -328,7 +329,9 @@ export function setLiveLine(line: AcpmuxRow): void {
   }
   entry = { from: drawn.line, to: line, seq: (seq += 1) };
   ahead = true;
-  for (const listener of listeners) listener();
+  whenSettled("call-line", () => {
+    for (const listener of listeners) listener();
+  });
 }
 
 /// Whether `a` and `b` draw the same line: the same in every value but the row's version.
@@ -357,7 +360,7 @@ const subscribe = (listener: () => void) => liveCallLineHeard.subscribe(listener
 /// only its live line, so a hidden call renders that one row.
 export function useLiveLineRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
   const listens = active && row.id === LIVE_THINKING;
-  const read = useCallback(() => (entry && entry.from === row ? entry.seq : 0), [row]);
+  const read = useMemo(() => settledRead(() => (entry && entry.from === row ? entry.seq : 0)), [row]);
   const version = useSyncExternalStore(listens ? subscribe : noSubscribe, listens ? read : zero, zero);
   useLayoutEffect(() => {
     if (listens) drewLineRow(row);

@@ -13,6 +13,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isThought } from "./conversation/thoughts";
+import { settledRead, whenSettled } from "./paneSettle";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
@@ -52,10 +53,14 @@ export const liveThought = {
       seq: (seq += 1),
       epoch,
     });
-    const set = listeners.get(id);
-    if (set) for (const listener of set) listener();
     heard += 1;
-    for (const listener of lineListeners) listener();
+    whenSettled(`thought:${id}`, () => {
+      const set = listeners.get(id);
+      if (set) for (const listener of set) listener();
+    });
+    whenSettled("thought-line", () => {
+      for (const listener of lineListeners) listener();
+    });
   },
   get: (id: string): Entry | undefined => entries.get(id),
   /// The pane is drawing a newer snapshot: a later chunk is told from that snapshot's rows.
@@ -241,10 +246,14 @@ export function useLiveThoughtRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
     (listener: () => void) => (listens ? subscribe(id, listener) : noSubscribe()),
     [listens, id],
   );
-  const read = useCallback(() => {
-    const entry = listens ? entries.get(id) : undefined;
-    return entry && entry.from === last ? entry.seq : 0;
-  }, [listens, id, last]);
+  const read = useMemo(
+    () =>
+      settledRead(() => {
+        const entry = listens ? entries.get(id) : undefined;
+        return entry && entry.from === last ? entry.seq : 0;
+      }),
+    [listens, id, last],
+  );
   const version = useSyncExternalStore(listens ? listen : noSubscribe, listens ? read : zero, zero);
   return useMemo(() => (version === 0 ? row : withLiveThought(row)), [row, version]);
 }

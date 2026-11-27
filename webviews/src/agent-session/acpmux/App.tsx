@@ -850,6 +850,7 @@ const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_CALLS: readonly string[] = [];
 let lastPaneClient: AcpmuxSnapshot | undefined;
+let lastWatched: Record<string, unknown> | undefined;
 
 /// The session's edit rows for the edited-files card, read from the rows store below the pane root:
 /// an edit card's row changes with each call after its edit (a command, a thought), and the root read
@@ -6541,6 +6542,38 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The pane's transition draw of a snapshot that has not committed yet (paneSnapshotLane.ts).
   const [pendingPaneDraw] = useState(() => new PendingPaneDraw());
   useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
+  if (acpmuxPerf.enabled) {
+    // Debug (replay bench RENDERS=1): which of the root's own reads moved on a render that kept the snapshot.
+    const watched: Record<string, unknown> = {
+      paneView,
+      allShellRuns,
+      switchView,
+      offlineVersion,
+      pages,
+      callRelease,
+      btwSnapshot,
+      subsessionNames,
+      answered,
+      rowsHaveSummary,
+      transcriptWork,
+      previewUrl,
+      foreground,
+      sinceHasNews,
+      initialChat,
+      sessionShown: sessionInfo.shown,
+      snapshotOverlay: snapshot.rows === clientSnapshot.rows,
+    };
+    const before = lastWatched;
+    lastWatched = watched;
+    if (before && before.clientSnapshot === clientSnapshot) {
+      const moved = Object.keys(watched).filter((key) => !Object.is(before[key], watched[key]));
+      acpmuxPerf.render(`pane:same-why:${moved.join("+") || "-"}`);
+    }
+    watched.clientSnapshot = clientSnapshot;
+  }
+  useLayoutEffect(() => {
+    if (acpmuxPerf.enabled) acpmuxPerf.render("pane:commit");
+  });
   const readSendAgain = useCallback((): SendPromptAgainState => {
     const current = snapshotRef.current;
     const config = sendAgainConfig.current;

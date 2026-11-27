@@ -17,6 +17,7 @@ import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { outputShapesRows } from "./conversation/toolGroups";
 import { stripAnsi } from "./conversation/toolOutputModel";
 import { oneRowChangeFrom } from "./rowChanges";
+import { settledRead, whenSettled } from "./paneSettle";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -39,8 +40,10 @@ let seq = 0;
 let epoch = 0;
 
 function notify(id: string): void {
-  const set = listeners.get(id);
-  if (set) for (const listener of set) listener();
+  whenSettled(`tool:${id}`, () => {
+    const set = listeners.get(id);
+    if (set) for (const listener of set) listener();
+  });
 }
 
 export const liveToolOutput = {
@@ -118,7 +121,7 @@ export function useLiveToolRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
   const read = useMemo(
     () =>
       ids.length
-        ? () => {
+        ? settledRead(() => {
             // An entry counts only while the row holds the output it moved on from.
             let newest = 0;
             for (const item of items!) {
@@ -126,7 +129,7 @@ export function useLiveToolRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
               if (entry && entry.drawn === item.tool!.output) newest = Math.max(newest, entry.seq);
             }
             return newest;
-          }
+          })
         : zero,
     [ids, items],
   );
