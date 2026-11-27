@@ -71,6 +71,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deadline_http  # noqa: E402
+import gh_http  # noqa: E402
 
 BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -108,7 +109,8 @@ def github_fetch(token: str, api: str = "https://api.github.com") -> Fetch:
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-ci-receipt"})
         # Each call ends by its deadline as a whole, not per socket wait (tests/test_ci_no_bare_urlopen.py).
         try:
-            status, body, headers = deadline_http.request(request, 30, follow_redirects=False)
+            # Asked again on a passing refusal (gh_http); a redirect is an answer (follow_redirects=False).
+            status, body, headers = gh_http.request(request, 30, follow_redirects=False)
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise Rejected(f"GitHub did not answer for {path}: {error}") from error
         if status < 300:
@@ -334,16 +336,70 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str,
     return {"base": receipt_base, "run_url": url, "producer": producer}
 
 
+GIT_COMPARE_DEPTH = 600  # commits of the base's history read; ~a day of feat-cmux-next merges
+GIT_COMPARE_DEADLINE_S = 60
+
+
+def _git_compare(repo: str, older: str, base: str, *, files: bool, remote: str = "") -> dict | None:
+    """The REST compare's answer for OLDER...BASE from a throwaway git fetch of BASE's recent history: status
+    "ahead" when OLDER is in it, with the changed files when FILES (a blob-less fetch, so the trees are there).
+    None when git cannot tell (no token, a fetch error, or OLDER older than the depth or off BASE's history): the
+    caller asks REST. The token goes in through git's environment config, never argv."""
+    token = os.environ.get("GH_TOKEN", "")
+    if not token or not (SHA.match(older) and SHA.match(base)):
+        return None
+    import base64  # noqa: PLC0415
+    auth = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    env = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+           "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth}", "GIT_TERMINAL_PROMPT": "0"}
+    with tempfile.TemporaryDirectory(prefix="receipt-compare-") as scratch:
+        def git(*argv: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", "-C", scratch, *argv], env=env, capture_output=True, text=True,
+                                  timeout=GIT_COMPARE_DEADLINE_S)
+        try:
+            if git("init", "-q", "--bare").returncode:
+                return None
+            fetched = git("fetch", "-q", "--no-tags", "--no-recurse-submodules", f"--depth={GIT_COMPARE_DEPTH}",
+                          "--filter=blob:none" if files else "--filter=tree:0", remote or f"https://github.com/{repo}", base)
+            if fetched.returncode or git("cat-file", "-e", f"{older}^{{commit}}").returncode:
+                return None  # not fetched, or OLDER is not within BASE's recent history
+            if git("merge-base", "--is-ancestor", older, base).returncode:
+                return None
+            if not files:
+                return {"status": "ahead", "files": []}
+            changed = git("diff", "--name-only", "--no-renames", older, base)
+            if changed.returncode:
+                return None
+            return {"status": "ahead", "files": [{"filename": name} for name in changed.stdout.splitlines() if name]}
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+
+# Swapped by tests (tests/test_ci_receipt.py), which answer compares from their fake GitHub.
+git_compare: Callable[..., dict | None] = _git_compare
+
+
 def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: str, receipt_tree: str, base: str,
-                merge_tree: str, rust_roots: list[str] | None) -> None:
+                merge_tree: str, rust_roots: list[str] | None, same_head: bool = False) -> None:
     """A receipt's merge covers this run's: the same base and merge tree, or an older base that is an ancestor of
     ours (for rust-workspaces, one whose commits since change no Rust input). Raises Rejected otherwise."""
     if receipt_base == base:
+        if not merge_tree:
+            # A merger's dispatch has no merge ref to read the tree from. The lane merged this very head commit onto
+            # this very base, which is the merge this run would test; any other head on this base cannot be told.
+            if same_head:
+                return
+            raise Rejected(f"{where} merged another head onto this run's base {base}, and this run has no merge tree "
+                           "to match (a dispatch)")
         if receipt_tree != merge_tree:
             raise Rejected(f"{where} tested merge tree {receipt_tree}, not this run's {merge_tree} (same base {base})")
     else:
-        # One page of up to 300 files: the base's commits since the receipt's base.
-        compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
+        # The base's commits since the receipt's base, read with git first: the REST compare spent the
+        # installation's budget and answered 403 on 8 of 33 land dispatches on 2026-11-27 10:02-10:52Z, each a
+        # lane receipt dropped and the gates re-run. REST stays as the fallback (one page of up to 300 files).
+        compared = git_compare(repo, receipt_base, base, files=job == "rust-workspaces")
+        if compared is None:
+            compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
         if compared.get("status") not in ("ahead", "identical"):
             raise Rejected(f"{where} merged onto base {receipt_base}, which is {compared.get('status')} of this "
                            f"run's base {base}, not an ancestor")
@@ -392,20 +448,42 @@ def lane_oidc_token(env=os.environ) -> str:
     return json.loads(body)["value"]
 
 
-def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT) -> dict:
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method="POST", headers={
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-    try:
-        status, body, _ = deadline_http.request(request, 20)
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise Rejected(f"the controller did not answer: {error}") from error
-    try:
-        answer = json.loads(body or b"{}")
-    except ValueError:
-        answer = {}
-    if status >= 300:
-        raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
-    return answer
+# The lookup crosses the same slow controller path as a record (see RECORD_DEADLINE_S): on 2026-11-27 10:1xZ six of
+# 33 dispatched land runs gave up at the old 20 s ("reading the answer: past the 20 s deadline") and re-ran the fast
+# gates, which costs minutes; waiting up to a minute for a receipt is cheaper than the gates it saves.
+LOOKUP_DEADLINE_S = 60
+
+
+# A restarting controller answers 503 "the controller is starting; retry" for a few seconds: on 2026-11-27
+# 11:5xZ four of 30 dispatched land runs took that first answer as no receipt and re-ran the fast gates. A lookup
+# only reads, so a 5xx or 429 is asked again, backing off, within the one LOOKUP_DEADLINE_S budget.
+LOOKUP_RETRY_PAUSE_S = 2.0
+LOOKUP_RETRY_PAUSE_MAX_S = 10.0
+
+
+def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT, *,
+             clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict:
+    data = json.dumps(payload).encode()
+    end = clock() + LOOKUP_DEADLINE_S
+    pause = LOOKUP_RETRY_PAUSE_S
+    while True:
+        request = urllib.request.Request(endpoint, data=data, method="POST", headers={
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+        try:
+            status, body, _ = deadline_http.request(request, max(end - clock(), 1.0))
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise Rejected(f"the controller did not answer: {error}") from error
+        try:
+            answer = json.loads(body or b"{}")
+        except ValueError:
+            answer = {}
+        if (status >= 500 or status == 429) and end - clock() > pause:
+            sleep(pause)
+            pause = min(pause * 2, LOOKUP_RETRY_PAUSE_MAX_S)
+            continue
+        if status >= 300:
+            raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
+        return answer
 
 
 LaneAsk = Callable[[dict], dict]
@@ -415,14 +493,34 @@ def lane_receipt(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace) -> dict |
     """The newest lane receipt that covers this run's merge, as verify's found dict (plus shadow), or None with
     the reasons in args.lane_reasons."""
     reasons = args.lane_reasons
-    answer = ask({"op": "lookup", "check": args.job, "head_tree": args.head_tree})
+    found = lane_receipt_for(ask, fetch, args, args.head_tree, same_head_ok=True)
+    parent_tree = getattr(args, "lane_parent_tree", None) or ""
+    if parent_tree and not SHA.match(parent_tree):
+        reasons.append(f"unresolved lane parent tree ({parent_tree!r})")
+        parent_tree = ""
+    if found is None and parent_tree and parent_tree != args.head_tree:
+        # The head is GitHub's update-branch merge of the base into the lane (resolve reads it: two parents,
+        # committed by GitHub as "Merge branch '<base>' into lane/..."). No lane ever tested that commit's tree; its
+        # first parent is the lane's own commit, whose receipt on an older base is the same change on an ancestor
+        # base, which base_covers already holds any receipt to. 4 of the 11 land dispatches with no lane receipt on
+        # 2026-11-27 11:35-12:45Z were such merges (cmux#60368, #60412, #58138, #57644).
+        # On the receipt's own base, it covers only when its tested merge is this head's very tree.
+        found = lane_receipt_for(ask, fetch, args, parent_tree, same_head_ok=False, merge_tree=args.head_tree)
+    return found
+
+
+def lane_receipt_for(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace, head_tree: str, *,
+                     same_head_ok: bool, merge_tree: str | None = None) -> dict | None:
+    """The newest lane receipt for HEAD_TREE that covers this run's merge, or None with the reasons appended."""
+    reasons = args.lane_reasons
+    answer = ask({"op": "lookup", "check": args.job, "head_tree": head_tree})
     for receipt in answer.get("receipts") or []:
         producer = str(receipt.get("producer") or "")
         where = f"lane receipt by {producer or 'unknown'}"
         try:
-            if receipt.get("check") != args.job or receipt.get("head_tree") != args.head_tree \
+            if receipt.get("check") != args.job or receipt.get("head_tree") != head_tree \
                     or receipt.get("repo") != args.repo or not producer.startswith("lane:"):
-                raise Rejected(f"{where} is not a {args.job} receipt of {args.repo} for head tree {args.head_tree}")
+                raise Rejected(f"{where} is not a {args.job} receipt of {args.repo} for head tree {head_tree}")
             if receipt.get("command_sha256") != hashlib.sha256(CANONICAL[args.job].encode()).hexdigest():
                 raise Rejected(f"{where} ran another command than {CANONICAL[args.job]!r}")
             receipt_base, receipt_tree = receipt.get("base"), receipt.get("tree")
@@ -430,7 +528,9 @@ def lane_receipt(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace) -> dict |
                     and SHA.match(receipt_tree)):
                 raise Rejected(f"{where} names no base and merge tree")
             base_covers(fetch, repo=args.repo, job=args.job, where=where, receipt_base=receipt_base,
-                        receipt_tree=receipt_tree, base=args.base, merge_tree=args.merge_tree, rust_roots=None)
+                        receipt_tree=receipt_tree, base=args.base,
+                        merge_tree=args.merge_tree if merge_tree is None else merge_tree, rust_roots=None,
+                        same_head=same_head_ok and receipt.get("head") == args.head)
         except Rejected as error:
             reasons.append(str(error))
             continue
@@ -459,7 +559,9 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None, lane_ask_fn: La
     if not runs and not pr and not lane:
         out["reason"] = f"no CI-Receipt: {args.job} line in the pull request body"
         return out
-    for value in (args.head, args.base, args.head_tree, args.merge_tree):
+    # A dispatch (the merger's land-time run, 78 of 100 fast-gates runs on 2026-11-26) has no merge ref: it passes
+    # an empty merge tree, which base_covers accepts only for a receipt on an older base.
+    for value in (args.head, args.base, args.head_tree, *((args.merge_tree,) if args.merge_tree else ())):
         if not SHA.match(value or ""):
             out["reason"] = f"unresolved head, base or tree ({value!r})"
             return out
@@ -555,10 +657,12 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     sys.path.insert(0, str(repo / "scripts" / "ci"))
     import cmux_next_fast_gates as gates  # noqa: PLC0415
 
-    ref = "refs/ci-receipt/base"
+    # Per worktree, and --refmap= so fetch skips the shared refs/remotes/origin/* too: lanes on one VM share refs, and
+    # concurrent fetches into one race ("cannot lock ref").
+    ref = "refs/worktree/ci-receipt/base"
     shallow = git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
     depth = [f"--depth={gates.FETCH_DEPTH}", gates.DEEPEN_FILTER] if shallow else []
-    git(repo, "fetch", "--no-tags", "--quiet", *depth, remote, f"+refs/heads/{BRANCH}:{ref}")
+    git(repo, "fetch", "--no-tags", "--quiet", "--refmap=", *depth, remote, f"+refs/heads/{BRANCH}:{ref}")
     base = git(repo, "rev-parse", ref).stdout.strip()
     # The tested commit's own history is cut at depth 2 too: deepen both sides until they meet.
     gates.deepen(repo, remote, [f"+refs/heads/{BRANCH}:{ref}", head], head, base)
@@ -568,6 +672,13 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     if merged.returncode != 0:
         raise SystemExit(f"ci-receipt: {head} does not merge cleanly into {BRANCH} ({base}); merge {BRANCH} into the "
                          f"branch and push: {merged.stdout.strip()} {merged.stderr.strip()}")
+    # A head already in the base (an empty commit's parent, which tested_head takes for fast-checks' snapshot) leaves
+    # `merge --no-ff` "Already up to date" with no merge commit, and fast-gates then refuses the checkout. GitHub's
+    # merge ref is still a two-parent merge with the base's tree: make that one.
+    if git(into, "rev-parse", "HEAD").stdout.strip() == base:
+        merge = git(into, *MERGE_IDENTITY, "commit-tree", f"{base}^{{tree}}", "-p", base, "-p", head,
+                    "-m", f"Merge {head} into {BRANCH}").stdout.strip()
+        git(into, "checkout", "--quiet", "--detach", merge)
     return base
 
 
@@ -618,24 +729,70 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
     return 0
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them, ~1 GB each). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    import shutil
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
-    # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
-    # neither tested nor named, so refuse it rather than claim a tree the edit is not in.
+    # The receipt names a commit's tree, and the merge is made from that commit in a worktree of its own
+    # (merge_worktree): a tracked edit not in the commit is neither tested nor named, so the receipt is true of the
+    # commit that is pushed. Refusing a dirty checkout here cost 4 of 78 lane pushes their receipt on one lane VM
+    # (2026-11-27, ~/.cache/wt-push/receipts), each a land run re-running the gates for a commit that had passed.
     dirty = git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip()
     if dirty:
-        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); commit them first")
-        return 2
+        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); they are not "
+            "tested: the receipt covers the commit")
     head = tested_head(repo)
     started = time.monotonic()
+    sweep_dead_holders("ci-receipt-")
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
+        (Path(scratch) / ".owner-pid").write_text(str(os.getpid()))
         work = Path(scratch) / "merge"
+        noted = lambda reason, base="": lane_records(args) and record_miss(  # noqa: E731
+            args.job, head=head, head_tree=git(repo, "rev-parse", f"{head}^{{tree}}").stdout.strip(), base=base,
+            reason=reason)
         try:
-            base = merge_worktree(repo, args.remote, head, work)
+            try:
+                base = merge_worktree(repo, args.remote, head, work)
+            except SystemExit as conflict:
+                noted(f"the head does not merge cleanly into {BRANCH}: {str(conflict)[:200]}")
+                raise
             tree = git(work, "rev-parse", "HEAD^{tree}").stdout.strip()
             log(f"ci-receipt: {args.job} on {head} merged into {BRANCH} {base} (tree {tree})")
             runner = produce_fast_gates if args.job == "fast-gates" else produce_rust_workspaces
             code = runner(work, head, base)
+            if code != 0:
+                noted(f"the {args.job} were red on the lane (exit {code})", base)
         finally:
             git(repo, "worktree", "remove", "--force", str(work), check=False)
     if code != 0:
@@ -661,36 +818,170 @@ def lane_records(args: argparse.Namespace, env=os.environ) -> bool:
     return args.job in LANE_JOBS and getattr(args, "record", True) and env.get("GITHUB_ACTIONS") != "true"
 
 
+# The controller answers a lane VM over a relayed tailnet path: 16 s on 2026-11-27 09:1xZ, and from 08:16Z to 08:40Z
+# that day every record from one lane VM ran past the old 20 s deadline, so 7 green passes in a row were thrown away
+# and their PRs' land dispatches re-ran the gates ("no lane receipt for this head tree"). A pass is worth recording
+# until its PR lands, not only at push time: a record with no answer (or a 5xx) is spooled and a detached `flush`
+# retries it every RETRY_EVERY_S for SPOOL_FOR_S. A refusal (4xx) is final and not retried.
+RECORD_DEADLINE_S = 60
+RETRY_EVERY_S = 120
+SPOOL_FOR_S = 3600
+
+
+def spool_dir(env=os.environ) -> Path:
+    return Path(env.get("CI_RECEIPT_SPOOL") or Path.home() / ".cache" / "ci-receipt" / "spool")
+
+
+def controller_post(target: str, data: bytes, deadline: float = RECORD_DEADLINE_S) -> tuple[int, bytes]:
+    request = urllib.request.Request(target, data=data, method="POST", headers={
+        "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+    status, body, _ = deadline_http.request(request, deadline)
+    return status, body
+
+
+# A lane push with no receipt used to leave no trace anyone else could read: of 17 land dispatches with "no lane
+# receipt for this head tree" on 2026-11-27, 2 (cmux#61440, #61590) could not be explained from any host. The lane
+# now tells the controller why (POST /v1/ci/lane-receipt/miss, cmuxterm-hq build-fleet/cmd/controller/lane_receipt.go)
+# and the PR's lookup prints it. Best effort: a short deadline, no spool, and an older controller's 404 is fine.
+MISS_DEADLINE_S = 5
+
+
+def record_miss(job: str, *, head: str, head_tree: str, base: str, reason: str,
+                post: Callable[[str, bytes], tuple[int, bytes]] | None = None, env=os.environ) -> None:
+    """Tell the controller this lane's push of HEAD_TREE has no receipt, and why. Never raises."""
+    if job not in LANE_JOBS or env.get("GITHUB_ACTIONS") == "true" or not SHA.match(head_tree or ""):
+        return
+    controller = (env.get("CMUX_CI_CONTROLLER") or LANE_CONTROLLER).rstrip("/")
+    payload = {"repo": env.get("CI_RECEIPT_REPO", "manaflow-ai/cmux"), "check": job,
+               "head": head if SHA.match(head or "") else "", "head_tree": head_tree,
+               "base": base if SHA.match(base or "") else "", "reason": reason[:300],
+               "session": env.get("ACPMUX_SESSION_NAME") or env.get("CMUX_AGENT_NAME") or ""}
+    send = post or (lambda url, data: controller_post(url, data, MISS_DEADLINE_S))
+    try:
+        status, body = send(f"{controller}/v1/ci/lane-receipt/miss", json.dumps(payload).encode())
+    except Exception as error:  # noqa: BLE001  (best effort: nothing about a note may fail the push)
+        log(f"ci-receipt: could not tell the controller why there is no receipt ({error})")
+        return
+    if status >= 300:
+        log(f"ci-receipt: the controller took no note of why there is no receipt ({status}: {body[:200]!r})")
+        return
+    log(f"ci-receipt: told the controller why head tree {head_tree} has no lane receipt: {reason[:120]}")
+
+
+def miss(args: argparse.Namespace) -> int:
+    """`miss JOB --reason R [--head SHA]`: what wt push runs when the gates gave no verdict (a timeout, a gate this
+    host cannot run). Exit 0 always."""
+    repo = Path.cwd()
+    head = git(repo, "rev-parse", args.head or "HEAD", check=False).stdout.strip()
+    head_tree = git(repo, "rev-parse", f"{head}^{{tree}}", check=False).stdout.strip() if head else ""
+    record_miss(args.job, head=head, head_tree=head_tree, base="", reason=args.reason)
+    return 0
+
+
+def post_receipt(url: str, payload: dict, post: Callable[[str, bytes], tuple[int, bytes]]) -> tuple[str, str]:
+    """("recorded", producer), ("refused", why) or ("retry", why)."""
+    try:
+        status, body = post(url, json.dumps(payload).encode())
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        return "retry", f"the controller did not answer ({error})"
+    if status >= 500:
+        return "retry", f"the controller answered {status}: {body[:300]!r}"
+    if status >= 300:
+        return "refused", f"the controller refused the lane receipt ({status}: {body[:300]!r})"
+    try:
+        producer = (json.loads(body or b"{}").get("receipt") or {}).get("producer", "?")
+    except ValueError:
+        producer = "?"
+    return "recorded", producer
+
+
+def spawn_flush(env=os.environ) -> None:
+    """A detached `flush` (its own session, so the push that ran produce does not wait on it or kill it)."""
+    with (spool_dir(env) / "flush.log").open("a") as out:  # what each retry did, for a later read
+        subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "flush"], stdin=subprocess.DEVNULL,
+                         stdout=out, stderr=out, start_new_session=True, env=dict(env))
+
+
 def record_lane(job: str, *, head: str, head_tree: str, base: str, merge_tree: str, seconds: float,
-                post: Callable[[str, bytes], tuple[int, bytes]] | None = None, env=os.environ) -> int:
+                post: Callable[[str, bytes], tuple[int, bytes]] | None = None, env=os.environ,
+                spawn: Callable[[], None] | None = None) -> int:
     """POST the pass to the controller's /v1/ci/lane-receipt. The controller names the producer (the tailnet node)
-    and signs it. A refusal or no answer is no receipt (exit 0: the pass stands and the PR's gates simply run)."""
+    and signs it. No answer spools it for a detached retry; a refusal is no receipt. Exit 0 either way: the pass
+    stands and, until a receipt is recorded, the PR's gates simply run."""
     controller = (env.get("CMUX_CI_CONTROLLER") or LANE_CONTROLLER).rstrip("/")
     payload = {"repo": env.get("CI_RECEIPT_REPO", "manaflow-ai/cmux"), "check": job, "head": head,
                "head_tree": head_tree, "base": base, "merge_tree": merge_tree, "command": CANONICAL[job], "exit": 0,
                "log_sha256": "", "seconds": seconds,
                "session": env.get("ACPMUX_SESSION_NAME") or env.get("CMUX_AGENT_NAME") or ""}
     url = f"{controller}/v1/ci/lane-receipt"
-    if post is None:
-        def post(target: str, data: bytes) -> tuple[int, bytes]:
-            request = urllib.request.Request(target, data=data, method="POST", headers={
-                "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-            status, body, _ = deadline_http.request(request, 20)
-            return status, body
-    try:
-        status, body = post(url, json.dumps(payload).encode())
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        log(f"ci-receipt: passed, but the controller did not answer ({error}); no lane receipt, the PR's gates run")
+    outcome, detail = post_receipt(url, payload, post or controller_post)
+    if outcome == "retry":
+        folder = spool_dir(env)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            entry = folder / f"{job}-{head_tree}-{base[:12]}.json"
+            tmp = entry.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"url": url, "payload": payload, "until": time.time() + SPOOL_FOR_S}))
+            tmp.replace(entry)
+            (spawn or (lambda: spawn_flush(env)))()
+        except OSError as error:
+            log(f"ci-receipt: passed, but {detail} and the spool is unwritable ({error}); no lane receipt, the PR's "
+                "gates run")
+            return 0
+        log(f"ci-receipt: passed, but {detail}; spooled ({entry}), retried every {RETRY_EVERY_S} s for "
+            f"{SPOOL_FOR_S} s by a detached `ci_receipt.py flush`")
         return 0
-    if status >= 300:
-        log(f"ci-receipt: passed, but the controller refused the lane receipt ({status}: {body[:300]!r}); the PR's "
-            "gates run")
+    if outcome == "refused":
+        log(f"ci-receipt: passed, but {detail}; the PR's gates run")
+        record_miss(job, head=head, head_tree=head_tree, base=base, reason=f"green, but {detail}"[:300],
+                    post=post, env=env)
         return 0
-    producer = (json.loads(body or b"{}").get("receipt") or {}).get("producer", "?")
     print(f"ci-receipt: passed and recorded: lane receipt for head tree {head_tree} on base {base[:12]} by "
-          f"{producer}. Push this tree (any commit with it): the PR's fast gates take the receipt instead of "
+          f"{detail}. Push this tree (any commit with it): the PR's fast gates take the receipt instead of "
           "re-running.", flush=True)
     return 0
+
+
+def flush(env=os.environ, post: Callable[[str, bytes], tuple[int, bytes]] | None = None,
+          sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.time,
+          once: bool = False) -> int:
+    """Retry every spooled record until each is recorded, refused or past its `until`. One flusher at a time
+    (an flock on the spool); a second exits at once, the first picks up the new entry on its next round."""
+    import fcntl  # noqa: PLC0415  (POSIX: lanes are Linux)
+    folder = spool_dir(env)
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / ".lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0
+        while True:
+            entries = sorted(folder.glob("*.json"))
+            for entry in entries:
+                try:
+                    item = json.loads(entry.read_text())
+                    url, payload, until = item["url"], item["payload"], float(item["until"])
+                except (OSError, ValueError, KeyError, TypeError):
+                    entry.unlink(missing_ok=True)
+                    continue
+                outcome, detail = post_receipt(url, payload, post or controller_post)
+                if outcome == "recorded":
+                    log(f"ci-receipt: spooled lane receipt for head tree {payload.get('head_tree')} recorded by {detail}")
+                elif outcome == "refused":
+                    log(f"ci-receipt: spooled lane receipt for head tree {payload.get('head_tree')}: {detail}")
+                elif now() < until:
+                    continue
+                else:
+                    log(f"ci-receipt: gave up on the spooled lane receipt for head tree {payload.get('head_tree')} "
+                        f"({detail})")
+                    record_miss(str(payload.get("check")), head=str(payload.get("head")),
+                                head_tree=str(payload.get("head_tree")), base=str(payload.get("base")),
+                                reason=f"green, but the record went unanswered for {SPOOL_FOR_S} s ({detail})"[:300],
+                                post=post, env=env)
+                entry.unlink(missing_ok=True)
+            if once or not any(folder.glob("*.json")):
+                return 0
+            sleep(RETRY_EVERY_S)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -716,8 +1007,20 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--output", type=Path)
     check.add_argument("--lane", action="store_true", help="also ask the controller for a lane receipt of this head "
                        "tree (needs id-token: write)")
+    check.add_argument("--lane-parent-tree", dest="lane_parent_tree", default="",
+                       help="with --lane: the lane commit's tree under a GitHub update-branch merge head, asked for when "
+                       "the head tree has no lane receipt")
     check.add_argument("--workspaces", type=Path, help=".github/rust-workspaces.toml (rust-workspaces, from the base)")
+    note = sub.add_parser("miss", help="tell the controller why this head has no lane receipt (wt push runs it)")
+    note.add_argument("job", choices=JOBS)
+    note.add_argument("--reason", required=True)
+    note.add_argument("--head", default="")
+    sub.add_parser("flush", help="retry the lane receipts the controller did not answer for (spawned by produce)")
     args = parser.parse_args(argv)
+    if args.mode == "flush":
+        return flush()
+    if args.mode == "miss":
+        return miss(args)
     if args.mode == "produce":
         return produce(args)
     result = verify(args)

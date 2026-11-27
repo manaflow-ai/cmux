@@ -1,5 +1,6 @@
-//! Auto-update (cx-ny85): per harness, off by default. A check that finds an
-//! opted-in harness outdated runs its own updater (the row's update plan, as a
+//! Auto-update (cx-ny85): per harness, on by default (Leo, 2026-11-20: "auto
+//! update for ppl"), so people get new agent CLIs, and the models they bring,
+//! without updating by hand. A check that finds a harness outdated runs its own updater (the row's update plan, as a
 //! program and its arguments, never through a shell), then the daemon checks
 //! again. Turning it on runs one at once. A run that leaves the same version
 //! and newest version is not repeated until one of them changes or auto-update
@@ -7,8 +8,10 @@
 //! runs on its own: the person runs it from Settings > Agents. Sessions already
 //! running keep their process; new ones start the new version.
 //!
-//! The choice is a list of harness ids in `<acpmux home>/harness-auto-update.json`,
-//! set with `_acpmux/harness/health {autoUpdate: {id, on}}`.
+//! The choice is the harnesses the person turned off, `{"off": [ids]}` in
+//! `<acpmux home>/harness-auto-update.json`, set with
+//! `_acpmux/harness/health {autoUpdate: {id, on}}`. The older file, a list of the
+//! ids turned on, recorded no choice to keep one off, so it reads as none off.
 //!
 //! Update Everything (cx-1mbnu, `_acpmux/harness/update`) runs the same
 //! updaters on request (`run_updates`), whatever the choice, under the same
@@ -51,10 +54,25 @@ impl AutoUpdateResult {
     }
 }
 
-fn read(path: Option<&Path>) -> BTreeSet<String> {
+/// The saved choice: the harnesses turned off.
+#[derive(Serialize, Deserialize, Default)]
+struct Choice {
+    #[serde(default)]
+    off: BTreeSet<String>,
+}
+
+/// The harnesses the person turned auto-update off for. A missing, unreadable
+/// or older (a list of ids turned on) file turns none off.
+fn read_off(path: Option<&Path>) -> BTreeSet<String> {
     path.and_then(|p| std::fs::read(p).ok())
-        .and_then(|b| serde_json::from_slice::<BTreeSet<String>>(&b).ok())
+        .and_then(|b| serde_json::from_slice::<Choice>(&b).ok())
+        .map(|c| c.off)
         .unwrap_or_default()
+}
+
+/// Whether auto-update is on for harness `id`: wherever it is available, unless turned off.
+fn is_on(path: Option<&Path>, id: &str) -> bool {
+    path.is_some() && !read_off(path).contains(id)
 }
 
 /// The updater cmux may run for an outdated row, if any: a plan that needs
@@ -130,13 +148,13 @@ impl HealthService {
         // Held to the end: one change to the file at a time.
         let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner);
         let path = settings.auto_update.clone().ok_or("auto-update is not available here")?;
-        let mut ids = read(Some(&path));
+        let mut off = read_off(Some(&path));
         if on {
-            ids.insert(id.to_owned());
+            off.remove(id);
         } else {
-            ids.remove(id);
+            off.insert(id.to_owned());
         }
-        let body = serde_json::to_vec_pretty(&ids).map_err(|e| e.to_string())?;
+        let body = serde_json::to_vec_pretty(&Choice { off }).map_err(|e| e.to_string())?;
         // Owner-only whatever the umask, through a new temporary file each time.
         crate::config::write_atomic(&path, &body)
             .map_err(|e| format!("auto-update not saved: {e:#}"))?;
@@ -155,15 +173,16 @@ impl HealthService {
 
     /// Marks each row's auto-update choice and what auto-update last did for it.
     pub(super) fn mark_auto(&self, rows: &mut [HarnessHealth], settings: &Settings) {
-        let ids = read(settings.auto_update.as_deref());
+        let path = settings.auto_update.as_deref();
+        let off = read_off(path);
         let ran = self.ran.lock().unwrap_or_else(PoisonError::into_inner);
         for row in rows {
-            row.auto_update = ids.contains(&row.id);
+            row.auto_update = path.is_some() && !off.contains(&row.id);
             row.last_auto_update = ran.get(&row.id).cloned();
         }
     }
 
-    /// Runs the updater of every opted-in, outdated harness the last check found
+    /// Runs the updater of every outdated harness with auto-update on the last check found
     /// (one at a time, each command once, and not again for the same versions),
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
@@ -185,7 +204,7 @@ impl HealthService {
                 .get(&row.id)
                 .is_some_and(|r| r.ran_for(&row));
             // Turned off since the rows were read, or already tried for these versions.
-            if tried || !read(path.as_deref()).contains(&row.id) {
+            if tried || !is_on(path.as_deref(), &row.id) {
                 continue;
             }
             let Some(argv) = runnable(&row) else { continue };
@@ -194,7 +213,7 @@ impl HealthService {
                 None => {
                     let program = self.turns.program(&row.program);
                     let guard = program.install().await;
-                    if !read(path.as_deref()).contains(&row.id) {
+                    if !is_on(path.as_deref(), &row.id) {
                         continue;
                     }
                     let (ok, detail) = run_updater(&argv, row.channel, guard).await;
@@ -319,10 +338,27 @@ mod owner_only_tests {
             home: dir.clone(),
             ..Default::default()
         });
-        service.set_auto_update("codex", true).unwrap();
+        service.set_auto_update("codex", false).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert!(std::fs::read_to_string(&path).unwrap().contains("codex"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On by default (Leo: "auto update for ppl"): no file, or the older list of ids turned on,
+    /// leaves every harness on; only an id the person turned off is off; and nowhere to keep the
+    /// choice (no acpmux home) is off.
+    #[test]
+    fn auto_update_is_on_unless_turned_off() {
+        let dir = std::env::temp_dir().join(format!("acpmux-auto-on-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("harness-auto-update.json");
+        assert!(is_on(Some(&path), "codex"), "no file");
+        std::fs::write(&path, r#"["claude"]"#).unwrap();
+        assert!(is_on(Some(&path), "codex") && is_on(Some(&path), "claude"), "older file");
+        std::fs::write(&path, r#"{"off": ["codex"]}"#).unwrap();
+        assert!(!is_on(Some(&path), "codex") && is_on(Some(&path), "claude"), "turned off");
+        assert!(!is_on(None, "claude"), "not available");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

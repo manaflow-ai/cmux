@@ -18,7 +18,8 @@ A row's holder is whoever is live now, not the name written here: at push time t
 (`scripts/cmux-next/owner_live.py`) resolves the cell to a live acpmux session, in order: one tagged
 `owns=` the row's workstream (take one with `acpmux session tag SESSION owns=PL-acpmux`; a comma
 list holds several), a live lane the row's role names (`lanes tabs-*,tab-strip*`: comma-separated fnmatch globs on
-the lane's short name, the most recently active one), the session the cell names, that session's successor (`succeeds=`,
+the lane's short name, anchored at its start, so `*sidebar*` holds `sidebar-owner` and never `rex-sidebar-look`; the most
+recently active one), the session the cell names, that session's successor (`succeeds=`,
 `failover=`), the Performance Lead (`owns=PL-lead`), then the coordinator. The owner line names that
 session and the hook sends it the push (a stand-in lead or coordinator hears once a day per area and
 is asked to give it a holder). Before 2026-11-22 a push into the acpmux crate named "PL-acpmux

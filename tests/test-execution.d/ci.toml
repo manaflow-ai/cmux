@@ -6,6 +6,10 @@ path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_acpmux_tests_full_ci_own_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
 lane = "linux-guard"
 
@@ -19,6 +23,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_affected_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_affected_set_replay.py"
 lane = "linux-guard"
 
 [[test]]
@@ -45,13 +53,16 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_app_input_digest.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_input_digest.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_apt_ensure.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_apt_ensure.py yourself after changing the workflow steps it reads."
+
+[[test]]
+path = "tests/test_ci_apt_skips_baked_packages.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_base_red_skip.py"
@@ -71,9 +82,17 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). #30360 registered it as linux-guard without a ci-guards.yml step, which reddened tooling-tests on every pull request. Checks .github/runners.json linux_sizes against every Blacksmith Linux runs-on; run python3 tests/test_ci_blacksmith_linux_sizes.py yourself after changing a runs-on label or that table (about 3 s, no build)."
 
 [[test]]
+path = "tests/test_ci_branch_history_fetch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_build_class.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks scripts/ci/build_class.py's blaze/app/no-compile classes against the real Cargo manifests and cmux.xcodeproj; run python3 tests/test_ci_build_class.py yourself after changing it or cmux_next_route.py's app_ffi_inputs or scheme_phase_rust_inputs (under a second, no build)."
+
+[[test]]
+path = "tests/test_ci_bun_cache_warm.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
@@ -85,6 +104,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cargo_affected.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cargo_delta_matched_entry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -117,6 +140,11 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_clippy_keep_going.py"
+lane = "manual"
+reason = "A detector, not a gate, on purpose: no workflow step runs it, so a pull request that adds a seventh multi-crate clippy gate without --keep-going is not made red for it (a new guard is Leo's call, not a lane's). Run python3 tests/test_ci_clippy_keep_going.py yourself after changing a cargo clippy command in .github/workflows or scripts/ci/cmux-tui-rust-check.sh (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
 lane = "linux-guard"
 
@@ -130,13 +158,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cmux_next_compile_revert.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_next_compile_revert.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cmux_next_compile_status.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_next_compile_status.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cmux_tui_channel_heal.py"
@@ -158,6 +184,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Runs the Mac build steps of cmux-tui-build-package.yml (Build cmux-tui (native), Build cmux-tui (macOS cross)) with a fake cargo and a fake sysctl hw.memsize and checks their cargo builds run at once through cargo-groups.sh at 40 GiB or more and one after another below, and every binary and .dSYM lands in target/<triple>/release; run python3 tests/test_ci_cmux_tui_mac_legs_cargo_groups.py yourself after changing those steps, scripts/ci/cmux-tui-mac-cargo-builds.sh or cargo-groups.sh (about 17 s, no build)."
 
 [[test]]
+path = "tests/test_ci_cmux_tui_mac_warm_target.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cmux_tui_tree_targets.py"
 lane = "linux-guard"
 
@@ -167,8 +197,15 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_compile_test_plan.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_compile_test_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_daemon_pr_crate_steps.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_daemon_pr_member_steps.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_delta_since_green.py"
@@ -214,11 +251,6 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
 
 [[test]]
-path = "tests/test_ci_workflow_start_lint.py"
-lane = "manual"
-reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
-
-[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -237,6 +269,10 @@ path = "tests/test_ci_fast_checks_rust_nextest.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_tier_current_base.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
@@ -252,11 +288,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fixit_handoff.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fixit_handoff.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fleet_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_fast_tier_result.py"
 lane = "linux-guard"
 
 [[test]]
@@ -305,9 +344,12 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_gh_attestation_has_gh.py yourself after changing the workflow or script it reads."
 
 [[test]]
+path = "tests/test_ci_gh_http.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ghosttykit_digest_routing.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_git_seed.py"
@@ -320,8 +362,7 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_github_token_budget.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_github_token_budget.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_attribution.py"
@@ -350,6 +391,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
 
 [[test]]
+path = "tests/test_ci_guards_skip_when_checkout_failed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_head_fail_fast.py"
 lane = "linux-guard"
 
@@ -366,9 +411,20 @@ path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hot_verify_dispatch_wait_capped.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_gallery_read_capped.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_mirror_seed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hourly_full_tier.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_hourly_full_tier.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_base_bisect.py"
@@ -406,6 +462,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Proves each job-list fixture goes red with the pre-fix secret, job-header and environment reader and green with tests/workflow_jobs.py; run python3 tests/test_ci_job_list_fixture_mutations.py yourself after changing workflow_jobs.py or a job-list guard (no build)."
 
 [[test]]
+path = "tests/test_ci_job_own_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
@@ -419,6 +479,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Every runs-on label, runners.json member and FLEET_LINUX / runner-label constant maps to a provider in tests/ci_label_providers.json, and no provider of ours runs on Blacksmith (the 2026-11-19 cmux-fleet-linux-x64 outage). Run python3 tests/test_ci_label_has_provider.py yourself after adding a runner label or moving a provider (about 7 s, no build)."
 
 [[test]]
+path = "tests/test_ci_land_tier_status_post.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_late_placement.py"
 lane = "linux-guard"
 
@@ -429,8 +493,7 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_light_jobs_pool_mirror_checkout.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_linux_compile_runners.py"
@@ -479,6 +542,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_media_module_cache_stamp.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_live_base_jobs.py"
 lane = "linux-guard"
 
 [[test]]
@@ -637,11 +704,20 @@ path = "tests/test_ci_package_result_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_page_strings_step.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_page_strings_step.py"
+
+[[test]]
 path = "tests/test_ci_paid_queue_pin.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_path_route_skips_on_failure.py"
 lane = "linux-guard"
 
 [[test]]
@@ -657,6 +733,11 @@ path = "tests/test_ci_piece_swap.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_checkout_reuse_sparse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs; run python3 tests/test_ci_pool_checkout_reuse_sparse.py yourself after changing a 'Pool mirror: Checkout' step's reuse or sparse lines."
+
+[[test]]
 path = "tests/test_ci_pool_make_room.py"
 lane = "manual"
 reason = "Checks that scripts/ci/pool-make-room.sh runs the pool start hook's beside-a-job prune in line with the step's need (fake hook), does nothing with room or off the pool, never fails the step, and that the darwin cross leg of cmux-tui-build-package.yml runs it before the R2 restore and the build; run python3 tests/test_ci_pool_make_room.py yourself after changing those (about 1 s, no build)."
@@ -666,7 +747,15 @@ path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_tokens.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_post_merge_batch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_post_merge_call_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
@@ -675,6 +764,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_guards_list_files_from_git.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -694,6 +787,10 @@ path = "tests/test_ci_pr_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_router_handoff_queue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
@@ -710,6 +807,10 @@ path = "tests/test_ci_pr_trigger_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_private_names_fetch_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_process_tree_reaping.py"
 lane = "linux-guard"
 
@@ -719,6 +820,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_proof_record.py"
 lane = "linux-guard"
 
 [[test]]
@@ -843,13 +948,12 @@ path = "tests/test_ci_rescue_actors.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_reusable_job_name_lookups.py"
+path = "tests/test_ci_reset_needs_repo.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_base_coalesce_record_dir.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_coalesce_record_dir.py"
+path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_reusable_workflow_permissions.py"
@@ -874,8 +978,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_router_checkout_mirror.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_checkout_mirror.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_run_guards.py"
@@ -924,6 +1027,10 @@ path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_land_head.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
@@ -938,6 +1045,10 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that 
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_self_edit_sweep.py"
 lane = "linux-guard"
 
 [[test]]
@@ -958,6 +1069,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_ci_setup_bun_cache_layout.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_setup_bun_cache_layout.py yourself after changing the workflow steps it reads."
+
+[[test]]
+path = "tests/test_ci_shard1_background.py"
+lane = "manual"
+reason = "Pins scripts/ci/shard1_background.sh, which overlaps react-apps-check shard 1's independent checks (ci-web.yml); run python3 tests/test_ci_shard1_background.py yourself after changing it (about 8 s, no build)."
 
 [[test]]
 path = "tests/test_ci_shed_superseded_runs.py"
@@ -1002,13 +1118,12 @@ path = "tests/test_ci_sparse_checkout_imports.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_starved_labels.py"
+path = "tests/test_ci_spec_checks.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_page_strings_step.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_page_strings_step.py"
+path = "tests/test_ci_starved_labels.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_step_table.py"
@@ -1089,6 +1204,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
+path = "tests/test_ci_transcript_replay_report.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/transcript_replay_report.py, the per-kind summary transcript-replay-perf-report.yml writes. Run python3 tests/test_ci_transcript_replay_report.py after changing the script (seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -1098,6 +1218,22 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tui_spec_sims_post_merge.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tui_tree_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_unix_only_on_windows.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1130,14 +1266,13 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
 
 [[test]]
-path = "tests/test_ci_shard1_background.py"
-lane = "manual"
-reason = "Pins scripts/ci/shard1_background.sh, which overlaps react-apps-check shard 1's independent checks (ci-web.yml); run python3 tests/test_ci_shard1_background.py yourself after changing it (about 8 s, no build)."
-
-[[test]]
 path = "tests/test_ci_why.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
+
+[[test]]
+path = "tests/test_ci_workflow_apt_mirror_sync.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_concurrency.py"
@@ -1145,6 +1280,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_git_fetch_bounds.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1179,6 +1318,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_start_lint.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
 
 [[test]]
 path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
