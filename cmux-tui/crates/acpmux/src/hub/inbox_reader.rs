@@ -29,6 +29,8 @@
 //!   tried again, or a re-render, reads no model. A failed read is cached too, as no summary.
 //! - Off: `ACPMUX_INBOX_READER=0` in the daemon's environment. In unit tests only a chat a test
 //!   gave a summarizer ([`set_test_summarizer`]) has a reader.
+//! - Its score also decides whether a message wakes a cold chat ([`quiet`], `inbox.rs`
+//!   `inbox_review`): one it rated background or noise waits for the chat's next turn.
 
 use super::*;
 use std::collections::{HashMap, VecDeque};
@@ -183,6 +185,25 @@ pub(in crate::hub) fn parse_read(answer: &str) -> Option<Summary> {
         let line = if cut.len() < line.len() { format!("{cut}…") } else { cut };
         Some(Summary { score, line })
     })
+}
+
+/// The highest score that wakes no cold chat: 1 background, 0 noise (`inbox.rs` "Deadlines").
+pub(in crate::hub) const QUIET_SCORE: u8 = 1;
+
+/// Whether the reader rated message `prompt_id` of chat `session_id` background or noise
+/// ([`QUIET_SCORE`]). False when it read none (a short message, a blocker, a read still running
+/// or failed): such a message wakes as its class says. Takes no model call.
+pub(in crate::hub) fn quiet(session_id: &str, prompt_id: &str) -> bool {
+    if !on(session_id) || !quiet_on() {
+        return false;
+    }
+    let key = (session_id.to_owned(), prompt_id.to_owned());
+    matches!(cache().map.get(&key), Some(Entry::Done(Some(s))) if s.score <= QUIET_SCORE)
+}
+
+/// `ACPMUX_INBOX_QUIET=0` in the daemon's environment lets a rated message wake as its class says.
+fn quiet_on() -> bool {
+    !matches!(std::env::var("ACPMUX_INBOX_QUIET").as_deref(), Ok("0" | "false" | "off"))
 }
 
 /// One message to read.
