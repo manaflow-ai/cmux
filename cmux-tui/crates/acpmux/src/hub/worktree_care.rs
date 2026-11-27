@@ -27,11 +27,14 @@
 //!
 //! A session that starts again in a reclaimed worktree gets it back first
 //! (`care_restore_for`, from `cold_start`): its files, index and archived
-//! work, before the harness starts in the folder.
+//! work, before the harness starts in the folder. A folder evicted to a
+//! verified cloud copy (`cmux_worktree_care::cold`) comes back the same way
+//! (`cold_recall_for`).
 
 use super::*;
 
 pub(in crate::hub) mod revive;
+pub(in crate::hub) mod scratch;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
 /// naming the folder in its message and data. Retryable: a folder can come back (put back
@@ -521,6 +524,24 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         let meta = session.meta();
+        // A proven peer's scratch folder in the temp dir, gone with it (a reboot): made again,
+        // so a restart's continuation of its cut turn runs (`worktree_care/scratch.rs`).
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_peer_scratch(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "peer scratch folder not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {
@@ -601,7 +622,7 @@ impl Hub {
         })
         .await;
         let (kind, detail) = match restored {
-            Ok(None) => return false,
+            Ok(None) => return self.cold_recall_for(session).await,
             Ok(Some((id, Ok(restored)))) => (
                 "worktree_restored",
                 json!({"archive": id, "path": restored.path, "notes": restored.notes}),
@@ -610,6 +631,30 @@ impl Hub {
                 ("worktree_restore_failed", json!({"archive": id, "error": error}))
             }
             Err(error) => ("worktree_restore_failed", json!({"error": error.to_string()})),
+        };
+        self.append(session, "mux", kind, detail);
+        true
+    }
+
+    /// Brings back the evicted folder (`cmux_worktree_care::cold`, "optimize storage") that holds
+    /// the missing folder of `session`, from its verified cloud copy. Logged as `folder_recalled`
+    /// or `folder_recall_failed`. Whether an evicted folder held it. A few stats when none does;
+    /// nothing evicts unless a caller asks, so this is a no-op by default.
+    async fn cold_recall_for(&self, session: &Arc<Session>) -> bool {
+        let cwd = session.meta().cwd.clone();
+        let Some(records) = cmux_worktree_care::cold::default_records() else { return false };
+        let recalled = tokio::task::spawn_blocking(move || {
+            cmux_worktree_care::cold::recall_for(&cwd, &records)
+        })
+        .await;
+        let (kind, detail) = match recalled {
+            Ok(Ok(None)) => return false,
+            Ok(Ok(Some(record))) => (
+                "folder_recalled",
+                json!({"path": record.path, "bytes": record.bytes, "manifest": record.manifest_id}),
+            ),
+            Ok(Err(error)) => ("folder_recall_failed", json!({"error": error})),
+            Err(error) => ("folder_recall_failed", json!({"error": error.to_string()})),
         };
         self.append(session, "mux", kind, detail);
         true
