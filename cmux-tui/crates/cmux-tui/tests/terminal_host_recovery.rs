@@ -29,8 +29,7 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 
@@ -5470,6 +5469,9 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
+
+#[path = "terminal_host_recovery/relaunch_loss.rs"]
+mod relaunch_loss;
 
 #[path = "terminal_host_recovery/kept_restore.rs"]
 mod kept_restore;

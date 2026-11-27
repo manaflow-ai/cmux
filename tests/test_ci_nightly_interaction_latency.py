@@ -31,6 +31,8 @@ class FakeRunner:
     def __call__(self, cmd, cwd=None):
         bench, out = cmd[cmd.index("--only") + 1], cmd[cmd.index("--out") + 1]
         self.ran.append(bench)
+        self.timeouts = getattr(self, "timeouts", {})
+        self.timeouts[bench] = cmd[cmd.index("--timeout-s") + 1]
         if bench in self.fail:
             report = {"rows": [], "failed": [{"bench": bench, "why": "timed out after 105 s"}]}
         else:
@@ -56,6 +58,15 @@ class Tests(unittest.TestCase):
         for key, (bench, _words, _own) in nil.INTERACTIONS.items():
             self.assertIn(f'name: "{bench}"', suite, key)
             self.assertIn(bench, nil.TIMEOUT_S, key)
+
+    def test_each_bench_runs_with_its_own_timeout(self):
+        # The suite's timeouts fit the perf runner; the nightly's slower runner timed out three benches on every
+        # nightly from 2026-11-22, so each bench gets TIMEOUT_S as --timeout-s.
+        fake = FakeRunner()
+        planned = {"run": [{"key": "thread_rail_jump", "bench": "thread-rail-jump"}]}
+        with tempfile.TemporaryDirectory() as d:
+            nil.run(planned, d, d, runner=fake)
+        self.assertEqual(fake.timeouts, {"thread-rail-jump": str(nil.TIMEOUT_S["thread-rail-jump"])})
 
     def test_touched_by_path(self):
         hit = nil.touched(["webviews/src/sidebar/List.tsx", "README.md"])
@@ -151,6 +162,35 @@ class Tests(unittest.TestCase):
 
         self.assertIsNone(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=broken))
         self.assertFalse(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=lambda *a: False))
+
+    def test_rate_limited_read_waits_for_the_reset(self):
+        import email.message
+        import urllib.error
+
+        def limited(**headers):
+            h = email.message.Message()
+            for k, v in headers.items():
+                h[k.replace("_", "-")] = v
+            return urllib.error.HTTPError("u", 403, "Forbidden", h, None)
+
+        self.assertEqual(nil.rate_limit_wait(limited(X_RateLimit_Remaining="0", X_RateLimit_Reset="1300"), now=1000),
+                         305.0)
+        self.assertEqual(nil.rate_limit_wait(limited(Retry_After="60")), 61.0)
+        self.assertEqual(nil.rate_limit_wait(limited(X_RateLimit_Remaining="0", X_RateLimit_Reset="99999"), now=0),
+                         float(nil.RATE_LIMIT_WAIT_CAP_S))
+        self.assertIsNone(nil.rate_limit_wait(limited(X_RateLimit_Remaining="12", X_RateLimit_Reset="1300")))
+        self.assertIsNone(nil.rate_limit_wait(OSError("HTTP Error 403: Forbidden")))
+
+        calls, slept = [], []
+
+        def flaky(repo, out_dir, token):
+            calls.append(1)
+            if len(calls) < 2:
+                raise limited(Retry_After="120")
+            return True
+
+        self.assertTrue(nil.fetch_state_retrying("r", "d", "t", sleep=slept.append, fetch=flaky))
+        self.assertEqual(slept, [121.0])
 
     def test_trusted_artifact(self):
         good = {"workflow_run": {"head_branch": "nightly-next", "head_repository_id": 7}}

@@ -20,7 +20,7 @@ import Testing
                 #expect(tooltip.content.text.stringValue == sample.text)
                 #expect(tooltip.content.keycap?.label.stringValue == sample.shortcut)
                 #expect(tooltip.surface.cornerRadius == TooltipPanel.radius)
-                #expect((tooltip.surface.materialOverride == .opaque) == sample.opaque, "\(sample.name)")
+                #expect((tooltip.surface.materialOverride == .opaque) == (sample.opaque || HoverSurfaceLook.current.isSolid), "\(sample.name)")
                 // Sized as the panel sizes the same text and keys.
                 let reference = TooltipContentView()
                 reference.set(text: sample.text, shortcut: sample.shortcut)

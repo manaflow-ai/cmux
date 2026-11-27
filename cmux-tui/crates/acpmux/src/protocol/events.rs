@@ -78,6 +78,10 @@ pub struct AttachParams {
     /// False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
     /// sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
     pub attending: Option<bool>,
+    /// True: the client draws nothing of the chat while it is hidden (`visible: false`), so the
+    /// agent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends
+    /// one `_acpmux/lagged` naming the chat (`server/view.rs`); default false.
+    pub quiet_hidden: Option<bool>,
     /// Page forward from here (oldest first) when `beforeSeq` is absent.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
@@ -150,6 +154,11 @@ pub struct AttachResult {
 pub struct EventsParams {
     pub session_id: String,
     pub kinds: Option<EventKinds>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+    /// Read the transcript after this reader's New line, or their persisted readThrough cursor while away.
+    /// Without a cursor the page is empty. Incompatible with afterSeq, beforeSeq, promptIndex and turnOpener.
+    pub since_seen: Option<bool>,
     /// Records after this one; it may not lie beyond the last record.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
@@ -164,11 +173,15 @@ pub struct EventsParams {
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
     pub subagent: Option<String>,
+    /// True: answered in order, after every line already queued to this connection, as an attach
+    /// is. A pane's stall check sets it: it compares the newest record with what the stream has
+    /// delivered, so an answer ahead of the records queued before it reads a healthy stream as
+    /// stalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.
+    pub in_order: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
 pub struct EventsResult {
     pub events: Vec<SessionEvent>,
     pub has_more: bool,
@@ -180,6 +193,9 @@ pub struct EventsResult {
     /// The session the page is of (its `createdAt`): a session recreated under the same id while
     /// the page was asked is another journal (`hub/peer_snapshot.rs`).
     pub created_at: u64,
+    /// The cutover used by sinceSeen, null on a first visit. Absent from ordinary pages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -205,6 +221,9 @@ pub struct ViewParams {
     /// chat is left off, when earlier than now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen_seq: Option<u64>,
+    /// A transient cutover for recap reads while this view is visible and attended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutover_seq: Option<u64>,
     /// An author changes only that person's presence (`hub/presence.rs`), not whether the
     /// chat counts as shown.
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
@@ -252,6 +271,15 @@ pub struct MarkUnreadParams {
     pub read_through: Option<u64>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to
+/// their other replicas as `pin/<id>` (`hub/synced.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PinParams {
+    pub session_id: String,
+    pub pinned: bool,
 }
 
 /// An acknowledgement with nothing in it.

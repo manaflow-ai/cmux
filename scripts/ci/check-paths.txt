@@ -18,6 +18,9 @@
 scripts/check-*
 scripts/ci/check-*
 scripts/ci/check_*
+scripts/ci/protocol_skew_check.py
+scripts/ci/entry_logs.py
+scripts/ci/settings_catalog_keys.py
 scripts/cmux-next/check-*
 webviews/scripts/check-*
 web/scripts/check-*
@@ -46,11 +49,14 @@ scripts/ci/cmux_next_fast_gates.py
 scripts/ci/fast_gate_webviews_checks.py
 scripts/web_lint_prepush.py
 scripts/ci/crash_ratchet_compare.py
+scripts/ci/egress_new_sites.py
 scripts/cmux-next/crash_ratchet.py
 scripts/ci/defaults_guard.py
 scripts/cmux-next/prepush-gate.py
 scripts/ci/crash_class_fast_gate.py
 scripts/ci/crash-class-gate.sh
+scripts/ci/pr_owned_findings.py
+scripts/ci/settings_catalog_keys.py
 # the panic-ratchet job a dispatch runs when a baseline row went down (its baseline is above)
 .github/scripts/cmux-tui-clippy-changed.py
 .github/scripts/cmux-tui-fmt-changed.py
@@ -60,7 +66,10 @@ scripts/cmux-next/rust_panic_ratchet.py
 # the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
 # gates, so another workflow's change makes nothing stale that a dispatch could catch, and on 2026-10-21 144 of the
 # day's 1610 feat-cmux-next commits changed some workflow (with these five, 62 commits changed a check path).
-.github/workflows/ci-web.yml
+# ci-web.yml is not one: no fast gate reads it (the webviews checks are fast_gate_webviews_checks.py's CHECKS and
+# webviews/package.json, both listed above), and on 2026-11-26 it changed in 21 feat-cmux-next commits after 12:00Z
+# (its Bun cache and runner wiring), each one making every open pull request's fast gates stale for a rerun that
+# could not differ: next-autoland's passes at 23:5xZ and 00:0xZ judged only that staleness and landed nothing.
 .github/workflows/cmux-next-web.yml
 .github/workflows/cmux-next-web-lint.yml
 .github/workflows/cmux-next-guards.yml

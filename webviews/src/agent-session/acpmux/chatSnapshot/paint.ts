@@ -3,9 +3,8 @@
 // page's own code and selectors find it, under the page's own `pane.css` and `pane-copy.css` (its
 // `html`, `body` and `:root` rules rewritten for the shadow tree at build time); the live page's root is
 // clear under it until the swap
-// (live.ts). The copy takes no input: clicks, scrolls and focus go through it to the live page, and
-// typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
-// with no snapshot.
+// (live.ts). The copy itself takes no input; its prompt does: a plain field drawn over it takes clicks
+// and typing before the live composer is up, and hands what it holds to the live prompt (skeleton.ts).
 import {
   fitsDocument,
   PAGE_STYLE_ID,
@@ -20,7 +19,15 @@ import {
   shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
+  SNAPSHOT_AGENT_THEME_GLOBAL,
+  SNAPSHOT_THEME_GLOBAL,
+  CHROME_ONLY_RULE,
+  fitsChromeOnly,
+  SNAPSHOT_CHROME_ONLY_ATTRIBUTE,
 } from "./shared";
+import { copyPrompt, drawSkeleton } from "./skeleton";
+import { agentThemeColors } from "../../shared/themeVariables";
+import type { AgentSessionTheme } from "../../shared/types";
 
 /// The copy shows its final frame: what was running when it was written ends at once, as the
 /// motion-off rule ends it (WebTheme `data-cmux-motion="off"`), so nothing in it enters again.
@@ -57,6 +64,50 @@ function sheetOf(view: Window, text: string): CSSStyleSheet | undefined {
   } catch {
     return undefined;
   }
+}
+
+/// The `data-*` look attributes the host's theme apply owns on `<html>` (WebTheme.swift's document-start
+/// apply: each set when the theme has it, a decoration slot removed when the theme leaves it empty).
+const HOST_LOOK_ATTRIBUTES = new Set([
+  "data-scrollers",
+  "data-status-indicators",
+  "data-working-look",
+  "data-cmux-motion",
+  "data-glass",
+  "data-cmux-font-smoothing",
+]);
+const HOST_DECORATION_PREFIX = "data-cmux-decoration-";
+
+export function isHostLookAttribute(name: string): boolean {
+  return HOST_LOOK_ATTRIBUTES.has(name) || name.startsWith(HOST_DECORATION_PREFIX);
+}
+
+/// The theme the host gave this document before page code ran (WebTheme's document-start apply: the
+/// `--cmux-*` variables and `color-scheme` on `<html>`, and its `data-*` look attributes), over the
+/// copy's own: the copy draws in the colors the live page draws in, so the swap changes no color, and a
+/// variable this build added is there for this build's sheet. Under the theme the copy was written in
+/// the values are the same. A look attribute the copy's theme set and the live one leaves out goes too
+/// (an old theme's working look or decoration drew its borders and motion until the swap); the copy's
+/// page-state attributes, which the host never sets, stay as the copy laid out with them. `agent` is the
+/// pane theme the host serves beside the copy (shared.ts `SNAPSHOT_AGENT_THEME_GLOBAL`): the page sets
+/// its `--agent-*` colors only after its handshake, so the copy takes them from it, set or cleared as the
+/// page's own theme apply would (theme.ts), and draws the live theme's colors from its first frame.
+export function layerHostTheme(stand: HTMLElement, root: HTMLElement, agent?: unknown): void {
+  for (let index = 0; index < root.style.length; index += 1) {
+    const name = root.style.item(index);
+    if (name.startsWith("--")) stand.style.setProperty(name, root.style.getPropertyValue(name));
+  }
+  if (agent && typeof agent === "object" && !Array.isArray(agent))
+    for (const [variable, value] of agentThemeColors(agent as Partial<AgentSessionTheme>)) {
+      if (value === undefined) stand.style.removeProperty(variable);
+      else stand.style.setProperty(variable, value);
+    }
+  if (root.style.colorScheme) stand.style.colorScheme = root.style.colorScheme;
+  for (const attribute of Array.from(stand.attributes))
+    if (isHostLookAttribute(attribute.name) && !root.hasAttribute(attribute.name))
+      stand.removeAttribute(attribute.name);
+  for (const attribute of Array.from(root.attributes))
+    if (attribute.name.startsWith("data-")) stand.setAttribute(attribute.name, attribute.value);
 }
 
 function setAttributes(element: Element, attributes: SnapshotAttributes): void {
@@ -126,7 +177,8 @@ export type PaintEvents = {
 };
 
 /// Draws `snapshot` over `doc`'s live root; true when it will. Nothing when there is none, when it was
-/// written for another viewport, look or theme, or when the engine lacks what the copy needs.
+/// written in another look or theme, or when the engine lacks what the copy needs; written for another
+/// viewport, its chrome only (shared.ts `fitsChromeOnly`).
 ///
 /// The copy links the page's own sheet in its shadow root, and beside it the page's root rules
 /// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
@@ -143,11 +195,15 @@ export function paintSnapshot(
   const view = doc.defaultView;
   const live = doc.getElementById("root");
   const pageSheet = doc.getElementById(PAGE_STYLE_ID);
-  if (!view || !live || !doc.body || !snapshot || !fitsDocument(snapshot, doc)) return false;
+  if (!view || !live || !doc.body || !snapshot) return false;
+  // Written at another size in the same theme: the pane's chrome draws (the composer with its hat and
+  // pills, the header), laid out at this size; the transcript's rows do not (shared.ts `fitsChromeOnly`).
+  const chromeOnly = !fitsDocument(snapshot, doc) && fitsChromeOnly(snapshot, doc);
+  if (!chromeOnly && !fitsDocument(snapshot, doc)) return false;
   const copySheet = pageSheet instanceof view.HTMLLinkElement && pageSheet.href ? pageSheet.dataset.copy : undefined;
   if (!copySheet) return false;
   const styles = snapshot.styles.map((text) => sheetOf(view, text));
-  const still = sheetOf(view, BASE + STILL);
+  const still = sheetOf(view, BASE + STILL + (chromeOnly ? CHROME_ONLY_RULE : ""));
   if (!still || styles.some((sheet) => !sheet)) return false;
   try {
     for (const sheet of styles) rewrite(sheet!.cssRules);
@@ -173,9 +229,21 @@ export function paintSnapshot(
   shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
+  // Only under another theme: under the one it was written in, the copy's root already holds the live
+  // page's look attributes and variables as it drew, and the host's document-start ones are what the page
+  // replaces with its own once it runs. Suspected cause of the copy's trust ask drawing 4 px taller than the
+  // live one (95 against 91 in the relaunch-shift bench, where the swap never matched); the swap's report
+  // (swapDiff.ts `copyAsk`/`liveAsk`) says.
+  if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme)
+    layerHostTheme(
+      html,
+      doc.documentElement,
+      (view as unknown as Record<string, unknown>)[SNAPSHOT_AGENT_THEME_GLOBAL],
+    );
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);
+  if (chromeOnly) body.setAttribute(SNAPSHOT_CHROME_ONLY_ATTRIBUTE, "");
   // Declarative shadow roots in the markup become shadow roots (setHTMLUnsafe); without it, plain markup.
   const parse = (body as Element & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (parse) parse.call(body, snapshot.html);
@@ -204,7 +272,10 @@ export function paintSnapshot(
     host.style.removeProperty("opacity");
     live.style.opacity = "0";
     restoreScroll(body);
-    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
+    // The copy's prompt takes clicks and typing now (skeleton.ts); it never sends.
+    const prompt = copyPrompt(body);
+    if (prompt) drawSkeleton(doc, body, prompt);
+    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now(), ...(chromeOnly ? { chromeOnly: true } : {}) };
     view.performance.mark?.("cmux-chat:snapshot-paint");
     events.shown?.();
   };

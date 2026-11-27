@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.computerUse.allowForeground.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "متقدّم. يمكن للوكلاء إحضار تطبيق إلى المقدمة وتحريك مؤشرك عندما لا يقبل التطبيق الإدخال في الخلفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Napredno. Agenti smiju dovesti aplikaciju u prvi plan i pomjeriti vaš pokazivač kada ona ne prima unos u pozadini."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avanceret. Agenter må bringe en app i forgrunden og flytte din markør, når den ikke tager imod input i baggrunden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweitert. Agenten dürfen eine App in den Vordergrund holen und deinen Zeiger bewegen, wenn sie keine Eingaben im Hintergrund annimmt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avanzado. Los agentes pueden traer una app al frente y mover tu puntero cuando no acepta entrada en segundo plano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avancé. Les agents peuvent mettre une app au premier plan et déplacer votre pointeur quand elle n’accepte pas la saisie en arrière-plan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avanzato. Gli agenti possono portare un’app in primo piano e spostare il puntatore quando non accetta input in background."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "詳細設定。バックグラウンドで入力を受け付けないアプリでは、エージェントがアプリを前面に出してポインタを動かせます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្រិតខ្ពស់។ ភ្នាក់ងារអាចនាំកម្មវិធីមកខាងមុខ និងផ្លាស់ទីព្រួញរបស់អ្នក នៅពេលវាមិនទទួលការបញ្ចូលនៅផ្ទៃខាងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "고급. 앱이 백그라운드 입력을 받지 않으면 에이전트가 앱을 앞으로 가져오고 포인터를 움직일 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avansert. Agenter kan hente en app til forgrunnen og flytte pekeren når den ikke tar imot inndata i bakgrunnen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zaawansowane. Agenci mogą przenieść aplikację na pierwszy plan i poruszać wskaźnikiem, gdy nie przyjmuje ona danych w tle."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avançado. Os agentes podem trazer um app para a frente e mover seu ponteiro quando ele não aceita entrada em segundo plano."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дополнительно. Агенты могут выводить приложение на передний план и двигать указатель, если оно не принимает ввод в фоне."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขั้นสูง เอเจนต์สามารถนำแอปขึ้นมาด้านหน้าและขยับตัวชี้ของคุณเมื่อแอปไม่รับการป้อนข้อมูลเบื้องหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelişmiş. Arka planda giriş almayan bir uygulamada ajanlar uygulamayı öne getirip işaretçinizi hareket ettirebilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Додатково. Агенти можуть виводити програму на передній план і рухати вказівник, якщо вона не приймає введення у фоні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nâng cao. Tác nhân được đưa ứng dụng lên trước và di chuyển con trỏ của bạn khi ứng dụng không nhận nhập liệu ở nền."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高级。当应用不接受后台输入时，智能体可将其置于前台并移动你的指针。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進階。當 App 不接受背景輸入時，代理程式可將其帶到前景並移動你的指標。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

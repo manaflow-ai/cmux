@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { experimentSwitchOn, setExperimentSwitches } from "./switches";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { experimentSwitchOn, setExperimentSwitches, useExperimentSwitch } from "./switches";
 
 afterEach(() => setExperimentSwitches({}));
 
@@ -26,4 +28,13 @@ test("only a true value turns a switch on, and a value that is no object turns t
     expect(experimentSwitchOn("glassToolbarGroups")).toBe(false);
     setExperimentSwitches({ glassToolbarGroups: true });
   }
+});
+
+test("a server render reads a switch (renderToStaticMarkup throws on a store with no server snapshot)", () => {
+  function Probe() {
+    return createElement("i", null, useExperimentSwitch("glassToolbarGroups") ? "on" : "off");
+  }
+  expect(renderToStaticMarkup(createElement(Probe))).toBe("<i>off</i>");
+  setExperimentSwitches({ glassToolbarGroups: true });
+  expect(renderToStaticMarkup(createElement(Probe))).toBe("<i>on</i>");
 });

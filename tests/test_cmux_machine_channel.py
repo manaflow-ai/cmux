@@ -132,6 +132,40 @@ class Payload(unittest.TestCase):
             channel.main(["x", "payload", "--manifest", "m", "--binaries-dir", "b", "--commit", COMMIT,
                           "--committed-at", "1", "--download-dir", "d", "--out", "o"])
 
+    def test_the_x86_64_point_signs_x86_64_alone_and_the_full_point_completes_it(self):
+        # LINUX_X86_64_FIRST: point-machine-channel-early signs the x86_64 leg's file before the aarch64
+        # leg is done; only x86_64 artifacts are downloaded.
+        (self.built / "cmux-tui-aarch64-unknown-linux-musl").unlink()
+        (self.built / "cmux-tui-hook-aarch64-unknown-linux-musl").unlink()
+        early = self.run_payload(["--binaries-dir", str(self.built), "--machine-path",
+                                  "--target", "x86_64-unknown-linux-musl"])
+        self.assertEqual(list(early["targets"]), ["x86_64-unknown-linux-musl"])
+        for name in ("cmux-tui-aarch64-unknown-linux-musl", "cmux-tui-hook-aarch64-unknown-linux-musl"):
+            data = f"{name} bytes".encode()
+            (self.built / name).write_bytes(data)
+        full = self.run_payload(["--binaries-dir", str(self.built), "--machine-path"])
+        late = self.run_payload(["--binaries-dir", str(self.built)])  # point-machine-channel: the fat path
+        for current in (early,):
+            current = {**current, "purpose": channel.PURPOSE}
+            for new in (full, late):
+                self.assertTrue(pointer.completes({**new, "purpose": channel.PURPOSE}, current))
+        purpose = {"purpose": channel.PURPOSE}
+        # Never backwards (fewer targets), never the same set, never another commit or other bytes.
+        self.assertFalse(pointer.completes({**early, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose, "commit": "b" * 40}, {**early, **purpose}))
+        other = json.loads(json.dumps(full))
+        other["targets"]["x86_64-unknown-linux-musl"]["cmux-tui"]["sha256"] = "0" * 64
+        self.assertFalse(pointer.completes({**other, **purpose}, {**early, **purpose}))
+        # Only the Cloud machine channel's files.
+        self.assertFalse(pointer.completes({**full, "purpose": "cmux-linux-release"}, {**early, **purpose}))
+
+    def test_the_target_flag_is_cloud_machine_only(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(["--binaries-dir", str(self.built), "--purpose", "linux-release", "--channel",
+                              "feat-cmux-next", "--target", "x86_64-unknown-linux-musl"])
+        self.assertIn("--target is for the cloud-machine payload", err.getvalue())
+
 
 sys.path.insert(0, str(ROOT / "tests"))
 import test_cmux_tui_republish_same_commit as republish  # noqa: E402
@@ -666,6 +700,108 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assertEqual(self.served(self.POINTER), first)
         self.assertEqual(self.verified(self.POINTER)["sequence"], 20261109080000)
 
+    NIGHTLY = "cmux-tui/channels/linux-nightly.json"
+
+    def follow(self, commit, *, min_sequence=None, run_id="9"):
+        """cmux-linux-nightly-channel.yml: repoint the commit's published release.json at linux-nightly."""
+        release = self.r2 / f"cmux-tui/{commit}/release.json"
+        if min_sequence is None:
+            min_sequence = (self.verified(self.NIGHTLY)["sequence"] + 1) if self.served(self.NIGHTLY) else 0
+        out = self.tmp / f"nightly-{len(list(self.tmp.iterdir()))}.json"
+        made = subprocess.run([sys.executable, str(ROOT / "scripts/ci/cmux-machine-channel.py"), "repoint",
+                               "--release", str(release), "--keys", str(self.repo / KEYS_PATH), "--channel",
+                               "nightly", "--commit", commit, "--min-sequence", str(min_sequence), "--out", str(out)],
+                              text=True, capture_output=True)
+        if made.returncode != 0:
+            return made
+        return self.point(out, "--channel-only", run_id=run_id)
+
+    def test_the_nightly_channel_follows_a_published_build_and_never_rewrites_its_files(self):
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload()))
+        release, feat = self.served(self.RELEASE), self.served(self.POINTER)
+        self.assert_ok(self.follow(RELEASE_COMMIT))
+        self.assertEqual(self.served(self.RELEASE), release)
+        self.assertEqual(self.served(self.POINTER), feat)
+        nightly = self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")
+        build = self.verified(self.RELEASE, None, "cmux-linux-release", False)
+        self.assertEqual(nightly["commit"], RELEASE_COMMIT)
+        self.assertEqual(nightly["targets"], build["targets"])
+        self.assertEqual(nightly["committed_at"], build["committed_at"])
+        self.assertTrue(nightly["version"].endswith(f"{nightly['sequence']}.{RELEASE_COMMIT[:12]}"))
+        # The same commit again: kept, so no installer updates to the same build.
+        before = self.served(self.NIGHTLY)
+        result = self.follow(RELEASE_COMMIT, run_id="10")
+        self.assert_ok(result)
+        self.assertIn("names cccccccccccc already", result.stderr)
+        self.assertEqual(self.served(self.NIGHTLY), before)
+
+    def test_the_nightly_channel_moves_back_with_a_nightly_rollback_and_its_sequence_still_rises(self):
+        self.only_linux_release()
+        newer = "e" * 40
+        self.assert_ok(self.point(self.payload()))
+        self.assert_ok(self.point(self.payload(commit=newer, committed_at=COMMITTED_AT + 60), run_id="2"))
+        self.assert_ok(self.follow(newer))
+        first = self.verified(self.NIGHTLY)["sequence"]
+        self.assert_ok(self.follow(RELEASE_COMMIT, run_id="11"))
+        value = self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")
+        self.assertEqual(value["commit"], RELEASE_COMMIT)
+        self.assertGreater(value["sequence"], first)
+
+    def test_the_nightly_channel_needs_a_published_signed_build(self):
+        self.only_linux_release()
+        missing = self.follow(RELEASE_COMMIT)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIsNone(self.served(self.NIGHTLY))
+        # An unsigned release.json (a bucket writer) never gets signed for the channel.
+        path = self.r2 / self.RELEASE
+        path.parent.mkdir(parents=True)
+        path.write_bytes(self.payload().read_bytes())
+        forged = self.follow(RELEASE_COMMIT)
+        self.assertNotEqual(forged.returncode, 0)
+        self.assertIn("does not verify", forged.stderr)
+        self.assertIsNone(self.served(self.NIGHTLY))
+
+    def run_follow(self, appcast_commit, run_id="20"):
+        """scripts/ci/cmux-linux-nightly-follow.sh with the NIGHTLY appcast served from the fake R2."""
+        for name in ("cmux-linux-nightly-follow.sh", "cmux-machine-channel.py", "screen_sharing_helper_release.py"):
+            shutil.copy(ROOT / "scripts/ci" / name, self.repo / "scripts/ci/")
+        for extra in ROOT.joinpath("scripts/ci").glob("nightly_version*.py"):
+            shutil.copy(extra, self.repo / "scripts/ci/")
+        # As Sparkle writes it: a self-closed <enclosure/> before the commit.
+        item = (f'<item><title>NIGHTLY</title><enclosure url="https://files-next.cmux.com/x.dmg" length="1"/>'
+                '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">'
+                f"{appcast_commit}</cmux:sourceCommit></item>") if appcast_commit else "<item/>"
+        (self.r2 / "nightly-appcast.xml").write_text(f"<rss><channel>{item}<item>"
+                                                     f"<cmux:sourceCommit>{'0' * 40}</cmux:sourceCommit></item></channel></rss>")
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id,
+               "NIGHTLY_APPCAST": "https://files.cmux.com/nightly-appcast.xml"}
+        return subprocess.run(["bash", "scripts/ci/cmux-linux-nightly-follow.sh", str(self.tmp / f"follow-{run_id}")],
+                              cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_the_follow_script_points_linux_nightly_at_the_nightlys_first_commit(self):
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload()))
+        result = self.run_follow(RELEASE_COMMIT)
+        self.assert_ok(result)
+        self.assertEqual(self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")["commit"], RELEASE_COMMIT)
+
+    def test_the_follow_script_keeps_the_channel_without_a_signed_build_or_a_commit(self):
+        self.only_linux_release()
+        for commit, text in ((RELEASE_COMMIT, "has no signed Linux build"), (None, "names no source commit")):
+            result = self.run_follow(commit)
+            self.assert_ok(result)
+            self.assertIn(text, result.stdout)
+            self.assertIsNone(self.served(self.NIGHTLY))
+
+    def test_channel_only_is_for_a_linux_release(self):
+        self.only_linux_release()
+        result = self.point(self.payload(purpose="cmux-cloud-machine-update"), "--channel-only")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--channel-only is for a Linux release channel", result.stdout)
+
     def test_another_build_of_a_published_commit_fails_loud(self):
         self.assert_ok(self.point(self.payload()))
         first = self.served(self.RELEASE)
@@ -757,6 +893,18 @@ class MacLivePayload(unittest.TestCase):
             self.live.write_text(json.dumps({"live_from": [MAC_COMMIT, "e" * 40], "daemon_from": daemon}))
             with self.subTest(daemon=str(daemon)[:60]), self.assertRaises(SystemExit):
                 self.run_payload()
+
+    def test_the_tree_key_is_named_for_the_team_signed_set(self):
+        # A Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/, bound to these bytes by
+        # each file's unsigned_sha256; the payload's urls stay the commit's ad-hoc files every older CLI reads.
+        self.assertNotIn("tree_key", self.run_payload())
+        value = self.run_payload("--tree-key", "c" * 40)
+        self.assertEqual(value["tree_key"], "c" * 40)
+        self.assertEqual(value["targets"]["aarch64-apple-darwin"]["cmux-tui"]["url"],
+                         f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
+        for bad in ("C" * 40, "c" * 39, "nope"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                self.run_payload("--tree-key", bad)
 
     def test_refusals(self):
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
@@ -910,6 +1058,61 @@ class LinuxReleaseTree(unittest.TestCase):
             self.assertIn(message, err.getvalue())
 
 
+class CloudMachineRollback(unittest.TestCase):
+    """`rollback` (cloud-machine-channel-journey.yml machine-channel-settle): a regressed build's channel moves back to the
+    last proven build, its commit and URLs, past the regressed build's commit time, so the forward-only channel
+    and the machines' updaters take it; the regressed commit's later (fat) point then finds the channel newer."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    CHANNEL = "cmux-tui/channels/cloud-machine.json"
+
+    def build(self, commit, committed_at, key):
+        path = LinuxReleasePoint.payload(self, commit=commit, committed_at=committed_at,
+                                         purpose="cmux-cloud-machine-update")
+        value = json.loads(path.read_bytes()) | {"key": key}
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def rollback(self, proven, over):
+        out = self.tmp / f"rollback-{len(list(self.tmp.iterdir()))}.json"
+        channel.main(["cmux-machine-channel.py", "rollback", "--proven", str(proven), "--over", str(over),
+                      "--keys", str(self.repo / KEYS_PATH), "--out", str(out)])
+        return out
+
+    def test_a_regressed_build_moves_back_to_the_proven_one(self):
+        good, bad = "a" * 40, "b" * 40
+        self.assert_ok(self.point(self.build(good, COMMITTED_AT, "1" * 64)))
+        proven = self.tmp / "proven.json"
+        proven.write_bytes(self.served(self.CHANNEL))
+        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "2" * 64), run_id="2"))
+        over = self.tmp / "over.json"
+        over.write_bytes(self.served(self.CHANNEL))
+        self.assert_ok(self.point(self.rollback(proven, over), run_id="3"))
+        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+        self.assertEqual((value["commit"], value["key"], value["committed_at"]), (good, "1" * 64, COMMITTED_AT + 61))
+        self.assertEqual(value["targets"], json.loads(base64.b64decode(json.loads(proven.read_bytes())["payload"]))["targets"])
+        # The regressed commit's fat point, later in the same run, keeps the rolled-back channel.
+        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "3" * 64), run_id="4"))
+        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], good)
+        # The next push moves it forward again.
+        self.assert_ok(self.point(self.build("d" * 40, COMMITTED_AT + 120, "4" * 64), run_id="5"))
+        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], "d" * 40)
+
+    def test_rollback_refuses_the_build_it_replaces_and_an_unsigned_file(self):
+        self.assert_ok(self.point(self.build("b" * 40, COMMITTED_AT, "2" * 64)))
+        over = self.tmp / "over.json"
+        over.write_bytes(self.served(self.CHANNEL))
+        unsigned = self.tmp / "unsigned.json"
+        unsigned.write_bytes(self.build("a" * 40, COMMITTED_AT, "1" * 64).read_bytes())
+        for proven, message in ((over, "the build it would replace"), (unsigned, "does not verify")):
+            with self.subTest(message=message), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.rollback(proven, over)
+            self.assertIn(message, err.getvalue())
+
+
 class LinuxReleaseAliases(unittest.TestCase):
     """scripts/ci/cmux-linux-release-aliases.sh (mark-tree-commits) in a git repo against a fake R2: the
     window's commits that share a signed tree and have no release file get an alias; the rest are left."""
@@ -1001,6 +1204,18 @@ class MacLivePoint(LinuxReleasePoint):
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
+
+    def test_a_tree_key_is_signed_in_but_writes_no_tree_release_file(self):
+        path = self.payload()
+        value = json.loads(path.read_text())
+        value["tree_key"] = "c" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assert_ok(self.point(path))
+        self.assertEqual(self.verified(self.POINTER, "nightly-live", "cmux-mac-live-update")["tree_key"], "c" * 40)
+        self.assertIsNone(self.served(f"cmux-tui/tree/{'c' * 40}/release.json"))
+        value["tree_key"] = "C" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assertNotEqual(self.point(path, run_id="2").returncode, 0)
 
     def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
         # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.

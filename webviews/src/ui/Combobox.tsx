@@ -2,6 +2,11 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
+//
+// A list of more than COMBOBOX_VIRTUAL_AFTER rows mounts only the rows near its scroller's viewport
+// (VirtualRows), with or without pinned actions, so a picker over thousands draws and filters as one
+// over a menu's worth. Each row is a memoized ComboboxOption with stable handlers and style: a
+// caller's re-render (a highlight preview, a live update) re-renders only the rows it changed.
 import {
   useCallback,
   useEffect,
@@ -9,22 +14,34 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type CSSProperties,
   type ReactNode,
   type RefObject,
+  memo,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { measureElement, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import {
+  measureElement,
+  useVirtualizer,
+  type Virtualizer,
+  defaultRangeExtractor,
+  type Range,
+} from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import { ScrollArea } from "./ScrollArea";
+import { virtualRowStyle } from "./VirtualList";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction, popupActionByValue, popupSearchId } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
+
+/** Up to this many scrolling rows all mount (a menu's worth); past it only those near the viewport. */
+export const COMBOBOX_VIRTUAL_AFTER = 50;
+/** A row's height before one is measured, when the caller gives no `virtualRows.estimate`. */
+const ESTIMATED_ROW_PX = 28;
 
 export interface ComboboxProps {
   /** The field's text when it opens. */
@@ -49,7 +66,10 @@ export interface ComboboxProps {
   onCancel(): void;
   label: string;
   placeholder?: string;
+  readOnly?: boolean;
   inputClassName?: string;
+  /** Content alongside the field, inside the search row. */
+  inputRow?: { className: string; start: ReactNode };
   listClassName?: string;
   itemClassName?: string;
   inputRef?: React.Ref<HTMLInputElement>;
@@ -74,20 +94,23 @@ export interface ComboboxProps {
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
   /** A rich row's accessible name; its identity remains the stable suggestion string. */
-  itemLabel?(value: string): string;
+  itemLabel?(value: string): string | undefined;
   /** The committed choice, distinct from the transient keyboard highlight. */
   isItemCurrent?(value: string): boolean;
   /** Readable Tab completion for suggestions identified by an opaque key. */
   completionText?(value: string): string;
+  /** Set false when Tab should move focus to the next control. */
+  completeOnTab?: boolean;
   /** The highlighted suggestion changed; undefined when none is. `by` says whether the arrow keys
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
-  /** With `pinnedSuggestions`: only the scrolling rows near the viewport are in the DOM (TanStack
-   * Virtual over the list's own scroller), so a list of thousands (the Projects picker, Leo
-   * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
-   * frame. `estimate` is a row's height in pixels before it is measured. `sizeKey` is a string
-   * that differs whenever a row's outer size can differ without its border box changing (a section
+  /** Only the scrolling rows near the viewport are in the DOM (TanStack Virtual over the list's
+   * scroller), so a list of thousands (the Projects picker, Leo 2026-11-04: "opening the project
+   * picker lags like shit since we have so many") opens in a frame. With `pinnedSuggestions` this
+   * windows at any length; any list windows past COMBOBOX_VIRTUAL_AFTER rows without it. `estimate`
+   * is a row's height in pixels before it is measured (default 28). `sizeKey` is a string that
+   * differs whenever a row's outer size can differ without its border box changing (a section
    * heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured
    * again, and its size for one value is never reused for another. */
   virtualRows?: { estimate: number; sizeKey?(item: string): string };
@@ -115,7 +138,9 @@ export function Combobox({
   onCancel,
   label,
   placeholder,
+  readOnly,
   inputClassName,
+  inputRow,
   listClassName,
   itemClassName,
   inputRef,
@@ -130,6 +155,7 @@ export function Combobox({
   itemLabel,
   isItemCurrent,
   completionText,
+  completeOnTab = true,
   onHighlight,
   native,
   virtualRows,
@@ -282,18 +308,23 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
+  // A pinned list, or one whose caller asked for virtual rows, scrolls inside a ScrollArea; a long
+  // plain list windows inside the list itself (`virtualized` below).
+  const hasScroller = hasPinned || virtualRows !== undefined;
   const edges = useScrollEdges();
   const pinnedEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       listRef.current = node;
-      edges(hasPinned ? null : node);
+      edges(hasScroller ? null : node);
     },
-    [edges, hasPinned],
+    [edges, hasScroller],
   );
   const deliberatelyHighlighted = useRef(false);
-  const virtualized = hasPinned && virtualRows !== undefined;
   const virtualizer = useRef<Virtualizer<HTMLElement, Element> | null>(null);
+  // The row the arrows moved to stays mounted in the commit that highlights it, before the scroll
+  // that brings it into view lands, so aria-activedescendant never names a missing row.
+  const [keyboardIndex, setKeyboardIndex] = useState(-1);
   // Whether the list has opened on its current row (or the person typed first, which moves the list).
   const revealedCurrent = useRef(false);
   const changeQuery = (next: string) => {
@@ -303,6 +334,7 @@ export function Combobox({
     if (virtualized) virtualizer.current?.scrollToOffset(0);
     if (completionRef.current?.text !== next) completionRef.current = undefined;
     deliberatelyHighlighted.current = false;
+    setKeyboardIndex(-1);
     update(next);
   };
   const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
@@ -319,8 +351,14 @@ export function Combobox({
   // their position here: destinations come first in Base UI's collection.
   const scrollingCount = hasPinned
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
-    : 0;
+    : enabledSuggestions.length;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
+  const scrollingRows = hasPinned ? scrollingCount : enabledSuggestions.length;
+  // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
+  // and back must not rebuild the window (and measure its rows again) on each key.
+  const [windowing, setWindowing] = useState(false);
+  if (!windowing && scrollingRows > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
+  const virtualized = virtualRows !== undefined || windowing || scrollingRows > COMBOBOX_VIRTUAL_AFTER;
   // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
   // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
   // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
@@ -332,7 +370,7 @@ export function Combobox({
     if (index < 0) return;
     if (virtualized) {
       revealedCurrent.current = true;
-      if (index < scrollingCount) virtualizer.current?.scrollToIndex(index, { align: "center" });
+      if (index < scrollingRows) virtualizer.current?.scrollToIndex(index, { align: "center" });
       return;
     }
     const list = listRef.current;
@@ -389,7 +427,7 @@ export function Combobox({
       event.stopPropagation();
       event.preventBaseUIHandler?.();
       cancel();
-    } else if (event.key === "Tab" && !event.shiftKey && enabledSuggestions.length) {
+    } else if (event.key === "Tab" && completeOnTab && !event.shiftKey && enabledSuggestions.length) {
       const highlighted = highlightedRef.current;
       const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
       const completed = completionText?.(next) ?? next;
@@ -401,61 +439,85 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
+  // The rows' handlers are stable, so a memoized row does not re-render for a new closure; they
+  // read the latest `submit` and `isItemDisabled` when they run.
+  const latest = useRef({ submit, isItemDisabled });
+  useLayoutEffect(() => {
+    latest.current = { submit, isItemDisabled };
+  });
+  const pressStart = useCallback(() => {
+    // A new gesture cannot inherit a press whose click was cancelled outside.
+    pressActivatedRef.current = undefined;
+  }, []);
+  const press = useCallback((item: string, event: React.MouseEvent) => {
+    if (event.button !== 0) {
+      pressActivatedRef.current = undefined;
+      return;
+    }
+    if (latest.current.isItemDisabled?.(item)) return;
+    event.preventDefault();
+    pressActivatedRef.current = item;
+    latest.current.submit(item);
+  }, []);
+  const click = useCallback((item: string, event: React.MouseEvent) => {
+    // A real mouse click follows the primary press and must not submit twice. Keyboard and
+    // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
+    const pressed = pressActivatedRef.current;
+    pressActivatedRef.current = undefined;
+    if (pressed === item && event.detail > 0) return;
+    // Base UI cancels pointerdown to retain input focus. Browsers then omit the
+    // compatibility mousedown, so a primary click must also activate on its own.
+    if (event.button === 0) latest.current.submit(item);
+  }, []);
   const renderOption = (item: string, index = enabledSuggestions.indexOf(item), placed?: VirtualPlacement) => (
-    <Autocomplete.Item
+    <ComboboxOption
       key={placed?.key ?? item}
+      item={item}
       index={index}
-      value={item}
-      {...(placed
-        ? {
-            ref: placed.ref,
-            "data-index": index,
-            "aria-posinset": index + 1,
-            "aria-setsize": placed.count,
-            style: {
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              transform: `translateY(${placed.start}px)`,
-            } satisfies CSSProperties,
-          }
-        : {})}
+      measure={placed?.ref}
+      start={placed?.start}
+      setSize={placed?.count}
+      label={itemLabel?.(item)}
+      current={isItemCurrent?.(item) ?? false}
+      className={itemClassName}
+      element={hasScroller || virtualized ? "div" : "li"}
+      renderItem={renderItem}
+      onPressStart={pressStart}
+      onPress={press}
+      onClick={click}
+    />
+  );
+  const renderDisabledOption = (item: string, Tag: "div" | "li") => (
+    // Disabled options stay out of Base UI's focus and selection collection.
+    <Tag
+      key={item}
+      // A listbox option is not an HTML select option.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="option"
+      aria-disabled="true"
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
+      aria-selected="false"
+      data-disabled
       className={cx("ui-combobox-item", itemClassName)}
-      render={hasPinned ? <div /> : <li />}
-      onPointerDownCapture={() => {
-        // A new gesture cannot inherit a press whose click was cancelled outside.
-        pressActivatedRef.current = undefined;
-      }}
-      onMouseDown={(event) => {
-        if (event.button !== 0) {
-          pressActivatedRef.current = undefined;
-          return;
-        }
-        if (isItemDisabled?.(item)) return;
-        event.preventDefault();
-        pressActivatedRef.current = item;
-        submit(item);
-      }}
-      onClick={(event) => {
-        // A real mouse click follows the primary press and must not submit twice. Keyboard and
-        // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
-        const pressed = pressActivatedRef.current;
-        pressActivatedRef.current = undefined;
-        if (pressed === item && event.detail > 0) return;
-        // Base UI cancels pointerdown to retain input focus. Browsers then omit the
-        // compatibility mousedown, so a primary click must also activate on its own.
-        if (event.button === 0) submit(item);
-      }}
     >
       {renderItemContent(item)}
-    </Autocomplete.Item>
+    </Tag>
   );
+  // Keep disabled rows in display order while indexing only keyboard-selectable rows.
+  const renderUnpinnedRows = () => {
+    let enabledIndex = 0;
+    return suggestions.map((item) =>
+      isItemDisabled?.(item) ? renderDisabledOption(item, "li") : renderOption(item, enabledIndex++),
+    );
+  };
   const pinnedRows = (
     <div ref={pinnedEdges} className="ui-combobox-pinned ui-scroll-edge-fade" data-placement={pinnedPlacement}>
-      {pinnedSuggestions?.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
+      {pinnedSuggestions?.map((item) =>
+        isItemDisabled?.(item)
+          ? renderDisabledOption(item, "div")
+          : renderOption(item, enabledSuggestions.indexOf(item)),
+      )}
     </div>
   );
   const list = (
@@ -463,23 +525,24 @@ export function Combobox({
       ref={attachList}
       className={cx(
         "ui-combobox-list",
-        !hasPinned && "ui-scroll-edge-fade",
-        hasPinned ? "ui-combobox-pinned-list" : listClassName,
+        !hasScroller && "ui-scroll-edge-fade",
+        hasScroller ? "ui-combobox-pinned-list" : listClassName,
       )}
-      render={hasPinned ? <div /> : <ul />}
+      render={hasScroller || virtualized ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       {hasPinned && pinnedPlacement === "top" && pinnedRows}
-      {hasPinned ? (
+      {hasScroller ? (
         <ScrollArea fade className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
-          {virtualized && virtualRows ? (
+          {virtualized ? (
             <VirtualRows
               items={enabledSuggestions}
               count={scrollingCount}
-              estimate={virtualRows.estimate}
-              sizeKey={virtualRows.sizeKey}
+              estimate={virtualRows?.estimate ?? ESTIMATED_ROW_PX}
+              sizeKey={virtualRows?.sizeKey}
+              keep={keyboardIndex}
               virtualizerRef={virtualizer}
               render={renderOption}
             />
@@ -489,8 +552,18 @@ export function Combobox({
             </Autocomplete.Collection>
           )}
         </ScrollArea>
+      ) : virtualized ? (
+        <VirtualRows
+          items={enabledSuggestions}
+          count={enabledSuggestions.length}
+          estimate={virtualRows?.estimate ?? ESTIMATED_ROW_PX}
+          sizeKey={virtualRows?.sizeKey}
+          keep={keyboardIndex}
+          virtualizerRef={virtualizer}
+          render={renderOption}
+        />
       ) : (
-        <Autocomplete.Collection>{(item: string, index: number) => renderOption(item, index)}</Autocomplete.Collection>
+        renderUnpinnedRows()
       )}
       {hasPinned && listEnd !== undefined && (
         // Inside the listbox, between its scrolling options and its pinned ones: plain text, no role.
@@ -499,22 +572,7 @@ export function Combobox({
         </div>
       )}
       {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
-      {disabledSuggestions.map((item) => (
-        <li
-          key={item}
-          // The disabled rows stay out of Base UI's collection, but retain listbox semantics.
-          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
-          role="option"
-          aria-disabled="true"
-          aria-label={itemLabel?.(item)}
-          aria-current={isItemCurrent?.(item) ? true : undefined}
-          aria-selected="false"
-          data-disabled
-          className={cx("ui-combobox-item", itemClassName)}
-        >
-          {renderItemContent(item)}
-        </li>
-      ))}
+      {(hasScroller || virtualized) && disabledSuggestions.map((item) => renderDisabledOption(item, "div"))}
     </Autocomplete.List>
   );
   // With no pinned actions there is nothing to keep it over: it follows the list.
@@ -528,6 +586,25 @@ export function Combobox({
       </>
     );
   const nativeOnly = nativePopup.available && native !== undefined;
+  const input = (
+    <Autocomplete.Input
+      ref={attachField}
+      className={cx("ui-field", inputClassName)}
+      aria-label={label}
+      placeholder={placeholder}
+      readOnly={readOnly}
+      spellCheck={false}
+      onPointerDown={() => {
+        if (native) setNativeSessionOpen(true);
+      }}
+      onKeyDown={onKeyDown}
+      // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
+      onBlur={(event) => {
+        if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
+          cancel();
+      }}
+    />
+  );
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
@@ -541,8 +618,9 @@ export function Combobox({
       onItemHighlighted={(item, details) => {
         // A virtualized row the arrows reach may not be mounted yet: bring it into view (a pinned
         // action is never in the scroller).
-        if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingCount) {
+        if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingRows) {
           const index = details.index;
+          setKeyboardIndex(index);
           queueMicrotask(() => virtualizer.current?.scrollToIndex(index, { align: "auto" }));
         }
         highlightedRef.current = item as string | undefined;
@@ -550,22 +628,14 @@ export function Combobox({
         onHighlight?.(item as string | undefined, details.reason);
       }}
     >
-      <Autocomplete.Input
-        ref={attachField}
-        className={cx("ui-field", inputClassName)}
-        aria-label={label}
-        placeholder={placeholder}
-        spellCheck={false}
-        onPointerDown={() => {
-          if (native) setNativeSessionOpen(true);
-        }}
-        onKeyDown={onKeyDown}
-        // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
-        onBlur={(event) => {
-          if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
-            cancel();
-        }}
-      />
+      {inputRow ? (
+        <div className={inputRow.className}>
+          {inputRow.start}
+          {input}
+        </div>
+      ) : (
+        input
+      )}
       {!nativeOnly &&
         (inline ? (
           listed
@@ -575,6 +645,8 @@ export function Combobox({
               <Autocomplete.Popup
                 ref={host ? setPopup : undefined}
                 className="ui-popup ui-glass ui-combobox-popup"
+                // Its whole box is the answer to what is typed (popupSettle.ts).
+                data-popup-settle="results"
                 data-host-glass="menu"
                 data-host-glass-cover=""
               >
@@ -615,16 +687,17 @@ export function revealRow(row: HTMLElement, list: HTMLElement, framesLeft = 3): 
   scroller.scrollTop += box.top - view.top - (scroller.clientHeight - box.height) / 2;
 }
 
-/// The scrolling rows of a virtualized pinned list: only those near the scroller's viewport mount,
-/// each placed at its measured offset inside a spacer the full list's height, so the scroller, its
-/// thumb and the popover's size read as with every row mounted. The scroller is the ScrollArea's
-/// viewport around it. The first frame lays out a menu's worth of rows before the viewport is
-/// measured, so the menu never opens empty.
+/// The scrolling rows of a virtualized list: only those near the scroller's viewport mount, each
+/// placed at its measured offset inside a spacer the full list's height, so the scroller, its thumb
+/// and the popover's size read as with every row mounted. The scroller is the nearest ancestor that
+/// scrolls: a pinned list's ScrollArea viewport, the list, or the popup around it. The first frame
+/// lays out a menu's worth of rows before the viewport is measured, so the menu never opens empty.
 function VirtualRows({
   items,
   count,
   estimate,
   sizeKey,
+  keep,
   virtualizerRef,
   render,
 }: {
@@ -632,27 +705,34 @@ function VirtualRows({
   count: number;
   estimate: number;
   sizeKey?(item: string): string;
+  /** A row kept mounted wherever the list is scrolled (the keyboard's highlight); -1 for none. */
+  keep: number;
   virtualizerRef: RefObject<Virtualizer<HTMLElement, Element> | null>;
   render(item: string, index: number, placed: VirtualPlacement): ReactNode;
 }) {
   const spacer = useRef<HTMLDivElement | null>(null);
-  // With `sizeKey`, the virtualizer caches a row's size by its item and size key, so a row that
-  // gains or loses a heading is never given the size it had in the other state. Without, the
-  // library's own key (the index).
+  // The virtualizer caches a row's size by its item (with `sizeKey`, its item and size key, so a
+  // row that gains or loses a heading is never given the size it had in the other state). Keyed by
+  // index, a row that moves up when one above it leaves would take that row's size.
   const getItemKey = useCallback(
     (index: number) => virtualRowKey(items[index] ?? String(index), sizeKey),
     [items, sizeKey],
   );
+  const scroller = useRef<HTMLElement | null>(null);
   // Rows not yet mounted are sized as the first one measured (the theme's row height and interface
   // scale), so the list's height, and where its end scrolls to, hold as rows mount.
   const [rowHeight, setRowHeight] = useState<number | undefined>(undefined);
+  const measured = useRef(false);
   const virtualizer = useVirtualizer<HTMLElement, Element>({
     count,
-    getScrollElement: () => spacer.current?.closest<HTMLElement>(".ui-combobox-viewport") ?? null,
+    getScrollElement: () => {
+      if (!scroller.current?.isConnected) scroller.current = spacer.current ? scrollingAncestor(spacer.current) : null;
+      return scroller.current;
+    },
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
-    getItemKey: sizeKey ? getItemKey : undefined,
+    getItemKey,
     // A row's slot is its border box plus its vertical margins: a row is placed at its slot's start
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache
@@ -661,26 +741,44 @@ function VirtualRows({
       // A row that mounts again (scrolled back, or the menu reopened) has no resize entry: its slot is the one
       // measured here before, margins and all. The library's own answer is its border box alone, which would
       // let a row with a heading in its margin cover the next row (#46018).
-      const cached = entry ? undefined : instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
+      const cached = entry
+        ? undefined
+        : instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
       return virtualRowSlot(cached, () => {
         const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-        return virtualRowSize(measureElement(element, entry, instance), style?.marginTop ?? "", style?.marginBottom ?? "");
+        return virtualRowSize(
+          measureElement(element, entry, instance),
+          style?.marginTop ?? "",
+          style?.marginBottom ?? "",
+        );
       });
+    },
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      if (keep >= 0 && keep < count && !indexes.includes(keep)) {
+        indexes.push(keep);
+        indexes.sort((a, b) => a - b);
+      }
+      return indexes;
     },
   });
   virtualizerRef.current = virtualizer;
   useLayoutEffect(() => {
     if (rowHeight !== undefined) virtualizer.measure();
   }, [rowHeight, virtualizer]);
+  // Stable while mounted, so learning the row height does not re-render every row.
   const measure = useCallback(
     (node: Element | null) => {
-      if (node && rowHeight === undefined) {
+      if (node && !measured.current) {
         const height = node.getBoundingClientRect().height;
-        if (height > 0) setRowHeight(height);
+        if (height > 0) {
+          measured.current = true;
+          setRowHeight(height);
+        }
       }
       virtualizer.measureElement(node);
     },
-    [rowHeight, virtualizer],
+    [virtualizer],
   );
   // A DOM with no layout (jsdom, in tests) has no viewport to measure, nor a resize to wait for:
   // list every row, as an unvirtualized list would; nothing is painted there to cost a frame.
@@ -725,6 +823,79 @@ export function virtualRowSize(borderBox: number, marginTop: string, marginBotto
   const px = (value: number) => (Number.isFinite(value) ? value : 0);
   return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
 }
+
+/// The nearest ancestor of `node` that scrolls vertically (a pinned list's ScrollArea viewport
+/// first, since it is the innermost), or the document's scroller.
+function scrollingAncestor(node: HTMLElement): HTMLElement | null {
+  const viewport = node.closest<HTMLElement>(".ui-combobox-viewport");
+  if (viewport) return viewport;
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") return parent;
+  }
+  return node.ownerDocument.scrollingElement as HTMLElement | null;
+}
+
+interface ComboboxOptionProps {
+  item: string;
+  index: number;
+  /** Set for a virtualized row: its measuring ref, offset and the list's length. */
+  measure?: (node: Element | null) => void;
+  start?: number;
+  setSize?: number;
+  label?: string;
+  current: boolean;
+  className?: string;
+  element: "div" | "li";
+  renderItem?(value: string): ReactNode;
+  onPressStart(): void;
+  onPress(item: string, event: React.MouseEvent): void;
+  onClick(item: string, event: React.MouseEvent): void;
+}
+
+/// One suggestion row: memoized, so it renders again only when its own props change (Base UI marks
+/// the highlighted row itself, through its store).
+const ComboboxOption = memo(function ComboboxOption({
+  item,
+  index,
+  measure,
+  start,
+  setSize,
+  label,
+  current,
+  className,
+  element,
+  renderItem,
+  onPressStart,
+  onPress,
+  onClick,
+}: ComboboxOptionProps) {
+  const placed = start !== undefined;
+  return (
+    <Autocomplete.Item
+      index={index}
+      value={item}
+      {...(placed
+        ? {
+            ref: measure,
+            "data-index": index,
+            "aria-posinset": index + 1,
+            "aria-setsize": setSize,
+            style: virtualRowStyle(start, undefined),
+          }
+        : {})}
+      aria-label={label}
+      aria-current={current ? true : undefined}
+      className={cx("ui-combobox-item", className)}
+      render={element === "div" ? <div /> : <li />}
+      onPointerDownCapture={onPressStart}
+      onMouseDown={(event) => onPress(item, event)}
+      onClick={(event) => onClick(item, event)}
+    >
+      {renderItem ? renderItem(item) : item}
+    </Autocomplete.Item>
+  );
+});
 
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.
 const noLayout = () => typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");

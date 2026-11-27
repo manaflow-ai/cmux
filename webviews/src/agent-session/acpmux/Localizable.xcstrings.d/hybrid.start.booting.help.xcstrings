@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.start.booting.help" : {
+      "comment" : "Agent pane, the three-state cloud control by the composer (hybrid start): tooltip while the chat runs on this Mac and its Cloud machine starts",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل الدردشة على هذا الـ Mac بينما يبدأ جهازها السحابي، وتنتقل إليه عند توقفها التالي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chat radi na ovom Macu dok se njegova Cloud mašina pokreće, a premješta se na nju pri sljedećoj pauzi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chatten kører på denne Mac, mens dens Cloud-maskine starter, og flytter derhen ved næste pause."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Chat läuft auf diesem Mac, während seine Cloud-Maschine startet, und zieht bei der nächsten Pause dorthin um."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The chat runs on this Mac while its Cloud machine starts, and moves there at its next pause."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El chat se ejecuta en este Mac mientras arranca su máquina de Cloud, y se mueve allí en su próxima pausa."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le chat tourne sur ce Mac pendant que sa machine Cloud démarre, et y passe à sa prochaine pause."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La chat gira su questo Mac mentre la sua macchina Cloud si avvia, e ci si sposta alla prossima pausa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloudマシンの起動中はこのMacでチャットが動き、次の区切りでそちらへ移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកដំណើរការលើ Mac នេះ ខណៈម៉ាស៊ីន Cloud របស់វាកំពុងចាប់ផ្តើម ហើយផ្លាស់ទៅទីនោះនៅពេលឈប់បន្ទាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 머신이 시작되는 동안 채팅은 이 Mac에서 실행되며, 다음 멈춤 지점에서 그곳으로 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chatten kjører på denne Macen mens Cloud-maskinen starter, og flytter dit ved neste pause."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czat działa na tym Macu, gdy uruchamia się jego maszyna Cloud, i przenosi się na nią przy następnej przerwie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O chat roda neste Mac enquanto sua máquina do Cloud inicia, e passa para ela na próxima pausa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чат работает на этом Mac, пока запускается его машина в Cloud, и переходит туда на следующей паузе."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชทจะทำงานบน Mac เครื่องนี้ระหว่างที่เครื่อง Cloud กำลังเริ่ม แล้วย้ายไปที่นั่นเมื่อหยุดครั้งถัดไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbet, Cloud makinesi başlarken bu Mac’te çalışır ve bir sonraki durakta oraya taşınır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чат працює на цьому Mac, поки запускається його машина в Cloud, і переходить туди на наступній паузі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện chạy trên máy Mac này trong khi máy Cloud khởi động, rồi chuyển sang đó ở lần dừng tiếp theo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 机器启动期间，聊天在这台 Mac 上运行，并在下一次停顿时移过去。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 機器啟動期間，聊天在這台 Mac 上執行，並在下一次停頓時移過去。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

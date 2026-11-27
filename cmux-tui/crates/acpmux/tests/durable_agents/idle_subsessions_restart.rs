@@ -310,8 +310,12 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_update_ends_idle_subsessions_on_the_old_binary_and_starts_none() {
     let n = 5;
-    let mut daemon =
-        Daemon::with_env("idlestale", "approve-all", &[("ACPMUX_SPARE_HARNESS", "0"), NO_PROBE]);
+    // Ended after a short quiet period (`hub/idle.rs` `quiet_respawn`), not the 30 s default.
+    let mut daemon = Daemon::with_env(
+        "idlestale",
+        "approve-all",
+        &[("ACPMUX_SPARE_HARNESS", "0"), NO_PROBE, ("ACPMUX_TEST_QUIET_RESPAWN_MS", "300")],
+    );
     daemon.sigterm();
     let spawn_log = daemon.home.join("spawns");
     std::fs::write(
@@ -350,6 +354,10 @@ async fn an_update_ends_idle_subsessions_on_the_old_binary_and_starts_none() {
     std::fs::rename(&installed, daemon.home.join("app").join("acpmux.old")).unwrap();
     std::fs::copy(daemon_env::bin(), &installed).unwrap();
     daemon.start();
+    // Adopted first (after the ready line): no live agent before then proves nothing ended.
+    for id in &ids {
+        daemon.wait_event(id, "host_adopted", |e| e["kind"] == "host_adopted");
+    }
     let mut rpc = daemon.rpc().await;
     until("the idle agents on the replaced binary kept running", async || {
         live_agents(&mut rpc).await == 0

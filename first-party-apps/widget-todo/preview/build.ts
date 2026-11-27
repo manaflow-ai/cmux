@@ -11,11 +11,12 @@ import { renderScene, SAMPLE, type Size } from "./scenes.ts"
 
 const FEW = Object.fromEntries(Object.entries(SAMPLE).filter(([key]) => ["item:a", "item:b", "item:c"].includes(key)))
 
-export const VARIANTS: Record<string, { size: Size; seed: Record<string, unknown>; expandDone?: boolean }> = {
+export const VARIANTS: Record<string, { size: Size; seed: Record<string, unknown>; expandDone?: boolean; settings?: Record<string, unknown> }> = {
   small: { size: "small", seed: SAMPLE },
   medium: { size: "medium", seed: SAMPLE },
   large: { size: "large", seed: SAMPLE },
   "large-completed-open": { size: "large", seed: SAMPLE, expandDone: true },
+  "large-orange": { size: "large", seed: SAMPLE, expandDone: true, settings: { title: "Groceries", color: "orange" } },
   "medium-few": { size: "medium", seed: FEW },
   "small-empty": { size: "small", seed: {} },
   "medium-empty": { size: "medium", seed: {} },
@@ -26,7 +27,7 @@ export async function buildScenes(): Promise<string> {
   const source = await pack(join(import.meta.dir, ".."))
   const entries: string[] = []
   for (const [name, v] of Object.entries(VARIANTS)) {
-    const ops = (await renderScene(source, v.size, v.seed, { expandDone: v.expandDone })).map((op) => `   ${JSON.stringify(op)}`).join(",\n")
+    const ops = (await renderScene(source, v.size, v.seed, { expandDone: v.expandDone, settings: v.settings })).map((op) => `   ${JSON.stringify(op)}`).join(",\n")
     entries.push(` ${JSON.stringify(name)}: {\n  "size": ${JSON.stringify(v.size)},\n  "ops": [\n${ops}\n  ]\n }`)
   }
   // One op per line: a diff of a design change reads as the nodes it touched.

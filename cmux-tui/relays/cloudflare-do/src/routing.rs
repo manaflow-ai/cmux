@@ -2,6 +2,7 @@ use cmux_remote_protocol::{RelayPermission, RelayRole, RelayTicketClaims};
 use worker::{Date, Env, Method, Request, Response, Result};
 
 use crate::auth::{DEFAULT_TICKET_ISSUER, MAX_TICKET_BYTES, verify_ticket_claims};
+use crate::placement::{REGION_HEADER, hint_of, is_region};
 use crate::wire::{valid_circuit_id, valid_opaque_identifier, websocket_upgrade};
 
 const MAX_SLOT_ID_BYTES: usize = 128;
@@ -48,19 +49,43 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
         _ => return Response::error("Not found", 404),
     };
 
-    if !authorized_at_edge(&request, &env, admission)? {
+    let Some(claims) = authorized_at_edge(&request, &env, admission)? else {
         return Response::error("Unauthorized", 401);
-    }
+    };
 
     match admission {
         AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
+            // The caller's place (the viewer's on a connect, the daemon's on a control socket) goes to the
+            // slot beside the request, never from the caller: what it sent is dropped.
+            // The runtime's request is immutable (`headers_mut` on it is an error, a 500 on every Register and
+            // Connect: cmux#54175 on staging 11-25 22:06Z); the slot gets a mutable copy.
+            let caller = hint_of(&request);
+            let mut request = request.clone_mut()?;
+            let headers = request.headers_mut()?;
+            headers.delete(REGION_HEADER)?;
+            if let Some(region) = caller {
+                headers.set(REGION_HEADER, region)?;
+            }
             let namespace = env.durable_object("RELAY_SLOTS")?;
-            let stub = namespace.id_from_name(slot)?.get_stub()?;
+            let id = namespace.id_from_name(slot)?;
+            // A slot the daemon creates is placed near the daemon (`crate::placement`).
+            let stub = match (admission, caller) {
+                (AdmissionRoute::DaemonControl { .. }, Some(hint)) => {
+                    id.get_stub_with_location_hint(hint)?
+                }
+                _ => id.get_stub()?,
+            };
             stub.fetch_with_request(request).await
         }
         AdmissionRoute::Circuit { circuit } => {
             let namespace = env.durable_object("RELAY_CIRCUITS")?;
-            let stub = namespace.id_from_string(circuit)?.get_stub()?;
+            let id = namespace.id_from_string(circuit)?;
+            // The first end to join creates the object, near the viewer when the ticket names a region.
+            // The hint is ignored once the object exists.
+            let stub = match claims.region.as_deref().filter(|region| is_region(region)) {
+                Some(region) => id.get_stub_with_location_hint(region)?,
+                None => id.get_stub()?,
+            };
             stub.fetch_with_request(request).await
         }
     }
@@ -76,9 +101,13 @@ fn is_commit_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn authorized_at_edge(request: &Request, env: &Env, route: AdmissionRoute<'_>) -> Result<bool> {
+fn authorized_at_edge(
+    request: &Request,
+    env: &Env,
+    route: AdmissionRoute<'_>,
+) -> Result<Option<RelayTicketClaims>> {
     let Some(ticket) = bearer_ticket(request)? else {
-        return Ok(false);
+        return Ok(None);
     };
     let key = env.secret("CMUX_RELAY_TICKET_KEY")?.to_string();
     let issuer = env
@@ -87,9 +116,9 @@ fn authorized_at_edge(request: &Request, env: &Env, route: AdmissionRoute<'_>) -
         .unwrap_or_else(|_| DEFAULT_TICKET_ISSUER.into());
     let now = Date::now().as_millis() / 1_000;
     let Ok(claims) = verify_ticket_claims(&ticket, key.as_bytes(), &issuer, now) else {
-        return Ok(false);
+        return Ok(None);
     };
-    Ok(claims_authorize_route(&claims, route))
+    Ok(claims_authorize_route(&claims, route).then_some(claims))
 }
 
 fn bearer_ticket(request: &Request) -> Result<Option<String>> {
@@ -147,6 +176,7 @@ mod tests {
             issued_at_unix: 50,
             expires_at_unix: 100,
             grant: None,
+            region: None,
         }
     }
 

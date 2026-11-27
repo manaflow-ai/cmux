@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "picker.addLead" : {
+      "comment" : "Model picker, Add account sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لكل حساب تسجيل دخول خاص به، لذا يمكن للمحادثات التبديل بينها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Svaki račun ima svoju prijavu, pa razgovori mogu prelaziti između njih."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hver konto har sit eget login, så chats kan skifte mellem dem."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jedes Konto hat seine eigene Anmeldung, sodass Chats zwischen ihnen wechseln können."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each account keeps its own sign-in, so chats can switch between them."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada cuenta conserva su propio inicio de sesión, así los chats pueden cambiar entre ellas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque compte garde sa propre connexion, les discussions peuvent donc passer de l’un à l’autre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ogni account ha il proprio accesso, così le chat possono passare dall’uno all’altro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントごとにサインインが分かれているので、チャットで切り替えられます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គណនីនីមួយៗមានការចូលផ្ទាល់ខ្លួន ដូច្នេះការជជែកអាចប្ដូររវាងពួកវាបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "계정마다 로그인이 따로 있어 채팅에서 계정을 바꿀 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hver konto har sin egen innlogging, så chatter kan bytte mellom dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Każde konto ma własne logowanie, więc czaty mogą się między nimi przełączać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada conta mantém seu próprio login, para que os chats possam alternar entre elas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У каждого аккаунта свой вход, поэтому чаты могут переключаться между ними."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แต่ละบัญชีมีการลงชื่อเข้าใช้ของตัวเอง แชตจึงสลับระหว่างบัญชีได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her hesabın kendi oturumu vardır; sohbetler aralarında geçiş yapabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кожен обліковий запис має власний вхід, тож чати можуть перемикатися між ними."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mỗi tài khoản giữ phiên đăng nhập riêng, nên các cuộc trò chuyện có thể chuyển qua lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个账户各自保留登录，聊天可以在它们之间切换。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每個帳號各自保留登入，聊天可在它們之間切換。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

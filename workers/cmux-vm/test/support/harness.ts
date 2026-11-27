@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
@@ -15,6 +16,7 @@ import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedR
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import { memoryReplicaLayer, type ReplicaStore } from "../../src/replica/store.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
@@ -35,7 +37,11 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
+  readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
+  /** The paused-read replica store; an in-process one by default. */
+  readonly replicas?: Layer.Layer<ReplicaStore>;
   /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
   readonly serviceScopeGrants?: string;
   /** Operator-approved image configuration, as supplied to the Worker. */
@@ -122,7 +128,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
+  // The Worker names its provider resources with the same environment its policy runs in.
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -315,6 +322,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(VmImages, { get images() { return configuredImages; } }),
     entitlements,
     options.limits ?? memoryLimitsLayer(),
+    options.replicas ?? memoryReplicaLayer(),
     Layer.succeed(
       UpstreamClient,
       upstreamClient,
@@ -429,7 +437,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   const { handler, dispose, reap } = makeWebHandler(
     services,
-    options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
+    {
+      ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
+      ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+    },
   );
 
   return {
@@ -441,7 +452,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

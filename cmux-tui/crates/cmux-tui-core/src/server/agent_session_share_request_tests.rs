@@ -222,10 +222,7 @@ fn a_direct_invite_clears_the_accounts_request() {
     let id = made(&shares, dir);
     shares.request_access(dir, ask(&id, Some("sam@example.com"))).unwrap();
     shares
-        .invite(
-            dir,
-            &Invite { share_id: id.clone(), account: "sam@example.com".into(), role: None },
-        )
+        .invite(dir, &Invite { share_id: id, account: "sam@example.com".into(), role: None })
         .unwrap();
     assert_eq!(pending(&shares, dir), json!([]));
     let _ = std::fs::remove_dir_all(&directory);

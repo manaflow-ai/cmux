@@ -45,4 +45,13 @@ public nonisolated extension RemoteRdHello {
     /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
     /// host may then encode a smaller picture on a slow link (its resolution ladder).
     static let videoScaledCap = "video.scaled"
+    /// The cap a viewer offers when its person turned on Settings > Customize "Sharper Text from
+    /// Linux Machines" (`remoteDesktop.sharpLinuxText`, cmux-rd-core `caps::SHARP_TEXT`): a Linux
+    /// host whose encoder is OpenH264 codes the session in screen usage instead of camera usage.
+    static let sharpTextCap = "video.sharp_text"
+    /// The session clock (`caps::CLOCK`): the viewer probes the host's clock, so its
+    /// times convert to the host's.
+    static let clockCap = "clock"
+    /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
+    static let ledgerCap = "ledger"
 }

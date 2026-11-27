@@ -321,7 +321,7 @@ class Verify(unittest.TestCase):
         self.assertEqual(run(["webviews/src/App.tsx", "docs/x.md"])["valid"], "true")
         self.assertEqual(run(["webviews/src/App.tsx"])["base"], OLD_BASE)
         for changed in ("cmux-tui/crates/acpmux/src/lib.rs", "webviews/native/build.rs", "Cargo.lock",
-                        "coderouter/README.md", "ghostty-next", ".github/rust-workspaces.toml",
+                        "Native/DiffSidecar/README.md", "ghostty-next", ".github/rust-workspaces.toml",
                         "cmux-tui/rust-toolchain.toml", ".github/actions/setup-cmux-tui-rust/action.yml"):
             with self.subTest(changed=changed):
                 self.assertRejected(run(["docs/x.md", changed]), "changed Rust inputs")

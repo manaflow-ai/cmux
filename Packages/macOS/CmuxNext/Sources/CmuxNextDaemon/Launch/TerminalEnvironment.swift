@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxNextCompat
 
 /// The environment the app hands the daemon and its terminals.
 ///
@@ -11,52 +10,11 @@ public import CmuxNextCompat
 /// user's rc files for everything else.
 public struct TerminalEnvironment: Sendable {
     public static let instance = Self()
-    /// Exact keys taken from the login environment.
-    public let allowedKeys: Set<String> = [
-        "PATH", "MANPATH", "INFOPATH", "LANG", "SHELL", "TERMINFO_DIRS",
-        "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY",
-    ]
-
-    /// Key prefixes taken from the login environment. `CMUX_` keys that name
-    /// a socket, session, or placement are still dropped
-    /// (`LoginEnvironment.shared.excludedKeys`).
-    public let allowedPrefixes: [String] = ["LC_", "XDG_", "CMUX_"]
-
     /// Process identity the daemon itself needs (state root, temp dir, ssh
     /// agent). Taken from the app process, never from the login shell, and
     /// only for the daemon process: terminals inherit them from it.
-    public let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
-
-    /// The app's settings file (`CMUX_NEXT_CONFIG_FILE`), for the app's own daemon only (never a
-    /// remote one): `terminal(login:base:)` drops every `CMUX_NEXT_*` key, so without this a build
-    /// launched on its own settings file (a side instance, a tagged test build) had a daemon reading
-    /// `~/.config/cmux/cmux-next.json` and the keybindings.json beside it, not the app's.
-    public let daemonSettingsKeys: Set<String> = ["CMUX_NEXT_CONFIG_FILE"]
-
-    public func isAllowed(_ key: String) -> Bool {
-        guard !LoginEnvironment.shared.excludedKeys.contains(key), !isCredential(key) else { return false }
-        return allowedKeys.contains(key) || allowedPrefixes.contains { key.hasPrefix($0) }
-    }
-
-    /// Name parts that mark a credential. A key is allowed by prefix
-    /// (`CMUX_`, `XDG_`, `LC_`), so a secret under an allowed prefix
-    /// (`CMUX_DOGFOOD_STACK_PASSWORD`, `CMUX_SOCKET_PASSWORD`, a token or
-    /// a credentials file) would otherwise reach every program in every
-    /// terminal and the daemon's persisted terminal env.
-    let credentialParts: Set<String> = [
-        "PASSWORD", "PASSWD", "PASS", "TOKEN", "SECRET", "CREDENTIAL", "CREDENTIALS", "APIKEY", "PRIVATE",
-    ]
-
-    /// Whether `key` names a credential: one of its `_`-separated parts is
-    /// a credential word, or it ends in `_KEY` (`API_KEY`, `ACCESS_KEY`).
-    func isCredential(_ key: String) -> Bool {
-        let parts = key.uppercased().split(separator: "_").map(String.init)
-        return parts.contains(where: credentialParts.contains) || parts.last == "KEY"
-    }
-
-    /// The allowlisted subset of `environment`.
-    public func filter(_ environment: [String: String]) -> [String: String] {
-        environment.filter { isAllowed($0.key) }
+    public var daemonIdentityKeys: Set<String> {
+        Set(DaemonLaunchRules.call("daemon_identity_keys") as? [String] ?? [])
     }
 
     /// Per-terminal `env` for `new-tab`, `split`, and `create-terminal`: the
@@ -66,25 +24,17 @@ public struct TerminalEnvironment: Sendable {
     /// process only and are not forwarded, so a cmux-next started from one of
     /// its terminals does not inherit them.
     public func terminal(login: [String: String]?, base: [String: String]) -> [String: String] {
-        var env: [String: String] = filter(login ?? base)
-        for (key, value) in base where key.hasPrefix("CMUX_") && !key.hasPrefix("CMUX_NEXT_") && isAllowed(key) && env[key] == nil {
-            env[key] = value
-        }
-        if login == nil, let path = env["PATH"], !path.contains("/opt/homebrew/bin") {
-            // Best effort when capture failed: add the common tool prefixes.
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
-        }
-        return env
+        var request: [String: Any] = ["base": base]
+        if let login { request["login"] = login }
+        return DaemonLaunchRules.call("terminal_environment", request) as? [String: String] ?? [:]
     }
 
     /// Environment for the daemon process: `terminal(login:base:)` plus the
     /// app's process identity keys, plus `overrides`.
     public func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
-        var env: [String: String] = terminal(login: login, base: base)
-        for key in daemonIdentityKeys { if let value = base[key] { env[key] = value } }
-        for key in daemonSettingsKeys { if let value = base[key], !value.isEmpty { env[key] = value } }
-        for (key, value) in overrides { env[key] = value }
-        return env
+        var request: [String: Any] = ["base": base, "overrides": overrides]
+        if let login { request["login"] = login }
+        return DaemonLaunchRules.call("daemon_environment", request) as? [String: String] ?? overrides
     }
 
     /// The terminal identity the app hands every shell, modeled on what
@@ -100,7 +50,7 @@ public struct TerminalEnvironment: Sendable {
     ///   with "cannot initialize terminal type" (user, 2026-11-05). Only
     ///   `prefersGhosttyTerm` (`terminal.term` = `xterm-ghostty`) selects
     ///   it, and then only when it is installed here
-    ///   (`hasInstalledGhosttyTerminfo`). `TERMINFO` is not set. Ghostty's
+    ///   (``term(prefersGhosttyTerm:home:fs:)``). `TERMINFO` is not set. Ghostty's
     ///   features need no terminfo name: programs find the kitty keyboard
     ///   protocol, synchronized output and graphics by querying the terminal
     ///   and `TERM_PROGRAM`, and truecolor by `COLORTERM`.
@@ -113,36 +63,29 @@ public struct TerminalEnvironment: Sendable {
     ///   Ghostty features on `TERM_PROGRAM=ghostty`, so the `claude`/`codex`
     ///   wrappers start them with that name (`agent_terminal_identity`).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
-    /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
-    public static func hasInstalledGhosttyTerminfo(
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
-    ) -> Bool {
-        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
-                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
-        return roots.contains { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }
-    }
-
-    /// The `TERM` a new terminal starts with: `xterm-256color`, or `xterm-ghostty`
-    /// when the user opted in (`prefersGhosttyTerm`) and its entry is installed here.
-    public func term(
-        prefersGhosttyTerm: Bool,
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
-    ) -> String {
-        prefersGhosttyTerm && Self.hasInstalledGhosttyTerminfo(home: home, fileExists: fileExists) ? "xterm-ghostty" : "xterm-256color"
-    }
-
+    ///
+    /// `fs` (`{files, dirs, executables}`) stands in for the disk in tests; nil reads it.
     public func ghostty(
         resourcesDirectory: String?,
         version _: String?,
         prefersGhosttyTerm: Bool = false,
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
+        home: String = NSHomeDirectory(),
+        fs: [String: [String]]? = nil
     ) -> [String: String] {
-        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "cmux"]
-        env["TERM"] = term(prefersGhosttyTerm: prefersGhosttyTerm, fileExists: fileExists)
-        if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        return env
+        var request: [String: Any] = ["prefersGhosttyTerm": prefersGhosttyTerm, "home": home]
+        if let resourcesDirectory { request["resourcesDirectory"] = resourcesDirectory }
+        if let fs { request["fs"] = fs }
+        return DaemonLaunchRules.call("ghostty_identity", request) as? [String: String]
+            ?? ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "cmux"]
+    }
+
+    /// The `TERM` a new terminal starts with: `xterm-256color`, or `xterm-ghostty`
+    /// when the user opted in (`prefersGhosttyTerm`) and its entry is installed in a
+    /// terminfo directory ncurses searches by default.
+    public func term(prefersGhosttyTerm: Bool, home: String = NSHomeDirectory(), fs: [String: [String]]? = nil) -> String {
+        var request: [String: Any] = ["prefersGhosttyTerm": prefersGhosttyTerm, "home": home]
+        if let fs { request["fs"] = fs }
+        return DaemonLaunchRules.call("term", request) as? String ?? "xterm-256color"
     }
 
     /// Shared per-launch provider for terminal `env`: the login environment
@@ -157,7 +100,8 @@ public struct TerminalEnvironment: Sendable {
     /// `PATH`, `SHELL` and data dirs. `cli` (`BundledCLIEnvironment`) then
     /// puts the bundled `cmux` first on `PATH` and wraps that integration so
     /// it stays first after the user's startup files. `prefersGhosttyTerm`
-    /// (`terminal.term`, read per terminal) picks `TERM` (``term(prefersGhosttyTerm:home:fileExists:)``).
+    /// (`terminal.term`, read per terminal) picks `TERM` (``term(prefersGhosttyTerm:home:fs:)``). One `terminal_spawn_environment`
+    /// op builds it in Rust (`terminal_env::spawn`).
     public func shared(
         base: [String: String] = ProcessInfo.processInfo.environment,
         overrides: [String: String] = [:],
@@ -168,12 +112,13 @@ public struct TerminalEnvironment: Sendable {
     ) -> @Sendable () async -> [String: String] {
         {
             let captured = if let login { await login() } else { await LoginEnvironmentCache.shared.value() }
-            var env: [String: String] = terminal(login: captured, base: base)
-            for (key, value) in overrides { env[key] = value }
-            env["TERM"] = term(prefersGhosttyTerm: await prefersGhosttyTerm())
-            if let integration = await integration() { env = integration.apply(to: env) }
-            if let cli { env = cli.apply(to: env) }
-            return env
+            let prefers = await prefersGhosttyTerm()
+            var request: [String: Any] = ["base": base, "overrides": overrides, "prefersGhosttyTerm": prefers, "home": NSHomeDirectory()]
+            if let captured { request["login"] = captured }
+            if let integration = await integration() { request["integration"] = integration.json }
+            if let cli { request["cli"] = cli.json }
+            return DaemonLaunchRules.call("terminal_spawn_environment", request) as? [String: String]
+                ?? overrides
         }
     }
 }

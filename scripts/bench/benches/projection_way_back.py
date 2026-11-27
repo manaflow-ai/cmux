@@ -44,7 +44,7 @@ class ProjectionWayBack(Bench):
     def run(self, ctx: Context) -> None:
         files = int(ctx.arg("files") or 100000)
         command = (f"set -o pipefail; cd cmux-tui && CMUX_WAY_BACK_FILES={files} cargo test -p cmux-tui "
-                   "--test link_project_back -- --ignored --nocapture a_bench_of_bring_back 2>&1 | tail -40")
+                   "--test it -- --ignored --nocapture a_bench_of_bring_back 2>&1 | tail -40")
         cmd = ["cmux-ci", "test", "--setup", "rust", "--timeout", "5400", "--", "bash", "-c", command]
         if ctx.dry_run:
             print("dry run:", shlex.join(cmd))

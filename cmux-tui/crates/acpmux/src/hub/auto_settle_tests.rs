@@ -158,6 +158,12 @@ fn the_github_read_parses() {
         "https://github.com/o;rm/r/pull/5",
         "https://github.com/../r/pull/5",
         "https://github.com/o/./pull/5",
+        // Review follow-up on #46223 (F3): no segment may walk or empty the `gh api` path.
+        "https://github.com/../x/pull/1",
+        "https://github.com/o/../pull/1",
+        "https://github.com//r/pull/5",
+        "https://github.com/o//pull/5",
+        "https://github.com/o/r%2F../pull/5",
         "http://github.com/o/r/pull/5",
     ] {
         assert_eq!(pr_path(bad), None, "{bad}");

@@ -6,5 +6,6 @@
   "author": "host-switch step B lane (claude sonnet 5.5)",
   "owner": "host-switch step B lane (lane/hosts-step-b)",
   "receipt": "Review (claude subagent a64603613387590c1): SHIP at 487900e055916d77c20e942e9ac19796d8edbf47",
-  "expiry": "2026-12-23"
+  "expiry": "2026-12-23",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }

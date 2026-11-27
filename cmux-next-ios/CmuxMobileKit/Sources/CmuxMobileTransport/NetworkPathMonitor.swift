@@ -2,7 +2,9 @@
 import CmuxMobileLinkFFI
 #endif
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 /// What the device's network did, reduced to what matters to a live link.
 public enum NetworkPathEvent: Equatable, Sendable {
@@ -40,8 +42,23 @@ public struct NetworkPathFilter: Sendable {
         guard started, wasDown || previous != signature else { return nil }
         return .changed(signature)
     }
+
+    /// The route out, the only thing a roam follows: the preferred interface (`availableInterfaces`
+    /// is in order of preference) and the default route's gateways, sorted. A new Wi-Fi network
+    /// keeps `en0` but changes the gateway; Wi-Fi to cellular changes the interface.
+    ///
+    /// Interfaces after the first are not the route: a USB link to the Mac (devicectl's CoreDevice
+    /// tunnel on a phone plugged in), a dormant cellular context or a VPN's `utun` come and go
+    /// under a healthy Wi-Fi. They were in the signature, so each one read as a new network and
+    /// roamed every link: 183 roams in 20 minutes on a phone at a desk, each moving the WireGuard
+    /// path from direct to none and back, kicking presence and re-asking the service for the Macs
+    /// (a153, 2026-11-25).
+    public static func signature(interfaces: [String], gateways: [String]) -> String {
+        "\(interfaces.first ?? "") via \(gateways.sorted().joined(separator: ","))"
+    }
 }
 
+#if canImport(Network)
 /// Watches the device's network with `NWPathMonitor`.
 public final class NetworkPathMonitor: @unchecked Sendable {
     public let events: AsyncStream<NetworkPathEvent>
@@ -56,6 +73,10 @@ public final class NetworkPathMonitor: @unchecked Sendable {
             #if canImport(CmuxMobileLinkFFI)
             // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
             setCellularPath(cellular: path.usesInterfaceType(.cellular))
+            // The key-to-paint histogram's network tag (Rust `key_paint`).
+            setNetworkKind(kind: path.usesInterfaceType(.cellular) ? "lte"
+                : path.usesInterfaceType(.wifi) ? "wifi"
+                : path.usesInterfaceType(.wiredEthernet) ? "wired" : "other")
             #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)
@@ -70,15 +91,12 @@ public final class NetworkPathMonitor: @unchecked Sendable {
         monitor.cancel()
     }
 
-    /// The interfaces in order of preference and their gateways: a new
-    /// Wi-Fi network keeps the interface (`en0`) but changes the gateway.
     static func signature(_ path: NWPath) -> String {
-        let interfaces = path.availableInterfaces.map(\.name).joined(separator: ",")
-        let gateways = path.gateways.map { "\($0)" }.joined(separator: ",")
-        return "\(interfaces) via \(gateways)"
+        NetworkPathFilter.signature(interfaces: path.availableInterfaces.map(\.name), gateways: path.gateways.map { "\($0)" })
     }
 }
 
 private final class FilterBox: @unchecked Sendable {
     var filter = NetworkPathFilter()
 }
+#endif

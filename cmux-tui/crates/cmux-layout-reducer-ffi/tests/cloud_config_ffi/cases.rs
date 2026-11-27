@@ -61,6 +61,32 @@ fn the_configuration_is_made_from_the_runtime_selection() {
 }
 
 #[test]
+fn the_sign_in_screen_backend_label_answers_here() {
+    let (code, production) =
+        call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));
+    assert_eq!(code, OK);
+    assert_eq!(production, json!({"kind": "production", "title": "cmux.com", "detail": null}));
+    let (_, development) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "development", "url": "https://dev-abc.cmux.dev"}}),
+    );
+    assert_eq!(
+        development,
+        json!({"kind": "development", "title": "Development backend", "detail": "dev-abc.cmux.dev"})
+    );
+    let (_, local) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "localOnly", "url": "http://localhost:3777"}}),
+    );
+    assert_eq!(
+        local,
+        json!({"kind": "local", "title": "Local backend", "detail": "localhost:3777"})
+    );
+    let (code, _) = call(c"cloud_config_backend_label", &json!({"backend": {"kind": "elsewhere"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn the_install_token_lease_answers_here() {
     let (code, renew) = call(
         c"cloud_auth_install_token_lease",
@@ -92,7 +118,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         launch["signIn"],
         json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
     );
-    assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(launch["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, login) = call(
         c"cloud_auth_launch_login",
         &json!({"signIn": launch["signIn"], "reads": {"environment": {}, "home": "/h", "files": {}}}),
@@ -105,6 +131,26 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
     );
     assert_eq!(window["opensDefaultBrowser"], false);
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "inApp", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(window["opensDefaultBrowser"], true);
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac", "inApp": true}),
+    );
+    assert_eq!(place["place"], "inApp");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(place["place"], "defaultBrowser");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "popup", "defaultBrowser": null, "inApp": true}),
+    );
+    assert_eq!(place["place"], "popup");
     let (_, scope) = call(
         c"cloud_auth_creation_scope",
         &json!({"previous": [null, null], "current": ["u", null]}),
@@ -192,7 +238,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
 fn auth_rules_answer_from_what_the_app_read() {
     let (_, paths) =
         call(c"cloud_auth_credential_paths", &json!({"environment": {}, "home": "/h"}));
-    assert_eq!(paths["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(paths["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, decision) =
         call(c"cloud_auth_credentials", &json!({"environment": {}, "home": "/h", "files": {}}));
     assert_eq!(decision, json!({"credentials": null, "refusal": {"kind": "noDeclaredAccount"}}));
@@ -290,6 +336,23 @@ fn the_device_list_answers_here() {
     assert_eq!(
         listed,
         json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
+fn the_device_list_groups_by_machine_id_first() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly", "machineId": "m1"},
+                "devices": [{"id": "dev", "name": "Renamed", "platform": "macos", "machineId": "m1"},
+                            {"id": "mini", "name": "Desk Mac", "platform": "macos", "machineId": "m2"},
+                            {"id": "old", "name": "Laptop", "platform": "macos", "machineId": null}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"],
+               "others": [{"id": "mini", "ids": ["mini"]}, {"id": "old", "ids": ["old"]}]})
     );
 }
 

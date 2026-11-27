@@ -111,7 +111,6 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
                 // A closed thought reads its words after the brain glyph (Codex parity).
                 thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
-                plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",
                   ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
@@ -159,7 +158,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          // Retry and its model switch moved to the reply footer (TurnFooter); Save as Prompt sits by the time.
+          // Retry and its model switch moved to the reply footer (TurnFooter).
           expect(measurements.footer).toHaveLength(2);
           expect(measurements.versionFooter).toHaveLength(4);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {

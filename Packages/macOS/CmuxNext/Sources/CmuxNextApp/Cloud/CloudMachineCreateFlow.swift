@@ -71,9 +71,8 @@ struct CloudMachineCreateFlow {
     var run: CloudAppOp
     /// The native confirmation sheet; true only for a person's click.
     var confirm: @MainActor (Prompt) async -> Bool
-    /// Answers approval `request` as the person's own session, only when
-    /// it holds `op` (the op this flow sent) with exactly `params`.
-    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
+    /// Answers approval `request` as the person's own session, only when it holds `op` with exactly `params`; returns the run's answer when the answer call carried it.
+    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> JSONValue?
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
@@ -98,11 +97,11 @@ struct CloudMachineCreateFlow {
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
     /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
-    /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
+    /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``); `answered`, the whole answer (its spare report).
     func create(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                 gate: Gate = .allowed, environment: String? = nil, request: CloudMachineRequest? = nil,
-                madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
+                madeRoom: @MainActor (JSONValue) -> Void = { _ in }, answered: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
         if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
@@ -133,7 +132,7 @@ struct CloudMachineCreateFlow {
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }
-        return answer["machine"] ?? answer
+        answered(answer); return answer["machine"] ?? answer
     }
 
     /// Any other Cloud money or destructive op (`cloud.environment.build`, `.delete`) a person started
@@ -174,13 +173,13 @@ struct CloudMachineCreateFlow {
                 }
                 onAnswering(request)
                 let steps = Self.steps() // a measured start's `machine.ensure` and `machine.approve`
+                var runAnswer: JSONValue?
                 do {
                     await besideDone; steps?.done("machine.ensure")
-                    defer { steps?.done("machine.approve") }; try await approve(request, op, args)
+                    defer { steps?.done("machine.approve") }; runAnswer = try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
-                    // An earlier attempt answered it and was cancelled before it could record that: the
-                    // item is closed, so wait for the approved op like any answered request.
+                    // An earlier attempt answered it and was cancelled before recording that: wait for the approved op.
                 } catch let failure as CloudApprovalAnswer.Failure where failure.answeredElsewhere(request: request) {
                     // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
                     // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
@@ -189,7 +188,7 @@ struct CloudMachineCreateFlow {
                 }
                 approved = request; since = now()
                 onApproved(request)
-                // The call right after the answer is the first same-key retry.
+                if let runAnswer { return runAnswer } // carried by the one-call approve; else the next call is the first same-key retry
                 attempt = 1
             }
         }

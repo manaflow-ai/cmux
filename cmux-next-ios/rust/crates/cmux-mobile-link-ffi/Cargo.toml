@@ -22,22 +22,41 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+async-trait = "0.1"
+cmux-auto-session.workspace = true
+# Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
+cmux-cloud-handlers.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
+# Attachments over the `bundle` service (src/bundle.rs).
+cmux-bundle.workspace = true
 cmux-follow-cam.workspace = true
+cmux-mobile-auto.workspace = true
+cmux-mobile-core.workspace = true
+# The launch's last place (src/last_place.rs).
+cmux-mobile-last-place.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
 cmux-rd-proto.workspace = true
+# The screen stream's rules for Packages/Shared/CmuxVNCWebRTC (src/screen.rs: `screen_json`).
+cmux-rd-screen.workspace = true
+cmux-tab-snapshots.workspace = true
 cmux-terminal-prediction.workspace = true
 cmux-terminal-projection.workspace = true
+# The VNC client's rules for CmuxVNC (src/vnc.rs: `vnc_json`).
+cmux-vnc.workspace = true
 cmux-window-rules.workspace = true
 libc.workspace = true
 # Share a Mac from the phone (src/share_approval.rs): the approval format the target admits,
 # and the P-256 check of the phone's signature (ring is the link's TLS crypto already).
 cmux-share-approval.workspace = true
 base64.workspace = true
+# The relay catch-up keys and seal (src/catch_up.rs).
+cmux-relay-snapshot.workspace = true
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 ring = "0.17"
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -48,8 +67,11 @@ url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+rand_core = { version = "0.6", features = ["getrandom"] }
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+# The shaped bundle bench (tests/bundle_lte.rs).
+cmux-fault.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
 sha2 = "0.10"

@@ -39,11 +39,12 @@ class CheckPaths(unittest.TestCase):
                 self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for path in tracked), pattern)
 
     def test_the_check_that_landed_under_three_merges_is_a_check_path(self):
-        # #23365's files: the base changed these after #22975's CI, and none was #22975's.
+        # #23365's files: the base changed these after #22975's CI, and none was #22975's. Its ci-web.yml line no
+        # longer counts: the check itself (package.json, the script, its baseline) is what the fast gates rerun.
         landed = [".github/workflows/ci-web.yml", "webviews/package.json", "webviews/scripts/check-fixed-waits.ts",
                   "webviews/scripts/fixed-waits-baseline.tsv", "webviews/test/check-fixed-waits.test.ts",
                   "webviews/test/support/pageSwitch.ts"]
-        self.assertEqual(matching(landed), landed[:4])
+        self.assertEqual(matching(landed), landed[1:4])
 
     def test_ordinary_source_files_are_not_check_paths(self):
         # #22975's own files: a source change makes no other pull request's result stale.
@@ -80,6 +81,17 @@ class CheckPaths(unittest.TestCase):
     def test_only_the_workflows_a_dispatch_reruns(self):
         # Another workflow's change is churn a dispatch cannot catch: the fast gates rerun only their own gates.
         self.assertEqual(matching([".github/workflows/nightly.yml", ".github/workflows/cmux-next.yml"]), [])
+
+    def test_ci_web_workflow_is_not_a_check_path(self):
+        # No fast gate reads ci-web.yml, so its churn (21 commits on 2026-11-26 after 12:00Z) made every open pull
+        # request's fast gates stale for a rerun that could not differ.
+        self.assertEqual(matching([".github/workflows/ci-web.yml"]), [])
+        gate_sources = [ROOT / p for p in ("scripts/ci/fast_gate_webviews_checks.py", "scripts/web_lint_prepush.py",
+                                           "scripts/ci/crash_ratchet_compare.py", "scripts/ci/crash_class_fast_gate.py",
+                                           "scripts/ci/protocol_skew_check.py", "scripts/ci/entry_logs.py")]
+        for source in gate_sources:
+            with self.subTest(source=source.name):
+                self.assertNotIn("ci-web.yml", source.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

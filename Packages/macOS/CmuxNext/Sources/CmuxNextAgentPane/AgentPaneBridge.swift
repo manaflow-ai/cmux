@@ -22,6 +22,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
+        // The page's `ready` reached the main thread: with `agent_pane.handshake_task_start`, `handshake_start` and
+        // `handshake_end` it splits the page's handshake wait (page.handshakeStart to page.handshakeReady, 133-537 ms
+        // in bench fc27ac4f) into the trip here, the main actor's queue, the setup pushes and the reply itself.
+        if (message.body as? [String: Any])?["method"] as? String == "ready" {
+            AgentPaneLaunchTimings.shared.mark("agent_pane.ready_received")
+        }
         guard isTrusted(message) else {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
@@ -34,6 +40,13 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         if let body = message.body as? [String: Any], let method = body["method"] as? String, method.hasPrefix("popup."),
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
+        }
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentProjectPaletteRequest.methods.contains(method), let view {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            let person = method == "projectPalette.show" && view.model.transport.gestures.consume(within: 1)
+            let result = view.projectPalette(method, params: params, person: person)
+            return replyHandler(AgentPaneReply.success(result.foundationObject), nil)
         }
         // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
         // ring file, answered at once and not logged here.
@@ -101,6 +114,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// The reply for a request from the pane's trusted page.
     func reply(to request: AgentPaneRequest) async -> [String: Any] {
+        if request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_task_start") }
         guard let model = prepare(for: request) else { return AgentPaneReply.failure(code: "closed", message: "Closed") }
         // The handshake can wait up to 20 seconds for acpmux to start. Only
         // the model is held across it, so closing the tab frees the view and
@@ -132,6 +146,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // customization were first pushed; push them again so they land. The New Tab page's chats
         // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
+            view.dismissProjectPalette()
             logger.info("agent pane ready accepted")
             view.refreshQuestionKeyBinding()
             view.applyTheme(force: true)
@@ -141,7 +156,6 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyShortcuts()
             view.applyPreviewFeatures()
             view.applyLiveTree()
-            AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
             view.replayExperiments()
             view.model.remoteControl?.push(to: view)

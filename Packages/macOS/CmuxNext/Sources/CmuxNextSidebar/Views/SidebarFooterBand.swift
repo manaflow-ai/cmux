@@ -95,7 +95,10 @@ final class SidebarFooterBand {
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
         // Swift live mode's mark follows the avatar; the dots and the update button start after it.
-        let leadMaxX = placeLiveBadge(before: searchMinX)
+        // The Live toggle comes first, right after the avatar; the badge follows it.
+        let liveMaxX = placeLiveToggle(before: searchMinX)
+        let spacesMaxX = placeSpacesToggle(before: searchMinX, after: liveMaxX)
+        let leadMaxX = placeLiveBadge(before: searchMinX, after: spacesMaxX ?? liveMaxX) ?? spacesMaxX ?? liveMaxX
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
@@ -219,6 +222,73 @@ final class SidebarFooterBand {
         return button.frame.minX
     }
 
+    // MARK: Live toggle
+
+    /// Places the Live toggle (`host.liveButton`) on the footer line right after the profile avatar, `space2` from it,
+    /// centered on the avatar's line; at the footer's leading inset when the band shows no items (Leo 2026-11-24: "the
+    /// bottom left of the sidebar area ... right after the profile avatar"). It never reaches `searchMinX`: with no
+    /// room it steps out of the line (zero frame). Returns its maxX in the sidebar's coordinates, nil while it does
+    /// not show (`sidebar.showLiveToggle` off, `sidebar.noFade`, or no room).
+    @discardableResult
+    func placeLiveToggle(before searchMinX: CGFloat?) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.liveButton
+        guard host.design.sidebarSections.showLiveToggle, !host.design.sidebarSections.noFade else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = searchSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + side <= end else {
+            button.frame = .zero
+            return nil
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
+                              width: side, height: side)
+        return button.frame.maxX
+    }
+
+    /// Places the Spaces visibility button beside Live, or directly after the profile control when Live is hidden.
+    /// It remains discoverable while `sidebar.showSpaces` is false; `noFade` still hides the whole footer.
+    @discardableResult
+    func placeSpacesToggle(before searchMinX: CGFloat?, after liveMaxX: CGFloat?) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.spacesButton
+        guard !host.design.sidebarSections.noFade else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = searchSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = ((liveMaxX ?? row.itemsMaxX) + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = ((liveMaxX ?? Metrics.space4), footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + side <= end else {
+            button.frame = .zero
+            return nil
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
+                              width: side, height: side)
+        return button.frame.maxX
+    }
+
     // MARK: Live mode badge
 
     /// Places Swift live mode's mark (`host.liveModeBadge`) on the footer line right after the
@@ -228,10 +298,10 @@ final class SidebarFooterBand {
     /// of the line (zero frame), and the window's top row shows it while the sidebar is hidden.
     /// Returns its maxX in the sidebar's coordinates, nil while it does not show.
     @discardableResult
-    func placeLiveBadge(before searchMinX: CGFloat?) -> CGFloat? {
+    func placeLiveBadge(before searchMinX: CGFloat?, after liveMaxX: CGFloat? = nil) -> CGFloat? {
         guard let host, let badge = host.liveModeBadge, !badge.isHidden else { return nil }
         let size = badge.fittingSize
-        let x: CGFloat, midY: CGFloat
+        var x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
         } else {
@@ -239,6 +309,7 @@ final class SidebarFooterBand {
             (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - Self.searchButtonSide / 2)
         }
+        if let liveMaxX { x = liveMaxX + Metrics.space1 }
         let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
         guard x + size.width <= end else {
             badge.frame = .zero
@@ -247,6 +318,26 @@ final class SidebarFooterBand {
         badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
                                                   scale: host.window?.backingScaleFactor ?? 2)
         return badge.frame.maxX
+    }
+
+    // MARK: Experiments mark
+
+    /// Places the experiments mark (`host.experimentsMark`) over the sidebar: at the avatar's leading edge,
+    /// just above the bottom stack (`ceiling`). It is never in the footer row's flow: its arrival and
+    /// departure move nothing in the row.
+    func placeExperimentsMark(above ceiling: CGFloat) {
+        guard let host, let mark = host.experimentsMark, !mark.isHidden else { return }
+        let size = mark.fittingSize
+        let row = bandFirstRow
+        let x = row?.frame.minX ?? Metrics.space4
+        let top = min(ceiling, row?.frame.minY ?? ceiling)
+        let width = min(size.width, host.bounds.width - x - Metrics.space4)
+        guard width >= Self.searchButtonSide * 2 else {
+            mark.frame = .zero
+            return
+        }
+        mark.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
+                                                 scale: host.window?.backingScaleFactor ?? 2)
     }
 
     // MARK: Update Available button

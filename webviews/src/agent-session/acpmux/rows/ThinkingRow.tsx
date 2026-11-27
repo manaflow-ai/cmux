@@ -1,7 +1,8 @@
-import { memo, useContext } from "react";
+import { memo, useContext, useEffect } from "react";
 import { Thinking } from "../conversation/Thinking";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
+import { glyphTrigger, setLiveGlyphTrigger } from "../conversation/thinkingGlyphModel";
 import { type RowProps } from "./rowProps";
 import { sameLiveWait, sameNames } from "../conversation/liveWait";
 
@@ -10,6 +11,18 @@ export const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
     // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
     const pulse = useContext(LiveLinePulseContext);
+    // A look's thinking glyph plays the document's trigger for what the agent does now; the transcript's
+    // live line tells Jump to latest too (thinkingGlyphModel.ts).
+    const trigger = glyphTrigger({
+      starting: row.queued !== undefined,
+      kind: row.doingKind,
+      sendTo: row.doingSendTo,
+      liveState: row.liveState,
+    });
+    const live = row.id === LIVE_THINKING;
+    useEffect(() => {
+      if (live) setLiveGlyphTrigger(trigger);
+    }, [live, trigger]);
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -41,7 +54,9 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        retryAt={row.retryAt}
         pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
+        glyphTrigger={trigger}
       />
     );
   },
@@ -53,6 +68,7 @@ export const ThinkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
+    a.row.doingKind === b.row.doingKind &&
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
@@ -75,5 +91,6 @@ export const ThinkingRow = memo(
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
-    a.row.retry === b.row.retry,
+    a.row.retry === b.row.retry &&
+    a.row.retryAt === b.row.retryAt,
 );

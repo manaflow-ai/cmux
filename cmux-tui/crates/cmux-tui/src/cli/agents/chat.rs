@@ -274,8 +274,13 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
     };
     let workspace =
         info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str).map(workspace_key);
-    let keys = session_workspace_keys(global)?;
-    if !workspace.as_ref().is_some_and(|key| keys.contains(key)) {
+    let snapshot = session_snapshot(global)?;
+    let in_workspace =
+        workspace.as_ref().is_some_and(|key| session_workspace_keys(&snapshot).contains(key));
+    // A chat that came here by a move (Bring Back Local, `cmux link agent move`) runs with no
+    // workspace in its env: the move's guard clears the env it brought (`transfer_guard.rs`), and
+    // the app shows it in a workspace it opened for it. Its tab there puts it in this session.
+    if !in_workspace && !shown_in_session(global, &snapshot, &chat) {
         return Err(not_run(
             "chat.out_of_scope",
             format!("chat {chat} does not run in a workspace of this cmux session"),
@@ -303,6 +308,12 @@ pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
     acp::peers(app_acpmux(global).as_deref())
 }
 
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -310,18 +321,69 @@ pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
-/// The keys of this cmux session's workspaces (`extra.key`), from the
-/// session snapshot `agents_snapshot` reads.
-fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFailure> {
-    let snapshot = mcp::agent_resource(global, super::snapshot_plan())
-        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    Ok(snapshot["workspaces"]
+/// This cmux session's snapshot (its workspaces and tabs), as `agents_snapshot` reads it from
+/// the daemon.
+fn session_snapshot(global: &GlobalArgs) -> Result<Value, CallFailure> {
+    mcp::agent_resource(global, super::snapshot_plan()).map_err(|error| CallFailure {
+        kind: FailureKind::NotRun,
+        error,
+        idempotency_key: None,
+    })
+}
+
+/// The keys of this cmux session's workspaces (`extra.key`), from its daemon snapshot.
+fn session_workspace_keys(snapshot: &Value) -> HashSet<String> {
+    snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|workspace| workspace["extra"]["key"].as_str())
         .map(workspace_key)
-        .collect())
+        .collect()
+}
+
+/// Whether a tab of this cmux session shows chat `chat`: a workspace of the app's topology
+/// (`snapshot.get`) whose tabs show the chat (`agent_session`), and that workspace one of this
+/// session's (the daemon snapshot's, which holds only this session's workspaces). No app (CI, a
+/// headless agent): no tab shows it.
+fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
+    let Ok(app) =
+        mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
+    else {
+        return false;
+    };
+    let Some(topology) = app.get("topology") else { return false };
+    shown_in_workspace(snapshot, topology, chat)
+}
+
+/// [`shown_in_session`]'s check on the two snapshots: the daemon's SNAPSHOT of this session and
+/// the app's TOPOLOGY.
+pub(super) fn shown_in_workspace(snapshot: &Value, topology: &Value, chat: &str) -> bool {
+    fn shows(value: &Value, chat: &str) -> bool {
+        match value {
+            Value::Object(object) => {
+                object
+                    .get("agent_session")
+                    .and_then(Value::as_str)
+                    .is_some_and(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
+                    || object.values().any(|child| shows(child, chat))
+            }
+            Value::Array(values) => values.iter().any(|value| shows(value, chat)),
+            _ => false,
+        }
+    }
+    let ours: HashSet<&str> = snapshot["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|workspace| workspace["id"].as_str())
+        .collect();
+    topology["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|workspace| workspace["id"].as_str().is_some_and(|id| ours.contains(id)))
+        .any(|workspace| shows(workspace, chat))
 }
 
 /// The caller's own chat: the acpmux session acpmux started it in.
@@ -516,18 +578,10 @@ pub(in crate::cli) fn page_of_events(
     page
 }
 
-/// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
-/// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
-pub(in crate::cli) fn turn_items(
-    global: &GlobalArgs,
-    target: &str,
-    after: u64,
-) -> Result<Vec<Value>, CallFailure> {
-    turn_items_of(&scoped_chat(global, target)?, after)
-}
-
-/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
-/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+/// The transcript items of a chat already found (and scope-checked) with [`scoped_chat`] after
+/// `after`, each whole (no per-item cut) and masked as a read masks them: the turn `cmux chat
+/// --wait` waited on, read from its prompt on. It finds its chat once and reads it with no second
+/// lookup (turn.rs).
 pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,
@@ -981,6 +1035,11 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
+    }
+
     /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
     pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
         block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
@@ -1082,6 +1141,41 @@ pub(in crate::cli) mod acp {
                     json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
         })
     }
 

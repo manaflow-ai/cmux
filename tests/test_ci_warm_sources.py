@@ -137,11 +137,11 @@ def compile_reasons(job: dict, key: str = "") -> list[str]:
 # ---------------------------------------------------------------------------------------------
 WIRING: dict[str, re.Pattern] = {
     # Kept DerivedData: the owned Mac's admission state, the nightly seed, the e2e warm copy, the
-    # scheme and Release compiles' worker-local tree, cmux-tui's macOS per-runner Cargo target, or a build handed to the controller's warm slots.
+    # scheme and Release compiles' worker-local tree, cmux-tui's macOS per-runner Cargo target, a Linux pool runner's kept Cargo target, or a build handed to the controller's warm slots.
     "deriveddata-reuse": re.compile(
         _names(
             "owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh",
-            "cmux-tui-warm-target.sh", "cmux-tui-mac-warm-target.sh",
+            "cmux-tui-warm-target.sh", "cmux-tui-mac-warm-target.sh", "pool-warm-target.sh",
         )
         + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
         # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.

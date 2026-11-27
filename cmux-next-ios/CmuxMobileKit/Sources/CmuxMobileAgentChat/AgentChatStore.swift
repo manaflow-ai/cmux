@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileArtifacts
 public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
@@ -31,6 +32,30 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
+    /// A message this phone sent that the Mac has not recorded yet: drawn at once as the
+    /// person's bubble (``AgentChatStore/send(prompt:attachments:steer:denyingPermission:)``),
+    /// replaced in place by the Mac's turn when its `user_message` comes. Nil for every turn the
+    /// Mac recorded.
+    public var localSend: LocalSend?
+
+    public enum LocalSend: String, Hashable, Sendable, Codable {
+        /// On its way (held while the link comes back): drawn as sent, with nothing under it.
+        case sending
+        /// It could not reach the Mac within ``AgentChatStore/sendDeadline``: one quiet line under
+        /// the bubble, and a tap sends it again under the same id.
+        case notSent
+    }
+
+    /// The key the turn's rows were drawn under before the Mac named the turn: the bubble this phone
+    /// drew as it sent (`localSend`) keeps its rows when the Mac's turn takes its place, so the
+    /// bubble is never taken out and put in again.
+    public var localKey: String?
+
+    /// What the transcript keys the turn's own rows by (its prompt bubble, working line, footer).
+    public var rowKey: String { localKey ?? id }
+
+    /// Drawn as sent, not yet recorded on the Mac.
+    public var isUnconfirmed: Bool { localSend != nil }
 
     public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
@@ -121,11 +146,37 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+/// A phone-authored message that has not yet been acknowledged by the Mac. A steer is kept
+/// separately from its recorded turn so a store replacement can resend it with the same intent.
+public struct WaitingMessage: Hashable, Sendable {
+    public var prompt: String
+    public var promptID: String
+    public var attachments: [AgentAttachment]
+    public var promptAt: Date
+    public var localSend: AgentTurn.LocalSend
+    public var steer: Bool
+
+    public init(prompt: String, promptID: String, attachments: [AgentAttachment] = [], promptAt: Date,
+                localSend: AgentTurn.LocalSend, steer: Bool = false) {
+        self.prompt = prompt
+        self.promptID = promptID
+        self.attachments = attachments
+        self.promptAt = promptAt
+        self.localSend = localSend
+        self.steer = steer
+    }
+
+    init(turn: AgentTurn, steer: Bool = false) {
+        self.init(prompt: turn.prompt, promptID: turn.promptID ?? turn.id,
+                  attachments: turn.attachments, promptAt: turn.promptAt,
+                  localSend: turn.localSend ?? .sending, steer: steer)
+    }
+}
+
 public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
@@ -140,7 +191,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let question): "q-\(question.id)"
         }
@@ -194,6 +244,10 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
+    /// Messages on their way to the Mac, oldest first: each shows at once (with files, its
+    /// upload's progress) until the Mac echoes or queues it (`userMessage`, `queued`) or it comes
+    /// back to the composer (`promptNotSent`).
+    public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
     public private(set) var models: [ACPModelInfo] = []
@@ -205,6 +259,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The session's quiet metadata as acpmux decides it (`composerStatus.facts`, RFD 0130): the
+    /// composer's counters and Session card (``ComposerFooterFactsMode``).
+    public private(set) var footerFacts = AgentFooterFacts()
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
@@ -218,7 +275,8 @@ public final class AgentChatStore {
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
-    /// shows them (kept from before) and says it is updating.
+    /// shows them (kept from before) and says nothing while it catches up (Leo, 2026-11-24:
+    /// "they dont need to know that it's updating before they KNOW it's updating").
     public private(set) var isLoadingHistory = false
     /// The first message this phone is sending has not shown in the transcript yet (New Task):
     /// the chat still says it is starting. Read live: the source's note goes once the send ends.
@@ -297,6 +355,35 @@ public final class AgentChatStore {
         let cwd: String
     }
     @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
+
+    /// The composer's `@` candidates, read without observing the transcript. `artifacts`
+    /// observes `turns`, so the composer re-rendered, and rescanned the whole transcript, on
+    /// every streamed frame while a mention was typed: typing felt the Mac's output. This
+    /// reads the backing storage, untracked, and rescans at most once per
+    /// `mentionRefresh` while the transcript changes; the picker shows the new candidates
+    /// on the next key. `generation` changes whenever `artifacts` does.
+    func mentionArtifacts(now: ContinuousClock.Instant = .now) -> (generation: Int, artifacts: [TerminalArtifact]) {
+        let key = MentionKey(revision: _revision, turns: _turns.count, subagents: _subagents.count, cwd: _summary.cwd)
+        if let cache = mentionCache, cache.key == key || now - cache.at < Self.mentionRefresh {
+            return (cache.generation, cache.artifacts)
+        }
+        #if DEBUG && os(iOS)
+        InputLatencyTrace.shared?.note("mention_scan")
+        #endif
+        let artifacts = SessionArtifacts.collect(turns: _turns, subagents: _subagents, cwd: _summary.cwd).artifacts
+        let generation = (mentionCache?.generation ?? 0) &+ 1
+        mentionCache = (key, now, generation, artifacts)
+        return (generation, artifacts)
+    }
+    /// The longest the `@` candidates lag a changing transcript.
+    static let mentionRefresh: Duration = .seconds(1)
+    private struct MentionKey: Equatable {
+        let revision: Int
+        let turns: Int
+        let subagents: Int
+        let cwd: String
+    }
+    @ObservationIgnored private var mentionCache: (key: MentionKey, at: ContinuousClock.Instant, generation: Int, artifacts: [TerminalArtifact])?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
@@ -354,6 +441,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// The same attach replay can be delivered again after a reconnect. Equal batches do not
+    /// change the transcript, so they must not bump ``revision`` or redraw its rows.
+    @ObservationIgnored private var lastReplayBatch: [AgentSessionEvent]?
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
@@ -372,27 +462,205 @@ public final class AgentChatStore {
     /// The steer the latest `userMessage` put into a running turn: the one a `promptFrom` may mark.
     @ObservationIgnored private var steeredPrompt: (turnID: String, promptID: String)?
     private var task: Task<Void, Never>?
+    #if DEBUG
+    /// The offline duress player's records for this chat (`AgentChatDuress`; nil unless `CmuxMobileDuress` is set).
+    @ObservationIgnored private var duressPlayback: AnyObject?
+    #endif
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    /// Says when a dropped or catching-up chat may show its line (after 10 s);
-    /// its rows stay on screen the whole time.
+    /// Says when a dropped chat may show its line, or a chat with nothing kept its slow-load
+    /// words (after 10 s); kept rows stay on screen the whole time, and a catch-up over them
+    /// shows no line (``connectionLine``).
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
-    /// The chat's one quiet status line by the composer: nil while live and for the first
-    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
-    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
-    /// instead (``AgentChatLoadingState``).
+    /// The chat's one quiet line by the composer. A link that is down or catching up draws
+    /// nothing, however long it takes: the kept rows stay, sends show at once and wait for it
+    /// (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want
+    /// it to just work"). Only a call that still could not reach the Mac after
+    /// ``sendDeadline`` says so, here, until the next send or the link is back. A message that
+    /// could not go says so on its own bubble instead (``AgentTurn/LocalSend/notSent``).
     public var connectionLine: String? {
-        guard quietStatus.isShown, hasTurns else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        unreachable ? String(localized: "mobile.agentChat.couldntReach", defaultValue: "Couldn't reach \(summary.macName). Try again in a moment.", bundle: .module) : nil
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    // MARK: Sends before the Mac has them
+
+    /// How long a message or a call may wait for the Mac before the chat says it did not go.
+    public static let sendDeadline: Duration = .seconds(60)
+    /// What a source reports for a message or call that could not reach the Mac within
+    /// ``sendDeadline``. Never drawn as it is: the bubble says "Not sent", a call sets ``unreachable``.
+    public static let unreachableNotice = "Couldn't reach your Mac."
+    /// A call could not reach the Mac past ``sendDeadline`` (``connectionLine``).
+    public private(set) var unreachable = false
+    /// The id of the bubble drawn for `promptID` until the Mac's turn replaces it.
+    nonisolated static func localTurnID(_ promptID: String) -> String { "local-\(promptID)" }
+    /// Each waiting message's deadline (``sendDeadline``), by prompt id.
+    @ObservationIgnored private var sendDeadlines: [String: Task<Void, Never>] = [:]
+    /// The clock a send's deadline runs on (tests use a short one).
+    @ObservationIgnored var sendDeadlineOverride: Duration?
+    /// The clock the deadlines wait on (a test drives its own).
+    @ObservationIgnored var sendClock: any Clock<Duration> = ContinuousClock()
+
+    /// Draws a message the moment it is sent: as a steer in the running turn, else as a new turn
+    /// of its own. One that will queue behind a running turn shows in the queue once the Mac has it.
+    private func showSent(_ text: String, attachments: [AgentAttachment], promptID: String, steer: Bool) {
+        unreachable = false
+        let id = Self.localTurnID(promptID)
+        if let index = turns.firstIndex(where: { $0.id == id }) {
+            turns[index].localSend = .sending
+        } else if steer, let index = lastRecordedIndex, turns[index].status == .running {
+            guard !turns[index].items.contains(where: { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }) else { return }
+            turns[index].items.append(.steer(SteeredMessage(promptID: promptID, text: text, attachments: attachments, at: Date())))
+        } else if lastRecordedIndex.map({ turns[$0].status != .running }) ?? true {
+            var turn = AgentTurn(id: id, prompt: text, promptID: promptID, attachments: attachments, promptAt: Date())
+            turn.localSend = .sending
+            turns.append(turn)
+            justSent = (id, ProcessInfo.processInfo.systemUptime)
+        } else {
+            return
+        }
+        revision &+= 1
+        refreshDerived()
+        armSendDeadline(promptID)
+    }
+
+    /// The newest turn the Mac recorded (not one of this phone's waiting bubbles).
+    private var lastRecordedIndex: Int? { turns.lastIndex { $0.localSend == nil } }
+
+    private func armSendDeadline(_ promptID: String) {
+        sendDeadlines[promptID]?.cancel()
+        let wait = sendDeadlineOverride ?? Self.sendDeadline
+        let clock = sendClock
+        // A bounded wait on the injected clock, ended by the Mac having the message (`landed`).
+        sendDeadlines[promptID] = Task { [weak self] in
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.markNotSent(promptID)
+        }
+    }
+
+    /// The Mac has the message (its record, or its place in the queue): its deadline ends.
+    private func landed(_ promptID: String) {
+        sendDeadlines.removeValue(forKey: promptID)?.cancel()
+    }
+
+    /// The message did not reach the Mac in time: its bubble says so (a steer moves to a bubble of its own).
+    private func markNotSent(_ promptID: String) {
+        sendDeadlines.removeValue(forKey: promptID)?.cancel()
+        let id = Self.localTurnID(promptID)
+        if let index = turns.firstIndex(where: { $0.id == id }) {
+            guard turns[index].localSend != .notSent else { return }
+            turns[index].localSend = .notSent
+        } else if let index = turns.indices.last(where: { index in
+            turns[index].items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        }),
+                  let item = turns[index].items.firstIndex(where: { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }),
+                  case .steer(let message) = turns[index].items[item] {
+            turns[index].items.remove(at: item)
+            var turn = AgentTurn(id: id, prompt: message.text, promptID: promptID, attachments: message.attachments, promptAt: message.at)
+            turn.localSend = .notSent
+            turns.append(turn)
+        } else {
+            return
+        }
+        revision &+= 1
+        refreshDerived()
+    }
+
+    /// Whether `promptID` is drawn as one of this phone's waiting messages (a bubble or a steer).
+    private func showsLocally(_ promptID: String) -> Bool {
+        if turns.contains(where: { $0.id == Self.localTurnID(promptID) }) { return true }
+        return turns.contains { turn in
+            turn.items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        }
+    }
+
+    /// Takes the waiting bubble (or steer) for `promptID` away (the Mac refused it, or queued it).
+    private func dropLocal(_ promptID: String) {
+        landed(promptID)
+        turns.removeAll { $0.id == Self.localTurnID(promptID) }
+        for index in turns.indices {
+            turns[index].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        }
+    }
+
+    /// Takes this phone's waiting bubbles off the end of ``turns`` (they are always last), to go
+    /// back after a turn the Mac recorded.
+    private func takeWaitingBubbles() -> [AgentTurn] {
+        guard turns.last?.localSend != nil else { return [] }
+        let start = (turns.lastIndex { $0.localSend == nil } ?? -1) + 1
+        let waiting = Array(turns[start...])
+        turns.removeSubrange(start...)
+        return waiting
+    }
+
+    /// Messages drawn at once that the Mac has not recorded yet, oldest first: a store built in
+    /// this one's place sends them (``AgentSessionDirectory``).
+    public var waitingMessages: [WaitingMessage] {
+        var waiting: [WaitingMessage] = []
+        var carriedIDs: Set<String> = []
+        for turn in turns {
+            if let local = turn.localSend, let promptID = turn.promptID,
+               !deletedSends.contains(promptID), carriedIDs.insert(promptID).inserted {
+                waiting.append(WaitingMessage(prompt: turn.prompt, promptID: promptID,
+                                              attachments: turn.attachments, promptAt: turn.promptAt,
+                                              localSend: local))
+            }
+            for item in turn.items {
+                guard case .steer(let message) = item, !seenPromptIDs.contains(message.promptID),
+                      !deletedSends.contains(message.promptID), carriedIDs.insert(message.promptID).inserted else { continue }
+                waiting.append(WaitingMessage(prompt: message.text, promptID: message.promptID,
+                                              attachments: message.attachments, promptAt: message.at,
+                                              localSend: .sending, steer: true))
+            }
+        }
+        return waiting
+    }
+
+    /// Draws and sends the messages a replaced store was still sending (``waitingMessages``), each
+    /// under its own id as a resend, so the Mac runs one that did arrive only once.
+    public func adoptWaiting(_ waiting: [WaitingMessage]) {
+        for turn in waiting {
+            let promptID = turn.promptID
+            guard !seenPromptIDs.contains(promptID) else { continue }
+            if turn.localSend == .notSent {
+                // A message that already failed keeps its bubble and its retry; nothing sends it
+                // until the person taps (a late echo from the Mac still replaces it).
+                var failed = AgentTurn(id: Self.localTurnID(promptID), prompt: turn.prompt, promptID: promptID,
+                                       attachments: turn.attachments, promptAt: turn.promptAt)
+                failed.localSend = .notSent
+                turns.append(failed)
+                revision &+= 1
+                refreshDerived()
+                continue
+            }
+            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: turn.steer, promptID: promptID, resend: true))
+            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: turn.steer)
+        }
+    }
+
+    /// Sends a "Not sent" message again, under its own id (the Mac runs an id once).
+    public func sendAgain(turnID: String) {
+        guard let index = turns.firstIndex(where: { $0.id == turnID }), turns[index].localSend == .notSent,
+              let promptID = turns[index].promptID else { return }
+        let turn = turns[index]
+        turns[index].localSend = .sending
+        unreachable = false
+        clientError = nil
+        revision &+= 1
+        refreshDerived()
+        armSendDeadline(promptID)
+        source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
+    }
+
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
+    /// history still loading on a live link does not feed it: its spinner says nothing, since a
+    /// waiting word there is the limbo Leo asked to drop (2026-11-24, #54994).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -401,14 +669,20 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
-        let stream = source.events()
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
+        // What the source already holds (a kept transcript) goes in now, so the chat's first
+        // frame draws it; the rest streams in.
+        let (head, stream) = source.eventsWithHead()
+        for event in head { receive(event) }
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
                 self.receive(event)
             }
         }
+        #if DEBUG
+        duressPlayback = AgentChatDuress.attach? { [weak self] event in self?.receive(event) }
+        #endif
     }
 
     isolated deinit {
@@ -439,20 +713,18 @@ public final class AgentChatStore {
     public private(set) var pendingElevation: AgentElevationAsk?
     /// The sudo card's Approve is being signed and sent.
     public private(set) var sendingElevation = false
-    /// The running turn's latest plan.
-    public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
     @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
 
     /// `lastTurnOnly`: only the newest turn changed (streamed text).
     private func refreshDerived(lastTurnOnly: Bool = false) {
-        let last = turns.last
+        // The newest turn the Mac recorded: a bubble still on its way is not a turn yet.
+        let last = lastRecordedIndex.map { turns[$0] }
         assign(\.hasTurns, !turns.isEmpty)
         assign(\.isRunning, last?.status == .running)
         assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
-        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
         let earlier = max(turns.count - 1, 0)
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
@@ -462,6 +734,13 @@ public final class AgentChatStore {
 
     private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    /// The session's status, written only when it changes: every reader of `summary`
+    /// (the composer's placeholder and harness name among them) re-renders on a write,
+    /// and the daemon re-sends the same status with each turn event (ask-4a87599079).
+    private func setStatus(_ status: AgentSessionSummary.Status) {
+        if summary.status != status { summary.status = status }
     }
 
     nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
@@ -474,13 +753,6 @@ public final class AgentChatStore {
     nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
-        }
-        return nil
-    }
-
-    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
-        for item in turn.items.reversed() {
-            if case .plan(_, let entries) = item { return entries }
         }
         return nil
     }
@@ -519,6 +791,7 @@ public final class AgentChatStore {
         let chunks = pendingChunks
         pendingChunks = []
         chunkFlushes += 1
+        lastReplayBatch = nil
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
         updateQuietStatus()
@@ -555,6 +828,11 @@ public final class AgentChatStore {
 
     // MARK: Intents
 
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
+
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
     /// message as guidance. A plain message while a permission waits queues.
@@ -574,6 +852,13 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
+        // Every message shows the moment Send is tapped, not when the Mac's echo comes back
+        // (Leo, 2026-11-24: "i think the send loading is... hm. i think we can maybe be more
+        // optimistic sometimes. it is a bit slow on ios."). A text-only one draws as a quiet
+        // pending bubble; the transcript's own copy takes its place at the echo.
+        if !outgoing.contains(where: { $0.id == promptID }) {
+            outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
+        }
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
         #if DEBUG && os(iOS)
@@ -581,6 +866,19 @@ public final class AgentChatStore {
         #endif
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+        // Drawn now, before the Mac answers: the chat feels connected while the link comes back.
+        if !source.isReadOnly { showSent(text, attachments: attachments, promptID: promptID, steer: steers) }
+    }
+
+    /// The row key of the turn the last send drew and when: its rows settle in on the send's
+    /// motion instead of fading in, in every transcript that shows them first within a moment.
+    @ObservationIgnored private var justSent: (key: String, at: TimeInterval)?
+
+    /// The row key of the turn drawn as sent within the last second (nil when there is none).
+    /// Every transcript showing this store reads it; each shows a row as new only once.
+    func justSentRowKey(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
+        guard let justSent, now - justSent.at < 1 else { return nil }
+        return justSent.key
     }
 
     #if DEBUG && os(iOS)
@@ -606,6 +904,9 @@ public final class AgentChatStore {
     /// never sent again under that id.
     private func reached(_ promptID: String) {
         seenPromptIDs.insert(promptID)
+        // It shows in the transcript or the queue now: its pending copy goes (a queued or
+        // replayed prompt has no `userMessage` echo yet).
+        if outgoing.contains(where: { $0.id == promptID }) { outgoing.removeAll { $0.id == promptID } }
         guard let pending = resendable, pending.promptID == promptID else { return }
         resendable = nil
         let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
@@ -876,6 +1177,33 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    /// Stops a message on its way, at any stage (uploading, waiting for the link or a retry,
+    /// being written): it comes back to the composer (`promptNotSent`) to edit and send again,
+    /// as a new message.
+    public func cancelSend(promptID: String) {
+        stoppedSends.insert(promptID)
+        source.send(.cancelSend(promptID: promptID))
+    }
+
+    /// Deletes a message on its way: its row goes now and nothing comes back to the composer.
+    public func deleteSend(promptID: String) {
+        deletedSends.insert(promptID)
+        outgoing.removeAll { $0.id == promptID }
+        dropLocal(promptID)
+        source.send(.deleteSend(promptID: promptID))
+    }
+
+    /// Send now: a message waiting on a retry goes at once.
+    public func retrySend(promptID: String) {
+        source.send(.retrySend(promptID: promptID))
+    }
+
+    /// Messages the person stopped: one that comes back is sent again as a new message (a
+    /// stopped one may have been taken off the Mac's queue under its id).
+    @ObservationIgnored private var stoppedSends: Set<String> = []
+    /// Messages the person deleted: one that comes back anyway is dropped.
+    @ObservationIgnored private var deletedSends: Set<String> = []
+
     public func resumeQueue() {
         guard queuePaused else { return }
         source.send(.resumeQueue)
@@ -935,6 +1263,9 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        // Anything applied since a replay (a refused Full-access switch, a mode pick) may have
+        // moved the state that replay sets, so the next equal replay applies again.
+        if case .batch = event {} else { lastReplayBatch = nil }
         applyEvent(event)
         spillIfOffScreen()
         refreshDerived()
@@ -944,13 +1275,24 @@ public final class AgentChatStore {
 
     private func applyEvent(_ event: AgentSessionEvent) {
         if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
+        if case .batch(let events) = event {
+            guard events != lastReplayBatch else { return }
+            lastReplayBatch = events
+        }
         revision &+= 1
-        lastChangeWasReplay = false
-        placeBottomStackInstantly = false
+        // News about the link, not the chat (the catch-up's end right after its history batch,
+        // a status): the opening batch stays the last change. Cleared here, the composer read a
+        // chat opening on its history as a person's change and animated its collapse, the stack
+        // moving 35 pt over a dozen frames (#59189, slow-history-chat; the live source sends
+        // `.historyLoading(false)` right after the batch too).
+        if !event.isLinkState {
+            lastChangeWasReplay = false
+            placeBottomStackInstantly = false
+        }
         if gapFiller != nil { noteNewer(event) }
         switch event {
         case .turnRetried(let previousTurnID, let turnID):
-            guard let index = turns.indices.last, turns[index].id == previousTurnID,
+            guard let index = lastRecordedIndex, turns[index].id == previousTurnID,
                   turns[index].status == .failed else { break }
             // Keep the original input and partial work: the daemon may continue a cut turn.
             // Its new user_message is an attempt, not another user-authored turn.
@@ -977,7 +1319,15 @@ public final class AgentChatStore {
             #endif
             retryRequested = false
             currentMessageID = nil
+            outgoing.removeAll { $0.id == promptId }
             reached(promptId)
+            // The Mac's record of a message drawn at once: its turn takes the bubble's place.
+            landed(promptId)
+            // This phone's waiting bubbles stay after the Mac's turns, in the order sent.
+            var waiting = takeWaitingBubbles()
+            let shown = waiting.first { $0.id == Self.localTurnID(promptId) }
+            waiting.removeAll { $0.id == Self.localTurnID(promptId) }
+            defer { if !waiting.isEmpty { turns += waiting } }
             if gapFiller != nil { gapLeftQueue.insert(promptId) }
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
             promptedTurnID = nil
@@ -997,22 +1347,26 @@ public final class AgentChatStore {
                 // A steer the turn ended before the agent read it runs as this turn's prompt, under
                 // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
                 // the turn before.
-                if let last = turns.indices.last {
+                if let last = lastRecordedIndex {
                     turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
                 }
+                let sent = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
                 promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
-                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
-                                       promptAt: at))
+                var turn = AgentTurn(id: turnId, prompt: text, promptID: promptId, attachments: sent, promptAt: at)
+                // The prompt this phone drew as it sent it: this turn keeps that bubble's rows.
+                turn.localKey = shown?.id
+                turns.append(turn)
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            // Queued on the Mac: the queue shows it, not a bubble of its own.
+            dropLocal(promptId)
             // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
             // it is drawn there, not also in the turn it missed.
-            if let last = turns.indices.last {
+            if let last = lastRecordedIndex {
                 turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
             }
             queue.append(QueuedPrompt(id: promptId, text: text))
@@ -1031,9 +1385,9 @@ public final class AgentChatStore {
                 $0.startedAt = at
                 $0.status = .running
             }
-            summary.status = .running
+            setStatus(.running)
         case .retrying(let attempt, let maxAttempts, let status):
-            guard let index = turns.indices.last, turns[index].status == .running else { return }
+            guard let index = lastRecordedIndex, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
@@ -1083,12 +1437,12 @@ public final class AgentChatStore {
                 }
             }
             currentMessageID = nil
-            summary.status = .idle
+            setStatus(.idle)
         case .update(let update):
             // The model answered: the retry is over.
             switch update {
             case .agentMessageChunk, .agentThoughtChunk, .toolCall:
-                if let index = turns.indices.last, turns[index].retry != nil { turns[index].retry = nil }
+                if let index = lastRecordedIndex, turns[index].retry != nil { turns[index].retry = nil }
             default:
                 break
             }
@@ -1096,11 +1450,11 @@ public final class AgentChatStore {
         case .permissionRequest(let request):
             guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .question(let question):
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
@@ -1129,16 +1483,16 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle)
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
-            summary.status = .waiting
+            setStatus(.waiting)
         case .elevationDecision(let id):
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle)
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1146,14 +1500,16 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle)
+        // The daemon re-sends these with every attach and turn; a write of the same value
+        // still re-renders every reader (the composer's model and mode menus).
         case .modelsAvailable(let models, let current):
-            self.models = models
-            currentModelID = current
+            assign(\.models, models)
+            assign(\.currentModelID, current)
         case .modesAvailable(let modes, let current):
-            offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
-            currentModeID = current
+            assign(\.offeredModes, modes)
+            assign(\.modes, ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess))
+            assign(\.currentModeID, current)
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
@@ -1171,16 +1527,25 @@ public final class AgentChatStore {
         case .gapPage(let events, let done):
             fillGap(events, done: done)
         case .fullAccess(let on):
-            fullAccess = on
+            assign(\.fullAccess, on)
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
-            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
+        case .footerFacts(let next):
+            assign(\.footerFacts, footerFacts.updated(with: next))
         case .status(let status):
-            summary.status = status
+            setStatus(status)
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
-            if status == .disconnected { retryRequested = false }
+            if status == .disconnected { retryRequested = false } else { unreachable = false }
+        case .clientError(let message) where message == Self.unreachableNotice:
+            // A call that could not reach the Mac in time: the one quiet line, never a toast.
+            approvingOptionID = nil
+            sendingElevation = false
+            awaitsPermissionReply = false
+            retryRequested = false
+            unreachable = true
         case .clientError(let message):
             approvingOptionID = nil
             sendingElevation = false
@@ -1192,10 +1557,46 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .promptUploading(let promptID, let progress):
+            guard let index = outgoing.firstIndex(where: { $0.id == promptID }) else { break }
+            // Steps hop to the main actor one by one: an older one that lands late is dropped.
+            if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
+               shown.sent > progress.sent, progress.phase == .sending { break }
+            outgoing[index].progress = progress
+        case .pendingSends(let rows):
+            let shown = Dictionary(rows.map { ($0.promptID, $0) }, uniquingKeysWith: { first, _ in first })
+            // Every message stays until the Mac has it (`reached`) or it comes back
+            // (`promptNotSent`): a text one the outbox no longer marks waiting draws as a pending
+            // bubble again rather than leaving a gap until its echo.
+            for index in outgoing.indices {
+                let row = shown[outgoing[index].id]
+                outgoing[index].waiting = row?.waiting ?? false
+                outgoing[index].canSendNow = row?.canSendNow ?? false
+                outgoing[index].stopping = row?.stopping ?? false
+            }
+            for row in rows where !deletedSends.contains(row.promptID) && !outgoing.contains(where: { $0.id == row.promptID }) {
+                outgoing.append(OutgoingMessage(id: row.promptID, text: row.text, attachments: [],
+                                                waiting: row.waiting, canSendNow: row.canSendNow, stopping: row.stopping))
+            }
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            outgoing.removeAll { $0.id == promptID }
+            if deletedSends.remove(promptID) != nil { break }
+            let stopped = stoppedSends.remove(promptID) != nil
+            defer { if stopped, resendable?.promptID == promptID { resendable = nil } }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
-            clientError = reason
+            if reason == Self.unreachableNotice {
+                // The link stayed down past the deadline: the bubble says so and a tap sends it again.
+                if showsLocally(promptID) {
+                    markNotSent(promptID)
+                    break
+                }
+                unreachable = true
+            } else {
+                // The Mac refused it: the draft comes back with why.
+                dropLocal(promptID)
+                clientError = reason
+            }
             if let earlier = returnedDraft {
                 // Several messages came back before the composer took the first: none is lost.
                 // Joined, they are a new message (no single id runs them all once).
@@ -1521,7 +1922,8 @@ public final class AgentChatStore {
         if gapFiller != nil { closeGap() }
         let filler = AgentChatStore(source: EarlierHistorySource(summary: summary))
         filler.nextFrame = nil
-        if let last = turns.last {
+        if let lastIndex = lastRecordedIndex {
+            let last = turns[lastIndex]
             // The gap's first records may continue this turn (its answer, its result).
             filler.turns = [last]
             filler.currentMessageID = currentMessageID
@@ -1548,6 +1950,7 @@ public final class AgentChatStore {
                 switch event {
                 case .userMessage(_, let promptId, _, _, _):
                     reached(promptId)
+                    dropLocal(promptId)
                     sentAttachments[promptId] = nil
                     leaveQueueFromGap(promptId)
                 case .queued(let text, let promptId, _):
@@ -1711,7 +2114,7 @@ public final class AgentChatStore {
             return
         }
         var agent = AgentSubagent(id: change.id, parent: change.parent, name: change.name ?? change.task ?? change.id,
-                                  task: change.task, state: change.state ?? .running, startedAt: change.at, turnID: turns.last?.id)
+                                  task: change.task, state: change.state ?? .running, startedAt: change.at, turnID: lastRecordedIndex.map { turns[$0].id })
         if agent.state != .running { agent.endedAt = change.at }
         subagents.append(agent)
         if let parent = change.parent, let index = subagents.firstIndex(where: { $0.id == parent }) {
@@ -1722,8 +2125,8 @@ public final class AgentChatStore {
             }
             return
         }
-        guard !turns.isEmpty else { return }
-        let last = turns.count - 1
+        // The Mac's newest turn, never one of this phone's waiting bubbles after it.
+        guard let last = lastRecordedIndex else { return }
         if let call = change.toolCallID { turns[last].hiddenToolCalls.insert(call) }
         // Subagents spawned with no prose between them share one group; their
         // spawn tool calls are drawn by the group, so they don't split it.
@@ -1742,7 +2145,7 @@ public final class AgentChatStore {
     private func applyUpdate(_ update: ACPSessionUpdate) {
         switch update {
         case .agentMessageChunk(let text, let messageId):
-            guard let last = turns.indices.last else { return }
+            guard let last = lastRecordedIndex else { return }
             // Appended in place: the item's string is taken out first, so it has one
             // owner and grows without copying the whole message per chunk.
             if !startsNewAttempt, case .message(let id, var markdown)? = turns[last].items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
@@ -1751,12 +2154,16 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
         case .agentThoughtChunk(let text):
-            guard let last = turns.indices.last else { return }
+            guard let last = lastRecordedIndex else { return }
             if !startsNewAttempt, case .thought(let id, var existing)? = turns[last].items.last {
                 let item = turns[last].items.count - 1
                 turns[last].items[item] = .thought(id: id, text: "")
@@ -1779,27 +2186,15 @@ public final class AgentChatStore {
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 return call
             }
-        case .plan(let entries):
-            guard var turn = turns.last else { return }
-            if let index = turn.items.firstIndex(where: { if case .plan = $0 { return true }; return false }) {
-                if entries.isEmpty {
-                    turn.items.remove(at: index)
-                } else if case .plan(let id, _) = turn.items[index] {
-                    turn.items[index] = .plan(id: id, entries: entries)
-                }
-            } else if !entries.isEmpty {
-                turn.items.append(.plan(id: UUID().uuidString, entries: entries))
-            }
-            turns[turns.count - 1] = turn
         case .availableCommands(let commands):
-            availableCommands = commands
+            assign(\.availableCommands, commands)
         case .currentMode(let mode):
-            currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
+            assign(\.currentModeID, mode)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess))
         case .configOptions(let options):
-            configOptions = options
+            assign(\.configOptions, options)
         case .usage(let used, let size):
-            usage = (used, size)
+            if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
@@ -1826,8 +2221,8 @@ public final class AgentChatStore {
     }
 
     private func appendItem(_ item: TurnItem) {
-        guard !turns.isEmpty else { return }
-        turns[turns.count - 1].items.append(item)
+        guard let last = lastRecordedIndex else { return }
+        turns[last].items.append(item)
     }
 
     private func mutateTurn(_ id: String, _ body: (inout AgentTurn) -> Void) {
@@ -1871,18 +2266,50 @@ private final class EarlierHistorySource: AgentSessionSource {
 }
 
 extension AgentChatStore {
-    /// What the chat's loading state says. Connecting first: a chat whose start is over but
-    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
-    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
+    /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
+    /// wanna see connecting to cosmic-gray... with the spinner").
     public var loadingText: String {
-        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
-            return "Connecting to \(summary.macName)…"
-        }
-        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }
+
+    /// The loading state's words show. A start says so at once (the person just asked for
+    /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
+    /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
+    /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
+    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
 
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
         summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+}
+
+/// A message the phone is sending (``AgentChatStore/outgoing``): shown at once, until the Mac has it.
+public struct OutgoingMessage: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let text: String
+    public let attachments: [AgentAttachment]
+    /// No files to upload.
+    public var isTextOnly: Bool { attachments.isEmpty }
+    /// A text message not waiting yet: a quiet pending bubble, with no status line or exits.
+    public var isQuietPending: Bool { isTextOnly && !waiting && !canSendNow && !stopping }
+    /// The current file's upload; nil until its first step.
+    public var progress: AgentUploadProgress?
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
+
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil,
+                waiting: Bool = false, canSendNow: Bool = false, stopping: Bool = false) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.progress = progress
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
     }
 }
