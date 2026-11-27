@@ -1359,6 +1359,13 @@ public final class LiveCoordinator {
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.background()
         #endif
+        // The cache's writes are spaced out (`LiveSnapshotStore.minimumWriteInterval`); the
+        // app may be suspended or killed from here, so what the phone shows now goes to disk now.
+        if snapshotSavePending {
+            snapshotSavePending = false
+            saveSnapshot()
+        }
+        snapshots.writeSoon()
     }
 
     /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
