@@ -1178,6 +1178,9 @@ impl Session {
         };
         let (reflexive, allocated) = tokio::join!(reflexive, allocated);
         let blocked = asked > 0 && reflexive.is_empty();
+        if !reflexive.is_empty() {
+            timeline.mark("reflexive_learned");
+        }
         if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
             self.options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(&self.options));
         }

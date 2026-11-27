@@ -1077,6 +1077,21 @@ async fn relay_first_dial_with_a_slow_gather(
     stun: Duration,
     join: Duration,
 ) -> (Duration, Duration) {
+    let (up, init, _) =
+        relay_first_dial_with_a_slow_gather_by(after_gather, true, mac_first, stun, join).await;
+    (up, init)
+}
+
+/// [`relay_first_dial_with_a_slow_gather`]; `tunnel_after_gather`: the
+/// tunnel waits for the gather once `wg-resp` is in (the baseline before
+/// the tunnel went first). Also returns the phone's timeline.
+async fn relay_first_dial_with_a_slow_gather_by(
+    after_gather: bool,
+    tunnel_after_gather: bool,
+    mac_first: bool,
+    stun: Duration,
+    join: Duration,
+) -> (Duration, Duration, cmux_mobile_link::Timeline) {
     let fake = FakeOptions { relay_join_delay: join, ..FakeOptions::default() };
     let mac_options =
         DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
@@ -1091,8 +1106,10 @@ async fn relay_first_dial_with_a_slow_gather(
         relay: relay(&rig.server, &rig.phone_id),
         ice_servers: vec![stun_server],
         init_after_gather: after_gather,
+        tunnel_after_gather,
         ..options()
     };
+    let timeline = phone.timeline.clone();
     let started = std::time::Instant::now();
     let connected =
         dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
@@ -1104,7 +1121,7 @@ async fn relay_first_dial_with_a_slow_gather(
     let session = rig.server.sessions_with("wg-init").remove(0);
     let init = rig.server.forwarded_at(&session, "wg-init").expect("wg-init forwarded");
     connected.link.close("done");
-    (up, init.duration_since(started))
+    (up, init.duration_since(started), timeline)
 }
 
 /// RFD 0142 R1, disco over the relay: in relay first the phone sends
@@ -1143,6 +1160,48 @@ async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
     let (before, after) = (rows[0].1, rows[1].1);
     assert!(after + Duration::from_millis(150) < before, "link up {after:?} vs {before:?} before");
     assert!(after < stun + join, "link up {after:?}: the gather and the join overlap");
+}
+
+/// RFD 0142 R1: in relay first the phone's tunnel starts on `wg-resp`
+/// instead of waiting for its gather too. The STUN gather runs again on the
+/// tunnel's socket and its answer, with the TURN allocation, follows as the
+/// trickle, so link up drops from the longer of the gather and the join to
+/// the join: with a 400 ms gather and 200 ms joins, about 200 ms sooner.
+/// The phone still learns its reflexive address (`reflexive_learned`).
+/// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_starts_the_tunnel_before_the_gather_ends() {
+    let (stun, join) = (Duration::from_millis(400), Duration::from_millis(200));
+    let runs: usize = std::env::var("CMUX_RELAY_TICKET_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let mut rows = Vec::new();
+    for tunnel_after_gather in [true, false] {
+        let mut ups = Vec::new();
+        for _ in 0..runs {
+            let (up, _, timeline) =
+                relay_first_dial_with_a_slow_gather_by(false, tunnel_after_gather, true, stun, join).await;
+            if !tunnel_after_gather {
+                assert!(timeline.get("tunnel_before_gather").is_some(), "{}", timeline.summary());
+                // The trickle runs after the link is up: give it its STUN round trip.
+                for _ in 0..100 {
+                    if timeline.get("endpoints_trickled").is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                assert!(timeline.get("reflexive_learned").is_some(), "{}", timeline.summary());
+            }
+            ups.push(up);
+        }
+        rows.push((tunnel_after_gather, median(ups)));
+    }
+    for (after, up) in &rows {
+        let label = if *after { "tunnel after gather (before)" } else { "tunnel on wg-resp (after)" };
+        eprintln!("{label}: link up {up:?} (median of {runs}; gather {stun:?}, join {join:?})");
+    }
+    let (before, after) = (rows[0].1, rows[1].1);
+    assert!(before >= stun, "the baseline waits for the gather ({before:?})");
+    assert!(after < stun, "link up {after:?}: the gather is off the critical path");
+    assert!(after + Duration::from_millis(100) < before, "link up {after:?} vs {before:?} before");
 }
 
 /// The offer before the gather against a Mac before relay first (it
