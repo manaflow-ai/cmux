@@ -207,6 +207,8 @@ nonisolated let testLoginKeychain = LoginKeychain()
                                              keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let copy = try #require(dev.keychainCopyFile)
         #expect(!FileManager.default.fileExists(atPath: copy.path))
+        // The Keychain answered, so nothing made the state folder yet: make it for the stale copy.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try MobileHostMacIdentity.generate().privateKey.write(to: copy)
         #expect(try dev.loadOrCreate() == pinned)
         #expect(MobileHostMacIdentity.restore(try Data(contentsOf: copy)) == pinned)
