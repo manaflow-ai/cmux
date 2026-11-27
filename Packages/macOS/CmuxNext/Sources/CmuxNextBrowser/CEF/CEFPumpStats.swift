@@ -33,12 +33,6 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var stepRuns = 0
     public var stepNotDue = 0
     public var stepSkippedInPass = 0
-    /// Lever 4e's steps-only form (`CMUX_NEXT_CEF_PUMP_AT_STEP=steps`): timer passes held for a resize step's start, the
-    /// ms they waited in all, those that ran at the bound because no step came, and those the resize's end ran.
-    public var stepDeferred = 0
-    public var stepDeferredMs = 0.0
-    public var stepDeferTimeouts = 0
-    public var stepDeferFlushes = 0
 
     public init() {}
 
@@ -53,8 +47,6 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
          "kept_cross_thread_requests": Double(keptCrossThreadRequests),
          "step_runs": Double(stepRuns), "step_not_due": Double(stepNotDue),
          "step_skipped_in_pass": Double(stepSkippedInPass),
-         "step_deferred": Double(stepDeferred), "step_deferred_ms": stepDeferredMs,
-         "step_defer_timeouts": Double(stepDeferTimeouts), "step_defer_flushes": Double(stepDeferFlushes),
          "work_ms": workSeconds * 1_000, "fallback_ms": fallbackInterval * 1_000]
     }
 }

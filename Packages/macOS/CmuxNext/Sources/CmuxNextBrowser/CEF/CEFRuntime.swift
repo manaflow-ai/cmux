@@ -659,8 +659,6 @@ final class CEFRuntime {
             ResizeStepTimes.live.stepWillLayOut = { [weak pump] _ in
                 ResizeStepTimes.pass("cef_pump") { pump?.runIfDueAtStep() }
             }
-            // The steps-only form: a pass held for a step that ran outside one (the bound, or the resize's end).
-            pump.onDeferredPassOutsideStep = { ms, why in ResizeStepTimes.note("cef_pump_late", ms: ms, detail: " ran=1 why=\(why)") }
         }
 
         // The profile root, the kept log, the person's ad blocker and the built-in manifest were read ahead off the

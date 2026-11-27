@@ -18,7 +18,6 @@ import Testing
         var runs = 0
         var pump: CEFMessagePump?
         var inner: [String?] = []
-        var late: [String] = []
     }
 
     struct Rig {
@@ -29,13 +28,12 @@ import Testing
     }
 
     /// A running demand-driven pump (no safety net) after its start's pass, its work counted in `box`.
-    static func rig(_ box: Box, onlyAtSteps: Bool = false, work: @escaping () -> Void = {}) -> Rig {
+    static func rig(_ box: Box, work: @escaping () -> Void = {}) -> Rig {
         let timer = Timer()
         let clock = Clock()
         let gate = CEFPumpCrossThreadGate(ledger: WakeupLedger())
         let pump = CEFMessagePump(work: { box.runs += 1; work() }, safetyNet: .none, timer: timer, clock: { clock.seconds },
-                                  ledger: WakeupLedger(), gate: gate, defersToSteps: onlyAtSteps)
-        pump.onDeferredPassOutsideStep = { ms, why in box.late.append(String(format: "%@ %.1f", why, ms)) }
+                                  ledger: WakeupLedger(), gate: gate)
         box.pump = pump
         pump.start()
         timer.fire()
@@ -111,7 +109,7 @@ import Testing
 
     @Test func inALiveResizeADueTimerPassRunsAtOnce() {
         let box = Box()
-        let rig = Self.rig(box, onlyAtSteps: true)
+        let rig = Self.rig(box)
         Self.stepping(rig)
         rig.timer.fire()
         #expect(box.runs == 1, "no step runs, the pass is due: it runs now, not at the next step's start")
@@ -121,7 +119,7 @@ import Testing
 
     @Test func aRequestInALiveResizeArmsTheTimerAtItsOwnDeadline() throws {
         let box = Box()
-        let rig = Self.rig(box, onlyAtSteps: true)
+        let rig = Self.rig(box)
         Self.stepping(rig)
         #expect(try #require(rig.timer.armed) < 1e-6, "work for now: the timer is armed for now, not for a step's bound")
         rig.timer.fire()
@@ -131,7 +129,7 @@ import Testing
 
     @Test func theStepsPassAddsToTheTimersPasses() {
         let box = Box()
-        let rig = Self.rig(box, onlyAtSteps: true)
+        let rig = Self.rig(box)
         Self.stepping(rig)
         #expect(rig.pump.runIfDueAtStep() == " ran=1", "the next step's start runs the due work")
         #expect(box.runs == 1)

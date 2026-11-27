@@ -379,7 +379,6 @@ final class CEFLayerHosting {
         fenceMissedInDrag = false
         syncDeadline()
         guard !inPaneDrag else { return }
-        CEFRuntime.shared.pump?.resizeEnded()
         (view as? CEFHostView)?.inTree.resizeMotionEnded(windowResized: false)
     }
 
