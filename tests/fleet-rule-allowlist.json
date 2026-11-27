@@ -170,7 +170,7 @@
     "cmux-tui/crates/acpmux/src/agent_link_tests.rs": {"count": 5, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/locate_tests.rs": {"count": 20, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/opaque_agent_id_tests.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"},
-    "cmux-tui/crates/acpmux/src/hub/admission_scale_up.rs": {"count": 4, "reason": "safe: sample machine name in the file's inline unit test of a placement reply; nothing depends on the host"},
+    "cmux-tui/crates/acpmux/src/hub/admission_scale_up_tests.rs": {"count": 4, "reason": "safe: sample machine name in the moved unit test of a placement reply; nothing depends on the host"},
     "cmux-tui/crates/acpmux/src/hub_carrier_key_lock_tests.rs": {"count": 2, "reason": "safe: sample machine name in a unit test fixture; nothing connects to it or depends on the host (a case-folded machine-name lookup)"},
     "Native/OptChat/optchat-chief/tests/agent_memory.rs": {"count": 1, "reason": "safe: sample memory text in a test assertion; nothing depends on the host"}
   }
