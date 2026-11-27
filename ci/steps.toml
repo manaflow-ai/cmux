@@ -2322,7 +2322,7 @@ cargo bench --profile gate -p acpmux --bench icount --locked -- check
 job = "linux"
 timeout = 360
 title = "cmux_next_ daemon tests of the small members"
-about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core and cmux-sdk (the gate's small members) pass on the pull request"
+about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core, cmux-sdk and cmux-auto-session (the gate's small members) pass on the pull request"
 needs = ["rust"]
 inputs = [
   "cmux-tui/Cargo.toml",
@@ -2381,6 +2381,18 @@ inputs = [
   "cmux-tui/crates/cmux-tui-platform/src/process_resources/*",
   "cmux-tui/crates/cmux-unix-socket/*",
   "cmux-tui/crates/cmux-unix-socket/src/*",
+  "cmux-tui/crates/cmux-auto-session/*",
+  "cmux-tui/crates/cmux-auto-session/fixtures/*",
+  "cmux-tui/crates/cmux-auto-session/src/*",
+  "cmux-tui/crates/cmux-auto-session/src/chunks/*",
+  "cmux-tui/crates/cmux-auto-session/src/cloud/*",
+  "cmux-tui/crates/cmux-auto-session/src/fake/*",
+  "cmux-tui/crates/cmux-auto-session/src/fake/tests/*",
+  "cmux-tui/crates/cmux-auto-session/src/holder/*",
+  "cmux-tui/crates/cmux-auto-session/src/holder/tests/*",
+  "cmux-tui/crates/cmux-auto-session/src/wire/*",
+  "cmux-tui/crates/cmux-auto-session/tests/conformance/*",
+  "cmux-tui/persisted-formats/auto-session-manifest/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_crate_steps.py
@@ -2397,6 +2409,7 @@ cargo test --locked -p cmux-tui-hooks --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-server-core --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-sdk --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-sdk --test machine_catalog_reads cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-auto-session --lib cmux_next_ 2>&1 | ran || status=1
 rm -f "$log"
 exit "$status"
 '''
