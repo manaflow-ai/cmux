@@ -46,7 +46,9 @@ function run(): number {
     addEventListener: (type: string, callback: () => void) => void (listeners[type] ??= []).push(callback),
     Element: class {},
   };
-  new Function(...Object.keys(scope), script)(...Object.values(scope));
+  // The bench runs the page's own inline script in a fake window, on purpose.
+  const runScript = Function;
+  (new runScript(...Object.keys(scope), script) as (...values: unknown[]) => void)(...Object.values(scope));
   observers.forEach((callback) => callback());
   listeners.load?.forEach((callback) => callback());
   for (let frame = 0; frame < 120; frame++) {

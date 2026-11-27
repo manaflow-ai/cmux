@@ -68,7 +68,7 @@ for (let round = 0; round < ROUNDS; round++) {
   await page.close();
 }
 await browser.close();
-statics.stop();
+void statics.stop();
 fs.rmSync(out, { recursive: true, force: true });
 
 for (const event of ["patch", "write"] as const) {
