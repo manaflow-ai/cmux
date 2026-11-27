@@ -239,8 +239,6 @@ import {
   widthChanged,
 } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
-import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
-import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -2381,12 +2379,13 @@ function TranscriptView({
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
-  useLayoutEffect(() => {
+  const resetScrollbarRange = useCommittedEvent(() => {
     olderDragPending.current = false;
     // Only a range held asks a render: a same-value one was a sync render of the whole transcript in
     // every chat switch (`followingAsked` above).
     if (scrollbarRange !== undefined) setScrollbarRange(undefined);
-  }, [sessionKey]);
+  });
+  useLayoutEffect(() => resetScrollbarRange(), [sessionKey, resetScrollbarRange]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
@@ -6780,11 +6779,12 @@ function TranscriptView({
     return () => window.removeEventListener("keydown", onKey);
   }, [jumpBackHeld]);
   // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
-  useLayoutEffect(() => {
+  const resetJumpBack = useCommittedEvent(() => {
     jumpBack.current = undefined;
     // Only a held way back asks a render (`followingAsked` above).
     if (jumpBackHeld) setJumpBackHeld(false);
-  }, [sessionId]);
+  });
+  useLayoutEffect(() => resetJumpBack(), [sessionId, resetJumpBack]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
