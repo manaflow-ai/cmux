@@ -738,6 +738,108 @@ import Testing
     }
 }
 
+/// Before the first send, New Task names the mode and effort the chat starts with, and Start
+/// sends exactly what it names (Leo, 2026-11-22: "opus 5.5 should have medium selected at
+/// baseline in the new chat area ... dont make it show mode if auto is the default").
+/// `settled` is what the pickers show and what Start sends; each case also starts the task and
+/// reads the request back.
+@MainActor @Suite struct ComposerStartStateTests {
+    let defaults: UserDefaults
+    init() throws { defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.startState.\(UUID().uuidString)")) }
+
+    static let modes = [AgentSettingChoice(id: "auto", name: "Auto"), AgentSettingChoice(id: "default", name: "Manual")]
+
+    /// Opus 5.5 is the start model; acpmux sets a new chat on it to Medium (`start.effort`)
+    /// although the model's own default is High.
+    var claude: AgentHarnessChoice {
+        AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                           models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: ["low", "medium", "high"],
+                                                     defaultEffort: "high", shortName: "Opus 5.5", aliases: ["opus"]),
+                                    AgentModelChoice(id: "sonnet", name: "Sonnet", efforts: ["low", "high"], defaultEffort: "low"),
+                                    AgentModelChoice(id: "haiku", name: "Haiku")],
+                           defaultModel: "opus", askingModes: ["auto", "default"], startEffort: "medium", reportedModes: Self.modes)
+    }
+
+    /// A profile that passes its own model to the agent: no `start.model`, no model list, no
+    /// reported effort option, but a `start.effort`.
+    var profile: AgentHarnessChoice {
+        AgentHarnessChoice(id: "profile", name: "Profile", family: "claude", askingModes: ["auto", "default"],
+                           startEffort: "medium", reportedModes: Self.modes)
+    }
+
+    /// One mode a phone may start (Codex on the bridge), named by id alone.
+    var asker: AgentHarnessChoice {
+        AgentHarnessChoice(id: "asker", name: "Asker", family: "asker",
+                           models: [AgentModelChoice(id: "m1", name: "M1", efforts: ["low", "medium"], defaultEffort: "low")],
+                           defaultModel: "m1", askingModes: ["ask"])
+    }
+
+    func make() -> (WorkspaceCreator, ScriptedBackend, AgentCatalog) {
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let creator = WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults)
+        return (creator, backend, AgentCatalog(harnesses: [claude, profile, asker]))
+    }
+
+    /// Starts `pick` as the composer does (settled first) and returns what the pickers showed
+    /// and what the request carried.
+    func shownAndSent(_ pick: TaskAgentPick, harness: AgentHarnessChoice) async -> (shown: TaskAgentPick, sent: AgentTask?) {
+        let (creator, backend, catalog) = make()
+        let shown = creator.settled(pick, harness: harness, catalog: catalog)
+        creator.startTask(TaskDraft(prompt: "Go", picks: [shown], launch: .chat))
+        await creator.settle()
+        return (shown, backend.requests.first?.task)
+    }
+
+    @Test func theStartModelShowsTheStartEffortAndTheFirstRemoteMode() async {
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude"), harness: claude)
+        #expect(shown.model == "claude-opus-5-5" && shown.effort == "medium" && shown.mode == "auto")
+        #expect(claude.modes.first?.name == "Auto")
+        #expect(sent?.model == shown.model && sent?.effort == shown.effort && sent?.mode == shown.mode)
+    }
+
+    @Test func theStartEffortShowsWithoutAStartModel() async {
+        #expect(profile.efforts(model: nil).map(\.id) == ["medium"])
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "profile"), harness: profile)
+        #expect(shown.model == nil && shown.effort == "medium" && shown.mode == "auto")
+        #expect(sent?.model == nil && sent?.effort == "medium" && sent?.mode == "auto")
+    }
+
+    @Test func theOnlyModeIsNamed() async {
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "asker"), harness: asker)
+        #expect(asker.modes.map(\.name) == ["Ask"] && shown.mode == "ask" && sent?.mode == "ask")
+        #expect(shown.effort == "low" && sent?.effort == "low")
+    }
+
+    @Test func anotherModelTakesItsOwnDefaultNotTheStartEffort() async {
+        // The model picker clears the effort (`$0.effort = nil`); Sonnet's own default shows.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "sonnet"), harness: claude)
+        #expect(shown.effort == "low" && sent?.effort == "low")
+    }
+
+    @Test func aModelWithNoEffortHoldsNone() async {
+        #expect(claude.efforts(model: "haiku").isEmpty)
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "haiku", effort: "high"), harness: claude)
+        #expect(shown.effort == nil && sent?.effort == nil)
+    }
+
+    @Test func aStaleModeAndEffortFromAnotherAgentAreDroppedToItsStartValues() async {
+        // A pick carrying another agent's mode ("default") and effort (High) that this agent
+        // offers neither of (a resumed draft, a changed catalog): its own start values, shown and sent.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "asker", effort: "high", mode: "default"), harness: asker)
+        #expect(shown.mode == "ask" && shown.effort == "low")
+        #expect(sent?.mode == "ask" && sent?.effort == "low")
+    }
+
+    @Test func aModelTheAgentNoLongerListsFallsBackToTheStartModel() async {
+        // Its picker would read Default while Start sent the gone model.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "gone", effort: "max"), harness: claude)
+        #expect(shown.model == "claude-opus-5-5" && shown.effort == "medium")
+        #expect(sent?.model == "claude-opus-5-5" && sent?.effort == "medium")
+    }
+}
+
 /// New Task keeps everything from its last use, also after the app quits: its agents, Mac,
 /// folder and Chat or Terminal (and each agent's model, effort, mode and options, per agent).
 @MainActor @Suite struct TaskSetupKeptTests {
