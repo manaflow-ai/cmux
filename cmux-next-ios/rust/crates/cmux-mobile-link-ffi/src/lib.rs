@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::ChannelSender;
+use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change};
 use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
