@@ -322,6 +322,30 @@ fn detach_client_reports_the_kick_reason_and_actor() {
     assert!(error.to_string().contains("unknown participant"));
 }
 
+#[test]
+fn detach_client_kicks_an_unattached_client_with_a_connection_notice() {
+    let mux = test_mux();
+    let kicker_writer = test_writer();
+    let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+    let (target_writer, target_outbound) = captured_writer();
+    let target = mux.control_clients.register(ClientTransport::Unix, target_writer);
+
+    handle_command(
+        &mux,
+        kicker,
+        json_command(json!({"cmd": "detach-client", "client": format!("c{target}")})),
+        &kicker_writer,
+    )
+    .unwrap();
+
+    assert!(!mux.control_clients.contains(target));
+    assert_eq!(
+        drain_json(&target_outbound),
+        vec![json!({"event": "client-disconnected-by"})],
+        "a kick before attachment still needs a terminal connection marker"
+    );
+}
+
 /// docs/shared-terminal-sizing.md: disconnecting a relay Mac's own view
 /// (for example from the phone it relays) detaches that view only. The
 /// connection, its byte stream and the phones it relays stay; Reattach
