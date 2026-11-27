@@ -1,4 +1,5 @@
 public import CmuxNextActions
+internal import CmuxNextHomeModel
 
 extension ChiefWelcome {
     /// One shortcut line, using the keys and title the action registry shows.
@@ -16,49 +17,73 @@ extension ChiefWelcome {
             self.then = then
             self.title = title
         }
-
-        /// The keys as Markdown: `` `⇧⌘P` ``, or `` `⌘J` then `S` `` for a chord.
-        var markdown: String {
-            guard let then else { return "`\(keys)`" }
-            return HomeStrings.chiefWelcomeChord(keys, then)
-        }
     }
 
-    /// How to use cmux, in order: the shortcuts people use every day (cmux#48416), New Workspace `⌘N`, New Tab
-    /// `⌘T`, Split Right `⌘D`, Split Down `⇧⌘D`, Focus Location Bar `⌘L`, New Browser Tab `⇧⌘L`, Go to Workspace
-    /// `⌘P`, then the Command Palette `⇧⌘P` for everything else (default keys: cmux-action-catalog `catalog/`).
-    static let shortcutActions: [ActionID] = ["newTab", "newTab.default", "splitRight", "splitDown", "focusLocation", "openBrowser", goToAction, "commandPalette"]
-    /// Go to Workspace, normally ⌘P.
-    static let goToAction: ActionID = "goToWorkspace"
-    /// Start Agent from Any App, normally ⌃⌥⌘Space: the system-wide key, last in the list. Its setting
-    /// (`app.startAgentGlobalHotKey`) is off until the person turns it on, so while it is off its line
-    /// ends with a one-click link that turns it on (agent-shortcut-found).
-    static let anyAppAction: ActionID = "palette.startAgentFromAnyApp"
-    /// The link that turns Start Agent from Any App on (``DeepLink/settingsAction(for:linkScheme:)``).
-    public nonisolated static let anyAppLink = "cmux://settings" + DeepLink.startAgentFromAnyAppPath
-
     /// The welcome with `registry`'s current shortcuts; unbound actions are left out. `anyAppOn`:
-    /// whether Start Agent from Any App's system-wide key is on now (no link to turn it on).
+    /// whether Start Agent from Any App's system-wide key is on now (no link to turn it on). The actions
+    /// and their order are `welcome.shortcutActions`: the shortcuts people use every day (cmux#48416),
+    /// then Start Agent from Any App, whose key is off until the person turns it on.
     @MainActor public static func text(_ registry: ActionRegistry, anyAppOn: Bool = false) -> String {
-        let shortcut = { (id: ActionID) -> Shortcut? in
-            guard let steps = registry.shortcutSteps(for: id), let keys = steps.first,
-                  let title = registry.descriptor(for: id)?.title else { return nil }
-            return Shortcut(keys: keys, then: steps.dropFirst().first, title: title.hasSuffix("…") ? String(title.dropLast()) : title)
+        let actions: ShortcutActions = welcomeRule("welcome.shortcutActions", HomeRules.Empty(),
+                                                   fallback: ShortcutActions(actions: [], anyAppAction: nil))
+        let shortcut = { (id: String) -> Shortcut? in
+            let action = ActionID(rawValue: id)
+            guard let steps = registry.shortcutSteps(for: action), let title = registry.descriptor(for: action)?.title else { return nil }
+            let reply: ShortcutReply = welcomeRule("welcome.shortcut", ShortcutInput(steps: steps, title: title), fallback: ShortcutReply(shortcut: nil))
+            return reply.shortcut.map { Shortcut(keys: $0.keys, then: $0.then, title: $0.title) }
         }
-        return text(shortcuts: shortcutActions.compactMap(shortcut), anyApp: shortcut(anyAppAction), anyAppOn: anyAppOn)
+        return text(shortcuts: actions.actions.compactMap(shortcut), anyApp: actions.anyAppAction.flatMap(shortcut), anyAppOn: anyAppOn)
     }
 
     /// The about message's Markdown, kept short: one line on what Chief does, then how to use cmux (its shortcuts).
-    /// `anyApp` (Start Agent from Any App) ends the shortcut list, with a link that turns its key on unless `anyAppOn`.
+    /// `anyApp` (Start Agent from Any App) ends the shortcut list, with a link that turns its key on unless `anyAppOn`
+    /// (`welcome.aboutText`).
     public nonisolated static func text(shortcuts: [Shortcut], anyApp: Shortcut? = nil, anyAppOn: Bool = false) -> String {
-        var blocks = [aboutText]
-        var lines = shortcuts.map { "- \($0.markdown) \($0.title)" }
-        if let anyApp {
-            lines.append(anyAppOn ? "- \(anyApp.markdown) \(anyApp.title)" : "- " + HomeStrings.chiefWelcomeAnyApp(anyApp.markdown, anyApp.title, link: anyAppLink))
-        }
-        if !lines.isEmpty {
-            blocks.append(([HomeStrings.chiefWelcomeShortcuts] + lines).joined(separator: "\n"))
-        }
-        return blocks.joined(separator: "\n\n")
+        let input = AboutInput(about: HomeStrings.chiefWelcomeAbout, shortcuts: shortcuts.map(WireShortcut.init), anyApp: anyApp.map(WireShortcut.init),
+                               anyAppOn: anyAppOn, heading: HomeStrings.chiefWelcomeShortcuts,
+                               chordFormat: HomeStrings.chiefWelcomeChordFormat, anyAppFormat: HomeStrings.chiefWelcomeAnyAppFormat)
+        let reply: AboutReply = welcomeRule("welcome.aboutText", input, fallback: AboutReply(text: HomeStrings.chiefWelcomeAbout))
+        return reply.text
     }
+}
+
+// The shortcut ops' wire shapes (cmux-home-rules `welcome/script.rs`).
+private nonisolated struct ShortcutActions: Decodable {
+    var actions: [String]
+    var anyAppAction: String?
+}
+
+private nonisolated struct ShortcutInput: Encodable {
+    var steps: [String]
+    var title: String
+}
+
+private nonisolated struct ShortcutReply: Decodable {
+    var shortcut: WireShortcut?
+}
+
+private nonisolated struct WireShortcut: Codable {
+    var keys: String
+    var then: String?
+    var title: String
+
+    init(_ shortcut: ChiefWelcome.Shortcut) {
+        keys = shortcut.keys
+        then = shortcut.then
+        title = shortcut.title
+    }
+}
+
+private nonisolated struct AboutInput: Encodable {
+    var about: String
+    var shortcuts: [WireShortcut]
+    var anyApp: WireShortcut?
+    var anyAppOn: Bool
+    var heading: String
+    var chordFormat: String
+    var anyAppFormat: String
+}
+
+private nonisolated struct AboutReply: Decodable {
+    var text: String
 }

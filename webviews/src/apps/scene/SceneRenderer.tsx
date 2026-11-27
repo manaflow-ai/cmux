@@ -13,7 +13,7 @@ import {
   type RefObject,
 } from "react";
 import { measureElement as measureBox, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { Spinner } from "../../kit";
+import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";

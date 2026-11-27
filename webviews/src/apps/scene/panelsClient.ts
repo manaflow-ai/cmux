@@ -32,7 +32,8 @@ export type MountedPanel = {
   panel: AppPanel;
   store: SceneStore;
   dispatch: (node: string, event: string, payload?: unknown) => void;
-  /** The failure row's Reload: runs the app's saved script again. Call it synchronously from the click. */
+  /** The failure row's Reload: runs the app's saved script again. Call it synchronously from the click.
+   * retry-prompt-ok: re-running an app's script is the person's call (the host takes it only from a gesture). */
   reload: () => void;
   /** Reports the drawn height, so the host can size a native frame around the page (sent once per change). */
   layout: (height: number) => void;
