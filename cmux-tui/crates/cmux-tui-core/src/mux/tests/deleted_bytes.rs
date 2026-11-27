@@ -194,7 +194,6 @@ fn a_revoked_agent_token_leaves_no_bytes() {
 /// `app.storage.delete` and an app's uninstall (`clear`): the value was in
 /// `apps-storage.sqlite`.
 #[cfg(unix)]
-#[cfg(unix)] // apps::storage is unix-only
 #[test]
 fn a_deleted_app_storage_value_leaves_no_bytes() {
     use crate::apps::storage::Storage;
