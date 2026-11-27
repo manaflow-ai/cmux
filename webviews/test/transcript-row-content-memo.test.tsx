@@ -5,7 +5,7 @@
 // line under a running turn keeps one version while the send in flight changes recipient
 // (turns.ts `sendingTo`), and a stale "Sending to ..." is worse than a redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { act, memo, useState, Profiler } from "react";
+import { act, memo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -294,7 +294,7 @@ test("a recreated reply passes both memo boundaries even when its row id and ver
 test("retained message cards ignore structural agent contexts and reveal the latest name and click target", async () => {
   const root = createRoot(document.getElementById("root")!);
   const opened: string[] = [];
-  let commits = 0;
+  let messageReads = 0;
   const tool = {
     id: "idle-message",
     title: "SendMessage",
@@ -303,12 +303,16 @@ test("retained message cards ignore structural agent contexts and reveal the lat
     inputSummary: JSON.stringify({ to: "a39e817af38ddf5e7", message: "Result ready" }),
     output: JSON.stringify({ queued: true }),
   } as const;
+  const message = agentMessage(tool)!;
+  const recipient = message.to;
+  Object.defineProperty(message, "to", {
+    get: () => {
+      messageReads++;
+      return recipient;
+    },
+  });
   function Card() {
-    return (
-      <Profiler id="message" onRender={() => commits++}>
-        <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={agentMessage(tool)!} />
-      </Profiler>
-    );
+    return <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={message} />;
   }
   const row = line("message");
   const noop = () => {};
@@ -329,9 +333,10 @@ test("retained message cards ignore structural agent contexts and reveal the lat
   try {
     await act(async () => render(true, "Original"));
     await act(async () => render(false, "Hidden"));
-    const before = commits;
+    const before = messageReads;
+    expect(before).toBeGreaterThan(0);
     for (let tick = 0; tick < 20; tick++) await act(async () => render(false, `Update ${tick}`));
-    expect(commits).toBe(before);
+    expect(messageReads).toBe(before);
     expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Original");
     await act(async () => render(true, "Current"));
     expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Current");
