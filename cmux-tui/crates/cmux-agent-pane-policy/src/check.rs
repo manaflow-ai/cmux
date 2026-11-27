@@ -401,15 +401,22 @@ fn check_frame_inner(
     // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins
     // are removed before every rule, so they never reach the daemon and never
     // fail the connect (cmux#46563; Swift `strippingInitializeOptIns`).
-    if let Some((stripped, _keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
+    // Its keys are dropped keys like P0's, so the facts name them too.
+    let mut opt_ins = Vec::new();
+    if let Some((stripped, keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
         object = stripped;
+        opt_ins = keys.into_iter().map(|k| format!("_meta.acpmux.{k}")).collect();
     }
     // P0: any other key this host's lists do not name is dropped, not refused
     // ([`stripping_unknown_params`]): a newer page never loses its chat to it.
-    let (object, dropped) = match stripping_unknown_params(&object, state.mode_fields) {
+    let (object, mut dropped) = match stripping_unknown_params(&object, state.mode_fields) {
         Some((stripped, dropped)) => (stripped, dropped),
         None => (object, Vec::new()),
     };
+    if !opt_ins.is_empty() {
+        dropped.extend(opt_ins);
+        dropped.sort();
+    }
     let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
     let page_id = object.get("id").and_then(raw_id);
     let empty = Map::new();
