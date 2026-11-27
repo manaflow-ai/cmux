@@ -64,6 +64,9 @@ final class EventLog: @unchecked Sendable {
         #expect(DeviceHubPush(text: #"{"type":"session.denied","sessionId":"s1"}"#) == .sessionDenied(sessionID: "s1"))
         #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"device_removed"}"#)
             == .sessionRevoked(sessionID: "s1", reason: "device_removed"))
+        // approve_failed's step rides with its reason, so a tab and a probe can say which setup part threw.
+        #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"approve_failed","step":"relay"}"#)
+            == .sessionRevoked(sessionID: "s1", reason: "approve_failed:relay"))
         #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"bye"}"#) == .sessionEnded(sessionID: "s1", reason: "bye"))
         // P7: a pushed or moved share. Absent fields read as an ordinary ticket (above), malformed ones too.
         #expect(ticket.pushed == false && ticket.movedFrom == nil)

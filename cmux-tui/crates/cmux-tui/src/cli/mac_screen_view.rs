@@ -37,6 +37,7 @@ pub(super) fn shape(row: &Value, route: Option<&Value>) -> Value {
         "state": field("state"),
         "connect_stage": field("connect_stage"),
         "hub_phase": field("hub_phase"),
+        "hub_reason": field("hub_reason"),
         "phase": field("phase"),
         "connected": field("connected"),
         "has_frame": field("has_frame"),

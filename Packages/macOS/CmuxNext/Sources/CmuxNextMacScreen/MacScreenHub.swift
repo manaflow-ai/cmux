@@ -164,7 +164,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case let text where text.hasPrefix("peer_offline"): self = .peerOffline
         case let text where Self.failureDetail(text) != nil: self = .failed
         case "expired": self = .expired
-        case "approve_failed": self = .approveFailed
+        case let text where text == "approve_failed" || text.hasPrefix("approve_failed:"): self = .approveFailed
         case "consent_required": self = .consentRequired
         case "moved": self = .moved
         default: self = .other
