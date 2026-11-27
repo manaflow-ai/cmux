@@ -29,9 +29,10 @@ pub fn host_of(key: &str) -> &str {
 /// has no peer row for (this machine itself, a host it never linked) gets no host facts.
 pub fn observe(key: &str, peers: &Value, snapshot: Option<&Value>, now_ms: u64) -> Value {
     let host = host_of(key);
-    let mut facts = json!({"key": key});
+    let mut facts = Map::new();
+    facts.insert("key".into(), json!(key));
     if !host.is_empty() {
-        facts["host"] = json!(host);
+        facts.insert("host".into(), json!(host));
     }
     let rows = peers.get("peers").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     let up = |p: &Value| {
@@ -45,22 +46,23 @@ pub fn observe(key: &str, peers: &Value, snapshot: Option<&Value>, now_ms: u64) 
         hosts.insert("answering".into(), json!(answering));
     }
     if let Some(row) = rows.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(host)) {
-        facts["host_down"] = json!(!up(row));
+        facts.insert("host_down".into(), json!(!up(row)));
         if let Some(since) = row.get("downSince").and_then(Value::as_u64) {
-            facts["dead_seconds"] = json!(now_ms.saturating_sub(since) as f64 / 1000.0);
+            facts
+                .insert("dead_seconds".into(), json!(now_ms.saturating_sub(since) as f64 / 1000.0));
         }
     }
     if let Some(snap) = snapshot {
-        facts["has_row"] = json!(snap.get("summary").is_some_and(|s| !s.is_null()));
+        facts.insert("has_row".into(), json!(snap.get("summary").is_some_and(|s| !s.is_null())));
         let records = snap.get("events").and_then(Value::as_array).map_or(0, Vec::len);
         if records > 0 {
-            facts["snapshot_records"] = json!(records);
+            facts.insert("snapshot_records".into(), json!(records));
         }
     }
     if !hosts.is_empty() {
-        facts["hosts"] = Value::Object(hosts);
+        facts.insert("hosts".into(), Value::Object(hosts));
     }
-    facts
+    Value::Object(facts)
 }
 
 /// `over` laid on `base`: objects merge key by key, anything else in `over` replaces `base`'s.
