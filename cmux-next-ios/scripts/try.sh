@@ -282,6 +282,9 @@ PY
 # exists only when the fleet built the head (success) or its device app failed to build (failure).
 TRY_AHEAD_CHECK="cmux Dev try build (ahead)"
 TRY_FLEET_CHECK="cmux Dev try build (fleet)"
+# A detached build-ahead job (CI_IOS_TRY_AHEAD_DETACH, the default) has the controller post the verdict under this
+# name: success, failure, or neutral for no verdict.
+TRY_VERDICT_CHECK="cmux Dev try build (ahead, fleet verdict)"
 
 # Open pull requests into feat-cmux-next that touch the iPhone app, newest first, with each head's build state.
 try_list() {
@@ -289,19 +292,22 @@ try_list() {
   raw="$(gh pr list -R "$TRY_REPO" --base feat-cmux-next --state open -L "${CNX_TRY_LIST_LIMIT:-100}" \
     --json number,title,author,headRefOid,updatedAt,isDraft,files,statusCheckRollup 2>/dev/null)" ||
     { echo '{"schema":"cmux.ios-try.list.v1","error":"could not list pull requests (gh pr list; is gh signed in on this Mac?)","prs":[]}'; return 1; }
-  printf '%s' "$raw" | /usr/bin/python3 -I -c "$TRY_LIST_PY" "$TRY_HOME" "$TRY_AHEAD_CHECK" "$TRY_FLEET_CHECK"
+  printf '%s' "$raw" | /usr/bin/python3 -I -c "$TRY_LIST_PY" "$TRY_HOME" "$TRY_AHEAD_CHECK" "$TRY_FLEET_CHECK" "$TRY_VERDICT_CHECK"
 }
 
 # stdin: gh pr list's JSON. argv: the cache folder, the verdict check's name, the fleet job's check name.
 TRY_LIST_PY='
 import json, os, sys
 home, check, fleet = sys.argv[1], sys.argv[2], sys.argv[3]
+verdict = sys.argv[4] if len(sys.argv) > 4 else check
 PENDING = ("QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "")
 IOS = ("cmux-next-ios/", "Packages/iOS/")
 rows = []
 for pr in json.load(sys.stdin):
     files = [f.get("path", "") for f in pr.get("files") or []]
-    runs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == check]
+    # The verdict job (skipped when the build-ahead job detached) or the verdict check run the controller posts.
+    runs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") in (check, verdict)
+            and (c.get("conclusion") or "").upper() != "SKIPPED"]
     jobs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == fleet]
     if not runs and not jobs and not any(f.startswith(IOS) for f in files):
         continue
