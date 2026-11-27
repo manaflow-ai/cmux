@@ -387,23 +387,25 @@ public final class LiveCoordinator {
     /// lists the bind: its chat opens on that session meanwhile. Gone with the tab's store.
     @ObservationIgnored var boundHere: [String: String] = [:]
 
-    /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
-    /// rebuilt on `session` now (its store reads the session's source), and the message goes as
-    /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    /// Starts the chat in tab `summary`, then rebuilds its store on the bound session.
+    /// The replacement store adopts the first message with its original prompt id and shows
+    /// any send failure on that same message.
     private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
-        { [weak self, weak owner] (text: String, attachments: [AgentAttachment]) async throws in
+        { [weak self, weak owner] (_: String, _: [AgentAttachment]) async throws in
             guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
             let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
-            self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
+            self.bindFirst(session: session, summary: summary, key: key)
         }
     }
 
-    private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
-                           summary: AgentSessionSummary, key: String) {
+    func bindFirst(session: String, summary: AgentSessionSummary, key: String,
+                   directory: AgentSessionDirectory = .shared) {
         boundHere[key] = session
         sourcedSessions[key] = nil
-        AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
-        AgentSessionDirectory.shared.store(for: summary).send(prompt: text, attachments: attachments)
+        directory.invalidate(id: summary.id, macID: summary.macID)
+        // Rebuilding adopts the first message under its original prompt id. Sending its text
+        // again here would mint another id and make the Mac execute the same message twice.
+        _ = directory.store(for: summary)
     }
 
     /// A tab's new chat source: a loading one keeps the earlier loading source's held prompts; a
@@ -429,8 +431,8 @@ public final class LiveCoordinator {
     /// it loaded gets that store now, not when it is next opened: the prompts go to its new
     /// source (sent, or back in its composer with why) instead of expiring into a store that
     /// is gone, which would lose them.
-    func chatSessionChanged(id: String, macID: String) {
-        AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
+    func chatSessionChanged(id: String, macID: String, carryWaiting: Bool = true) {
+        AgentSessionDirectory.shared.invalidate(id: id, macID: macID, carryWaiting: carryWaiting)
         let key = AgentSessionDirectory.key(id: id, macID: macID)
         guard let pending = pendingSources[key], !pending.held.isEmpty else { return }
         _ = AgentSessionDirectory.shared.store(for: pending.summary)
@@ -523,8 +525,9 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.networkChanged) }
     }
 
-    /// Presence down at least this long before its return redials the links.
-    static let presenceOutageMin: Duration = .seconds(3)
+    /// Presence down at least this long before its return redials the links
+    /// (`PresenceListener.outageMin`, which macOS test builds can see).
+    static let presenceOutageMin: Duration = PresenceListener.outageMin
 
     // MARK: Warm start
 
@@ -788,6 +791,22 @@ public final class LiveCoordinator {
     /// `warm`: the link is already dialing in this team from the snapshot,
     /// so nothing on screen is reset while this runs.
     private func startTeam(_ teamID: String, warm: Bool = false) async {
+        // A loop, not a recursion (each retry awaited the next inside its own frame), with a last
+        // try (`RetryBounds.teamStartDelay`): then the list's Retry.
+        var failures = 0
+        while await !startTeamOnce(teamID, warm: warm) {
+            failures += 1
+            guard let delay = RetryBounds.teamStartDelay(afterFailures: failures) else {
+                log.error("team start failed \(failures, privacy: .public) times: waiting for Retry")
+                return
+            }
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
+        }
+    }
+
+    /// One try at starting the team. False: it failed and may be tried again.
+    private func startTeamOnce(_ teamID: String, warm: Bool) async -> Bool {
         do {
             // One round trip: both registrations, this team's Macs and the account's Macs.
             let asked = removedMacs.mark
@@ -795,7 +814,7 @@ public final class LiveCoordinator {
                 (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
             ]) {
                 ConnectTimeline.shared.mark("registered", detail: "bootstrap")
-                guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+                guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
                 if !warm { idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
                 registeredTeamID = teamID
                 push.attach(api: api, deviceID: identity.link)
@@ -805,7 +824,7 @@ public final class LiveCoordinator {
                 store.teamDataState = .loaded
                 if let mine = boot.myMacs { applyDiscovered(mine, askedAt: asked) }
                 startPresence(teamID)
-                return
+                return true
             }
             // A service before 0.8.0: the separate calls, both registrations at once.
             async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
@@ -817,29 +836,28 @@ public final class LiveCoordinator {
             }
             try await presenceDevice
             ConnectTimeline.shared.mark("registered")
-            guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+            guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
             registeredTeamID = teamID
             push.attach(api: api, deviceID: identity.link)
             checkRelay()
             let askedForMacs = removedMacs.mark
             let macs = try await api.macs(teamID: teamID)
-            guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+            guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
             ConnectTimeline.shared.mark("macs_loaded", detail: "\(macs.count)")
             applyMacs(macs, teamID: teamID, askedAt: askedForMacs)
             store.teamDataState = .loaded
             log.info("team \(teamID, privacy: .private) registered, \(macs.count, privacy: .public) Macs")
             startPresence(teamID)
+            return true
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
             // Failed either way: a warm start's cached rows stay on screen
             // (WorkspacesLaunchState keeps them, with no connection text);
             // the retry below catches up.
             store.teamDataState = .failed
-            // Try again on its own (the list's Retry also works).
-            do { try await clock.sleep(for: .seconds(5)) } catch { return }
-            guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
-            await startTeam(teamID, warm: warm)
+            // Tried again on its own, bounded (`startTeam`); the list's Retry also works.
+            return false
         }
     }
 
@@ -1478,7 +1496,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
+    var holdWindow: Duration = AgentChatStore.sendDeadline {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1491,7 +1509,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
@@ -1517,11 +1535,9 @@ final class PendingAgentSource: AgentSessionSource {
     /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
     /// keeps its first send's time, so the hold is one window in all).
     func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
-        guard case .prompt(let text, _, _, let promptID, let resend) = intent else {
-            let reason = "Connecting to \(summary.macName)…"
-            for continuation in continuations { continuation.yield(.clientError(reason)) }
-            return
-        }
+        // Nothing but a prompt has anything to act on yet, and nothing to say about it
+        // (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... i want it to just work").
+        guard case .prompt(let text, _, _, let promptID, let resend) = intent else { return }
         #if canImport(CmuxMobileLinkFFI)
         guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
                           tappedMs: ChatPromptClock.milliseconds(at),
@@ -1593,9 +1609,8 @@ final class PendingAgentSource: AgentSessionSource {
     #endif
 
     private func gaveBack(_ dropped: [AgentClientIntent]) {
-        // Short, with nothing to decode: the draft is back in the composer and Send is the action
-        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
-        let reason = "Not sent: \(summary.macName) is offline."
+        // The chat marks each one not sent on its own bubble (one quiet line, a tap sends it again).
+        let reason = AgentChatStore.unreachableNotice
         for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {
