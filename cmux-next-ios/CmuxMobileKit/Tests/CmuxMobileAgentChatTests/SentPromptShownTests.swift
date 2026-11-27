@@ -38,8 +38,8 @@ import Testing
         #expect(shown.prompt == "run the tests\nand summarize")
         #expect(store.isRunning)
         let before = Self.rowIDs(store)
-        #expect(before.contains("u-\(AgentChatStore.localTurnKey(id))"))
-        #expect(store.justSentRowKey() == AgentChatStore.localTurnKey(id))
+        #expect(before.contains("u-\(AgentChatStore.localTurnID(id))"))
+        #expect(store.justSentRowKey() == AgentChatStore.localTurnID(id))
         #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
 
         store.apply(.userMessage(text: "run the tests\nand summarize", promptId: id, turnId: "t1", attachments: [], at: Date()))
@@ -48,7 +48,7 @@ import Testing
         let turn = try #require(store.turns.last)
         #expect(turn.id == "t1")
         #expect(!turn.isUnconfirmed)
-        #expect(turn.rowKey == AgentChatStore.localTurnKey(id))
+        #expect(turn.rowKey == AgentChatStore.localTurnID(id))
         #expect(Self.rowIDs(store) == before, "same rows: nothing is taken out and put in again")
 
         // The turn goes on under the Mac's id: its answer and its end land in it.
@@ -57,7 +57,7 @@ import Testing
         #expect(store.turns.last?.answerMarkdown == "All green.")
         #expect(store.turns.last?.status == .completed)
         #expect(!store.isRunning)
-        #expect(Self.rowIDs(store).contains("a-\(AgentChatStore.localTurnKey(id))"))
+        #expect(Self.rowIDs(store).contains("a-\(AgentChatStore.localTurnID(id))"))
     }
 
     @Test func aReplayOfTheConfirmedTurnAddsNothing() throws {

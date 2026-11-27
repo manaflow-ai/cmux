@@ -46,6 +46,14 @@ impl Surface {
             }
             !own
         });
+        if reader.is_none()
+            && pty.reader_detached.load(Ordering::Acquire)
+            && !pty.reader_completion.wait_until(deadline)
+        {
+            eprintln!(
+                "cmux-tui: terminal reader did not stop before the shared shutdown deadline; closing journal capture"
+            );
+        }
         if let Some(reader) = reader {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {

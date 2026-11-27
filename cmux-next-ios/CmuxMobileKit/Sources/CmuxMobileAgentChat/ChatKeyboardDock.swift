@@ -223,6 +223,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                     report(height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                // The composer's layout-shift count is measured in this host, which the keyboard
+                // and a push move whole (`layoutShiftTracked(inHost:)`).
+                .layoutShiftHost()
         )
     }
 

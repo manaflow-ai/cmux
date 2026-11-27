@@ -540,7 +540,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.mode == PROBE:
         if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
-        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
+        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": args.good if SHA_RE.match(args.good or "") else ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
     def judged(run_id: int) -> bool:
@@ -754,11 +754,34 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=None) -> None:
+# GitHub answers a workflow dispatch with a 5xx now and then (HTTP 500 "Failed to run workflow dispatch", 502
+# "Server Error"); before this retry one such answer ended the judge and with it the bisect: nothing dispatched the
+# next probe, so the red stayed unbisected (cmux runs 45834479312 and 45839196986, 11-26).
+SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
+DISPATCH_WAITS = (15, 45)
+
+
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
+    """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
+    run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
+        if attempt:
+            listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
+            if any((r.get("display_title") or "") == title and r.get("status") != "completed" for r in (listed or {}).get("workflow_runs", [])):
+                print(f"dispatch of `{title}` answered 5xx but its run started", file=sys.stderr)
+                return
+        try:
+            api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+            return
+        except RuntimeError as e:
+            if wait is None or not SERVER_ERROR.search(str(e)):
+                raise
+            print(f"dispatch of `{title}`: {e}; retrying in {wait}s", file=sys.stderr)
+            sleep(wait)
 
 
 def piece_probe_refusal(probe: Probe, state, branch: str, origin: dict | None, found, covered, tree=None) -> str:
