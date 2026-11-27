@@ -70,6 +70,7 @@ import {
   peerAgentLoginFromStatus,
   peerConnectedFromStatus,
   peerKindsFromStatus,
+  peerGroupsFromStatus,
   peerLinksFromStatus,
   peerStatesFromStatus,
 } from "./environments";
@@ -246,7 +247,7 @@ import {
 } from "./conversation/memoryInbox";
 import { withAttachmentRetries } from "../../pages/shared/attachmentRetry";
 import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
-import type { CustomizeRun } from "./conversation/customizeRun";
+import type { CustomizeRun, RunResult, ShareRun } from "./conversation/customizeRun";
 import {
   frameFullParams,
   latestFrameParams,
@@ -853,8 +854,10 @@ export function settledView(result: unknown): SettledView | undefined {
 /// the attach was out (`takeEarly`, `apply` during its awaits) past `drawnThrough` was reduced before
 /// the page's records under it, so the page is not laid on top of it. Undefined, and the caller
 /// merges the page and folds it all again (`rebuild`), when the page does not meet the rows (a gap),
-/// nothing is held, a live record came past the rows, the page adds nothing past them, or the reply
-/// is no settled view. Never empty: an empty append would read as met while it drew none of the page.
+/// nothing is held, a live record came past the rows, or the reply is no settled view. Empty when
+/// the page meets the rows and adds nothing past them (a chat shown again that did not move while
+/// away): the rows on screen are the page's already, and folding them all again re-rendered the
+/// whole transcript before the switched-to chat's first frame (settled page, Leo 2026-11-21).
 export function settledAppend(
   page: readonly EventRecord[],
   drawnThrough: number,
@@ -865,8 +868,7 @@ export function settledAppend(
     return undefined;
   const oldest = Math.min(...page.map((event) => event.seq));
   if (oldest > drawnThrough + 1) return undefined;
-  const after = page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
-  return after.length > 0 ? after : undefined;
+  return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
 }
 
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
@@ -2111,6 +2113,7 @@ export class AcpmuxDirectClient {
   /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
   private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
+  private peerGroups: NonNullable<AcpmuxSnapshot["peerGroups"]> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -4641,7 +4644,7 @@ export class AcpmuxDirectClient {
     // newest turn were swapped for each read's stretch in turn, and the live state was replayed onto
     // each read's last record (a Thinking clock from hours before, the subsessions of then).
     const missed: EventRecord[] = [];
-    // ends: each continued page advances cursor; a final, empty or window-cut page stops the read, and a stall throws
+    // ends: each continued page advances cursor; a final or window-cut page stops the read, and a page that says more but moves it nothing (an empty one included) throws
     for (let cursor = afterSeq; ;) {
       const result = await this.typed("_acpmux/events", {
         sessionId,
@@ -4655,11 +4658,12 @@ export class AcpmuxDirectClient {
       const read = records(result?.events);
       const taken = window === undefined ? read : read.filter((event) => event.seq <= window);
       for (const event of taken) missed.push(event);
-      if (result?.hasMore !== true || taken.length === 0 || taken.length < read.length) break;
-      const next = Math.max(...taken.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again, and
-      // it filled nothing: it fails like a read that did not come back, so the hole stays in
-      // `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry reads it again.
+      if (result?.hasMore !== true || taken.length < read.length) break;
+      const next = taken.length === 0 ? cursor : Math.max(...taken.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again, and it filled nothing: it fails like a read that did not come back, so the
+      // hole stays in `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry
+      // reads it again.
       if (next <= cursor) {
         this.wire.lifecycle("gap read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the gap read's callers, which keep the hole; never shown.
@@ -8728,10 +8732,11 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
       const page = records(result?.events);
       stored.push(...page.filter((event) => event.seq <= endSeq));
-      if (result?.hasMore !== true || page.length === 0) break;
-      const next = Math.max(...page.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again. It
-      // fails, as a read that did not come back does, so `repairTurns` retries it on its bounded delays.
+      if (result?.hasMore !== true) break;
+      const next = page.length === 0 ? cursor : Math.max(...page.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again. It fails, as a read that did not come back does, so `repairTurns` retries it on
+      // its bounded delays.
       if (next <= cursor) {
         this.wire.lifecycle("turn repair read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the repair read, which retries; never shown.
@@ -12124,6 +12129,7 @@ export class AcpmuxDirectClient {
       peerStates: this.peerStates,
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
+      peerGroups: this.peerGroups,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
@@ -13785,7 +13791,7 @@ export class AcpmuxDirectClient {
   get servesCustomizeRun(): boolean {
     return this.capabilities?.has(CUSTOMIZE_RUN_CAPABILITY) === true;
   }
-  async customizeRun(run: CustomizeRun): Promise<{ ok: boolean; output: string }> {
+  async customizeRun(run: CustomizeRun | ShareRun): Promise<RunResult> {
     if (this.capabilities?.has(CUSTOMIZE_RUN_CAPABILITY) !== true) return { ok: false, output: "" };
     // The click's gesture ticket for this exact run: the host admits the call only with it
     // (policy.json `gesture_rules`), so an agent's page script never starts one on its own.
@@ -13796,7 +13802,11 @@ export class AcpmuxDirectClient {
       () => undefined,
     );
     const reply = objectValue(await this.request("_acpmux/customize_run", { run, ...gestureMeta(ticket) }));
-    return { ok: reply?.ok === true, output: typeof reply?.output === "string" ? reply.output : "" };
+    const output = typeof reply?.output === "string" ? reply.output : "";
+    // A Share's reply carries the line to copy (customize_run.rs `share`).
+    return typeof reply?.line === "string"
+      ? { ok: reply?.ok === true, output, line: reply.line }
+      : { ok: reply?.ok === true, output };
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summaryRuns(this.summary) || this.queue.length > 0) return;
@@ -16820,6 +16830,7 @@ export class AcpmuxDirectClient {
     this.peerStates = peerStatesFromStatus(status);
     this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
+    this.peerGroups = peerGroupsFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
     if (this.peerEvents.observed) this.applyPeerStates();
   }
