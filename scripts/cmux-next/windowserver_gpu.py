@@ -7,10 +7,10 @@ import threading
 from typing import Any
 
 
-def read_gpu_stats() -> dict[str, float]:
+def read_gpu_stats(run: subprocess.CompletedProcess[bytes] | None = None) -> dict[str, float]:
     try:
-        proc = subprocess.run(["ioreg", "-r", "-c", "IOAccelerator", "-d", "1", "-a"],
-                              capture_output=True, timeout=10)
+        proc = run or subprocess.run(["ioreg", "-r", "-c", "IOAccelerator", "-d", "1", "-a"],
+                                     capture_output=True, timeout=10)
         entries = plistlib.loads(proc.stdout) if proc.stdout else []
     except (OSError, subprocess.SubprocessError, ValueError, plistlib.InvalidFileException, TypeError):
         return {}

@@ -14,100 +14,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import plistlib
 import subprocess
 import sys
-import threading
 from pathlib import Path
 from typing import Any
 
+# Keep the sibling sampler import working when this file is loaded by the bench
+# tests via ``importlib`` instead of executed as a script.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from windowserver_gpu import read_gpu_stats, summarize as summarize_gpu
+
 SCENARIOS = ("idle", "typing", "spinner", "glass-blur", "many-panes")
 SCHEMA = "cmux-windowserver/v1"
-
-
-def _number(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
-
-
-def read_gpu_stats(run: subprocess.CompletedProcess[bytes] | None = None) -> dict[str, float]:
-    """Read numeric IOAccelerator PerformanceStatistics, or {} on Linux/unsupported macOS."""
-    try:
-        proc = run or subprocess.run(
-            ["ioreg", "-r", "-c", "IOAccelerator", "-d", "1", "-a"],
-            capture_output=True,
-            timeout=10,
-        )
-        payload = proc.stdout if isinstance(proc.stdout, bytes) else (proc.stdout or b"")
-        entries = plistlib.loads(payload) if payload else []
-    except (OSError, subprocess.SubprocessError, ValueError, plistlib.InvalidFileException, TypeError):
-        return {}
-    if isinstance(entries, dict):
-        entries = [entries]
-    for entry in entries if isinstance(entries, list) else []:
-        if not isinstance(entry, dict):
-            continue
-        stats = entry.get("PerformanceStatistics")
-        if not isinstance(stats, dict):
-            continue
-        result: dict[str, float] = {}
-        for key in ("Device Utilization %", "Renderer Utilization %", "Tiler Utilization %",
-                    "In use system memory", "Alloc system memory"):
-            number = _number(stats.get(key))
-            if number is not None:
-                result[key] = number
-        if result:
-            return result
-    return {}
-
-
-def summarize_gpu(samples: list[dict[str, float]]) -> dict[str, Any]:
-    """Average device counters; memory values are converted to MB, utilization remains percent."""
-    if not samples:
-        return {"available": False, "samples": 0}
-    out: dict[str, Any] = {"available": True, "samples": len(samples)}
-    names = {
-        "Device Utilization %": "device_utilization_percent",
-        "Renderer Utilization %": "renderer_utilization_percent",
-        "Tiler Utilization %": "tiler_utilization_percent",
-        "In use system memory": "in_use_system_memory_mb",
-        "Alloc system memory": "alloc_system_memory_mb",
-    }
-    for source, name in names.items():
-        values = [sample[source] for sample in samples if source in sample]
-        if not values:
-            continue
-        mean = sum(values) / len(values)
-        out[name] = round(mean / (1024 * 1024), 1) if name.endswith("_mb") else round(mean, 2)
-    return out
-
-
-class GPUSampler(threading.Thread):
-    def __init__(self, interval: float = 1.0) -> None:
-        super().__init__(daemon=True)
-        self.interval = max(0.1, interval)
-        self.samples: list[dict[str, float]] = []
-        self.stop_event = threading.Event()
-
-    def run(self) -> None:
-        while not self.stop_event.is_set():
-            stats = read_gpu_stats()
-            if stats:
-                self.samples.append(stats)
-            self.stop_event.wait(self.interval)
-
-    def stop(self) -> dict[str, Any]:
-        self.stop_event.set()
-        self.join(timeout=max(2.0, self.interval * 2))
-        return summarize_gpu(self.samples)
 
 
 def scenario_command(scenario: str, app: str, out: Path, idle_s: float, tabs: int, samples: int) -> tuple[list[str], Path]:
@@ -141,8 +62,10 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
         for phase in report.get("phases", []):
             if not isinstance(phase, dict):
                 continue
-            row = {"scenario": scenario, "phase": phase.get("phase"), "surface": "tab-strip",
-                   "visibility": "background-loading-tab",
+            phase_name = phase.get("phase")
+            row = {"scenario": scenario, "phase": phase_name,
+                   "surface": "tab-strip" if scenario == "spinner" and phase_name == "loading" else "browser-tabs",
+                   "visibility": "background-loading-tab" if scenario == "spinner" and phase_name == "loading" else "shown",
                    "window_server_cpu_percent": phase.get("window_server_cpu_percent"),
                    "app_cpu_percent": (phase.get("classes", {}).get("app", {}) or {}).get("cpu_percent"),
                    "cef_gpu_cpu_percent": (phase.get("classes", {}).get("gpu", {}) or {}).get("cpu_percent"),
@@ -152,7 +75,7 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
     for run in report.get("runs", []):
         if not isinstance(run, dict):
             continue
-        cpu = run.get("cpu_pct") or {}
+        cpu = run.get("cpu_pct") or run.get("cpu_percent") or {}
         rows.append({"scenario": scenario, "phase": run.get("phase"), "session": run.get("session"),
                      "surface": run.get("surface"), "backdrop": run.get("backdrop"),
                      "window_server_cpu_percent": cpu.get("window_server"),
