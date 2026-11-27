@@ -1,11 +1,13 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../experiments/experiment";
 
-/// Which glass a stack toast (NoticeStack) draws on (glass-raycast-parity.md "Web popups";
-/// design-system-decisions B1: a toast over its surface is a `floating` surface). Settings > Advanced >
-/// Experiments > Toast Glass (`experiments.toastGlass`, off by default) runs `host`
-/// (experiments/hostSettings.ts SETTING_ARMS); off, every toast draws today's page material.
-/// Compare in the gallery: `ui.notice`, variants `glass-page`, `glass-host`, `glass-host-busy`.
+/** Which glass a stack toast (NoticeStack) draws on (glass-raycast-parity.md "Web popups";
+ * design-system-decisions B1: a toast over its surface is a `floating` surface). Settings > Advanced >
+ * Experiments > Toast Glass (`experiments.toastGlass`, off by default) runs `host`
+ * (experiments/hostSettings.ts SETTING_ARMS); off, every toast draws today's page material.
+ * Compare in the gallery: `ui.notice`, variants `glass-page`, `glass-host`, `glass-host-busy`.
+ * @status experimental
+ */
 export const toastGlass = defineExperiment({
   id: "toast-glass",
   title: "Toast glass",

@@ -32,7 +32,8 @@ permissions:
 
 concurrency:
   # The head is in the group: a new push runs beside a long run of an older head instead of waiting hours behind it.
-  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  # An edit that leaves the body as it was skips, in a group of its own, so it never replaces a pending real run.
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}${{ github.event.action == 'edited' && github.event.changes.body == null && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:
@@ -79,7 +80,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -153,11 +154,10 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 12
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -210,7 +210,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
