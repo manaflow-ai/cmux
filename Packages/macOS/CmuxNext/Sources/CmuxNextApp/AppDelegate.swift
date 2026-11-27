@@ -199,9 +199,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
-            openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
-        DebugTimings.markLaunch("dfl.menu")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon); launchHold.install(settled: launchSettle.whenSettled, firstFrame: firstFrame)
         daemonPrompts = DaemonPrompts.start(services, afterFrame: firstFrame.whenOpen)
@@ -323,6 +320,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
         let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
         firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
+        // The menu bar is built after the first frame (next-launch-instant); its readers are nil-safe (TerminalKeyEquivalent, DebugKey).
+        firstFrame.afterOpen(stop: stop, mark: mark, ["menu": { [weak services] in if let services { NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry,
+            settings: { [weak services] in services?.settings }, openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })) } }])
         FrontChatPaintGate.make(after: firstFrame).afterOpen(stop: stop, mark: mark, [
             "harness_icons": { [weak services] in services?.harnessIcons.start() },
             "bookmarks": { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
