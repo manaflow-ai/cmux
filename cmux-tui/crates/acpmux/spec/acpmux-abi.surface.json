@@ -255,6 +255,7 @@
           "\"connected\"",
           "\"connecting\"",
           "\"degraded\"",
+          "\"idle\"",
           "\"offline\"",
           "\"paused\"",
           "\"reconnecting\"",
@@ -17171,6 +17172,9 @@
       "/answers": {
         "ty": "json"
       },
+      "/forkCheckpoint": {
+        "ty": "json"
+      },
       "/optionId": {
         "ty": "string",
         "nullable": true
@@ -22745,6 +22749,12 @@
       }
     },
     "request:_acpmux/send_fanout": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/send_hop": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36556,6 +36566,12 @@
       }
     },
     "response:_acpmux/send_fanout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/send_hop": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
