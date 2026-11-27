@@ -41,6 +41,19 @@ pub enum PeerCmd {
     /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
     /// and the registry, and changes nothing.
     Cells,
+    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
+    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
+    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
+    Unreachable {
+        /// The machine the transfer could not reach.
+        name: String,
+        /// What failed, shown in the pick's reason.
+        #[arg(long)]
+        why: Option<String>,
+        /// It answers again: forget its failure.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -166,6 +179,12 @@ pub enum PeerCmd {
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
+    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
+    Grantors {
+        #[command(subcommand)]
+        cmd: GrantorsCmd,
     },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
@@ -296,6 +315,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -373,6 +402,19 @@ pub enum PeerCmd {
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
     },
+    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
+    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
+    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
+    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
+    /// pipes gets a plain pipe, which ends with its circuit.
+    Pipe {
+        /// A machine name in the hub's address book, or its node key.
+        #[arg(value_name = "MACHINE")]
+        machine: String,
+        /// The far machine's loopback port (the one its `remote_daemon` admits).
+        #[arg(long, default_value_t = 22)]
+        port: u16,
+    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).
@@ -448,7 +490,11 @@ pub struct HypervisorOpts {
     #[arg(long, value_name = "DIR")]
     pub pods_dir: Option<PathBuf>,
     /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
-    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`.
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
+    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
+    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
+    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
+    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
     #[arg(long, value_name = "PROGRAM")]
     pub pod_init: Option<String>,
     /// An argument for --pod-init; repeat for more.
@@ -623,6 +669,17 @@ pub enum ConsentCmd {
         /// Control from this person's other machines signed in to the same account.
         #[arg(long)]
         signed_in_machines: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GrantorsCmd {
+    /// The pinned Macs (id, name, account, key words) and the pending ask.
+    List,
+    /// Stop a Mac's grants here at once, and drop its pending ask.
+    Rm {
+        /// The Mac's grantor id (`mac-` and 16 hex digits).
+        id: String,
     },
 }
 

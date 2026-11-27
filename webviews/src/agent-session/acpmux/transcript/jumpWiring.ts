@@ -1,4 +1,5 @@
 import { flushSync } from "react-dom";
+import { writeScrollTop } from "../conversation/scrollController";
 import { type AcpmuxRow, type PlacedLayout } from "../model";
 import { pressJumpUp, type JumpBack, type IdleTracker, type jumpUpTarget } from "../jumpUp";
 import { isAgentMotionOff } from "../../shared/motion";
@@ -168,7 +169,7 @@ export function placeViewWith(
   placing.current = true;
   const glideFrom = jumpGlideStart(node.scrollTop, target(), node.clientHeight);
   if (!reduce && glideFrom !== node.scrollTop) {
-    node.scrollTop = glideFrom;
+    writeScrollTop(node, glideFrom, "glide");
     flushSync(() => setScrollAt(node.scrollTop));
   }
   const move = cssTimeMs(

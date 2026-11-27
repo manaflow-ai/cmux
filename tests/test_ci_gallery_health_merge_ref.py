@@ -267,7 +267,7 @@ class GalleryHealthPushBase(unittest.TestCase):
     caused it. With no base, every red failed every push (8 of 8 shards on 6 of 8 pushes, 2026-11-10)
     and a red one push introduced could not be told from one already there."""
 
-    def resolve(self, event: str, before: str) -> dict[str, str]:
+    def resolve(self, event: str, before: str, batch_base: str = "") -> dict[str, str]:
         run = step("Resolve the head and the merge")["run"]
         with tempfile.TemporaryDirectory() as tmp:
             git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t"]
@@ -279,7 +279,8 @@ class GalleryHealthPushBase(unittest.TestCase):
                                            text=True).stdout.strip())
             out = Path(tmp) / "out"
             env = {**os.environ, "EVENT": event, "PR_HEAD": "", "GITHUB_OUTPUT": str(out),
-                   "BEFORE": shas[0] if before == "previous" else before}
+                   "BEFORE": shas[0] if before == "previous" else before,
+                   "BATCH_BASE": shas[0] if batch_base == "previous" else batch_base}
             subprocess.run(["bash", "-c", run], cwd=tmp, env=env, check=True, capture_output=True)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             return {**values, "previous": shas[0], "tip": shas[1]}
@@ -289,6 +290,22 @@ class GalleryHealthPushBase(unittest.TestCase):
         values = self.resolve("push", "previous")
         self.assertEqual(values["base_sha"], values["previous"])
         self.assertEqual(values["head_sha"], values["tip"])
+
+    def test_a_batch_is_judged_against_the_base_its_caller_names(self) -> None:
+        """The post-merge batch passes the last judged batch's head (a probe: its known-good commit): a state
+        red there too is a standing red, so only a red new since then fails. With no base (the nightly
+        dispatch) every red still fails."""
+        env = step("Resolve the head and the merge")["env"]
+        self.assertEqual(env["BATCH_BASE"], "${{ inputs.sha != '' && inputs.base || '' }}")
+        values = self.resolve("workflow_dispatch", "", batch_base="previous")
+        self.assertEqual((values["base_sha"], values["head_sha"]), (values["previous"], values["tip"]))
+        self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
+        post_merge = yaml.safe_load((WORKFLOW.parent / "cmux-next-post-merge.yml").read_text(encoding="utf-8"))
+        self.assertEqual(post_merge["jobs"]["gallery-health"]["with"]["base"], "${{ needs.plan.outputs.base }}")
+        self.assertEqual(post_merge["jobs"]["plan"]["outputs"]["base"], "${{ steps.plan.outputs.base }}")
+        judge = step("Judge the red states against the base")["run"]
+        self.assertIn("jq -r '.shared[]'", judge)
+        self.assertIn("Standing reds", judge)
 
     def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
         """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
@@ -321,6 +338,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             stubs = {
                 "scripts/ci/ensure-system-chrome.sh":
                     '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
+                "scripts/ci/pin-browser-test-font.sh": "#!/bin/sh\nexit 0\n",
                 "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
                 "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
                     '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
@@ -437,7 +455,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         on = triggers()
         self.assertNotIn("pull_request", on)
         self.assertNotIn("push", on)
-        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only"})
+        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only", "base"})
         self.assertIn("workflow_dispatch", on)
         self.assertEqual(json.loads(BATCH_MANIFEST.read_text(encoding="utf-8"))["suites"]["gallery-health"]["workflow"],
                          "gallery-health.yml")
@@ -599,6 +617,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [
             "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
         for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
+                     "scripts/ci/pin-browser-test-font.sh",
                      "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         # An imported fixture renders only the entries that import it; an unreached webviews/src file and an
@@ -631,8 +650,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.assertIn("github.event_name", workflow["concurrency"]["group"])
-        # A post-merge batch run (inputs.sha set) takes the same full-render path with no base, whatever event
-        # started the batch, and keys its concurrency on its own commit, not the caller's tip.
+        # A post-merge batch run (inputs.sha set) takes the same full-render path, whatever event started the
+        # batch (judged against inputs.base when the caller names one), and keys its concurrency on its own
+        # commit, not the caller's tip.
         batch_event = "${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}"
         self.assertEqual(plan_step("Choose the entries to render")["env"]["EVENT"], batch_event)
         self.assertEqual(step("Resolve the head and the merge")["env"]["EVENT"], batch_event)
@@ -688,6 +708,7 @@ class GalleryHealthTime(unittest.TestCase):
                             re.MULTILINE)
         dynamic = re.compile(r"""(?:\bimport\s*\(\s*|import\.meta\.glob(?:<[^>]*>)?\(\s*)["'](\.\.?/[^"']+)["']""")
         missing: set[str] = set()
+        example_imports: set[str] = set()
         for source in tracked("webviews/src"):
             if not source.endswith((".ts", ".tsx")) or source.endswith((".test.ts", ".test.tsx")):
                 continue
@@ -702,8 +723,19 @@ class GalleryHealthTime(unittest.TestCase):
                 else:
                     files = [resolved]
                 missing.update(f"{source} -> {path}" for path in files if not in_sparse(path, patterns))
+                example_imports.update(path for path in files if path.startswith("examples/"))
         self.assertEqual(sorted(missing), [], "add these to the Checkout step's sparse-checkout")
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
+
+        # The advisory builds both sides of a PR with its own sparse list. The base gallery
+        # and first-user journey also bundle these imports in independent sparse checkouts.
+        for name, job in (("gallery-advisory.yml", "capture"), ("gallery-health.yml", "base-gallery"),
+                          ("first-user-journey-web.yml", "journey")):
+            with self.subTest(workflow=name, job=job):
+                workflow = yaml.safe_load((WORKFLOW.parent / name).read_text(encoding="utf-8"))
+                checkout = next(s for s in workflow["jobs"][job]["steps"] if s.get("uses", "").startswith("actions/checkout@"))
+                included = checkout["with"]["sparse-checkout"].splitlines()
+                self.assertEqual(sorted(p for p in example_imports if not in_sparse(p, included)), [])
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
         cap = step("Hold each shard within its time budget")

@@ -2,10 +2,10 @@
 /// (on by default since 2026-11-20, cmux#13742) lets the app run its cmux iPhone host while an
 /// account is signed in, so the cmux app on the same account's iPhone
 /// can open this Mac's workspaces, terminals and agent chats once the person allowed that phone.
+/// `autoApprovePhones` (off by default) skips that Allow for the account's own phones.
 /// `siteDataHandoff` (off by default) shares the current Mac browser tab's cookies and site storage
 /// when the person opens that tab on an iPhone. Only the person changes these switches (agent policy
 /// `userOnly`).
-/// `autoApprovePhones` (off by default) skips that Allow for the account's own phones.
 ///
 /// `terminalSizing` and `terminalSizingOrder` are this Mac's terminal sizing
 /// policy (cmux-next-ios/PROTOCOL.md "Terminal sizing policy"): which viewer's

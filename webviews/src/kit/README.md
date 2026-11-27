@@ -8,7 +8,8 @@ The pieces a customization page, a plugin or a web page composes instead of hand
 Built from them, a page follows the active theme in light and dark, the density and the design
 scale the app uses, and gets the app's menus, popovers and focus behavior.
 
-Import from `kit/index.ts` only; the files behind it may move.
+Import from `kit/index.ts` only; the files behind it may move. Every export is ready, experimental or
+deprecated, with the promises in [ui/STATUS.md](../ui/STATUS.md).
 
 | Piece                            | What it is                                                                                                                                                                               |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

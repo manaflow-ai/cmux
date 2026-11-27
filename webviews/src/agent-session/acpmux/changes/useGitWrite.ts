@@ -134,6 +134,8 @@ export function useGitWrite(
         return true;
       } catch (error) {
         const failure = readWriteFailure(error);
+        // A merge or rebase began after the status was read: read it again, so Commit turns off.
+        if (failure.reason === "merge_in_progress") void readStatus();
         if (write === writes.current)
           setState({
             phase: "failed",

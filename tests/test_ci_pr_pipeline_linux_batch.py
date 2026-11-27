@@ -88,6 +88,13 @@ class PrPipelineLinuxBatch(unittest.TestCase):
         self.assertFalse(steps["security-holes"].pr_scope)
         self.assertFalse(steps["cache-receipts"].pr_scope)
 
+    def test_a_gate_on_the_pull_requests_own_diff_keeps_its_whole_route(self) -> None:
+        # package-conventions-gate fails only on what the pull request adds (--pr); the batch has no pull request.
+        table = ci_steps.load()
+        self.assertFalse(table.steps["package-conventions-gate"].pr_scope)
+        routed = ci_steps.route(table, ["ios/Sources/App.swift"], pr_scope=True).get("linux", [])
+        self.assertIn("package-conventions-gate", routed)
+
 
 if __name__ == "__main__":
     unittest.main()
