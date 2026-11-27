@@ -514,6 +514,45 @@ fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_accoun
 }
 
 #[test]
+fn a_transferred_share_reconnects_with_the_same_guest_role() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-transfer-share", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].as_str().unwrap();
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":id,
+        "account":"tom@example.com", "role":"talk"}));
+    assert_eq!(invite["ok"], true, "{invite}");
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v":1,"t":"redeem","request_id":"before","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert_eq!(redeemed["role"], "talk");
+
+    let directory = mux.session_state_directory();
+    let payload = shares(&mux)
+        .export_for_transfer(directory.as_deref(), SESSION)
+        .expect("the active share is carried by the move");
+    shares(&mux).detach_for_transfer(directory.as_deref(), SESSION).unwrap();
+    // Re-open the room host from the imported record after a source daemon handoff. The room's
+    // durable guest and role survive the host replacement, so a retry gets the same talk role.
+    super::super::stage_transferred_chat_shares(&mux, "aborted", SESSION, payload.clone()).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    super::super::finish_transferred_chat_shares(&mux, "aborted", false).unwrap();
+    super::super::stage_transferred_chat_shares(&mux, "moved", SESSION, payload).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    room.drop_host();
+    super::super::finish_transferred_chat_shares(&mux, "moved", true).unwrap();
+    let (again, _) = room.host();
+    assert_eq!(room.frame(again)["active"], json!([guest]));
+    room.send(json!({"v":1,"t":"redeem","request_id":"after","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let retried = room.frame(again);
+    assert_eq!((retried["guest_id"].clone(), retried["role"].clone()), (guest, json!("talk")));
+}
+
+#[test]
 fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);
@@ -892,11 +931,19 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
     let mux = Mux::open_persistent("room-restart", options, &root).unwrap();
     let shares = shares_of(&mux);
 
+    // Hold one tokenless worker at its final read until the expiry timer has tried to
+    // start cleanup. The worker releasing that claim must pick up the missed expiry.
+    let id = "pending-0";
+    assert!(shares.claim_room_delete(id));
+    let worker = DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.into(), tokenless: true };
+
     // A restart has no owner credential or host token for these failed provisions. It must still
     // resume the records and wake a credentialless cleanup at their expiry.
     start_link_share_bridge(&mux, Some(&room.url));
     shares.advance(Duration::from_secs(2 * 86_400));
     shares.expired(&mux);
+    assert!(view(&mux, id).unwrap().delete);
+    drop(worker);
     // Each settles on the bridge's own worker (`delete`), not inside `expired`.
     let pending = || {
         shares
@@ -1983,6 +2030,40 @@ fn state_of(room: &FakeRoom, conn: u64, client_id: &str) -> Value {
             return state;
         }
         assert!(Instant::now() < deadline, "a state of {client_id}");
+    }
+}
+
+/// A Drive guest's accepted prompts take no held slots. The same bound guest can stop the turn.
+#[test]
+fn the_room_reports_drive_prompts_sent_and_forwards_the_drivers_cancel() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-drive", &room);
+    let share = create(&mut owner, surface);
+    let id = share.pointer("/data/share_id").unwrap();
+    let (conn, _) = room.host();
+    room.next(conn, "guests");
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite",
+        "share_id":id, "account":"ann@example.com", "role":"drive"}));
+    assert_eq!(invite.get("ok"), Some(&json!(true)), "{invite}");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":id, "account":"ann@example.com", "name":"Ann", "attempt_id":"a1"}));
+    assert_eq!(guest.pointer("/data/role"), Some(&json!("drive")), "{guest}");
+    let ann = guest.pointer("/data/guest_id").unwrap();
+    room.send(json!({"v":1, "t":"guest_joined", "guest_id":ann}));
+    assert_eq!(room.next(conn, "snapshot").get("to"), Some(ann));
+    for n in 0..17 {
+        let client_id = format!("c{n}");
+        room.send(json!({"v":1, "t":"guest_prompt", "guest_id":ann,
+            "client_id":client_id, "text":"hello"}));
+        assert_eq!(state_of(&room, conn, &client_id).get("state"), Some(&json!("sent")));
+    }
+    room.send(json!({"v":1, "t":"guest_cancel", "guest_id":ann}));
+    loop {
+        let frame = fake.frame();
+        if frame.get("method") == Some(&json!("session/cancel")) {
+            assert_eq!(frame.pointer("/params/sessionId"), Some(&json!(SESSION)));
+            break;
+        }
     }
 }
 

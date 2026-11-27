@@ -36,12 +36,14 @@ fn session(profile: EncodeProfile) -> MediaSession {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        ltr: false,
         rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     };
     let mut session = MediaSession::with_desktop(
         Box::new(QuietDesktop(UnixStream::pair().expect("socket pair"))),

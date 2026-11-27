@@ -19,7 +19,11 @@
 //! Metrics, one `PAIRCELL` JSON line each per run: `ttfc_ms` (A's peer add to A's first rows of
 //! B's chat), `resume_ms` (the condition's end to the first content B sent after it reaching A's
 //! client), `delta_bytes` (both ways through the shaper from the change to caught-up; `long`:
-//! bytes per minute over the hold), `fail` (1: no content within 90 s, or an event lost or
+//! bytes per minute over the hold), `ttfc_*` (where `ttfc_ms` went: `ttfc_connected_ms`, the peer add
+//! to A's row for B reading connected; `ttfc_attach_ms`, that to the first rows; `ttfc_tries`,
+//! attaches it took; `ttfc_connections`, `ttfc_turns` (request/response turns, all connections
+//! together), `ttfc_up_bytes` and `ttfc_down_bytes` through the shaper by then; and on the relay
+//! path the new circuit's own stages, `ttfc_dial_{ticket,relay,peer_join,noise}_ms`), `fail` (1: no content within 90 s, or an event lost or
 //! duplicated). A failed metric is `null` with an `error`. A cell the code cannot run is one
 //! `PAIRCELL-NA` line with its reason. The bench never fails the test on a slow or failed run.
 //!
@@ -27,7 +31,9 @@
 //! `cargo test --release -p acpmux --features hub-carrier --test pair_matrix_desktop -- --ignored
 //! --nocapture --test-threads 1`. Env: `PAIRMATRIX_PAIR` (mac-mac), `PAIRMATRIX_N` (5),
 //! `PAIRMATRIX_SEED_BASE` (0), `PAIRMATRIX_CONDITIONS`, `PAIRMATRIX_LOADS` (idle,duress),
-//! `PAIRMATRIX_PATHS` (direct,relay), `PAIRMATRIX_LONG_MINUTES` (60).
+//! `PAIRMATRIX_PATHS` (direct,relay), `PAIRMATRIX_LONG_MINUTES` (60),
+//! `PAIRMATRIX_TRACE` (`1`: each cell's wire trace as `PAIRTRACE` lines; `text`: each read's
+//! first bytes too).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -42,6 +48,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "PAIRMATRIX_LOADS",
     "PAIRMATRIX_PATHS",
     "PAIRMATRIX_LONG_MINUTES",
+    // Each cell's wire trace (off by default): `PAIRTRACE` lines, one per connection and read.
+    "PAIRMATRIX_TRACE",
+    // The replace setting (off by default), so a row can measure the earlier dial.
+    "ACPMUX_PEER_REPLACE_SECS",
+    // The peer link's send window (off by default), so a row can measure it.
+    "ACPMUX_PEER_SEND_WINDOW_KB",
+    // The relay client's early Connect (off by default), so a row can measure it.
+    "CMUX_RELAY_EARLY_CONNECT",
+    // The dialer's standby socket and the relay's pre-attach hold it needs (both off by default).
+    "CMUX_RELAY_DIAL_STANDBY",
+    "CMUX_RELAY_PREATTACH_HOLD_SECONDS",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -455,6 +472,7 @@ async fn world(load: &str) -> World {
     let relay_addr = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
         allow_open: true,
+        preattach_hold: Duration::from_secs(env_u64("CMUX_RELAY_PREATTACH_HOLD_SECONDS", 0)),
         ..cmux_relay::RelayConfig::default()
     })
     .unwrap();
@@ -565,6 +583,19 @@ fn profile(name: &str) -> LinkProfile {
     profiles().get(name).unwrap_or_else(|| panic!("no profile {name}")).clone()
 }
 
+fn wire_trace() -> bool {
+    std::env::var("PAIRMATRIX_TRACE").is_ok_and(|v| v == "1" || v == "text")
+}
+
+/// `PAIRMATRIX_TRACE=1` traces the link's reads; `text` adds each read's first bytes.
+fn start_wire_trace(link: &Shaper) {
+    match std::env::var("PAIRMATRIX_TRACE").as_deref() {
+        Ok("text") => link.trace_wire_text(WIRE_TRACE_LINES),
+        Ok("1") => link.trace_wire(WIRE_TRACE_LINES),
+        _ => {}
+    }
+}
+
 fn condition_profile(condition: &str) -> &'static str {
     match condition {
         "loss" => "lossy-3",
@@ -581,7 +612,13 @@ struct Side {
     /// Failover's second path: A to the relay, shaped too.
     relay_link: Option<Shaper>,
     _carrier: Option<Arc<HubCarrier>>,
+    /// The shapers' trace: with `PAIRMATRIX_TRACE=1`, every connection and read on the
+    /// condition's link, printed as `PAIRTRACE` lines (the dial's round trips, one by one).
+    trace: Trace,
 }
+
+/// `PAIRMATRIX_TRACE=1`: each cell prints its link's wire trace, at most this many lines.
+const WIRE_TRACE_LINES: u64 = 600;
 
 impl Side {
     fn bytes(&self) -> u64 {
@@ -631,11 +668,13 @@ async fn side(
         }
         ("direct", _) => {
             let link = Shaper::start(w.b_ws, shaped, seed, &trace).await.map_err(io)?;
+            start_wire_trace(&link);
             let url = format!("ws://{}", link.addr());
             (link, None, None, url)
         }
         ("relay", _) => {
             let link = Shaper::start(w.relay, shaped, seed, &trace).await.map_err(io)?;
+            start_wire_trace(&link);
             let kept = carrier(relay_route(&link));
             // A URL nothing listens on: the carrier is A's only way to B.
             let dead =
@@ -644,24 +683,27 @@ async fn side(
         }
         (other, _) => return Err(format!("unknown path {other}")),
     };
+    trace.note("t0: add_peer");
     let t0 = Instant::now();
     a.add_peer("b", &url, Some("tok".into()), Some(w.peer_token.clone()), false)
         .await
         .map_err(|e| format!("add_peer: {e:?}"))?;
-    Ok((Side { a, link, relay_link, _carrier: kept }, t0))
+    Ok((Side { a, link, relay_link, _carrier: kept, trace }, t0))
 }
 
 /// A's client attached to `b/lane` with its first rows, and when they arrived. A fresh client
 /// per attempt, so a retry never leaves a second subscription behind.
-async fn first_rows(a: &Arc<Hub>, deadline: Instant) -> Result<(Client, Instant), String> {
+async fn first_rows(a: &Arc<Hub>, deadline: Instant) -> Result<(Client, Instant, u64), String> {
     let mut last = String::from("never tried");
+    let mut tries = 0;
     while Instant::now() < deadline {
+        tries += 1;
         let mut c = Client::new(a, true).await?;
         let left = deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(20));
         let p = json!({"session": "b/lane", "limit": 100});
         match c.call(method::MUX_ATTACH, p, left).await {
             Ok(v) if v["events"].as_array().is_some_and(|e| !e.is_empty()) => {
-                return Ok((c, Instant::now()));
+                return Ok((c, Instant::now(), tries));
             }
             Ok(v) => last = format!("attach answered no rows: {}", trunc(&v.to_string())),
             Err(e) => last = e,
@@ -720,7 +762,15 @@ struct Numbers {
     delta_bytes: Option<f64>,
     /// The received-bytes split (`measure`), one metric each.
     split: Option<[(&'static str, u64); 7]>,
+    /// Where `ttfc_ms` went (the module doc's `ttfc_*`), one metric each.
+    ttfc_split: Vec<(&'static str, f64)>,
     error: Option<String>,
+}
+
+/// New circuits this process's carriers opened so far (`gauges.carrier`).
+fn circuits() -> u64 {
+    let status = acpmux::gauges::carrier::global().status();
+    status["newCircuit"]["total"]["count"].as_u64().unwrap_or(0)
 }
 
 fn ms(d: Duration) -> f64 {
@@ -748,6 +798,7 @@ async fn run(
 ) -> Numbers {
     let mut n = Numbers::default();
     let tag = format!("pm-{path}-{condition}-{}-{run}", w.load);
+    let circuits_before = circuits();
     let (s, t0) = match side(w, path, condition, seed).await {
         Ok(v) => v,
         Err(e) => {
@@ -755,9 +806,14 @@ async fn run(
             return n;
         }
     };
-    let result = measure(w, &s, t0, path, condition, &tag, hold, &mut n).await;
+    let result = measure(w, &s, t0, circuits_before, path, condition, &tag, hold, &mut n).await;
     if let Err(e) = result {
         n.error = Some(e);
+    }
+    if wire_trace() {
+        for line in s.trace.lines() {
+            println!("PAIRTRACE {tag} {line}");
+        }
     }
     let _ = s.a.remove_peer("b").await;
     let _ = s.a.shutdown_all().await;
@@ -769,14 +825,55 @@ async fn measure(
     w: &World,
     s: &Side,
     t0: Instant,
+    circuits_before: u64,
     path: &str,
     condition: &str,
     tag: &str,
     hold: Duration,
     n: &mut Numbers,
 ) -> Result<(), String> {
-    let (ca, rows) = first_rows(&s.a, t0 + CONTENT_BOUND).await?;
+    // When A's row for B first reads connected, watched beside the attaches.
+    let a = s.a.clone();
+    let connected = tokio::spawn(async move {
+        while Instant::now() < t0 + CONTENT_BOUND {
+            if a.peers().first().is_some_and(|r| r["state"] == "connected") {
+                return Some(Instant::now());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        None
+    });
+    let first = first_rows(&s.a, t0 + CONTENT_BOUND).await;
+    let shaped = s.link.counters();
+    if first.is_err() || !connected.is_finished() {
+        connected.abort();
+    }
+    let connected = connected.await.ok().flatten();
+    let (ca, rows, tries) = first?;
     n.ttfc_ms = Some(ms(rows - t0));
+    n.ttfc_split = vec![
+        ("ttfc_tries", tries as f64),
+        ("ttfc_connections", shaped.connections as f64),
+        ("ttfc_turns", shaped.up_turns as f64),
+        ("ttfc_up_bytes", shaped.up_bytes as f64),
+        ("ttfc_down_bytes", shaped.down_bytes as f64),
+    ];
+    if let Some(at) = connected {
+        n.ttfc_split.push(("ttfc_connected_ms", ms(at - t0)));
+        n.ttfc_split.push(("ttfc_attach_ms", ms(rows.saturating_duration_since(at))));
+    }
+    // The relay path's one new circuit, step by step (`hub_carrier::DialStages`).
+    if path == "relay"
+        && circuits() > circuits_before
+        && let Some(st) = acpmux::gauges::carrier::global().last()
+    {
+        n.ttfc_split.extend([
+            ("ttfc_dial_ticket_ms", ms(st.ticket)),
+            ("ttfc_dial_relay_ms", ms(st.relay)),
+            ("ttfc_dial_peer_join_ms", ms(st.peer_join)),
+            ("ttfc_dial_noise_ms", ms(st.noise)),
+        ]);
+    }
     let mut marks = Vec::new();
 
     // Live before the change: a mark sent now reaches A.
@@ -931,6 +1028,9 @@ fn emit(cell: &Cell, run: u64, seed: u64, n: &Numbers) {
     cell.emit("stage_produce_ms", n.stage_produce_ms, run, seed, e);
     cell.emit("stage_carry_ms", n.stage_carry_ms, run, seed, e);
     cell.emit("delta_bytes", n.delta_bytes, run, seed, e);
+    for (k, v) in &n.ttfc_split {
+        cell.emit(k, Some(*v), run, seed, e);
+    }
     for (k, v) in n.split.iter().flatten() {
         cell.emit(k, Some(*v as f64), run, seed, e);
     }

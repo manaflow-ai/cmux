@@ -34,6 +34,10 @@ export const WALK_PATHS = {
   archive: "agents.chats.archiveInactive",
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
+  finishSound: "agentPane.display.finishSound",
+  computerUse: "computerUse.mode",
+  sendPop: "agentPane.display.sendPop",
+  sendScrollsToTop: "agentPane.display.sendScrollsToTop",
   composerLook: "agentPane.composerLook",
   emptyComposer: "agentPane.emptyChatComposerPosition",
   presentation: "agentPane.display.presentation",
@@ -61,6 +65,10 @@ const SHIPPED: WalkValues = {
   [P.archive]: "never",
   [P.autoArchive]: "manual",
   [P.settle]: false,
+  [P.finishSound]: false,
+  [P.computerUse]: "fullAccess",
+  [P.sendPop]: false,
+  [P.sendScrollsToTop]: false,
   [P.composerLook]: "auto",
   [P.emptyComposer]: "bottom",
   [P.presentation]: "transcript",
@@ -239,6 +247,39 @@ export function permissionWrites(value: WalkPermission, opened: WalkValues, curr
   return diff({ [P.permission]: resolve(opened, P.permission, value) }, current);
 }
 
+// MARK: Trust: Computer Use (cmux#56827)
+
+/** `computerUse.mode`'s values, Settings' order (most open first). */
+export type WalkComputerUse = "fullAccess" | "approvedApps" | "askEveryTime" | "lookOnly" | "off";
+export const COMPUTER_USE_MODES: readonly WalkComputerUse[] = [
+  "fullAccess",
+  "approvedApps",
+  "askEveryTime",
+  "lookOnly",
+  "off",
+];
+
+export function computerUse(current: WalkValues): WalkComputerUse {
+  const value = effective(current, P.computerUse);
+  return COMPUTER_USE_MODES.includes(value as WalkComputerUse) ? (value as WalkComputerUse) : "fullAccess";
+}
+
+export function computerUseWrites(value: WalkComputerUse, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  return diff({ [P.computerUse]: resolve(opened, P.computerUse, value) }, current);
+}
+
+// MARK: Noise: the chime when an agent finishes (cmux#56827), a switch of its own
+
+export function finishSoundOn(current: WalkValues): boolean {
+  return effective(current, P.finishSound) === true;
+}
+
+/** On writes true; off puts back the opening value (unset when that was on too). */
+export function finishSoundWrites(on: boolean, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  const target = on ? true : finishSoundOn(opened) ? null : (opened[P.finishSound] ?? null);
+  return diff({ [P.finishSound]: target }, current);
+}
+
 // MARK: Noise: banners and sound as one three-way row
 
 export type WalkNoise = "quiet" | "banners" | "bannersSound";
@@ -263,8 +304,70 @@ export function noiseWrites(value: WalkNoise, opened: WalkValues, current: WalkV
   return diff(targets, current);
 }
 
+// MARK: Chat feel: how a sent prompt arrives (design: "Send pop (chat feel)")
+
+/** Pinned (`top`): the sent prompt scrolls to the top with room below for the reply (cmux#56827, Leo:
+ * "sent message scrolls to top"), over agentPane.display.sendScrollsToTop; it keeps the pop as opened. */
+export type WalkChatFeel = "instant" | "pop" | "top";
+export const CHAT_FEELS: readonly WalkChatFeel[] = ["instant", "pop", "top"];
+
+export function chatFeel(current: WalkValues): WalkChatFeel {
+  if (effective(current, P.sendScrollsToTop) === true) return "top";
+  return effective(current, P.sendPop) === true ? "pop" : "instant";
+}
+
+export function chatFeelWrites(value: WalkChatFeel, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  const pop = value === "top" ? (opened[P.sendPop] ?? null) : resolve(opened, P.sendPop, value === "pop");
+  return diff(
+    { [P.sendPop]: pop, [P.sendScrollsToTop]: resolve(opened, P.sendScrollsToTop, value === "top") },
+    current,
+  );
+}
+
 // MARK: The screens
 
 /** The walk's four screens, in order: look bundles first (hq RFD 0057). */
 export type MakeItYoursScreen = "look" | "work" | "trust" | "tune";
 export const MAKE_IT_YOURS_SCREENS: readonly MakeItYoursScreen[] = ["look", "work", "trust", "tune"];
+
+// MARK: Undo and Redo (cmux#56827)
+
+/** The step ops whose clicks the walk's Undo puts back: every row on the four screens. */
+export const UNDOABLE_OPS: ReadonlySet<string> = new Set([
+  "cmux.onboarding.makeItYours.walk",
+  "cmux.onboarding.makeItYours.workStyle",
+  "cmux.onboarding.makeItYours.density",
+  "cmux.onboarding.makeItYours.background",
+  "cmux.onboarding.makeItYours.opacity",
+  "cmux.onboarding.makeItYours.material",
+]);
+
+/** What takes `current` back to `target`, the settings before a click: the work style as its own op
+ * (the host reads the first chat from it), every other path as one walk write. */
+export function restoreWrites(
+  target: WalkValues,
+  current: WalkValues,
+): { workStyle: "gui" | "terminal" | null; writes: WalkWrite[] } {
+  const writes = diff(
+    Object.fromEntries(
+      Object.values(P)
+        .filter((path) => path !== P.template)
+        .map((path) => [path, target[path] ?? null]),
+    ),
+    current,
+  );
+  const workStyle =
+    effective(target, P.template) === effective(current, P.template)
+      ? null
+      : target[P.template] === "terminal"
+        ? "terminal"
+        : "gui";
+  return { workStyle, writes };
+}
+
+/** The walk's history: the settings before each click, and the ones Undo stepped back from. */
+export interface WalkHistory {
+  past: WalkValues[];
+  future: WalkValues[];
+}
+export const EMPTY_HISTORY: WalkHistory = { past: [], future: [] };
