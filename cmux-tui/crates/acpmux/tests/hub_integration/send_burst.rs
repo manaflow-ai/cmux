@@ -176,6 +176,10 @@ async fn burst(hub: &Arc<Hub>, receiver: &str, senders: &[String], inbox: bool, 
         }
         match logged.get(pid).map(Vec::as_slice) {
             Some([t]) if t.contains(text.as_str()) => {}
+            // The initial busy turn can end before a sender reaches admission. That
+            // prompt starts directly, so its own user_message is its durable record.
+            // Joined prompts still require their queued record and are checked below.
+            None if !inbox && turn_text.get(pid).is_some_and(|t| t.contains(text.as_str())) => {}
             other => wrong.push(format!("{pid} logged as {other:?}, sent {text:?}")),
         }
         // Run as a turn: that turn's prompt in the transcript has its words.
