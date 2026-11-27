@@ -87,7 +87,7 @@ export default agentPaneEntry({
   title: "Composer hat: marks on the one line",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 300, medium: 440, normal: 560, wide: 900 },
+  widths: { narrow: 300, normal: 480, wide: 900 },
   anchors: [{ selector: ".acpmux-composer" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentTray.tsx",
