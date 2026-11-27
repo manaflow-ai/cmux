@@ -4197,6 +4197,37 @@ FAST_GATES_STATUS = "cmux-next/fast-gates"
 # 20:36Z) landed a SetupCard import its own fast gates named ("3 error(s) the base has too", plus its own TS2307), and
 # broke the web bundle and two nightlies (retro rf214bf6c). A red of either job is the PR's own, as the status is.
 FAST_GATES_JOBS = frozenset({"fast gates", "post " + FAST_GATES_STATUS})
+# The HQ merge train's commit status at a boarded PR's head (cmuxterm-hq tools/fleet-reconcilers/merge_train.py). Its
+# `error` is the train turning the head away ("not seated: train T... took N seats, the next no sooner than HH:MMZ; its
+# base merge runs now (update_branch)"): by design the PR's base merge, then its land, never a red
+# (cmuxterm-hq docs/handbook/merge-train-turn-away.md). The train never runs on the base, so judged as a red it could
+# only refuse: cmux#59074 at a3d4b1e0 (2026-11-27 04:41Z) was refused twice "merge-train: has not run on exact head"
+# with its other 173 checks green. Its `failure` is the train's own red at this head, the PR's, never the base's.
+# Detector: tests/test_base_red_excuse.py MergeTrainTurnAwayIsNoRed.
+MERGE_TRAIN_STATUS = "merge-train"
+
+
+def merge_train_verdict(repo: str, sha: str, github) -> str:
+    """The audit line for the merge train's status at SHA (newest post of MERGE_TRAIN_STATUS, over the per-commit list:
+    the combined status's first page can leave a context out on a head with 100+ statuses): `ignored` for its
+    turn-away `error`; any other state is refused (a `failure` is the PR's own red on the train, a `pending` waits)."""
+    listed = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100")
+    found = [s for s in listed if isinstance(s, dict) and s.get("context") == MERGE_TRAIN_STATUS] \
+        if isinstance(listed, list) else []
+    status = max(found, key=lambda s: str(s.get("created_at") or ""), default=None)
+    if status is None:
+        status = head_status(repo, sha, MERGE_TRAIN_STATUS, github)
+    if status is None:
+        raise Refused(f"'{MERGE_TRAIN_STATUS}': no status at {sha} to judge")
+    state, said = status.get("state"), str(status.get("description") or "")
+    if state == "error":
+        return (f"ignored '{MERGE_TRAIN_STATUS}': the merge train turned {sha[:12]} away ({said[:200]}): its error is "
+                "the train's fallback, the base merge and then the land, never a red "
+                "(cmuxterm-hq docs/handbook/merge-train-turn-away.md)")
+    if state == "pending":
+        raise Refused(f"'{MERGE_TRAIN_STATUS}': its status is still pending on {sha}")
+    raise Refused(f"'{MERGE_TRAIN_STATUS}': {state} at {sha[:12]} is the pull request's own red on the merge train, "
+                  f"never a base red ({said[:200] or 'no description'}); fix it, or base-merge for a new head")
 
 
 def fast_gates_job_red(name: str, job: dict) -> str | None:
@@ -4841,6 +4872,7 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # agent host's GitHub broker refuses a `nodes` root field, so there every suite read failed and every run was read over REST:
 # when `nodes` is refused, the suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY) instead.
 SUITES_PER_QUERY = 25
+NODES_REFUSED = "root field nodes is refused"  # the lane-gh broker's words (cmuxterm-hq tools/lane-gh-broker)
 SUITE_CHECKS_QUERY = ("query($name: String!) {{ nodes(ids: [{ids}]) {{ ... on CheckSuite {{ id checkRuns(first: 100, "
                       "filterBy: {{checkType: ALL, checkName: $name}}) {{ nodes {{ conclusion }} pageInfo "
                       "{{ hasNextPage }} }} }} }} }}")
@@ -4889,10 +4921,17 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
+            except (Refused, UnreadRead) as why:
+                # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
+                # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
+                # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
+                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead.
+                if NODES_REFUSED in str(why):
+                    self.rooted = True
+                elif isinstance(why, UnreadRead):
+                    raise  # a timeout or another failed read: not judged, a retry (exit 3), as before
+                else:
                     return  # read over REST instead, as before
-                self.rooted = True
             except ValueError:
                 return
             else:
@@ -5590,6 +5629,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         aggregate_runs = []
         for name in checks:
             check = None
+            if name == MERGE_TRAIN_STATUS:  # the train's own status: its turn-away is no red (merge_train_verdict)
+                line = merge_train_verdict(repo, sha, github)
+                if excused is not None:
+                    excused.append(line)
+                continue
             if exact := [found for found in at_head if found.get("name") == name]:
                 check, why = named_check(repo, sha, name, exact, github, seen, newest=True)
                 if why is not None and excused is not None:
@@ -6084,6 +6128,8 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
+                                  "own unbound placeholder, never a guard's",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
