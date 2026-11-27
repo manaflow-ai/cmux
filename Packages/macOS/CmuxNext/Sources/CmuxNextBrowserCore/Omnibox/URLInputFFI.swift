@@ -17,8 +17,10 @@ nonisolated enum URLInputFFI {
         for _ in 0..<2 {
             var length = 0
             var buffer = [UInt8](repeating: 0, count: capacity)
+            // The buffer is never empty (capacity starts at 512 and only grows), so it has a base address.
             let code = Int(buffer.withUnsafeMutableBufferPointer { out in
-                call(out.baseAddress!, out.count, &length)
+                guard let base = out.baseAddress else { return Int32(CMUX_URL_INPUT_ERR_SHORT) }
+                return call(base, out.count, &length)
             })
             if code == CMUX_URL_INPUT_ERR_SHORT, length > capacity {
                 capacity = length

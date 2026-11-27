@@ -94,8 +94,8 @@ fn sections() -> impl Iterator<Item = &'static str> {
 /// The action ids drawn at the end of `section` (Swift `SettingsSchema.actions(in:)`).
 fn actions_in(section: &str) -> Vec<&'static str> {
     static LAYOUT: OnceLock<Value> = OnceLock::new();
-    let layout = LAYOUT
-        .get_or_init(|| serde_json::from_str(PAGE_LAYOUT).expect("the page layout source parses"));
+    // The layout is compiled in; an unreadable one draws no actions rather than ending the process.
+    let layout = LAYOUT.get_or_init(|| serde_json::from_str(PAGE_LAYOUT).unwrap_or(Value::Null));
     layout
         .pointer(&format!("/section_actions/{section}"))
         .and_then(Value::as_array)
