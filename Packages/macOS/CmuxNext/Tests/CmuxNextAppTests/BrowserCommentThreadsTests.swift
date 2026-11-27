@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBrowserCore
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -180,5 +181,84 @@ struct BrowserCommentThreadsTests {
         host.comments[Self.root] = []
         await threads.refresh()
         #expect(threads.threads["card-1"] == nil)
+    }
+
+    // MARK: The selector anchor: kept threads come back on their elements
+
+    /// A `diff.comments.list` record as the host keeps a browser comment.
+    static func record(_ id: String, url: String = "https://example.com/pricing", selector: String? = "main > h1",
+                       surface: String = "browser", sent: Bool = true, reply: String? = nil, message: String = "Make this bigger") -> JSONValue {
+        var record: [String: JSONValue] = ["id": .string(id), "surface": .string(surface), "url": .string(url),
+                                           "message": .string(message), "updatedAt": .number(1)]
+        if let selector { record["selector"] = .string(selector) }
+        if sent { record["sentIn"] = .string("op-" + id) }
+        if let reply { record["replies"] = [["id": "r1", "author": "agent", "text": .string(reply)]] }
+        return .object(record)
+    }
+
+    @Test func keptThreadsAreThePagesSentBrowserCommentsWithASelector() {
+        let comments: JSONValue = .array([
+            Self.record("c1"),
+            Self.record("c2", selector: "footer", reply: "Moved it."),
+            Self.record("c3", url: "https://example.com/other"),
+            Self.record("c4", surface: "diff"),
+            Self.record("c5", selector: "nav", sent: false),
+            Self.record("c6", selector: nil),
+            Self.record("c7", selector: ""),
+            // A newer comment on the same element is the one the pick shows.
+            Self.record("c8", reply: "Done.", message: "Bolder"),
+        ])
+        let kept = BrowserKeptThread.kept(in: comments, url: "https://example.com/pricing")
+        #expect(kept == [
+            BrowserKeptThread(selector: "footer", message: "Make this bigger",
+                              thread: BrowserCommentThread(commentID: "c2", state: .answered, reply: "Moved it.")),
+            BrowserKeptThread(selector: "main > h1", message: "Bolder",
+                              thread: BrowserCommentThread(commentID: "c8", state: .answered, reply: "Done.")),
+        ])
+        #expect(BrowserKeptThread.kept(in: nil, url: "https://example.com/pricing").isEmpty)
+    }
+
+    @Test func restorePutsKeptThreadsBackUnderTheirCardIDAndForgetsOnesWithNoElement() async throws {
+        let host = ThreadingHost()
+        host.comments[Self.root] = [Self.record("c1", reply: "Done: 48 pt."), Self.record("c2", selector: "#gone")]
+        let threads = BrowserCommentThreads(pollInterval: nil)
+        let url = try #require(URL(string: "https://example.com/pricing"))
+        var put: [[String?]] = []
+
+        let shown = await threads.restore(url: url, tab: "tab-1", store: host, root: Self.root) { selector, comment, state, reply in
+            put.append([selector, comment, state, reply])
+            return selector != "#gone"
+        }
+
+        // Each thread is held under the id the page's pick gets, so the pick gets no chip.
+        let id = BrowserDesignModeCard.id(selector: "main > h1", pageURL: url)
+        #expect(shown == [id])
+        #expect(put == [["main > h1", "Make this bigger", "answered", "Done: 48 pt."], ["#gone", "Make this bigger", "sent", nil]])
+        #expect(threads.threads == [id: BrowserCommentThread(commentID: "c1", state: .answered, reply: "Done: 48 pt.")])
+        #expect(threads.picks[id] == BrowserCommentPick(tab: "tab-1", selector: "main > h1"))
+        // The one with no element stays on the host, for when its element comes back.
+        #expect(host.comments[Self.root]?.count == 2)
+
+        // Resolve on the restored thread deletes it on the host, as for one sent here.
+        try await threads.resolve(id)
+        #expect(host.comments[Self.root]?.map { $0["id"]?.stringValue } == ["c2"])
+        #expect(threads.threads.isEmpty)
+    }
+
+    @Test func restoreKeepsAThreadBeingSentAndReadsNothingWithoutARoot() async throws {
+        let host = ThreadingHost()
+        host.comments[Self.root] = [Self.record("c1")]
+        let threads = BrowserCommentThreads(pollInterval: nil)
+        let url = try #require(URL(string: "https://example.com/pricing"))
+        let id = BrowserDesignModeCard.id(selector: "main > h1", pageURL: url)
+        threads.hold(id, pick: BrowserCommentPick(tab: "tab-1", selector: "main > h1"))
+
+        let shown = await threads.restore(url: url, tab: "tab-1", store: host, root: Self.root) { _, _, _, _ in true }
+        #expect(shown.isEmpty)
+        #expect(threads.threads[id]?.state == .sending)
+
+        let lists = host.lists
+        #expect(await threads.restore(url: url, tab: "tab-1", store: host, root: "") { _, _, _, _ in true }.isEmpty)
+        #expect(host.lists == lists)
     }
 }

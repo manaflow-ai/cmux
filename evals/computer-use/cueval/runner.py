@@ -20,6 +20,7 @@ import uuid
 from . import arms as armsmod
 from . import metrics
 from . import platform_env as penv
+from . import waterfall as wf
 from .mcp import McpClient
 from .tasks import ROOT, TaskEnv, Transcript, load_tasks, task_set_digest
 
@@ -62,6 +63,8 @@ def parse_claude_stream(lines: list[str], times: list[float] | None = None) -> T
         kind = ev.get("type")
         if kind == "system" and ev.get("subtype") == "init":
             tr.meta.update(agent_version=ev.get("claude_code_version"), model_id=ev.get("model"))
+            if t is not None:  # the agent is up and its MCP servers connected: the model's clock starts here
+                tr.meta["t_init"] = last_t = t
         elif kind == "assistant":
             msg = ev.get("message", {})
             mid = msg.get("id") or f"line{i}"
@@ -259,6 +262,7 @@ def call_row(run_id: str, arm_id: str, task_id: str, trial: int, i: int, c: dict
         "result_bytes": c.get("result_bytes"), "images": c.get("images", []),
         "is_error": c.get("is_error"), "no_effect": c.get("no_effect"), "repeat": c.get("repeat"),
         "outcome": c.get("outcome"), "waited_ms": c.get("waited_ms"), "settle": c.get("settle"),
+        "encode_ms": c.get("encode_ms"),
         "unchanged": c.get("unchanged"), "outline_bytes": c.get("outline_bytes"), "head_bytes": c.get("head_bytes"),
         "result_head": (c.get("result_text") or "")[:300],
     }
@@ -356,7 +360,8 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
         env = TaskEnv(task, os.path.join(out_dir, "work"), trial, seed, fake=fake)
         log = os.path.join(logs, f"{task['id']}-{arm_id}-t{trial}.jsonl")
         t0 = time.monotonic()
-        reset_s = None
+        reset_s = check_s = None
+        harness_error = False
         try:
             env.reset(start_processes=not fake)
             reset_s = round(time.monotonic() - t0, 2)
@@ -370,9 +375,12 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
                 tr = driver(arm, srv_env, env.instruction, model, limit, task["timeout_s"], log)
             wall = time.monotonic() - t0
             metrics.annotate_repeats(tr.tool_calls)
+            t_check = time.monotonic()
             verdict = env.check(tr)
+            check_s = time.monotonic() - t_check
         except Exception as e:
             wall = time.monotonic() - t0
+            harness_error = True
             tr = Transcript(error=f"{type(e).__name__}: {e}")
             verdict = {"success": False, "checks": [], "refused": False,
                        "refusal_correct": not task.get("expect_refusal"), "background_safe": None, "background": None}
@@ -388,14 +396,17 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
             "error": tr.error, "final_text": (tr.final_text or "")[-500:], "prereg": reg["digest"],
             "tool_schema_bytes": schema_bytes.get(arm_id), "reset_s": reset_s, "agent_wall_s": tr.meta.get("agent_wall_s"), "meta": tr.meta,
             "turn_usage": tr.turn_usage, **metrics.trial_summary(tr.tool_calls, tr.turn_usage),
+            **wf.waterfall(tr.tool_calls, tr.meta, reset_s, check_s),
         }
+        row["fail_cause"] = wf.fail_cause(task, verdict, tr.error, tr.tool_calls, harness_error)
         with open(results, "a") as f:
             f.write(json.dumps(row) + "\n")
         with open(os.path.join(out_dir, "calls.jsonl"), "a") as f:
             for i, c in enumerate(tr.tool_calls):
                 f.write(json.dumps(call_row(run_id, arm_id, task["id"], trial, i, c)) + "\n")
         mark = "PASS" if row["success"] else "FAIL"
-        print(f"{mark} {arm_id:20} {task['id']:28} t{trial} steps={row['steps']} {row['wall_s']}s", flush=True)
+        print(f"{mark} {arm_id:20} {task['id']:28} t{trial} steps={row['steps']} {row['wall_s']}s"
+              f"{' cause=' + row['fail_cause'] if row['fail_cause'] else ''}", flush=True)
     return results
 
 
