@@ -1037,6 +1037,11 @@ jobs:
       pull-requests: write # the Swift rewrites' pull request when the App's pull-request token can't be minted
       statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
+      # The rounds on a moved tip (base-autofix-land.sh) end before timeout-minutes, not at it: a round
+      # cut off by the job's cancel made the run red (45994733335, 2026-11-27), though the move it chased
+      # started a run that repairs that tip.
+      - name: Note when this job started
+        run: echo "AUTOFIX_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -1397,6 +1402,10 @@ jobs:
           fi
           echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
+          # timeout-minutes (65) less 8 for the last round's push and the steps after it.
+          if [[ -n "${AUTOFIX_JOB_STARTED:-}" ]]; then
+            export CMUX_BASE_AUTOFIX_AGAIN_DEADLINE=$((AUTOFIX_JOB_STARTED + (65 - 8) * 60))
+          fi
           # Lands the repair on the newest tip file by file (base-autofix-push.sh): a file whose input areas
           # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
           # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
