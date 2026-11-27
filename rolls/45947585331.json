@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45947585331",
+  "recorded_at": "2026-11-27T06:00:38Z",
+  "reason": "image inputs changed in 4242c576030afcd8e31cd295f92af2c0162d5525..d27bf09efb6f873ae3db339eb4f9646f63c902dd; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "d27bf09efb6f873ae3db339eb4f9646f63c902dd",
+      "mergedAt": "2026-11-27T05:44:18Z",
+      "subject": "cmux-vm image: cmux-dns-scope waits for resolved's stub before relinking resolv.conf (#60602)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T06:00:38Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
