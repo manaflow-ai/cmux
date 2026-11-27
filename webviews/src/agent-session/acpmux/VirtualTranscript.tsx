@@ -180,7 +180,15 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
+import {
+  LIVE_THINKING,
+  THINKING,
+  foldCovers,
+  turnFooterFrom,
+  retryScanOf,
+  type RetryScan,
+  NEXT_STEP,
+} from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -7319,10 +7327,12 @@ function TranscriptView({
   ]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
-  // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
+  // The chat's one Retry (turns.ts retryScanOf, retryPlacement): the reply footer of the person's
   // last prompt, or that prompt where the footer draws none. Its ids, not the scan's object, key the
   // context, so a streamed token redraws no prompt or footer.
-  const scannedRetry = useMemo(() => retryTargetIn(rows), [rows]);
+  // Read past the rows this snapshot kept of the last (turns.ts retryScanOf), not the whole chat.
+  const retryScan = useRef<RetryScan | undefined>(undefined);
+  const scannedRetry = useMemo(() => (retryScan.current = retryScanOf(rows, retryScan.current)).target, [rows]);
   const retryTarget = useMemo(
     () => ({
       promptId: scannedRetry.promptId,
