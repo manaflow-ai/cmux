@@ -3344,8 +3344,10 @@ pub(super) fn dial_wireguard<'a>(
         // The input lane: a second TCP stream to the same port, opened
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
-        // 256 KiB send buffer.
-        let lane = agreed.then(|| open_lane(Arc::clone(&net), link_addr));
+        // 256 KiB send buffer. A reliable link carries input on its main
+        // carrier and drops the lane; one opened anyway would reach the Mac
+        // as a resumed link and end the live one, so it is never opened.
+        let lane = (agreed && !reliable).then(|| open_lane(Arc::clone(&net), link_addr));
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         dormant::superseded(true, mac);
@@ -3572,7 +3574,9 @@ impl Dialer for WireGuardDialer {
             // The phone's second connection is the input lane. Then the
             // listener serves resumed links on this tunnel (dormant).
             let resumes = Arc::downgrade(&keeper);
-            let lane = if agreed {
+            // A reliable link has no input lane (the phone opens none): the
+            // listener serves resumed links at once.
+            let lane = if agreed && !reliable {
                 let (tx, rx) = oneshot::channel();
                 tokio::spawn(async move {
                     if accept_lane(&mut listener, tx, "dialed").await
