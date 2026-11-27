@@ -84,7 +84,7 @@ concurrency:
 jobs:
   cas_replay_build:
     name: Build cas-replay once
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -194,7 +194,7 @@ jobs:
   w1:
     name: cas/1 replay, row W1 (web update bytes per merge)
     needs: cas_replay_build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # About 7 s per 54 MB bundle tree to hash and compress, plus a cold build of one small crate.
     timeout-minutes: 30
     permissions:
@@ -272,7 +272,7 @@ jobs:
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
     needs: cas_replay_build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Two seeds of ~9.2 GiB (1.52 GB archives): about 10 min each to stream and unpack, then
     # about 8 min per tree to hash and compress (measured on a lane VM, 2026-11-26).
     timeout-minutes: 90

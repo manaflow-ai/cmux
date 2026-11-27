@@ -79,7 +79,7 @@ jobs:
     name: web bundle build
     # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
     if: ${{ inputs.web != 'false' || inputs.force_web }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
     timeout-minutes: 8
