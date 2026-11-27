@@ -329,6 +329,8 @@ try {
         after_update_to_commit: after !== null ? r1(commit - after) : null,
         commit_to_raf: r1(pageTime(seen.raf) - commit),
         transforms_of_module: transforms.length,
+        // Each transformRequest of the module this round, [start, end] after the file event (the page's has `?t=`).
+        transform_calls: transforms.map((mark) => ({ url: mark.url.replace(/^.*ComposerFoot/, "ComposerFoot"), start: r1(mark.start - change), end: r1(mark.end - change) })),
         // Each plugin's own hook time on the edited module this round: update hooks (inside watch to HMR
         // send) and transform/load (inside transform), summed per plugin and hook.
         plugin_hooks: Object.fromEntries(
