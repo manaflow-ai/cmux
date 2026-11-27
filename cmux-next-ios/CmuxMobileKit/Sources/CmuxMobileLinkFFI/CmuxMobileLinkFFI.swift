@@ -22126,6 +22126,19 @@ public func setNetworkKind(kind: String)  {try! rustCall() {
 }
 }
 /**
+ * Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+ * file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+ * with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+ * are kept for this process only. Returns how many hosts the file remembered.
+ */
+public func setRouteLiteralsPath(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_route_literals_path(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
  * What the phone's terminal declares in `set-client-info` for the lean stream
  * (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
  */
@@ -23269,6 +23282,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_route_literals_path() != 31443) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
