@@ -206,6 +206,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(invalid) => json!({ "invalid": invalid }),
             }
         }
+        b"cloud_launch_session_command" => {
+            let request: session::Request = read(request)?;
+            json!({ "command": session::command(&request) })
+        }
         b"cloud_launch_session_failure" => {
             let request: FailureRequest = read(request)?;
             json!(session::start_failure(
@@ -295,6 +299,10 @@ mod tests {
         assert_eq!(begun["answer"]["dialog"], "cloud-start-a");
         assert_eq!(begun["waiting"][0][0], "t");
         assert!(call("cloud_launch_facts", json!({}))["planRequiredCode"].is_string());
+        assert_eq!(
+            call("cloud_launch_session_command", json!({"machineId": "m", "agent": "codex"}))["command"],
+            "cmux cloud start-session --target machine:'m' --agent codex"
+        );
         assert_eq!(respond(b"cloud_launch_nope", b"{}"), Err(ERR_INVALID));
         assert_eq!(respond(b"cloud_launch_gate", b"nope"), Err(ERR_INVALID));
     }
