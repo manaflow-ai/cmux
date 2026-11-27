@@ -1018,8 +1018,11 @@ pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &[u8], close: bool) -> std::io::Result<()> {
-    respond_headers(stream, status, body.len(), close)?;
-    stream.write_all(body)
+    // One write: a 503 that closes without reading the request must reach the client before the
+    // close can reset the connection.
+    let mut out = headers(status, body.len(), close).into_bytes();
+    out.extend_from_slice(body);
+    stream.write_all(&out)
 }
 
 fn respond_headers(
@@ -1028,9 +1031,12 @@ fn respond_headers(
     length: usize,
     close: bool,
 ) -> std::io::Result<()> {
+    stream.write_all(headers(status, length, close).as_bytes())
+}
+
+fn headers(status: &str, length: usize, close: bool) -> String {
     let connection = if close { "close" } else { "keep-alive" };
-    write!(
-        stream,
+    format!(
         "HTTP/1.1 {status}\r\nContent-Length: {length}\r\nContent-Type: application/octet-stream\r\nConnection: {connection}\r\n\r\n"
     )
 }
