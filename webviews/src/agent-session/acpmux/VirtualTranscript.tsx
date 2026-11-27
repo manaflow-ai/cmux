@@ -239,8 +239,6 @@ import {
   widthChanged,
 } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
-import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
-import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -1176,6 +1174,8 @@ function TranscriptView({
 
   const jumpBack = useRef<JumpBack | undefined>(undefined);
   const [jumpBackHeld, setJumpBackHeld] = useState(false);
+  const jumpBackHeldRef = useRef(jumpBackHeld);
+  jumpBackHeldRef.current = jumpBackHeld;
   /// Lets go of the way back a Jump up press holds.
   const dropJumpBack = useCallback(() => {
     jumpBack.current = undefined;
@@ -2380,12 +2380,14 @@ function TranscriptView({
   const footRoom = useRef(0);
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
+  const scrollbarRangeRef = useRef(scrollbarRange);
+  scrollbarRangeRef.current = scrollbarRange;
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
   useLayoutEffect(() => {
     olderDragPending.current = false;
     // Only a range held asks a render: a same-value one was a sync render of the whole transcript in
     // every chat switch (`followingAsked` above).
-    if (scrollbarRange !== undefined) setScrollbarRange(undefined);
+    if (scrollbarRangeRef.current !== undefined) setScrollbarRange(undefined);
   }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
@@ -6783,7 +6785,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     jumpBack.current = undefined;
     // Only a held way back asks a render (`followingAsked` above).
-    if (jumpBackHeld) setJumpBackHeld(false);
+    if (jumpBackHeldRef.current) setJumpBackHeld(false);
   }, [sessionId]);
   useEffect(() => {
     const node = ref.current;
