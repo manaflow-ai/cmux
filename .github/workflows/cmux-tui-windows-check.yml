@@ -177,6 +177,13 @@ on:
       - "webviews/bench/link-profiles.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/notifications.json"
+      - "schemas/settings/source/page-layout.json"
   workflow_dispatch:
 
 concurrency:

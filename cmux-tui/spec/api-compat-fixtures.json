@@ -1,3 +1,1094 @@
 {
-  "cases": []
+  "cases": [
+    {
+      "message": "event:pane-added",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "pty"
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "remote-terminal"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:pane-added",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "remote-terminal"
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "pty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:pane-closed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "pty"
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "remote-terminal"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:pane-closed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "remote-terminal"
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "tabs": [
+            {
+              "kind": "pty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-added",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-added",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-changed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-changed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-closed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-closed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-renamed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:screen-renamed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "remote-terminal"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "panes": [
+            {
+              "tabs": [
+                {
+                  "kind": "pty"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:tab-added",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "kind": "pty"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      }
+    },
+    {
+      "message": "event:tab-added",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "pty"
+        }
+      }
+    },
+    {
+      "message": "event:tab-changed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "kind": "pty"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      }
+    },
+    {
+      "message": "event:tab-changed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "pty"
+        }
+      }
+    },
+    {
+      "message": "event:tab-closed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "kind": "pty"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      }
+    },
+    {
+      "message": "event:tab-closed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "pty"
+        }
+      }
+    },
+    {
+      "message": "event:tab-renamed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "kind": "pty"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      }
+    },
+    {
+      "message": "event:tab-renamed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "kind": "remote-terminal"
+        }
+      },
+      "output": {
+        "entity": {
+          "kind": "pty"
+        }
+      }
+    },
+    {
+      "message": "event:workspace-added",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-added",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-changed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-changed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-closed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-closed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-moved",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-moved",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-presentation-changed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-presentation-changed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-renamed",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "event:workspace-renamed",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "remote-terminal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "entity": {
+          "screens": [
+            {
+              "panes": [
+                {
+                  "tabs": [
+                    {
+                      "kind": "pty"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "response:list-workspaces",
+      "from": 12,
+      "to": 13,
+      "input": {
+        "data": {
+          "changed": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "pty"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "workspaces": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "pty"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "data": {
+          "changed": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "remote-terminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "workspaces": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "remote-terminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "message": "response:list-workspaces",
+      "from": 13,
+      "to": 12,
+      "input": {
+        "data": {
+          "changed": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "remote-terminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "workspaces": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "remote-terminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output": {
+        "data": {
+          "changed": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "pty"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "workspaces": [
+            {
+              "screens": [
+                {
+                  "panes": [
+                    {
+                      "tabs": [
+                        {
+                          "kind": "pty"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
