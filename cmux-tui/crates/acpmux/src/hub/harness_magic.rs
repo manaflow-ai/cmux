@@ -10,7 +10,10 @@
 //! are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet situation"), and a
 //! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
-//! and asks [`enabled`] before it acts.
+//! with the gate it asks before it acts, so the stamp says exactly what ran: a feature with a
+//! switch and no row here ran unseen, and the scorecard could not split its turns on from off
+//! (RFD 0159's read-back found verify, prefetch, surgery and dedupe all missing). The test
+//! `every_harness_magic_switch_is_a_registered_feature` fails a new switch with no row.
 //!
 //! A `turn_result` carries `harnessMagic: {"enabled": [..], "<feature>": {"<counter>": n}}`:
 //! `enabled` the features on for that turn (an empty list: a build that knows the seam with
@@ -21,9 +24,23 @@
 
 use serde_json::{Map, Value, json};
 
-/// The features this build carries, by the name their setting and counters use. A builder adds
-/// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm", "prefetch"];
+/// One harness-magic feature: the name its setting and counters use, and its own gate (the one
+/// the feature itself asks, with its own default: surgery and dedupe are opt-in).
+pub(crate) struct Feature {
+    pub name: &'static str,
+    pub on: fn() -> bool,
+}
+
+/// The features this build carries. A builder adds its feature here with its gate; an empty
+/// list stamps `enabled: []` and reads no settings.
+pub(crate) const FEATURES: &[Feature] = &[
+    Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
+    Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature { name: "verify", on: super::verify::enabled },
+    Feature { name: "prefetch", on: super::prefetch::enabled },
+    Feature { name: "surgery", on: super::surgery::enabled },
+    Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
+];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -61,7 +78,6 @@ pub(crate) fn enabled_in(
 }
 
 /// Whether `feature` is on now (the settings file read at each call, as every daemon setting is).
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn enabled(feature: &str) -> bool {
     let doc = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => Some(doc),
@@ -70,8 +86,9 @@ pub(crate) fn enabled(feature: &str) -> bool {
     enabled_in(feature, doc.as_ref(), &|k| std::env::var(k).ok())
 }
 
-/// The features of `features` that are on, in their order.
-pub(crate) fn enabled_list(
+/// The features of `features` that are on, in their order (by the shared default gate).
+#[cfg(test)]
+fn enabled_list(
     features: &[&str],
     doc: Option<&Value>,
     env: &dyn Fn(&str) -> Option<String>,
@@ -79,45 +96,9 @@ pub(crate) fn enabled_list(
     features.iter().filter(|f| enabled_in(f, doc, env)).map(|f| (*f).to_owned()).collect()
 }
 
-/// The opt-in features (off unless their setting is `true`, Leo 2026-11-26: "only do it for our
-/// personal fleet situation"), each read by its own module's switch, so the stamp says what the
-/// feature itself decided. Without them on the stamp the scorecard has no on-against-off row for
-/// context surgery (RFD 0149) or dedupe (RFD 0147): their counters appear only on the turns that
-/// masked or stubbed something, and a turn with the feature on that did nothing looked like off.
-pub(crate) const OPT_IN: &[&str] = &["surgery", "dedupe"];
-
-/// Whether an [`OPT_IN`] feature is on for `doc` and `env`.
-fn opt_in_enabled(
-    feature: &str,
-    doc: Option<&Value>,
-    env: &dyn Fn(&str) -> Option<String>,
-) -> bool {
-    match feature {
-        "surgery" => super::surgery::enabled_with(doc, env(super::surgery::KILL_ENV).as_deref()),
-        "dedupe" => {
-            crate::claude_stdio::dedupe_enabled_with(doc, env(&env_key("dedupe")).as_deref())
-        }
-        _ => false,
-    }
-}
-
-/// [`FEATURES`] on unless switched off, then [`OPT_IN`] on only when switched on, in that order.
-pub(crate) fn enabled_all(
-    doc: Option<&Value>,
-    env: &dyn Fn(&str) -> Option<String>,
-) -> Vec<String> {
-    let mut on = enabled_list(FEATURES, doc, env);
-    on.extend(OPT_IN.iter().filter(|f| opt_in_enabled(f, doc, env)).map(|f| (*f).to_owned()));
-    on
-}
-
-/// The features on now.
+/// The features on now, each by its own gate, in [`FEATURES`] order.
 fn enabled_now() -> Vec<String> {
-    let doc = match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => Some(doc),
-        _ => None,
-    };
-    enabled_all(doc.as_ref(), &|k| std::env::var(k).ok())
+    FEATURES.iter().filter(|f| (f.on)()).map(|f| f.name.to_owned()).collect()
 }
 
 /// The `harnessMagic` object of a `turn_result` message, made when missing (a message that is
