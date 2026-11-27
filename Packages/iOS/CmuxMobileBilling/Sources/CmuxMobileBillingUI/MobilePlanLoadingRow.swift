@@ -6,7 +6,8 @@ import SwiftUI
 /// The minimum height shared by a loading plan row and its resolved card.
 /// Keeping this geometry stable means StoreKit prices and purchase controls can
 /// arrive without inserting a new card into the first frame.
-enum MobilePlanRowGeometry {
+struct MobilePlanRowGeometry {
+    package init() {}
     static let minimumHeight: CGFloat = 220
 }
 
