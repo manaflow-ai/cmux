@@ -118,16 +118,14 @@ nonisolated extension AcpmuxPaneMethods {
     }
 
     private static func validAuthority(_ authority: [UInt8]) -> Bool {
-        let userInfo: [UInt8]?
         let hostPort: [UInt8]
         if let at = authority.firstIndex(of: 0x40) {
-            userInfo = Array(authority[..<at])
+            let userInfo = Array(authority[..<at])
             hostPort = Array(authority[(at + 1)...])
             guard !authority[(at + 1)...].contains(0x40),
-                  userInfo!.filter({ $0 == 0x3a }).count <= 1,
-                  uriCharacters(userInfo!, extra: [0x3a]) else { return false }
+                  userInfo.filter({ $0 == 0x3a }).count <= 1,
+                  uriCharacters(userInfo, extra: [0x3a]) else { return false }
         } else {
-            userInfo = nil
             hostPort = authority
         }
         if hostPort.first == 0x5b {
