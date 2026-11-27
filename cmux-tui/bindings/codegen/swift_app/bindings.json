@@ -8,7 +8,10 @@
     "zoomed_pane": "PaneID"
   },
   "types": {
-    "RowHeight": "RowHeightValue"
+    "RowHeight": "RowHeightValue",
+    "ConversationSummary": "ConversationSummary",
+    "ConversationPart": "ConversationPart",
+    "ConversationReactionKind": "ConversationReactionKind"
   },
   "families": {
     "Agents": {
@@ -616,6 +619,472 @@
             }
           },
           "response": "IconAssetBlob"
+        }
+      }
+    },
+    "Bookmarks": {
+      "objects": {
+        "BookmarkRecord": {
+          "type": "Bookmark",
+          "doc": [
+            "One bookmark node as the daemon reports it (`bookmarks-v1`; plans/cmux-next/bookmarks.md section 2.1)."
+          ],
+          "order": [
+            "id",
+            "browser_profile_id",
+            "parent",
+            "kind",
+            "index",
+            "title",
+            "url",
+            "favicon_key",
+            "source_key",
+            "created_ms",
+            "last_used_ms",
+            "icon"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "created_ms": {
+              "type": "Int64"
+            },
+            "last_used_ms": {
+              "type": "Int64"
+            },
+            "icon": {
+              "doc": [
+                "A folder's icon (`bookmark-icon-v1`): one emoji, an SF Symbol name or a",
+                "stored `image:`/`svg:sha256-<hex>` asset. Nil for none, for a URL",
+                "bookmark, and from a daemon without the capability."
+              ]
+            }
+          }
+        },
+        "BookmarkList": {
+          "result": "list-bookmarks",
+          "doc": [
+            "`list-bookmarks` data."
+          ],
+          "order": [
+            "bookmarks_revision",
+            "bookmarks"
+          ],
+          "fields": {
+            "bookmarks_revision": {
+              "name": "revision"
+            }
+          }
+        },
+        "BookmarkResult": {
+          "type": "BookmarkChangeResult",
+          "doc": [
+            "`create-bookmark`, `update-bookmark` and `move-bookmark` data."
+          ],
+          "order": [
+            "bookmark",
+            "changed",
+            "replayed"
+          ],
+          "fields": {
+            "changed": {
+              "optional": true
+            },
+            "replayed": {
+              "optional": true,
+              "doc": [
+                "True when the daemon replayed an earlier write with the same mutation key."
+              ]
+            }
+          }
+        },
+        "BookmarkDeletion": {
+          "result": "delete-bookmark",
+          "doc": [
+            "`delete-bookmark` data."
+          ],
+          "order": [
+            "deleted"
+          ],
+          "omit": [
+            "replayed"
+          ]
+        },
+        "BookmarkImportNode": {
+          "type": "BookmarkImportNode",
+          "conformances": [
+            "Encodable",
+            "Sendable",
+            "Equatable"
+          ],
+          "doc": [
+            "A node of `import-bookmarks`: a folder with children or a URL."
+          ],
+          "order": [
+            "kind",
+            "title",
+            "url",
+            "created_ms",
+            "children"
+          ],
+          "fields": {
+            "created_ms": {
+              "type": "Int64"
+            }
+          }
+        },
+        "BookmarkImportResult": {
+          "result": "import-bookmarks",
+          "doc": [
+            "`import-bookmarks` data."
+          ],
+          "order": [
+            "root_ids",
+            "count"
+          ],
+          "omit": [
+            "replayed"
+          ],
+          "fields": {
+            "count": {
+              "type": "Int"
+            }
+          }
+        }
+      }
+    },
+    "Conversations": {
+      "objects": {
+        "ConversationList": {
+          "result": "conversation-list",
+          "doc": [
+            "`conversation-list` data."
+          ]
+        },
+        "ConversationSnapshot": {
+          "result": "conversation-snapshot",
+          "doc": [
+            "`conversation-snapshot` data: the head and the newest messages, ascending."
+          ],
+          "order": [
+            "conversation",
+            "messages",
+            "threads"
+          ],
+          "fields": {
+            "threads": {
+              "default": "[]",
+              "doc": [
+                "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+              ]
+            }
+          }
+        },
+        "ConversationHistory": {
+          "result": "conversation-history",
+          "doc": [
+            "`conversation-history` data: one older page, ascending."
+          ],
+          "order": [
+            "messages",
+            "threads"
+          ],
+          "fields": {
+            "threads": {
+              "default": "[]",
+              "doc": [
+                "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+              ]
+            }
+          }
+        },
+        "ConversationCreated": {
+          "result": "conversation-create",
+          "doc": [
+            "`conversation-create` data."
+          ],
+          "order": [
+            "conversation",
+            "replayed"
+          ],
+          "fields": {
+            "replayed": {
+              "default": "false",
+              "doc": [
+                "True when the key was seen before and nothing changed."
+              ]
+            }
+          }
+        },
+        "ConversationOpResult": {
+          "result": "conversation-op",
+          "doc": [
+            "`conversation-op` data: the committed revision and the change it made."
+          ],
+          "order": [
+            "transaction",
+            "rev",
+            "seq",
+            "replayed",
+            "change"
+          ],
+          "fields": {
+            "transaction": {
+              "type": "ClientTransactionID"
+            },
+            "replayed": {
+              "default": "false"
+            },
+            "change": {
+              "type": "ConversationChange"
+            }
+          }
+        },
+        "ConversationThread": {
+          "result": "conversation-thread",
+          "doc": [
+            "`conversation-thread` / `cloud-conversation-thread` data: the root, the",
+            "replies after `after_seq` (ascending), and the stats of the whole thread."
+          ],
+          "order": [
+            "root",
+            "replies",
+            "has_more",
+            "thread"
+          ]
+        },
+        "ConversationThreadSummary": {
+          "type": "ConversationThreadSummary",
+          "doc": [
+            "The owner's stats of one thread root, counted at read time (`conversation-thread-v1`)."
+          ],
+          "order": [
+            "root",
+            "reply_count",
+            "last_reply_seq",
+            "last_reply_at",
+            "authors"
+          ],
+          "omit": [
+            "status",
+            "title",
+            "owner",
+            "resolved_by",
+            "resolved_at"
+          ],
+          "fields": {
+            "reply_count": {
+              "type": "Int"
+            },
+            "authors": {
+              "default": "[]",
+              "doc": [
+                "The first three distinct reply authors, oldest reply first."
+              ]
+            }
+          }
+        },
+        "ConversationMessage": {
+          "type": "ConversationMessage",
+          "conformances": [
+            "Codable",
+            "Sendable",
+            "Hashable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A committed message. `seq` is dense per conversation, starting at 1."
+          ],
+          "order": [
+            "id",
+            "conversation",
+            "seq",
+            "client_msg_id",
+            "author",
+            "parts",
+            "reply_to",
+            "thread_root",
+            "created_at",
+            "edited_at",
+            "retracted_at",
+            "reactions",
+            "thread"
+          ],
+          "omit": [
+            "answers",
+            "answers_pending"
+          ],
+          "fields": {
+            "thread_root": {
+              "doc": [
+                "The root message of the thread this message replies in (`thread_root`).",
+                "Nil for a root, and for messages from before threads."
+              ]
+            },
+            "created_at": {
+              "doc": [
+                "RFC 3339 UTC with milliseconds."
+              ]
+            },
+            "reactions": {
+              "default": "[]"
+            },
+            "thread": {
+              "type": "ConversationThreadObject",
+              "doc": [
+                "A thread root's object (title, owner, resolution), conversation-thread-objects-v1."
+              ]
+            }
+          }
+        },
+        "ConversationReaction": {
+          "type": "ConversationReaction",
+          "conformances": [
+            "Codable",
+            "Sendable",
+            "Hashable"
+          ],
+          "order": [
+            "author",
+            "part_index",
+            "kind",
+            "at"
+          ],
+          "doc": [
+            "One reaction on a message part."
+          ],
+          "fields": {
+            "part_index": {
+              "type": "Int"
+            }
+          }
+        },
+        "ConversationPartRef": {
+          "type": "ConversationPartRef",
+          "conformances": [
+            "Codable",
+            "Sendable",
+            "Hashable"
+          ],
+          "order": [
+            "message_id",
+            "part_index"
+          ],
+          "doc": [
+            "A part of one message: the message's id and the part's index."
+          ],
+          "fields": {
+            "part_index": {
+              "type": "Int"
+            }
+          }
+        },
+        "ConversationImportedMessage": {
+          "type": "ConversationImportMessage",
+          "conformances": [
+            "Encodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "doc": [
+            "One message of a history import: its own id, client id, author, parts",
+            "(as the owner stores them) and time (`YYYY-MM-DDTHH:MM:SS.mmmZ`)."
+          ],
+          "order": [
+            "id",
+            "client_msg_id",
+            "author",
+            "parts",
+            "created_at"
+          ],
+          "fields": {
+            "parts": {
+              "type": "[JSONValue]"
+            }
+          }
+        },
+        "ConversationImportResult": {
+          "result": "conversation-import",
+          "doc": [
+            "`conversation-import` data."
+          ],
+          "order": [
+            "conversation",
+            "imported",
+            "skipped"
+          ],
+          "fields": {
+            "imported": {
+              "doc": [
+                "The seqs the imported messages got."
+              ]
+            },
+            "skipped": {
+              "type": "Int",
+              "doc": [
+                "Messages the conversation already held."
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Projection": {
+      "objects": {
+        "FrontendProjection": {
+          "type": "FrontendProjection",
+          "doc": [
+            "`get-frontend-projection` data."
+          ],
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "schema_version",
+            "projection_revision",
+            "projection",
+            "replayed"
+          ],
+          "fields": {
+            "schema_version": {
+              "default": "0"
+            },
+            "projection_revision": {
+              "default": "0"
+            },
+            "projection": {
+              "default": ".null",
+              "doc": [
+                "Null when the projection does not exist yet (revision 0)."
+              ]
+            }
+          }
+        }
+      }
+    },
+    "History": {
+      "objects": {
+        "TerminalCommandRow": {
+          "type": "TerminalCommandRecord",
+          "doc": [
+            "One stored terminal command (`terminal-command-history-v1`). Ids and",
+            "times are decimal strings."
+          ],
+          "order": [
+            "id",
+            "terminal_id",
+            "command",
+            "cwd",
+            "exit_code",
+            "started_at_ms",
+            "duration_ms"
+          ],
+          "fields": {
+            "exit_code": {
+              "type": "Int"
+            }
+          }
         }
       }
     }
