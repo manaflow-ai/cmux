@@ -1,9 +1,9 @@
 {
   "cmuxSetup": 1,
   "id": "manaflow-ai/codex-profile",
-  "name": "Codex",
-  "tagline": "Like the Codex app.",
-  "description": "Like the Codex app.",
+  "name": "Pebble",
+  "tagline": "Clean, quiet, sidebar of threads.",
+  "description": "Clean, quiet, sidebar of threads.",
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux",

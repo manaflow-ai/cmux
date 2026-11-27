@@ -3,35 +3,63 @@
   "looks": [
     {
       "id": "manaflow-ai/codex-profile",
-      "name": "Codex",
-      "tagline": "Like the Codex app.",
-      "traits": ["Light", "Round corners"],
+      "name": "Pebble",
+      "tagline": "Clean, quiet, sidebar of threads.",
+      "traits": [
+        "Light",
+        "Round corners"
+      ],
       "repo": "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
-      "tags": ["chat", "sidebar", "new-tab"]
+      "tags": [
+        "chat",
+        "sidebar",
+        "new-tab"
+      ]
     },
     {
       "id": "manaflow-ai/claude-code-profile",
-      "name": "Claude Code",
-      "tagline": "Like Claude Code.",
-      "traits": ["Dark", "Warm"],
+      "name": "Kiln",
+      "tagline": "Warm tones, roomy chat.",
+      "traits": [
+        "Dark",
+        "Warm"
+      ],
       "repo": "github.com/manaflow-ai/cmux/examples/looks/claude-code/profile@feat-cmux-next",
-      "tags": ["chat", "sidebar", "new-tab"]
+      "tags": [
+        "chat",
+        "sidebar",
+        "new-tab"
+      ]
     },
     {
-      "id": "manaflow-ai/t3code-profile",
-      "name": "T3 Code",
-      "tagline": "Like T3 Code.",
-      "traits": ["Black", "Compact"],
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/t3code/profile@feat-cmux-next",
-      "tags": ["chat", "dark", "sidebar"]
+      "id": "manaflow-ai/studio-look",
+      "name": "Studio",
+      "tagline": "Dark and compact.",
+      "traits": [
+        "Black",
+        "Compact"
+      ],
+      "repo": "github.com/manaflow-ai/cmux-studio-look",
+      "tags": [
+        "chat",
+        "dark",
+        "sidebar"
+      ]
     },
     {
       "id": "manaflow-ai/paper-look",
       "name": "Paper",
       "tagline": "Warm, roomy, serif replies.",
-      "traits": ["Light", "Roomy"],
+      "traits": [
+        "Light",
+        "Roomy"
+      ],
       "repo": "github.com/manaflow-ai/cmux-paper-look",
-      "tags": ["chat", "light", "sidebar"]
+      "tags": [
+        "chat",
+        "light",
+        "sidebar"
+      ]
     }
   ]
 }
