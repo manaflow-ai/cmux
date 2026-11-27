@@ -49,11 +49,8 @@ extension WindowRules {
     /// The URL goes directly to the selected application via NSWorkspace. Editors without a
     /// file-location scheme receive the checked file itself.
     public static func editorLocation(for file: URL, line: Int?, bundleID: String?) -> URL {
-        struct Request: Encodable { var line: Int?; var bundleId: String? }
-        struct Reply: Decodable { var scheme: String? }
-        // The line's bounds and the editor's scheme are Rust's (cmux-window-rules `chat::agent::editor_scheme`).
-        guard let line, let scheme = WindowRules().call("window_chat_agent_editor_scheme", Request(line: line, bundleId: bundleID),
-                                                        as: Reply.self)?.scheme else { return file }
+        struct Request: Encodable { var line: Int?; var bundleId: String? }; struct Reply: Decodable { var scheme: String? } // `chat::agent::editor_scheme`
+        guard let line, let scheme = WindowRules().call("window_chat_agent_editor_scheme", Request(line: line, bundleId: bundleID), as: Reply.self)?.scheme else { return file }
         var location = URLComponents()
         location.scheme = scheme
         location.host = "file"
