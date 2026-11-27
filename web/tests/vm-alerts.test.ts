@@ -294,6 +294,27 @@ describe("VM alert checks", () => {
     expect(summary.health).toEqual({ triggered: true, count: 1 });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ key: "vm-health-stale", severity: "critical" });
+
+    await sql`
+      insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at)
+      values (
+        'user-health', 'freestyle', 'provider-health-old', 'snapshot-health', 'running',
+        ${sql.json({ cmuxResourceUsage: { providerVmId: "provider-health", receivedAt: 1 } })},
+        ${new Date(now.getTime() - 6 * 60 * 1000)}
+      )
+    `;
+    const currentIdMismatch = await runVmAlertChecks({
+      db: cloudDb(),
+      now: new Date(now.getTime() + 1),
+      env: { CMUX_VM_ALERT_HEALTH_STALE_MS: String(5 * 60 * 1000) },
+      sendAlert: async (input): Promise<AlertResult> => {
+        alerts.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+    expect(currentIdMismatch.health).toEqual({ triggered: true, count: 1 });
+    expect(alerts).toHaveLength(2);
+    expect(alerts[1]).toMatchObject({ key: "vm-health-stale", severity: "critical" });
   });
 
   dbTest("does not page the create-failure spike for reconciliation housekeeping", async () => {

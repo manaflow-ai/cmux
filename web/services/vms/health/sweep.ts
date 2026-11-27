@@ -1,6 +1,6 @@
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import type { ProviderId } from "../drivers";
+import { VM_HEALTH_PROVIDER } from "./evidence";
 import type { VmWorkflowError } from "../errors";
 import { VmProviderGateway } from "../providerGateway";
 import { VmRepository, type VmRepositoryShape } from "../repository";
@@ -19,7 +19,7 @@ import type {
  * pauses, stops, deletes, or edits a VM or a rule, and it does not repair DB
  * drift (the reconcile cron owns repair). Its only write is its own snapshot.
  */
-export const VM_HEALTH_PROVIDER: ProviderId = "freestyle";
+export { VM_HEALTH_PROVIDER };
 export const VM_HEALTH_DEFAULT_BUDGET_MS = 200_000;
 export const VM_HEALTH_DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 export const VM_HEALTH_DEFAULT_PROBE_CONCURRENCY = 16;

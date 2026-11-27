@@ -1,3 +1,4 @@
+import { allProbesConclusive, confirmedHungThisSweep } from "../vms/health/evidence";
 import type { VmHealthReport } from "../vms/health/types";
 import { sendAlert, type AlertInput, type AlertResult } from "./alerts";
 import { durableVmAlertStateStore, type VmAlertStateStore } from "./vmAlerts";
@@ -17,7 +18,7 @@ export const VM_HEALTH_ALERT_MIN_INTERVAL_MS = 60 * 60 * 1000;
  * existing TLS rule-capacity alert own those.
  */
 export function vmHealthAlert(report: VmHealthReport, pageUrl: string | null): AlertInput | null {
-  const hung = report.hung;
+  const hung = report.hung.filter((vm) => confirmedHungThisSweep(vm, report.coverage));
   const stuck = report.stuck;
   if (hung.length === 0 && stuck.length === 0) return null;
   const lines: string[] = [];
@@ -94,7 +95,7 @@ export async function deliverVmHealthAlert(
 
 /** True when the sweep listed every VM, probed every running one it could, and hit no stage error. */
 export function sweepSawFleet(report: VmHealthReport): boolean {
-  return report.errors.length === 0 && report.coverage.inventoryComplete && report.coverage.skippedBudget === 0;
+  return report.errors.length === 0 && report.coverage.inventoryComplete && allProbesConclusive(report.coverage);
 }
 
 async function readLastSentAt(key: string): Promise<Date | null> {

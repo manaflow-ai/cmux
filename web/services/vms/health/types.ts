@@ -91,6 +91,8 @@ export type VmHealthSize = {
 };
 
 export type HungVm = {
+  /** Older snapshots omit this. False retains history after an inconclusive probe. */
+  readonly confirmedThisSweep?: boolean;
   readonly vmId: string;
   readonly workload: VmWorkload;
   readonly owner: VmHealthOwner | null;

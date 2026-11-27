@@ -32,6 +32,21 @@ const hungReport = report({
   }],
 });
 
+const mixedSweepReport = report({
+  hung: [
+    {
+      ...hungReport.hung[0]!,
+      vmId: "vm-confirmed",
+      confirmedThisSweep: true,
+    },
+    {
+      ...hungReport.hung[0]!,
+      vmId: "vm-carried",
+      confirmedThisSweep: false,
+    },
+  ],
+});
+
 /** The durable store's contract: a claim succeeds when inactive, escalated, or 24 hours after the last page. */
 function memoryStore() {
   const state = { active: false, severity: "warning", lastSentAt: null as Date | null, clears: 0 };
@@ -63,6 +78,26 @@ describe("vm health alert", () => {
     expect(alert.body).toContain("1 app:chatmux2");
     expect(alert.body).toContain("https://cmux.com/dashboard/ops/cloud-vms");
     expect(vmHealthAlert(report(), null)).toBeNull();
+  });
+
+  test("pages only current hung VMs in a mixed sweep", () => {
+    const alert = vmHealthAlert(mixedSweepReport, null)!;
+    expect(alert.severity).toBe("critical");
+    expect(alert.body).toContain("1 app:chatmux2");
+    expect(alert.body).toContain("vm-confirmed");
+    expect(alert.body).not.toContain("vm-carried");
+  });
+
+  test("legacy hung records page only with explicit conclusive coverage", () => {
+    expect(vmHealthAlert(hungReport, null)).not.toBeNull();
+    expect(vmHealthAlert(report({
+      hung: hungReport.hung,
+      coverage: { ...report().coverage, probeErrors: 1 },
+    }), null)).toBeNull();
+    expect(vmHealthAlert(report({
+      hung: hungReport.hung,
+      coverage: { ...report().coverage, skippedBudget: 1 },
+    }), null)).toBeNull();
   });
 
   test("pages once per incident and at most once an hour when a VM flaps", async () => {
@@ -105,6 +140,20 @@ describe("vm health alert", () => {
     expect(state.clears).toBe(0);
     expect(await deliverVmHealthAlert(report(), { now: at(125), store, send, lastSentAt })).toBe("none");
     expect(state.clears).toBe(1);
+  });
+
+  test("an inconclusive sweep with only carried hung records does not clear dedupe", async () => {
+    const { state, store } = memoryStore();
+    const send = async () => ({ sent: true, configured: true });
+    const at = (minutes: number) => new Date(Date.UTC(2026, 9, 12, 12, minutes));
+
+    await deliverVmHealthAlert(hungReport, { now: at(0), store, send, lastSentAt: async () => state.lastSentAt });
+    const carried = report({
+      hung: [{ ...hungReport.hung[0]!, confirmedThisSweep: false }],
+      coverage: { ...report().coverage, skippedBudget: 1 },
+    });
+    expect(await deliverVmHealthAlert(carried, { now: at(120), store, send, lastSentAt: async () => state.lastSentAt })).toBe("none");
+    expect(state.clears).toBe(0);
   });
 
   test("a failed delivery releases its lease so the next sweep retries", async () => {
