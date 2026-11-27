@@ -136,5 +136,5 @@ export function untilAcpmuxTakesSends(page: { cmuxAcpmuxActions?: Record<string,
 
 /// The page installed (or replaced) its acpmux actions: the sends waiting for them go.
 export function acpmuxSendsReady(): void {
-  for (const ready of connectWaiters) ready();
+  for (const ready of [...connectWaiters]) ready();
 }

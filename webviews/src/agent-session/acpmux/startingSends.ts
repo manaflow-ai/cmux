@@ -19,8 +19,8 @@ export type StartingSend = {
   at: number;
   sentIn: StartingPlace;
   /// Drawn as a sent row of the transcript from the send, not as a queued row: a prompt sent to a
-  /// chat whose agent is idle that waits only for acpmux to connect (Leo,
-  /// 2026-11-17: "make it look like it's sent or just send it").
+  /// chat whose agent is idle that waits only for acpmux to connect (Leo, 2026-11-17: "make it look
+  /// like it's sent or just send it").
   asSent?: boolean;
 };
 /// Where the pane is: the chat it shows (none: a new chat not started yet) and its visit, the
@@ -102,14 +102,14 @@ export class StartingSends {
    */
   /// `id`: the prompt id its send goes with, so the chat's own row for it keeps the row drawn here
   /// (`withStartingPrompt`).
-  /// `waits.asSent`: whether its row is the transcript's (`StartingSend`).
+  /// `asSent`: whether its row is the transcript's (`StartingSend`).
   add(
     text: string,
     attachments: ComposerAttachment[],
     go: Go,
     gesture?: SendGesture,
     id?: string,
-    waits: { asSent?: boolean } = {},
+    { asSent }: { asSent?: boolean } = {},
   ) {
     const item: Item = {
       id: id ?? `starting-${crypto.randomUUID()}`,
@@ -119,7 +119,7 @@ export class StartingSends {
       sentIn: this.place(),
       going: false,
       ...(gesture ? { gesture } : {}),
-      ...(waits.asSent ? { asSent: true } : {}),
+      ...(asSent ? { asSent: true } : {}),
     };
     this.items.push(item);
     this.emit();
@@ -210,8 +210,8 @@ function startingRow(send: StartingSend): AcpmuxRow {
 export function withStartingPrompt(raw: AcpmuxSnapshot, starting: readonly StartingSend[]): AcpmuxSnapshot {
   const first = starting[0];
   if (!first) return raw;
-  // A prompt sent to an idle chat that waits for its files or for acpmux (`asSent`) is its sent row
-  // from the send, as is each sent the same way right behind it, until the client draws each.
+  // A prompt sent to an idle chat that waits for acpmux to connect (`asSent`) is its sent row from
+  // the send, as is each sent the same way right behind it, until the client draws each.
   if (first.asSent) {
     const drawn = new Set(raw.rows.map((row) => row.id));
     const sent: AcpmuxRow[] = [];
