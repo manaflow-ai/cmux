@@ -1008,7 +1008,12 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { session: Option<String>, facts: Option<PathBuf>, show_facts: bool },
+    RouteDeath {
+        session: Option<String>,
+        facts: Option<PathBuf>,
+        #[arg(long)]
+        show_facts: bool,
+    },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
