@@ -842,7 +842,8 @@ class GalleryHealthTime(unittest.TestCase):
 
     def test_a_probe_passes_its_red_job_and_a_batch_none(self) -> None:
         caller = yaml.safe_load((ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text(encoding="utf-8"))
-        self.assertEqual(caller["jobs"]["gallery-health"]["with"]["job"], "${{ inputs.mode == 'probe' && inputs.job || '' }}")
+        self.assertEqual(caller["jobs"]["gallery-health"]["with"]["job"], "${{ needs.plan.outputs.job }}")
+        self.assertEqual(caller["jobs"]["plan"]["outputs"]["job"], "${{ inputs.mode == 'probe' && inputs.job || '' }}")
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(workflow[True]["workflow_call"]["inputs"]["job"]["default"], "")
 

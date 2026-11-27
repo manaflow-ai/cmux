@@ -106,6 +106,8 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      # A probe's red job ('gallery-health / health (8)'): gallery-health renders that leg alone. A batch: none.
+      job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
       reuse: ${{ steps.plan.outputs.reuse }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
@@ -362,7 +364,7 @@ jobs:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
       # A probe of one red leg ('gallery-health / health (8)') renders that leg alone; a batch renders every leg.
-      job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
+      job: ${{ needs.plan.outputs.job }}
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
