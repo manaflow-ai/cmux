@@ -1273,6 +1273,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.</string>
+			<key>pfm_name</key>
+			<string>computerUse.floatingPreview</string>
+			<key>pfm_title</key>
+			<string>Floating Live Preview</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock.</string>
 			<key>pfm_name</key>
 			<string>computerUse.whileLocked</string>
@@ -2793,6 +2805,30 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>~/.cmux/worktrees</string>
+			<key>pfm_description</key>
+			<string>Where cmux makes worktrees for local chats, forks and lanes, one folder per project.</string>
+			<key>pfm_name</key>
+			<string>worktrees.location</string>
+			<key>pfm_title</key>
+			<string>Worktree Folder</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>cmux/</string>
+			<key>pfm_description</key>
+			<string>The start of each new worktree's branch name, such as cmux/.</string>
+			<key>pfm_name</key>
+			<string>worktrees.branchPrefix</string>
+			<key>pfm_title</key>
+			<string>Worktree Branch Prefix</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.</string>
@@ -2948,6 +2984,24 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Icon Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_description</key>
+			<string>Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too.</string>
+			<key>pfm_name</key>
+			<string>appearance.mode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>light</string>
+				<string>dark</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Appearance</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -4669,6 +4723,44 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.</string>
+			<key>pfm_name</key>
+			<string>appearance.toolbarButtonStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>plain</string>
+				<string>grouped</string>
+				<string>glass</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Top Right Buttons</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.</string>
+			<key>pfm_name</key>
+			<string>appearance.homeCardStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>flat</string>
+				<string>raised</string>
+				<string>glass</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Home Cards</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6417,6 +6509,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A prompt you send moves to the top of the chat, with room below it for the reply.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sendScrollsToTop</string>
+			<key>pfm_title</key>
+			<string>Scroll Sent Prompts to Top</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hides the running work bar. Hover the top of the composer to bring it back.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.trayTucked</string>
@@ -6655,6 +6759,7 @@
 			<array>
 				<string>push</string>
 				<string>overlay</string>
+				<string>inline</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Session Info</string>
@@ -6694,6 +6799,25 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Chat Minimap</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>normal</string>
+			<key>pfm_description</key>
+			<string>How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.detail</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>messages</string>
+				<string>normal</string>
+				<string>thinking</string>
+				<string>verbose</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chat Detail</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6943,6 +7067,23 @@
 			<string>Model Picker Harness Order</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>list</string>
+			<key>pfm_description</key>
+			<string>List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.modelPickerStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>list</string>
+				<string>menu</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Model Picker Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -7935,6 +8076,16 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceListApp</string>
+			<key>pfm_title</key>
+			<string>Workspace List Extension</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_name</key>
@@ -7959,6 +8110,18 @@
 			<string>Group Projects By</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.</string>
+			<key>pfm_name</key>
+			<string>sidebar.folderlessUngrouped</string>
+			<key>pfm_title</key>
+			<string>Ungroup Rows With No Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -8222,6 +8385,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>app</string>
+			<key>pfm_description</key>
+			<string>What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out.</string>
+			<key>pfm_name</key>
+			<string>sidebar.profileMenu.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>app</string>
+				<string>account</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Profile Menu</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Icons for working, waiting, error and done. Off: a spinner and a dot.</string>
@@ -8448,6 +8628,42 @@
 			<string>sidebar.priorityView.shown</string>
 			<key>pfm_title</key>
 			<string>Show Priority View</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>All, Waiting, Unread and Running chips with counts, and Mark All as Read.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.filters</string>
+			<key>pfm_title</key>
+			<string>Priority Filters</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off, Priority lists only chats that need you or are running.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.showIdle</string>
+			<key>pfm_title</key>
+			<string>Idle Chats in Priority</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Each Priority row says its state, such as Needs you or Done.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.statusWords</string>
+			<key>pfm_title</key>
+			<string>Priority Status Words</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12210,6 +12426,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab.</string>
+			<key>pfm_name</key>
+			<string>experiments.writtenHTMLOpenBeside</string>
+			<key>pfm_title</key>
+			<string>Open Written HTML Beside the Chat</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.</string>
 			<key>pfm_name</key>
 			<string>experiments.agentBadges</string>
@@ -12366,6 +12594,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.</string>
+			<key>pfm_name</key>
+			<string>experiments.cloudToggle</string>
+			<key>pfm_title</key>
+			<string>Cloud Toggle</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.</string>
 			<key>pfm_name</key>
 			<string>experiments.expandedEditsEstimate</string>
@@ -12383,6 +12623,42 @@
 			<string>experiments.introWalk</string>
 			<key>pfm_title</key>
 			<string>Intro Walk</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>experiments.appsTier</string>
+			<key>pfm_title</key>
+			<string>Publish Previews as Apps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While you type or a reply streams, wait for a pause before saving the chat list new tabs show.</string>
+			<key>pfm_name</key>
+			<string>experiments.chatInstantUnderLoad</string>
+			<key>pfm_title</key>
+			<string>Prioritize Chat Input</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A rule cmux pushes into a chat shows as cmux's line, never as your own message.</string>
+			<key>pfm_name</key>
+			<string>experiments.eventsAsToolCalls</string>
+			<key>pfm_title</key>
+			<string>Harness Events Read by Origin</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12834,6 +13110,18 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Empty Chat Message Box</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The text shown in an empty message box. Empty uses cmux's own.</string>
+			<key>pfm_name</key>
+			<string>agentPane.composerPlaceholder</string>
+			<key>pfm_title</key>
+			<string>Message Box Placeholder</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -13324,6 +13612,18 @@
 			<string>Screen Sharing Bitrate Limit</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.</string>
+			<key>pfm_name</key>
+			<string>remoteDesktop.sharpLinuxText</string>
+			<key>pfm_title</key>
+			<string>Sharper Text from Linux Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

@@ -68,8 +68,8 @@
 # copy of it when it answers --version with a wire range the daemon speaks, else
 # runs the holder built into bin/cmux-tui-host.
 # The login-time pre-read goes beside bin/cmux as bin/cmux-launch-preread
-# (CMUX_NEXT_LAUNCH_PREREAD_BIN, or beside an override or fleet-built client;
-# no tree state or pin fields yet, so hosted and pin modes bundle none).
+# (CMUX_NEXT_LAUNCH_PREREAD_BIN, a sibling of a local client, or the verified
+# tree/pin companion). Older publications without the reader bundle none.
 # The app host and the browser host: when the bundled cmux runs them by argv[0]
 # (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
 # relative links to cmux like cmux-tui and acpmux, nothing is fetched or placed
@@ -273,21 +273,10 @@ companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
 holder_src="$companion_src"
 companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
 agent_screen_detection_src="$companion_src"
-# The login-time pre-read (cmux-tui crate cmux-launch-preread, std and libc
-# only) goes beside bin/cmux as bin/cmux-launch-preread: from
-# CMUX_NEXT_LAUNCH_PREREAD_BIN, else beside an override or a fleet-built
-# client (build-cmux-tui-client.sh builds it). The hosted tree and pin builds
-# do not publish it yet, so those bundle none and say nothing: the bundle then
-# carries no pre-read LaunchAgent (bundle-server-helper.sh) and the app's
-# Warm at Login reports that the pre-read is not in this build.
-launch_preread_src="${CMUX_NEXT_LAUNCH_PREREAD_BIN:-}"
-if [[ -z "$launch_preread_src" && ( "$source_kind" == override || "$source_kind" == tree-local-build ) ]]; then
-  [[ -f "$(dirname "$src")/cmux-launch-preread" ]] && launch_preread_src="$(dirname "$src")/cmux-launch-preread"
-fi
-if [[ -n "$launch_preread_src" && ! -f "$launch_preread_src" ]]; then
-  echo "error: cmux-launch-preread $launch_preread_src does not exist" >&2
-  exit 1
-fi
+# Optional on older trees; hosted and pinned readers use the same checksum
+# verification as the other companions.
+companion_source cmux-launch-preread "${CMUX_NEXT_LAUNCH_PREREAD_BIN:-}" launch_preread_sha256
+launch_preread_src="$companion_src"
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode

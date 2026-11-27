@@ -65,4 +65,57 @@ env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_LAUNCH_PREREAD_BI
   SRCROOT="$TMP/no-src" CONFIGURATION=Release CMUX_NEXT_TUI_MODE=deferred \
   bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "deferred run failed"; }
 [[ ! -e "$bin/cmux-launch-preread" ]] || fail "the deferred exit kept a stale bin/cmux-launch-preread"
+# Hosted and pinned builds verify the reader against the publication, and
+# an older publication removes a stale bundled reader rather than using it.
+fixture="$TMP/src"
+mkdir -p "$fixture/scripts/cmux-next" "$TMP/tree"
+cp "$ROOT/scripts/cmux-next/link-folded-hosts.sh" "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" "$fixture/scripts/cmux-next/"
+cp "$TMP/build/one/cmux-tui" "$TMP/tree/cmux-tui"
+cp "$TMP/build/one/cmux-launch-preread" "$TMP/tree/cmux-launch-preread"
+sha "$TMP/tree/cmux-tui" > "$TMP/tree/cmux-tui.sha256"
+key=$(printf 'b%.0s' {1..40})
+cat > "$fixture/scripts/cmux-next/pin-cmux-tui.sh" <<'STUB'
+#!/bin/sh
+case "$1" in
+  key) printf '%s\n' "$TEST_TREE_KEY" ;;
+  path) printf '%s\n' "$TEST_TREE_BINARY" ;;
+  local-build) exit 1 ;;
+esac
+STUB
+chmod +x "$fixture/scripts/cmux-next/pin-cmux-tui.sh"
+# Avoid requiring a real daemon's capabilities: this is an older fallback tree.
+hosted() {
+  env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_LAUNCH_PREREAD_BIN \
+    TARGET_BUILD_DIR="$TMP/app" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
+    SRCROOT="$fixture" CONFIGURATION=Release CMUX_NEXT_TUI_MODE="$1" NATIVE_ARCH_ACTUAL=arm64 \
+    TEST_TREE_KEY="$key" TEST_TREE_BINARY="$TMP/tree/cmux-tui" CMUX_TUI_TREE_KEY=older \
+    bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1
+}
+sha "$TMP/tree/cmux-launch-preread" > "$TMP/tree/cmux-launch-preread.sha256"
+hosted tree || { cat "$TMP/out" >&2; fail "hosted reader failed"; }
+cmp -s "$bin/cmux-launch-preread" "$TMP/tree/cmux-launch-preread" || fail "hosted reader not bundled"
+printf 'corrupt\n' >> "$TMP/tree/cmux-launch-preread"
+if hosted tree; then fail "corrupt hosted reader accepted"; fi
+grep -q 'not the published' "$TMP/out" || fail "hosted error did not name checksum"
+echo none > "$TMP/tree/cmux-launch-preread.sha256"
+hosted tree || { cat "$TMP/out" >&2; fail "older hosted tree failed"; }
+[[ ! -e "$bin/cmux-launch-preread" ]] || fail "older hosted tree retained reader"
+
+commit=$(printf 'a%.0s' {1..40})
+pinned="$fixture/cmux-tui/target/hosted/$commit"
+mkdir -p "$pinned"
+cp "$TMP/build/one/cmux-tui" "$TMP/build/one/cmux-launch-preread" "$pinned/"
+write_pin() {
+  printf 'commit=%s\nurl=https://files.cmux.com/cmux-tui/%s/cmux-tui-aarch64-apple-darwin\nsha256=%s\nlaunch_preread_sha256=%s\n' \
+    "$commit" "$commit" "$(sha "$pinned/cmux-tui")" "$1" > "$fixture/scripts/cmux-next/cmux-tui.pin"
+}
+write_pin "$(sha "$pinned/cmux-launch-preread")"
+hosted pin || { cat "$TMP/out" >&2; fail "pinned reader failed"; }
+cmp -s "$bin/cmux-launch-preread" "$pinned/cmux-launch-preread" || fail "pinned reader not bundled"
+printf 'corrupt\n' >> "$pinned/cmux-launch-preread"
+if hosted pin; then fail "corrupt pinned reader accepted"; fi
+grep -q 'not the published' "$TMP/out" || fail "pin error did not name checksum"
+write_pin ''
+hosted pin || { cat "$TMP/out" >&2; fail "older pin failed"; }
+[[ ! -e "$bin/cmux-launch-preread" ]] || fail "older pin retained reader"
 echo "bundle-cmux-tui-launch-preread: ok"
