@@ -13,7 +13,6 @@ pub(crate) fn respond(_operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32>
 
 #[cfg(test)]
 mod new_tab_split_layout_tests {
-    use super::*;
     use serde_json::json;
 
     #[test]

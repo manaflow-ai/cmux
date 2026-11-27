@@ -21,13 +21,13 @@ pub struct Request {
 }
 
 /// Geometry comes from the same split prediction as the drop preview. Never approximate, round,
-/// or stretch: a half-pixel difference is a different frame. At most right/down and the restore.
+/// or stretch: a half-pixel difference is a different frame. At most right/down/nearest-divider sizes and the restore.
 pub fn plan(request: Request) -> Vec<Size> {
     if !request.parked.valid() {
         return vec![];
     }
-    let mut sizes = Vec::with_capacity(3);
-    for size in request.splits.into_iter().take(2) {
+    let mut sizes = Vec::with_capacity(4);
+    for size in request.splits.into_iter().take(3) {
         if size.valid()
             && size != request.parked
             && !request.cached.contains(&size)
@@ -56,6 +56,22 @@ mod tests {
         assert_eq!(
             plan(Request { parked: full, splits: vec![right, down], cached: vec![full] }),
             vec![right, down, full]
+        );
+    }
+    #[test]
+    fn new_tab_prefetch_keeps_nearest_divider_and_bounds_extra_targets() {
+        let full = size(999.5, 700.0);
+        let right = size(499.25, 700.0);
+        let down = size(999.5, 349.5);
+        let divider = size(332.5, 700.0);
+        let extra = size(200.0, 300.0);
+        assert_eq!(
+            plan(Request {
+                parked: full,
+                splits: vec![right, down, divider, extra],
+                cached: vec![],
+            }),
+            vec![right, down, divider, full]
         );
     }
     #[test]

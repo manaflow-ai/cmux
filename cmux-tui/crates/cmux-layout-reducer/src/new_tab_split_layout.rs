@@ -1,4 +1,5 @@
 //! Predict the divider-insert tree before creating a New Tab renderer at its final size.
+use crate::divider_insert::NEW_SPLIT_RATIO;
 use crate::screen_layout::Node;
 use serde::Deserialize;
 
@@ -28,11 +29,11 @@ fn insert(tree: &Node, target: &str, ratio: f64) -> Option<Node> {
             split,
             *axis,
             ratio,
-            Node::split(NEW_SPLIT, *axis, 0.5, *a.clone(), Node::leaf(NEW_PANE)),
+            Node::split(NEW_SPLIT, *axis, NEW_SPLIT_RATIO, *a.clone(), Node::leaf(NEW_PANE)),
             *b.clone(),
         ));
     }
-    if let changed = insert(a, target, ratio) {
+    if let Some(changed) = insert(a, target, ratio) {
         return Some(Node::split(split, *axis, *old, changed, *b.clone()));
     }
     insert(b, target, ratio).map(|changed| Node::split(split, *axis, *old, *a.clone(), changed))
@@ -41,7 +42,8 @@ fn insert(tree: &Node, target: &str, ratio: f64) -> Option<Node> {
 #[cfg(test)]
 mod new_tab_split_layout_tests {
     use super::*;
-    use crate::layout_state::{DIVIDER_RATIO, divider_insert_plan};
+    use crate::divider_insert::{DIVIDER_RATIO, plan};
+    use crate::optimistic::{Dir, Node as WireNode};
     use crate::screen_layout::Axis;
 
     fn predicted(tree: Node, split: &str) -> Node {
@@ -52,16 +54,38 @@ mod new_tab_split_layout_tests {
     fn new_tab_divider_wraps_the_whole_first_subtree_on_the_existing_axis() {
         let first = Node::split("nested", Axis::Vertical, 0.35, Node::leaf("a"), Node::leaf("b"));
         let tree = Node::split("divider", Axis::Horizontal, 0.7, first.clone(), Node::leaf("c"));
-        let plan = divider_insert_plan(&tree, "divider").unwrap();
-        assert_eq!(plan.target, "b");
-        assert_eq!(plan.around.as_deref(), Some("nested"));
+        let wire = WireNode::Split {
+            split: Some(10),
+            split_id: None,
+            dir: Dir::Right,
+            ratio: 0.7,
+            a: Box::new(WireNode::Split {
+                split: Some(11),
+                split_id: None,
+                dir: Dir::Down,
+                ratio: 0.35,
+                a: Box::new(WireNode::Leaf { pane: 1 }),
+                b: Box::new(WireNode::Leaf { pane: 2 }),
+            }),
+            b: Box::new(WireNode::Leaf { pane: 3 }),
+        };
+        let plan = plan(&wire, 10).unwrap();
+        assert_eq!(plan.target, 2);
+        assert_eq!(plan.around, Some(11));
+        assert_eq!(plan.dir, Dir::Right);
         assert_eq!(
             predicted(tree, "divider"),
             Node::split(
                 "divider",
-                plan.axis,
-                plan.sizing[0].ratio,
-                Node::split(NEW_SPLIT, plan.axis, 0.5, first, Node::leaf(NEW_PANE)),
+                Axis::Horizontal,
+                plan.ratio,
+                Node::split(
+                    NEW_SPLIT,
+                    Axis::Horizontal,
+                    NEW_SPLIT_RATIO,
+                    first,
+                    Node::leaf(NEW_PANE)
+                ),
                 Node::leaf("c"),
             )
         );
