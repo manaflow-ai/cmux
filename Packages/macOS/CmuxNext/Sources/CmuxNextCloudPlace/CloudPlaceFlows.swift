@@ -302,6 +302,14 @@ public final class CloudPlaceFlows {
         return object["state"] as? String
     }
 
+    /// The session's last move as Rust's reducer drew it (its `View`: `state`, `step`, `elapsedMs` and `steps`, each finished
+    /// step's ms), a landed one too: a settled card leaves only the header, not this. Nil with no move kept. `cloud.place.get`
+    /// answers it, for the move journey probe's per-step times (`move_stages_ms`), which no move action's answer carries.
+    public func moveView(of session: String) -> Any? {
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
+        views[session].flatMap { try? JSONSerialization.jsonObject(with: $0) }
+    }
+
     /// Drops the session's flow and view (a Live move's card goes once the chat shows it).
     public func clear(_ session: String) {
         flows[session] = nil
@@ -403,8 +411,10 @@ public final class CloudPlaceFlows {
     func computerStatus(session: String, place: [String: Any]) -> Any? {
         var facts: [String: Any] = ["session": session]
         for key in ["at", "move", "start"] { if let value = place[key] { facts[key] = value } }
+        // main-actor-ok: the chat's at, move and start facts, three small objects, once per header read.
         guard JSONSerialization.isValidJSONObject(facts), let request = try? JSONSerialization.data(withJSONObject: facts),
               let reply = core("cloud_computer_status_live", request) else { return nil }
+        // main-actor-ok: Rust's one ComputerStatus for this chat (a status line and a few popover rows).
         return try? JSONSerialization.jsonObject(with: reply)
     }
 
