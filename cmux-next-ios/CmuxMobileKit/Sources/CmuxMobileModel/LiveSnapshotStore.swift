@@ -140,6 +140,9 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private var pending: [Pending] = []
     /// A write of `pending` is scheduled on `queue` (lock-guarded).
     private var writeScheduled = false
+    /// Accounts whose saves `writePending` has taken off `pending` and not finished writing
+    /// (lock-guarded): a read of one waits for that write, or it reads the files mid-write.
+    private var writing: Set<String> = []
     /// When the last write ended (queue-confined).
     private var lastWrite: ContinuousClock.Instant?
     /// Snapshots encoded and written since this store was made (lock-guarded; benches and tests).
@@ -229,7 +232,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     public func loadFirstScreen(accountID: String) -> LiveSnapshot? {
         let legacy = legacyFile(accountID)
         if FileManager.default.fileExists(atPath: legacy.path) { try? FileManager.default.removeItem(at: legacy) }
-        if lock.withLock({ pending.contains { $0.accountID == accountID } }) { flush() }
+        if hasUnwritten(accountID) { flush() }
         guard let teamID = lastTeamID(accountID) else { return nil }
         return loadFirstScreen(accountID: accountID, teamID: teamID)
     }
@@ -237,7 +240,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     /// `loadFirstScreen` for one team the phone has shown before (a switch to it draws these rows).
     public func loadFirstScreen(accountID: String, teamID: String) -> LiveSnapshot? {
         // A save of this account not written yet is what the phone last saw: write it first.
-        if lock.withLock({ pending.contains { $0.accountID == accountID } }) { flush() }
+        if hasUnwritten(accountID) { flush() }
         guard let data = try? Data(contentsOf: headFile(accountID, teamID: teamID)) else { return nil }
         guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion,
               head.teamID == teamID else {
@@ -336,6 +339,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private func writePending() {
         let saves = lock.withLock { () -> [Pending] in
             defer {
+                writing.formUnion(pending.map(\.accountID))
                 pending = []
                 writeScheduled = false
             }
@@ -344,7 +348,15 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         guard !saves.isEmpty else { return }
         for save in saves { write(save.snapshot, accountID: save.accountID) }
         lastWrite = ContinuousClock.now
-        lock.withLock { writes += saves.count }
+        lock.withLock {
+            writes += saves.count
+            writing = []
+        }
+    }
+
+    /// A save of `accountID` waits or is being written: a read flushes first.
+    private func hasUnwritten(_ accountID: String) -> Bool {
+        lock.withLock { writing.contains(accountID) || pending.contains { $0.accountID == accountID } }
     }
 
     /// Writes what waits now, without waiting for it (the app going to the background).

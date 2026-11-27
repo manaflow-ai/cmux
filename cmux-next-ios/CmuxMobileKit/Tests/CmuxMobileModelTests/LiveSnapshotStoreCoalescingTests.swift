@@ -117,12 +117,19 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LiveSnapshotStore(directory: directory, minimumWriteInterval: .milliseconds(50))
         let mac = MacDevice(id: "m", name: "Studio", isOnline: true)
-        for step in 0..<3 {
+        func save(_ step: Int) {
             store.save(LiveSnapshot(teamID: "t", teamName: "T", macs: [mac], linkedMacID: "m",
                                     workspaces: ["m": .init(workspaces: Self.workspaces(mac: "m", count: 3, edit: step),
                                                             savedAt: Date(timeIntervalSince1970: Double(step)))]),
                        accountID: "u")
         }
+        // The first write, done: the saves after it wait for the interval. (Saves made before the
+        // queue takes the first one are all one write, so a burst with no flush may write once.)
+        save(0)
+        store.flush()
+        #expect(store.writeCount == 1)
+        save(1)
+        save(2)
         // No flush: the trailing write comes by itself.
         let deadline = ContinuousClock.now + .seconds(10)
         while store.writeCount < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
