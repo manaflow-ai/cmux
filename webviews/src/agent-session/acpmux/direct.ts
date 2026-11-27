@@ -314,8 +314,7 @@ import {
   mergeEventRecords,
   prependOlderEventRecords,
   sessionUpdate,
-  journalEndOf,
-  heldBySeq,
+  heldMapBySeq,
 } from "./direct/records";
 import {
   OLDER_PAGE_RECORDS,
@@ -4512,7 +4511,7 @@ export class AcpmuxDirectClient {
   ): void {
     const epoch = this.noteRewind(sessionId, generation, end);
     this.dropPastJournal(sessionId, end);
-    this.repairRewound(sessionId, generation, end, epoch, held ?? heldBySeq(this.events));
+    this.repairRewound(sessionId, generation, end, epoch, held ?? heldMapBySeq(this.events));
   }
 
   /// Counts one more time the journal of `sessionId` went back, to `end`, and answers the new
@@ -4920,7 +4919,7 @@ export class AcpmuxDirectClient {
         rewound = true;
         epoch = this.noteRewind(sessionId, generation, end);
         this.dropPastJournal(sessionId, end);
-        await this.readRewoundTailRetrying(sessionId, generation, end, epoch, heldBySeq(this.events));
+        await this.readRewoundTailRetrying(sessionId, generation, end, epoch, heldMapBySeq(this.events));
         // Gone back again meanwhile: that rewind's repair reads the chat on from its end.
         if (!this.readCurrent(sessionId, generation, epoch)) return;
         afterSeq = Math.min(afterSeq, end);
@@ -7430,7 +7429,7 @@ export class AcpmuxDirectClient {
       this.lastSeq = Math.min(this.lastSeq, rewoundTo);
       for (const [key, gap] of this.gapReads)
         if (gap.sessionId === sessionId && gap.seq > rewoundTo) this.gapReads.delete(key);
-      rewoundHeld = heldBySeq(this.events);
+      rewoundHeld = heldMapBySeq(this.events);
     }
     if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
@@ -7526,7 +7525,7 @@ export class AcpmuxDirectClient {
     const repairHeld =
       repairTo === undefined
         ? undefined
-        : (rewoundHeld ?? heldBySeq(this.events.filter((event) => event.seq <= repairTo)));
+        : (rewoundHeld ?? heldMapBySeq(this.events.filter((event) => event.seq <= repairTo)));
     const view = settledView(result);
     this.settled = view ? { ...view, sessionId, generation } : undefined;
     // A settled view that goes on from the rows drawn (a kept tail, a reconnect's records) is laid

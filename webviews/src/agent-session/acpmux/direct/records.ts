@@ -51,7 +51,7 @@ export function journalEndOf(error: unknown): number | undefined {
 
 /// The records a pane held, by seq, as they were before a journal that went back was read again:
 /// what `readRewoundTail` compares the machine's records to, never the ones it merged in since.
-export function heldBySeq(events: readonly EventRecord[]): ReadonlyMap<number, EventRecord> {
+export function heldMapBySeq(events: readonly EventRecord[]): ReadonlyMap<number, EventRecord> {
   return new Map(events.map((event) => [event.seq, event]));
 }
 
