@@ -285,10 +285,15 @@ pub(super) fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
-        crate::user_settings::Settings::Parsed(doc) => !matches!(
-            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
-            Some(Value::Bool(false))
-        ),
+        // `agents.sandbox.mode` `workspaceWrite` keeps every agent in its workspace: no mode
+        // that drops the sandbox runs (`agent_sandbox.rs`).
+        crate::user_settings::Settings::Parsed(doc) => {
+            !matches!(
+                crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
+                Some(Value::Bool(false))
+            ) && crate::agent_sandbox::Sandbox::from_doc(&doc).mode
+                != crate::agent_sandbox::Mode::WorkspaceWrite
+        }
     }
 }
 
@@ -311,11 +316,12 @@ pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
     value.and_then(Value::as_str).is_some_and(is_full_access)
 }
 
-/// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
+/// The refusal of a full-access mode while `sessions.allowFullAccess` is off or
+/// `agents.sandbox.mode` is `workspaceWrite`.
 pub(crate) fn full_access_off() -> RpcError {
     RpcError::new(
         -32000,
-        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess, agents.sandbox.mode)",
     )
     .with_data(json!({"reason": "full_access_off"}))
 }
