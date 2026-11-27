@@ -159,6 +159,8 @@ describe("app pricing page", () => {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first).toContain("Get Plus");
+      expect(first).toMatch(/<div aria-hidden="true" class="invisible [^"]*col-start-1 row-start-1/);
+      expect(first).not.toContain('role="status"');
       expect(first).toContain("md:grid-cols-2 lg:grid-cols-4");
       expect(first).toMatch(/<h2[^>]*>Plus<\/h2>/);
       expect(first).toContain("25% repeat(6,12.5%)");
@@ -315,7 +317,7 @@ describe("app pricing page", () => {
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
     expect(html).toContain("Current plan");
-    expect(html).not.toContain("not signed in.");
+    expect(html).not.toContain('role="status"');
   });
 
   test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
