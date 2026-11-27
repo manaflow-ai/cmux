@@ -93,8 +93,10 @@ jobs:
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
       instant: ${{ steps.scope.outputs.instant }}
       production_build: ${{ steps.scope.outputs.production_build }}
-      react_apps: ${{ steps.scope.outputs.react_apps }}
-      agent_pane: ${{ steps.scope.outputs.agent_pane }}
+      react_apps: ${{ steps.reuse.outputs.react_apps }}
+      agent_pane: ${{ steps.reuse.outputs.agent_pane }}
+      react_key: ${{ steps.reuse.outputs.react_key }}
+      agent_key: ${{ steps.reuse.outputs.agent_key }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
       react_fleet: ${{ steps.react-shards.outputs.fleet }}
@@ -124,12 +126,56 @@ jobs:
           WEB_SUBAREAS_BASE: ${{ inputs.sha != '' && 'all' || inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
+      # A pull request whose React inputs (this head's and its merge parent's, web_subareas.py green_key) match a head
+      # whose react-apps-check, or agent pane check, already passed has nothing new to prove: the area is
+      # routed off, exactly as for a pull request touching no React input. The passing run saves the marker (react-apps-check,
+      # agent-pane-real-acpmux). Never on a push, a post-merge batch or a full-ci pull request. ci500k, Leo: "de facto,
+      # im asking for 99% fewer minutes of ci time, period."
+      - name: Look up a green marker for the React inputs
+        id: react-green
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/react-green-marker
+          key: webviews-react-green-${{ steps.scope.outputs.react_key }}
+          lookup-only: true
+
+      - name: Look up a green marker for the agent pane inputs
+        id: agent-green
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/agent-green-marker
+          key: webviews-agent-green-${{ steps.scope.outputs.agent_key }}
+          lookup-only: true
+
+      - name: Route off an area whose inputs already passed
+        id: reuse
+        env:
+          REACT_APPS: ${{ steps.scope.outputs.react_apps }}
+          AGENT_PANE: ${{ steps.scope.outputs.agent_pane }}
+          REACT_HIT: ${{ steps.react-green.outputs.cache-hit }}
+          AGENT_HIT: ${{ steps.agent-green.outputs.cache-hit }}
+          REACT_KEY: ${{ steps.scope.outputs.react_key }}
+          AGENT_KEY: ${{ steps.scope.outputs.agent_key }}
+        run: |
+          [ "$REACT_HIT" = true ] && { echo "react-apps-check: the inputs already passed (key $REACT_KEY); skipped"; REACT_APPS=false; }
+          [ "$AGENT_HIT" = true ] && { echo "agent pane: the inputs already passed (key $AGENT_KEY); skipped"; AGENT_PANE=false; }
+          {
+            echo "react_apps=$REACT_APPS"
+            echo "agent_pane=$AGENT_PANE"
+            echo "react_key=$REACT_KEY"
+            echo "agent_key=$AGENT_KEY"
+          } >> "$GITHUB_OUTPUT"
+
       # The webview test shards split their files by recorded duration
       # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the
       # whole run: a shard that read the cache itself could get a newer
       # manifest than its siblings, split differently, and skip or repeat files.
       - name: Restore the webview test duration manifest
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/webviews-durations/manifest.json
@@ -142,7 +188,7 @@ jobs:
       # alone: 17 of a shard's 51 min of tests. Unique keys a push, so the prefix restores the newest.
       - name: Restore the base's webview test history
         id: base-history-cache
-        if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -161,10 +207,11 @@ jobs:
       # cached history above, else the artifact's list and download, two requests), and best effort: without the file
       # every red file is retried.
       - name: Hand the duration manifest to the shards
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
           BASE_REF: ${{ github.base_ref }}
+          HELD_RED_HOURS: ${{ vars.CMUX_WEB_TEST_HELD_RED_HOURS || '24' }}
         run: |
           manifest="$RUNNER_TEMP/webviews-durations/manifest.json"
           mkdir -p "$(dirname "$manifest")"
@@ -178,6 +225,16 @@ jobs:
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
+            # Files red on every base push for HELD_RED_HOURS or more are left to the batch runs (held-red-files): the
+            # shards skip them, and a file the change edits still runs. Undo: the repository variable
+            # CMUX_WEB_TEST_HELD_RED_HOURS=0.
+            if [ -s "$history" ] && [ "${HELD_RED_HOURS:-0}" != 0 ]; then
+              git diff --name-only HEAD^1 HEAD -- webviews/ 2>/dev/null | sed 's#^webviews/##' > "$RUNNER_TEMP/webviews-durations/changed" || :
+              python3 scripts/ci/webviews_test_history.py held-red-files "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
+                --hours "$HELD_RED_HOURS" --changed "$RUNNER_TEMP/webviews-durations/changed" \
+                --out "$RUNNER_TEMP/webviews-durations/held-reds" ||
+                { rm -f "$RUNNER_TEMP/webviews-durations/held-reds"; echo "the held base reds are unread: every file runs"; }
+            fi
           fi
 
       # The react-apps-check shards this run starts (webviews_pr_shards.py). Leo, 2026-11-21: "id rather we simply cut
@@ -200,7 +257,7 @@ jobs:
       # entry "1"), not its share of the closure: that share was about 37 of its 48 minutes (11-22).
       - name: Pick the react-apps-check shards
         id: react-shards
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         env:
           REACT_APPS_SHARDS: "8"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
@@ -261,7 +318,7 @@ jobs:
           fi
 
       - name: Upload the duration manifest
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webviews-test-durations
@@ -270,6 +327,7 @@ jobs:
           path: |
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
+            ${{ runner.temp }}/webviews-durations/held-reds
             ${{ runner.temp }}/webviews-durations/pr-shard-files
             ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
           if-no-files-found: error
@@ -314,7 +372,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -323,7 +382,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -435,7 +495,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
@@ -535,7 +596,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -544,7 +606,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -605,7 +668,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -614,7 +678,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -685,7 +750,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -694,7 +760,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webviews dependencies
         working-directory: webviews
@@ -754,6 +821,19 @@ jobs:
           done
           exit "$status"
 
+      - name: Mark these agent pane inputs green
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.agent_key != '' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/agent-green-marker" && date -u > "$RUNNER_TEMP/agent-green-marker/passed"
+
+      - name: Save the agent pane green marker
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.agent_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/agent-green-marker
+          key: webviews-agent-green-${{ needs.web-subarea-scope.outputs.agent_key }}
+
       - name: Upload the measurements
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -799,7 +879,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -808,7 +889,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -1034,7 +1116,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -1043,7 +1126,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -1392,6 +1476,8 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           # From web-subarea-scope's handoff (pull requests only): a file red on the base's push gets no alone retry.
           CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
+          # Pull requests only: files red on every base push for a day or more are the batch runs' (held-red-files).
+          CMUX_WEB_TEST_HELD_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/held-reds', runner.temp) || '' }}
           # Pull requests only: once 5 alone retries have run and none passed, the rest of the red files keep their
           # first run for react-apps-base-check, which replays them on the base and re-runs alone on the head any it
           # would charge (run-webviews-tests.sh). Shard 1 of run 44987019885 spent 23 min retrying 38 files alone and
@@ -1831,7 +1917,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -1840,7 +1927,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.pick.outputs.files != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -2110,7 +2198,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2119,7 +2208,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.head.outputs.reds != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -2463,6 +2553,18 @@ jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
 
+      - name: Save the green marker for these React inputs
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.react_key != '' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/react-green-marker" && date -u > "$RUNNER_TEMP/react-green-marker/passed"
+      - name: Save the green marker (cache)
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.react_key != '' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/react-green-marker
+          key: webviews-react-green-${{ needs.web-subarea-scope.outputs.react_key }}
+
   # The next run's shard split: this run's per-file seconds, averaged with the
   # manifest it split by. Its own job, outside the required react-apps-check:
   # a stalled download or cache save must not time out the gate. A missing
@@ -2716,7 +2818,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2725,7 +2828,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -2814,7 +2918,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2823,7 +2928,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
