@@ -35,7 +35,11 @@ enum SidebarContextMenus {
             if let owner { registry.scopeMenuAction(menu, action: "notifications.dismissHighlight", toMachine: owner.machineID) }
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
             // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
-            let title = model.workspace(first)?.title ?? owner?.store.workspace(id: first.rawValue)?.displayName ?? ""
+            // An empty name falls through (Lawrence 2026-11-27: "name is blank, it should be prefilled"): a row whose
+            // workspace has no title of its own draws its chat's name, so the field starts from that, else the daemon's name.
+            let row = model.workspace(first)
+            let title = [row?.title, row?.tabs.first { $0.kind == .agentChat || $0.kind == .conversation }?.title, owner?.store.workspace(id: first.rawValue)?.displayName]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty } ?? ""
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
             if !trailing.isEmpty {
@@ -73,6 +77,7 @@ enum SidebarContextMenus {
             return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+        case .newButton: return registry.makeContextMenu(for: .sidebarNew).themeRows(in: scope) // the + button's short list
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)

@@ -1,7 +1,11 @@
 name: cmux-next tip test-compile
 
-# Compiles, without running, the Swift test targets each feat-cmux-next push can
-# break, on a fleet Mac, and says loudly when the tip stops compiling them.
+# Compiles, without running, the Swift test targets the feat-cmux-next tip can
+# break, on a fleet Mac, and says loudly when the tip stops compiling them. Since
+# 2026-11-21 it runs in the post-merge batch (cmux-next-post-merge.yml, suite
+# tip-test-compile), once a window when the commits since the last batch touched
+# its paths (.github/post-merge-batch.json), not on each push; a dispatch still
+# runs it by hand.
 #
 # 2026-10-21: 134f90c0596 and c515787a8b4 went straight to feat-cmux-next;
 # together CmuxNextAgentPaneTests stopped compiling and every agent's fleet test
@@ -11,29 +15,34 @@ name: cmux-next tip test-compile
 # Cost and fairness (scripts/ci/tip-test-compile.sh):
 #   - one run at a time: the concurrency group keeps at most one newer run
 #     pending, and GitHub cancels a pending run when a still newer push comes;
-#   - the fleet step runs in the controller's background class (cmux-ci run
-#     --background, priority -10000): after every urgent, manual and agent job;
+#   - the fleet step runs in the controller's idle request class (cmux-ci run
+#     --priority idle, cmuxterm-hq#23557; --background on an older client):
+#     after every urgent, manual and agent job;
 #   - while the step is still queued, a newer push's pending run cancels it, and
 #     it gives up (no verdict) after 45 minutes in the queue, so the one gateway
 #     runner it holds goes back to required compiles. A started step is never
 #     cancelled.
 # Each run compiles the change since the last run that passed (not the push's
-# own `before`), so a cancelled or superseded run leaves nothing unchecked.
+# own `before`), so a cancelled or superseded run leaves nothing unchecked. The
+# verified commit is the newest passing run of this workflow; a batch call is a
+# run of cmux-next-post-merge.yml, so it never advances it: each batch compiles
+# everything since that commit, a superset of its own window's change.
 #
 # A red tip opens (or comments on) one issue, "feat-cmux-next: Swift test
 # targets do not compile", with the failing targets, the first errors, the sha
 # and the commits in the range; the first green run closes it.
 
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Packages/**"
-      - "vendor/**"
-      - "scripts/ci/compile_test_plan.py"
-      - "scripts/ci/package-test-lane.sh"
-      - "scripts/ci/tip-test-compile.sh"
-      - ".github/workflows/cmux-next-tip-test-compile.yml"
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to compile (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): compile-fleet (the gateway admits a job id ending in -fleet from any workflow, so a workflow_call from cmux-next-post-merge.yml runs it; compile, the old id, still selects it). Empty: every job."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       base:
@@ -44,7 +53,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-tip-test-compile
+  # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
+  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
   cancel-in-progress: false
 
 env:
@@ -55,7 +65,7 @@ jobs:
   plan:
     name: tip test-compile plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -65,8 +75,9 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
     steps:
       - name: Checkout the pushed commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
           submodules: false
           fetch-depth: 2
@@ -77,17 +88,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BEFORE: ${{ github.event.before }}
           FORCED_BASE: ${{ inputs.base }}
+          # The commit under test: a batch call's sha, else the event's.
+          HEAD_SHA: ${{ inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           # The base: a dispatch's `base`, else the newest commit this workflow verified
           # (a run that passed), when it is an ancestor of this push; else the push's
-          # own before; else HEAD^.
+          # own before (empty under the batch); else HEAD^.
           base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-tip-test-compile.yml/runs?branch=feat-cmux-next&status=success&per_page=1" \
             --jq '.workflow_runs[0].head_sha // ""' || true)"
           ancestor() {
             [[ "$1" =~ ^[0-9a-f]{40}$ ]] || return 1
-            [ "$1" = "$GITHUB_SHA" ] && return 0
-            [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$1...$GITHUB_SHA" --jq .status 2>/dev/null || true)" = ahead ]
+            [ "$1" = "$HEAD_SHA" ] && return 0
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$1...$HEAD_SHA" --jq .status 2>/dev/null || true)" = ahead ]
           }
           [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"
           ancestor "$base" || base="${BEFORE:-}"
@@ -111,12 +124,13 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if [ -s "$RUNNER_TEMP/plan.txt" ]; then echo "needed=true"; else echo "needed=false"; fi >> "$GITHUB_OUTPUT"
 
-  compile:
+  compile-fleet:
     name: tip test-compile (fleet, background)
     needs: plan
-    if: ${{ needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '') }}
-    # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
+    # One gateway runner at most (the concurrency group). It only runs the fleet client and waits; the compile runs
+    # on a fleet Mac, so the gateway is Linux (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -127,18 +141,41 @@ jobs:
       report: ${{ steps.compile.outputs.report }}
     steps:
       - name: Checkout the script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 1
-          sparse-checkout: scripts/ci/tip-test-compile.sh
+          sparse-checkout: |
+            scripts/ci/tip-test-compile.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
+
+      # The fleet client action comes from this workflow's own commit, not the commit under test: a bisect probe
+      # of a commit older than the action (#59069) otherwise fails before any suite runs, a red on every probe.
+      - name: Checkout the fleet client action (this workflow's commit)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .fleet-client-src
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            /.github/actions/fleet-client/
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.fleet-client-src/.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Compile the planned test targets on a fleet Mac
         id: compile
         env:
-          REF: ${{ github.sha }}
+          REF: ${{ inputs.sha || github.sha }}
           BASE: ${{ needs.plan.outputs.base }}
           RUN_ID: ${{ github.run_id }}
           WORKFLOW_FILE: cmux-next-tip-test-compile.yml
@@ -154,9 +191,10 @@ jobs:
 
   report:
     name: tip test-compile report
-    needs: [plan, compile]
-    if: ${{ !cancelled() && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    needs: [plan, compile-fleet]
+    # Not in a bisect probe (inputs.only set): a probe of an older commit must not open or close the tip's issue.
+    if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile-fleet.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       issues: write
       actions: write
@@ -166,16 +204,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERDICT: ${{ needs.compile.outputs.verdict || 'none' }}
-          REPORT: ${{ needs.compile.outputs.report }}
+          VERDICT: ${{ needs.compile-fleet.outputs.verdict || 'none' }}
+          REPORT: ${{ needs.compile-fleet.outputs.report }}
           BASE: ${{ needs.plan.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ inputs.sha || github.sha }}
+          BATCH: ${{ inputs.sha != '' }}
         run: |
           set -euo pipefail
           title="feat-cmux-next: Swift test targets do not compile"
           open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
             --jq "map(select(.title == \"$title\"))[0].number // \"\"")"
-          sha="$GITHUB_SHA"
+          sha="$HEAD_SHA"
           link="[\`${sha:0:11}\`]($GITHUB_SERVER_URL/$GH_REPO/commit/$sha)"
           case "$VERDICT" in
             pass)
@@ -198,6 +238,12 @@ jobs:
             *)
               # Superseded by a newer push, or no verdict (a busy fleet): this run
               # verified nothing, so it must not count as the next run's base.
+              # A batch call never cancels: the run is the whole batch's, and it is never this workflow's
+              # verified base anyway.
+              if [ "$BATCH" = true ]; then
+                echo "No verdict ($VERDICT) in the post-merge batch; the next batch compiles from the last verified commit."
+                exit 0
+              fi
               echo "No verdict ($VERDICT); cancelling this run so it is not a verified base."
               gh run cancel "$GITHUB_RUN_ID"
               ;;

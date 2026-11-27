@@ -271,6 +271,10 @@ public final class ConversationComposeViewController: UIViewController {
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // The sheet may be presented after its keyboard was already hidden.
+        // Reconcile before focusing To:, so an unannounced hide cannot leave
+        // the composer above empty space.
+        keyboardTracker.dropKeyboardWithoutOwner()
         recipientField.textField.becomeFirstResponder()
     }
 
@@ -491,6 +495,7 @@ public final class ConversationComposeViewController: UIViewController {
                 ? String(localized: "conversation.compose.invalid.title", defaultValue: "Not a Valid Address", bundle: .module)
                 : String(localized: "conversation.compose.failed.title", defaultValue: "Could Not Start Conversation", bundle: .module),
             message: invalid
+                // retry-prompt-ok: the person must fix the recipients first
                 ? String(localized: "conversation.compose.invalid.message", defaultValue: "Remove the red recipients and try again.", bundle: .module)
                 : String(describing: error),
             preferredStyle: .alert

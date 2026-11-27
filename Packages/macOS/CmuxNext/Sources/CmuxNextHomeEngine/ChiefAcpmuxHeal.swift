@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+import CmuxNextHomeModel
 import Foundation
 import os
 
@@ -14,6 +15,9 @@ import os
 /// turn ends, so the heal never cuts a Chief turn), and the brain keeper's watch
 /// starts the host again, which starts the bundled acpmux. A tab still never starts that
 /// daemon itself (cx-ebm.54).
+///
+/// What follows each handoff answer is `chief_brain.heal_plan` and `chief_brain.heal_finish_step`
+/// in cmux-home-rules; this type runs the handoff, the stop, the waits and the ensure in order.
 public nonisolated struct ChiefAcpmuxHeal: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
@@ -43,34 +47,43 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         // The host that took the signal, not one read before it: a host that starts in between
         // would otherwise be stopped mid-turn when the one read earlier is already gone.
         let asked = OSAllocatedUnfairLock<pid_t?>(initialState: nil)
-        switch await handoff.handOffReplaced(waitFor: {
+        let action = await handoff.handOffReplaced(waitFor: {
             let pid = ChiefHostStop.askToHandOffWhenIdle(home: home)
             asked.withLock { $0 = pid }
             return pid != nil
-        }) {
-        case .keep:
-            return false
-        case .waitForHost:
-            let ensureHost = ensureHost
-            let host = asked.withLock { $0 }
-            // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
-            // when the host exits, however long its turn runs (one exit source, no timer)
-            Task.detached {
-                await Self.finishAfterTurn(
-                    hostExited: {
-                        guard let host else { return true }
-                        return await AgentPaneProcessExit(pid: host).event(within: nil)
-                    },
-                    handOff: { await handoff.handOffReplaced(waitFor: { false }) == .handOff },
-                    stopHost: { await Self.stopHost(home: home) },
-                    ensureHost: ensureHost)
-            }
-            return false
-        case .handOff:
-            await Self.stopHost(home: home)
-            await ensureHost()
-            return true
+        })
+        let actionName = switch action {
+        case .keep: "keep"
+        case .waitForHost: "waitForHost"
+        case .handOff: "handOff"
         }
+        guard let plan: HealPlan = try? HomeRules.chiefBrain("heal_plan", HealRequest(action: actionName)) else { return false }
+        for effect in plan.effects {
+            switch effect.kind {
+            case "finishAfterTurn":
+                let ensureHost = ensureHost
+                let host = asked.withLock { $0 }
+                // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
+                // when the host exits, however long its turn runs (one exit source, no timer)
+                Task.detached {
+                    await Self.finishAfterTurn(
+                        hostExited: {
+                            guard let host else { return true }
+                            return await AgentPaneProcessExit(pid: host).event(within: nil)
+                        },
+                        handOff: { await handoff.handOffReplaced(waitFor: { false }) == .handOff },
+                        stopHost: { await Self.stopHost(home: home) },
+                        ensureHost: ensureHost)
+                }
+            case "stopHost":
+                await Self.stopHost(home: home)
+            case "ensureHost":
+                await ensureHost()
+            default:
+                Self.logger.error("Chief acpmux heal: unknown effect \(effect.kind, privacy: .public)")
+            }
+        }
+        return plan.healed
     }
 
     /// After the Chief host that was asked to hand off when idle exits: hands the replaced
@@ -81,15 +94,35 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
     /// everything as it is.
     static func finishAfterTurn(hostExited: () async -> Bool, handOff: () async -> Bool,
                                 stopHost: () async -> Void, ensureHost: () async -> Void) async {
-        guard await hostExited() else {
-            logger.error("Chief host did not end its turn in time; its acpmux keeps running from a replaced bundle")
-            return
+        var phase: String?
+        var event: FinishEvent? = FinishEvent(kind: "hostExit", exited: await hostExited())
+        while let next = event {
+            guard let reply: FinishReply = try? HomeRules.chiefBrain("heal_finish_step", FinishRequest(phase: phase, event: next))
+            else { return }
+            phase = reply.phase
+            event = nil
+            for effect in reply.effects {
+                switch effect.kind {
+                case "handOff":
+                    event = FinishEvent(kind: "handOff", handedOff: await handOff())
+                case "stopHost":
+                    await stopHost()
+                    event = FinishEvent(kind: "done")
+                case "ensureHost":
+                    await ensureHost()
+                    event = FinishEvent(kind: "done")
+                case "log":
+                    let message = effect.message ?? ""
+                    if effect.error == true {
+                        logger.error("\(message, privacy: .public)")
+                    } else {
+                        logger.info("\(message, privacy: .public)")
+                    }
+                default:
+                    logger.error("Chief acpmux heal: unknown effect \(effect.kind, privacy: .public)")
+                }
+            }
         }
-        if await handOff() {
-            logger.info("Chief acpmux handed off after the Chief host's turn ended")
-            await stopHost()
-        }
-        await ensureHost()
     }
 
     /// Stops the Chief host that ran on a daemon just handed off, and waits for it to exit.
@@ -98,4 +131,41 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         logger.info("Chief host \(pid) stopped after its acpmux handoff; the brain watch starts it again")
         _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
+}
+
+private nonisolated struct HealRequest: Encodable {
+    var action: String
+}
+
+/// `chief_brain::heal::HealReply`; effects flat, `kind` names the case.
+private nonisolated struct HealPlan: Decodable {
+    nonisolated struct Effect: Decodable {
+        var kind: String
+    }
+
+    var effects: [Effect]
+    var healed: Bool
+}
+
+private nonisolated struct FinishEvent: Encodable {
+    var kind: String
+    var exited: Bool?
+    var handedOff: Bool?
+}
+
+private nonisolated struct FinishRequest: Encodable {
+    var phase: String?
+    var event: FinishEvent
+}
+
+/// `chief_brain::heal::FinishReply`; effects flat.
+private nonisolated struct FinishReply: Decodable {
+    nonisolated struct Effect: Decodable {
+        var kind: String
+        var error: Bool?
+        var message: String?
+    }
+
+    var phase: String
+    var effects: [Effect]
 }

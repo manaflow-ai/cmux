@@ -109,12 +109,11 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page.
+    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page
+    /// that has a view. The stored page of a tab never takes them: its view asks here again at its make (`listsAtViewMake`).
     static func fillPaletteActions(_ services: AppServices, again: Bool = false) {
         services.newTabActions.fill(again: again) { [weak tabs = services.agentTabs] in
-            tabs?.newTabPages.entries.map { entry in
-                AgentPaneNewTabActions.Page(view: tabs?.views[entry.key], stored: entry.value.page, store: { [weak tabs] in tabs?.newTabPages[entry.key]?.page.omnibar.actions = $0 })
-            } ?? []
+            tabs?.newTabPages.keys.map { AgentPaneNewTabActions.Page(view: tabs?.views[$0]) } ?? []
         }
     }
 
@@ -327,8 +326,8 @@ extension NewTabPage {
     /// the palette's switchers for jumps, the palette's own run for an action. A submit replaces the page.
     private static func nativeActions(_ key: String, cwd: String?, pane: PaneController, list: NativeNewTabList) -> NativeNewTabActions {
         NativeNewTabActions(
-            submit: { [weak pane] text, kind, search in
-                if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) { closingPage(key, in: pane)() }
+            submit: { [weak pane] text, kind, search, event in
+                if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key, event: event) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
             // A row the palette refuses now (it cannot run, or its title is not the shown one any more): the page's list reads the actions again (a pane that is gone refuses nothing).
@@ -340,7 +339,7 @@ extension NewTabPage {
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
     /// URL or `!command` typed there). With the page's tab `key`, a pick beside another tab goes where links do (``opensBeside``).
-    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController, page key: String? = nil) -> Bool {
+    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController, page key: String? = nil, event: NSEvent? = nil) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {
             page.services.registry.refuse(refusal)
@@ -354,6 +353,7 @@ extension NewTabPage {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
         case (.browser, true): return page.newBrowserTab()
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        case (.agent, false) where NewTabSubmit.plan(text: request.text, search: request.search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver, fixesHostTypos: true) == .chat(prompt: request.text, harness: nil) && page.services.agentTabs.paneShared.computerUse.holdsSubmit(request.text, startsRemote: !page.daemon.isLocal, registry: page.services.registry, refusal: ComputerUseSessionStrings.disabledByPolicy, event: event): return false
         case (.browser, false), (.agent, false):
             let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
             return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user).onMachine(page.daemon.machineID))

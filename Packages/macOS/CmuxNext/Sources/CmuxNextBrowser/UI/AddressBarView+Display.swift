@@ -4,11 +4,12 @@ import Observation
 // Chrome's address bar menu items and full-URL display (`OmnibarDisplay`),
 // and site icons in suggestion rows.
 extension AddressBarView {
-    /// Follows `suggestionEngine.display.showsFullURLs` into the state machine,
+    /// Follows `suggestionEngine.display.showsFullURLs` into the state machine
+    /// and `display.quietIcons` into the chip and star,
     /// now and on every change. A new engine starts it again (`suggestionEngine` didSet).
     func followDisplay() {
         let display = suggestionEngine.display
-        let full = withObservationTracking { display.showsFullURLs } onChange: { [weak self, weak display] in
+        let (full, _) = withObservationTracking { (display.showsFullURLs, display.quietIcons) } onChange: { [weak self, weak display] in
             // task-owner: one hop per change; ends at once (the view or engine may be gone).
             Task { @MainActor [weak self, weak display] in
                 guard let self, let display, display === self.suggestionEngine.display else { return }
@@ -16,6 +17,7 @@ extension AddressBarView {
             }
         }
         controller.send(.showFullURLsChanged(full))
+        updateQuietIcons(fade: nil)
     }
 
     /// The bar's own items at the end of the field's context menu.
