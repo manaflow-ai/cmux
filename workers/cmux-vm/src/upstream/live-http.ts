@@ -119,7 +119,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
       Effect.flatMap((result) =>
-        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
+        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
       ),
     );
 

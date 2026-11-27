@@ -384,6 +384,16 @@ async fn run_registration_once(
             _ = interval.tick() => {
                 match liveness.check(Instant::now(), wall_now()) {
                     Check::Idle => continue,
+                    Check::Stalled(gap) => {
+                        if let Some(label) = &log.label {
+                            eprintln!(
+                                "{label}: the registration loop stalled {} ms with a ping out; \
+                                 waiting for its answer again",
+                                gap.as_millis()
+                            );
+                        }
+                        continue;
+                    }
                     Check::Ping => {
                         nonce = nonce.wrapping_add(1);
                         match send_control(&mut socket, &RelayControl::Ping { nonce }).await {
