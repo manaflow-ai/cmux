@@ -50,7 +50,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import cmux_next_route as route_mod  # noqa: E402
 
 CMUX_CI = "~/.local/bin/cmux-ci"  # unquoted in the step line, so bash expands ~
-XCODE_APP = "/Applications/Xcode_26.6.app"
+XCODE_APP = "/Applications/Xcode_27.2.app"
 CMUXNEXT_DIR = "Packages/macOS/CmuxNext"
 RUST_WORKSPACE_FILES = ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock", "cmux-tui/rust-toolchain.toml")
 # The cmux-ci controller's ci-step limits (hq build-fleet/cmd/controller/ci_step.go): at most

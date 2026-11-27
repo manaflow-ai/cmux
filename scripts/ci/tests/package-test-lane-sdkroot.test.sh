@@ -21,7 +21,7 @@ cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' \
   > "$repo/Packages/macOS/Fake/Package.swift"
-dev="$tmp/Xcode_26.6.app/Contents/Developer"
+dev="$tmp/Xcode_27.2.app/Contents/Developer"
 mkdir -p "$dev"
 want_sdk="$dev/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk"
 mkdir -p "$want_sdk"

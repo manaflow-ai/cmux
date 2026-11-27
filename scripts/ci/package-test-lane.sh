@@ -43,7 +43,7 @@
 #             Lanes: cmux-ci run --class light --script
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
-#             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+#             --env CMUX_CI_XCODE_APP=/Applications/Xcode_27.2.app
 #             each:WORD (macOS) is every suite whose name holds WORD, each in
 #             its own `swift test` process: `--arg=each:Sidebar` for the
 #             whole-Sidebar run, which as one `--filter Sidebar` process

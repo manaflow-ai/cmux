@@ -243,7 +243,7 @@ cat > "$TMP/trap.out" <<'OUT'
 ◇ Test anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain() started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
-error: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
+error: Process '/Applications/Xcode_27.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
 OUT
 export CMUX_NEXT_CRASH_REPORTS_DIR="$reports" CMUX_NEXT_CRASH_OUT="$crashes"
 STUB_CRASH_REPORT="$TMP/trap.ips" STUB_CRASH_REPORT_DEST="$reports/swiftpm-testing-helper-2026-10-09-021500.ips" \

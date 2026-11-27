@@ -12,6 +12,6 @@ export CMUX_NEXT_TUI_TREE_PATH
 test -x "$CMUX_NEXT_TUI_TREE_PATH"
 
 export CMUX_CLASSIC_UPGRADE_PERF=1
-export CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+export CMUX_CI_XCODE_APP=/Applications/Xcode_27.2.app
 exec bash scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext \
   ClassicUpgradeSimulationTests/theFirstLaunchBringsEverythingOnce,ClassicUpgradeSimulationPerfTests
