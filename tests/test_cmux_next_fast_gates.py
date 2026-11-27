@@ -727,6 +727,13 @@ class WorkflowShape(unittest.TestCase):
         # The bound covers that 457 s reset after a first gap, inside the light jobs' 15 minutes.
         self.assertGreaterEqual(wait, 457 + 300)
         self.assertIn("CI_POOL_TOKEN_1", post["env"]["POOL_TOKENS"])
+        # 2026-11-25 to 11-27 the secrets were never set and POOL_TOKENS ran empty, unseen (job 140219559972): an empty
+        # pool says so on every run; a set one says nothing.
+        done, _ = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1', POOL_TOKENS=" ")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=CI pool tokens::POOL_TOKENS is empty", done.stdout)
+        done, _ = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1', POOL_TOKENS="pool1 pool2")
+        self.assertNotIn("CI pool tokens", done.stdout)
 
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]

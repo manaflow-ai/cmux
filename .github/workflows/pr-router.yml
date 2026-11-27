@@ -202,6 +202,9 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
+          # An empty pool is the key home's push not setting CI_POOL_TOKEN_1/2 (leo-workspace gh-app-roles.json
+          # push.actions_secrets): 2026-11-25 to 11-27 they were never set and every post ran on two budgets.
+          [ -n "$(printf '%s' "${POOL_TOKENS:-}" | tr -d ' ')" ] || echo "::warning title=CI pool tokens::POOL_TOKENS is empty: secrets.CI_POOL_TOKEN_1/2 are unset, so cmux/land-tier posts on the App token and the job token only"
           # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the next, then again.
           rounds="${LAND_STATUS_ROUNDS:-3}"
           err="$(mktemp)"
