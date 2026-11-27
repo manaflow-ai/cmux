@@ -20,7 +20,8 @@
 # A normal run is about 13 s longer; a hung attempt is still cut at LAUNCH_SMOKE_ATTEMPT_SECONDS.
 #
 #   pass        exit 0.
-#   crash       exit 1: the app launched and then exited, wrote a crash report or recorded an
+#   crash       exit 1: the app launched and then exited (by itself or a crash signal; a SIGTERM is
+#               another process's kill and is cannot-run), wrote a crash report or recorded an
 #               uncaught exception, on both of two attempts (nightly_next_launch_smoke.py verdict),
 #               from either home. The same holds for an app that shows Home and says, when the
 #               harness's watch ends and again 5 s later, that its daemon is not connected (the
