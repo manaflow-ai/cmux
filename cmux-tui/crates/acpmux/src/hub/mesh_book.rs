@@ -591,11 +591,14 @@ impl Hub {
                     // What the machine's own heartbeat carried; a pulled reading newer than it
                     // replaces it below.
                     if let Some((at, reading)) = book.pushed.get(host)
-                        && now.saturating_sub(*at) <= PUSHED_FRESH_MS
                         && let Some(fields) = row.as_object_mut()
                     {
-                        fields.insert("health".into(), reading.clone());
+                        // Keep the time after the metrics expire: placement distinguishes a
+                        // machine that has gone stale from one it has never heard from.
                         fields.insert("healthAt".into(), json!(at));
+                        if now.saturating_sub(*at) <= PUSHED_FRESH_MS {
+                            fields.insert("health".into(), reading.clone());
+                        }
                     }
                     row
                 })
@@ -605,13 +608,20 @@ impl Hub {
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
             let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
-            let pushed_at = row.get("healthAt").and_then(Value::as_u64).unwrap_or(0);
+            let failed_at = health.failed_at(name);
+            let pushed_at = row.get("healthAt").and_then(Value::as_u64);
             if let Some((at, reading)) = health.reading(name)
-                && at > pushed_at
+                && pushed_at.is_none_or(|pushed| at > pushed)
                 && let Some(fields) = row.as_object_mut()
             {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
+            }
+            // Its newest read failed: placement passes it over (`placement/reach.rs`).
+            if let Some(failed) = failed_at
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("healthFailedAt".into(), json!(failed));
             }
         }
         rows
