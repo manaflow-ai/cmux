@@ -7,7 +7,7 @@ import { Slot } from "../../../slots/Slot";
 import { jumpToBottomSlot } from "../../../slots/jumpToBottom";
 import { type TranscriptNeedsYou, NeedsYouPill } from "../needsYou/JumpPill";
 import { experimentArm } from "../../../experiments/experiment";
-import { jumpPairLook } from "../jumpPair.experiment";
+import { jumpPairLook, type JumpUpBadge } from "../jumpPair.experiment";
 import { JumpDots } from "../conversation/JumpDots";
 import { useThinkingLook } from "../conversation/thinkingLook";
 
@@ -29,8 +29,12 @@ export function JumpToLatest({
   onJump,
   lift,
   needsYou,
+  up,
 }: {
   shown: boolean;
+  /// Pointing up at the first unseen row (jumpControl.ts): the arrow turns, the label says unread, and
+  /// the badge arm (jumpPair.experiment.ts `jumpUpBadge`) may count the turns.
+  up?: { badge: JumpUpBadge; turns: number };
   working: boolean;
   /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
   needsYou?: TranscriptNeedsYou;
@@ -44,8 +48,9 @@ export function JumpToLatest({
   // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default): drawn over the arrow's
   // cell while the agent works; the arrow comes back on hover and focus (JumpDots.css).
   const dots = useThinkingLook().jumpButton === "dots" && working;
-  if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
-  const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
+  if (!up && needsYou && needsYou.count > 0)
+    return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
+  const label = up ? t("transcript.jumpUnread") : t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
   return (
     <>
@@ -53,8 +58,13 @@ export function JumpToLatest({
       <button
         type="button"
         ref={leaveOnScreenRef}
-        className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
+        className={
+          (lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest") +
+          (up ? " acpmux-jump-up" : "")
+        }
         data-look={look}
+        data-jump={up ? "up" : "latest"}
+        data-badge={up?.badge}
         data-shown={shown ? "" : undefined}
         data-working-dots={dots ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
@@ -71,54 +81,23 @@ export function JumpToLatest({
       >
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
-        <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
-        {dots && <JumpDots />}
-        {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
+        {up ? (
+          <span className="acpmux-jump-latest__arrow" aria-hidden="true">
+            <ArrowDown size={14} />
+          </span>
+        ) : (
+          <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
+        )}
+        {dots && !up && <JumpDots />}
+        {up?.badge === "count" && up.turns > 0 && (
+          <span className="acpmux-jump-latest__count" aria-hidden="true">
+            {up.turns > 99 ? "99+" : up.turns}
+          </span>
+        )}
+        {look === "labeled" && (
+          <span className="acpmux-jump-latest__label">{t(up ? "transcript.jumpUnread" : "transcript.jumpLatest")}</span>
+        )}
       </button>
     </>
-  );
-}
-
-/// Jump up (jumpUp.ts): Jump to latest's companion in the bottom-center zone (overlayLayout.ts,
-/// jumpPair.css): the same glass, look, size and fade, its arrow up, never shown with Jump to latest.
-/// It goes to where the reader left off (the unread "New" line, else where they went idle once a
-/// screen of new content came in) while that place is off screen; pressed, it holds where the view
-/// was, and Esc goes back there.
-export function JumpUp({
-  shown,
-  back,
-  onJump,
-  lift,
-}: {
-  shown: boolean;
-  back: boolean;
-  onJump: () => void;
-  lift: number;
-}) {
-  const t = useT();
-  const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
-  const [look] = useState(() => experimentArm(jumpPairLook));
-  // The single look draws Jump to latest alone; where Jump up would go (and its Esc back) is unchanged.
-  if (look === "single") return null;
-  return (
-    <button
-      type="button"
-      className="ui-glass acpmux-jump-latest acpmux-jump-up"
-      data-look={look}
-      data-shown={shown ? "" : undefined}
-      data-back={back ? "" : undefined}
-      data-focus-ring="none"
-      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
-      aria-label={label}
-      // tooltip-allow: an arrow, with its label only in the labeled look.
-      title={label}
-      inert={!shown}
-      onClick={onJump}
-    >
-      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-        <ArrowDown size={14} />
-      </span>
-      {look === "labeled" && <span className="acpmux-jump-latest__label">{label}</span>}
-    </button>
   );
 }

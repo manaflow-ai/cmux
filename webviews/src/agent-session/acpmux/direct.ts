@@ -8,6 +8,7 @@ import {
   type BrowserDeviceIdentity,
 } from "./browserDevice";
 import { pageAttention } from "./attention";
+import { publishReadThrough } from "./conversation/readThroughState";
 import { pageScrollQuiet } from "./scrollQuiet";
 import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
@@ -2184,6 +2185,23 @@ export class AcpmuxDirectClient {
   private onScreen?: { sessionId: string; seq: number };
   /// The seen write in flight or last sent, deduplicated because the daemon cursor only moves forward.
   private sentSeen?: { sessionId: string; seq: number };
+  /// The seen cursor the snapshot carries, for the chat on screen: where the attach put it. The
+  /// reader's moves after go to the transcript alone (conversation/readThroughState.ts), so they
+  /// never make a snapshot that differs from the last only by the cursor (a pane render each).
+  private snapshotThrough?: { sessionId: string; seq: number };
+  private readThroughNow(): number | undefined {
+    const cursor = this.snapshotThrough;
+    return cursor && cursor.sessionId === this.selectedSessionId ? cursor.seq : undefined;
+  }
+
+  /// The cursor the transcript's jump control reads: the daemon's, or what this page already sent
+  /// ahead of it, so Jump up moves the moment rows are seen, not when acpmux answers.
+  private publishCursor(sessionId: string): void {
+    const kept = this.cursor?.sessionId === sessionId ? this.cursor.seq : null;
+    const sent = this.sentSeen?.sessionId === sessionId ? this.sentSeen.seq : null;
+    const seq = Math.max(kept ?? -1, sent ?? -1);
+    publishReadThrough(sessionId, seq >= 0 ? seq : undefined);
+  }
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
@@ -5344,25 +5362,32 @@ export class AcpmuxDirectClient {
   /// Record the rows that were truly on screen. This is called after a viewport layout changes,
   /// rather than on every scroll frame. The client derives each row's newest event and gates writes
   /// on the page and attention state here.
-  markSeenRows(sessionId: string, rows: readonly { id: string; seq?: number }[]): void {
+  markSeenRows(
+    sessionId: string,
+    rows: readonly { id: string; seq?: number; messageRun?: { through?: number } }[],
+    beforeSeq?: number,
+  ): void {
     let seq = -1;
     for (const row of rows) {
-      const through = Math.max(typeof row.seq === "number" ? row.seq : -1, this.rows.seqOf(row.id) ?? -1);
+      const through = Math.max(row.messageRun?.through ?? row.seq ?? -1, this.rows.seqOf(row.id) ?? -1);
       if (through > seq) seq = through;
     }
+    if (beforeSeq !== undefined) seq = Math.min(seq, beforeSeq - 1);
+    // This is the current permitted viewport, not a high-water mark of every viewport while
+    // idle. In particular an unread gap must revoke an older candidate before focus returns.
+    this.onScreen = seq >= 0 ? { sessionId, seq } : undefined;
     if (seq >= 0) this.markSeenThrough(sessionId, seq);
   }
 
   markSeenThrough(sessionId: string, seq: number): void {
     if (!Number.isFinite(seq) || seq < 0) return;
-    const kept = this.onScreen;
-    if (kept?.sessionId !== sessionId || kept.seq < seq) this.onScreen = { sessionId, seq };
     if (!pageShown() || !readerHere()) return;
     const cursor = this.cursor;
     if (cursor?.sessionId === sessionId && cursor.seq !== null && cursor.seq >= seq) return;
     const previous = this.sentSeen;
     if (previous?.sessionId === sessionId && previous.seq >= seq) return;
     this.sentSeen = { sessionId, seq };
+    this.publishCursor(sessionId);
     const generation = this.selectionGeneration;
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
@@ -5373,7 +5398,10 @@ export class AcpmuxDirectClient {
         !readerHere() ||
         this.selectedSessionId !== sessionId
       ) {
-        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+          this.sentSeen = undefined;
+          this.publishCursor(sessionId);
+        }
         return;
       }
       await this.typed("_acpmux/seen", { sessionId, seq }).then(
@@ -5383,9 +5411,14 @@ export class AcpmuxDirectClient {
           if (this.selectedSessionId !== sessionId) return;
           if (now?.sessionId !== sessionId || now.seq === null || now.seq < through)
             this.cursor = { sessionId, seq: through };
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          this.publishCursor(sessionId);
         },
         () => {
-          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+            this.sentSeen = undefined;
+            this.publishCursor(sessionId);
+          }
         },
       );
     });
@@ -5406,6 +5439,9 @@ export class AcpmuxDirectClient {
     const now = this.cursor;
     if (now?.sessionId === sessionId && typeof now.seq === "number" && (through === null || now.seq > through)) return;
     this.cursor = { sessionId, seq: through };
+    // The snapshot names the cursor the attach put (null: never focused, nothing unseen to count).
+    if (typeof through === "number") this.snapshotThrough = { sessionId, seq: through };
+    this.publishCursor(sessionId);
     if (this.selectedSessionId === sessionId && pageShown()) this.markSeen(sessionId);
   }
 
@@ -12387,6 +12423,7 @@ export class AcpmuxDirectClient {
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceKey: this.rows.get(SINCE_DIVIDER)!.since!.key }),
+      ...(this.readThroughNow() !== undefined && { readThrough: this.readThroughNow() }),
       ...(this.rows.get(SINCE_DIVIDER)?.since && this.since?.lands && { sinceLands: true as const }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0

@@ -334,12 +334,12 @@ import { useStopPresence } from "./composer/turnPresence";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   withSubagentLines,
-  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger, TRAY_LINGER_MS } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -6126,8 +6126,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Rows in the strict viewport advance the daemon's persisted seen cursor. The client keeps this
   // callback cheap by reducing the rows to one highest event sequence and sending only forward.
   const seenRows = useCallback(
-    (rows: readonly AcpmuxRow[]) => {
-      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows);
+    (rows: readonly AcpmuxRow[], beforeSeq?: number) => {
+      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows, beforeSeq);
     },
     [shownSessionId],
   );
@@ -10154,6 +10154,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   }
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   promptAuthor={directClient.current?.presence.selfId}
+                                                                  readThrough={
+                                                                    childRows ? undefined : snapshot.readThrough
+                                                                  }
                                                                   onJumpToSince={jumpToSince}
                                                                   onSeenRows={childRows ? undefined : seenRows}
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}

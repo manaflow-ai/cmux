@@ -1,0 +1,62 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "jump-up-dot",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "dot",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "jump-up-dot-closeup",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "dot",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-jump-latest",
+      "margin": 48
+    },
+    {
+      "name": "jump-up-count",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "count",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "jump-up-count-closeup",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "count",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-jump-latest",
+      "margin": 48
+    },
+    {
+      "name": "jump-up-plain",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "plain",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "jump-up-plain-closeup",
+      "entry": "agent-pane.jump-up-badge",
+      "variant": "plain",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-jump-latest",
+      "margin": 48
+    }
+  ]
+}

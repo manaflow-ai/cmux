@@ -57,8 +57,8 @@ function createIntent() {
   return {
     isHeld: () => pressed || performance.now() - at < USER_SCROLL_INTENT_MS,
     /// Held by an input that scrolls: the reader moved the view by hand. A press on text that has not
-    /// moved, or its release, holds the view but is no scroll (Jump up's idle mark, jumpUp.ts: a
-    /// click to select while scrolled up must not read as the reader scrolling).
+    /// moved, or its release, holds the view but is no scroll: a click to select while scrolled up
+    /// must not read as the reader scrolling.
     scrolledByHand(): boolean {
       return scrolling && this.isHeld();
     },

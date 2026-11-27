@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { queuePauseReason } from "../queuePause";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import ts from "typescript";
 import { composerTrustBlock } from "../useFolderTrustAsk";
-import { composerRows, composerView, sameComposerView } from "./composerView";
+import { COMPOSER_UNREAD, composerRows, composerView, sameComposerView } from "./composerView";
 
 const row = (id: string, kind: AcpmuxRow["kind"], extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
   ({ id, version: 1, at: 0, kind, ...extra }) as AcpmuxRow;
@@ -93,6 +96,70 @@ test("a turn's token counts and subagent progress, and another chat's status, le
   const fresh = (status: string) =>
     composerView({ ...snapshot([], "connected", commands), sessions: sessions(status) } as AcpmuxSnapshot);
   expect(sameComposerView(fresh("idle"), fresh("running"))).toBe(false);
+});
+
+test("the reader's seen cursor moving as rows stream in leaves the composer's view the same", () => {
+  const base = snapshot([start, prompt, reply]);
+  const before = composerView({ ...base, readThrough: 3 });
+  expect("readThrough" in before).toBe(false);
+  expect(sameComposerView(before, composerView({ ...base, readThrough: 4 }))).toBe(true);
+  expect(sameComposerView(before, composerView(base))).toBe(true);
+});
+
+// Inspect property reads, not words: comments, local handoff tokens and the alias
+// `sessions: listedSessions` do not read the snapshot's omitted fields.
+function omittedReads(text: string): string[] {
+  const source = ts.createSourceFile("composer.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const reads = new Set<string>();
+  const visit = (node: ts.Node) => {
+    let key: ts.Node | undefined;
+    if (ts.isPropertyAccessExpression(node)) key = node.name;
+    else if (ts.isElementAccessExpression(node)) key = node.argumentExpression;
+    else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) key = node.propertyName ?? node.name;
+    if (key && (ts.isIdentifier(key) || ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key))) {
+      const name = key.text;
+      if (COMPOSER_UNREAD.some((omitted) => omitted === name)) reads.add(name);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return [...reads];
+}
+
+test("the composer field check distinguishes property reads from unrelated names", () => {
+  expect(
+    omittedReads(`
+    // attachment handoff
+    const handoff = makeToken();
+    const { sessions: listedSessions } = snapshot;
+    send({ handoff, sessions: listedSessions });
+  `),
+  ).toEqual([]);
+  expect(
+    omittedReads(`
+    snapshot.readThrough;
+    snapshot?.["turnTokens"];
+    const { handoff: token, listedSessions } = snapshot;
+  `),
+  ).toEqual(["readThrough", "turnTokens", "handoff", "listedSessions"]);
+});
+
+test("no composer file reads a field its view leaves out", () => {
+  const acpmux = path.resolve(import.meta.dir, "..");
+  const files = [
+    ...readdirSync(acpmux)
+      .filter((name) => /^Composer.*\.tsx?$/.test(name))
+      .map((name) => path.join(acpmux, name)),
+    ...readdirSync(import.meta.dir)
+      .filter((name) => /\.tsx?$/.test(name) && !name.includes(".test.") && name !== "composerView.ts")
+      .map((name) => path.join(import.meta.dir, name)),
+  ];
+  expect(files.some((file) => file.endsWith("Composer.tsx"))).toBe(true);
+  const reads = files.flatMap((file) => {
+    const source = readFileSync(file, "utf8");
+    return omittedReads(source).map((key) => `${path.basename(file)}: ${key}`);
+  });
+  expect(reads).toEqual([]);
 });
 
 test("a reconnect's rebuilt members with the same contents, and its wait, leave the view the same", () => {
