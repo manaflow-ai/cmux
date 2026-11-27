@@ -24,8 +24,9 @@ public struct VNCRules: Sendable {
     public var installed: Bool { channel != nil }
 
     /// One call, decoded; nil without a channel or for an answer that does not decode (JSON
-    /// `null` decodes to nil for an optional `Answer`).
-    func ask<Answer: Decodable>(_ operation: String, _ request: some Encodable, as _: Answer.Type = Answer.self) -> Answer? {
+    /// `null` decodes to nil for an optional `Answer`). Public for the other modules that ask
+    /// `vnc_*` ops (CmuxVNCDemoServer's `vnc_demo_*`).
+    public func ask<Answer: Decodable>(_ operation: String, _ request: some Encodable, as _: Answer.Type = Answer.self) -> Answer? {
         guard let channel, let data = try? JSONEncoder().encode(request),
               let answer = channel(operation, data) else { return nil }
         return try? JSONDecoder().decode(Answer.self, from: answer)
