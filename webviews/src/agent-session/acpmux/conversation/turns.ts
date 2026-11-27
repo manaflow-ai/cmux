@@ -19,6 +19,7 @@ import {
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
+import { RowMemo } from "../../shared/rowMemo";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
 import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
@@ -1253,7 +1254,7 @@ type ShapedTurn = {
   endedByPerson: boolean;
   rows: AcpmuxRow[];
 };
-const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
+const shapedTurns = new RowMemo<AcpmuxRow, ShapedTurn>();
 
 /// A completed turn has one disclosure, keyed by its original prompt. Live rows do not read it,
 /// so a remembered open state never changes the transcript while the next turn is running. A
