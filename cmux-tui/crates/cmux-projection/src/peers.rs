@@ -35,12 +35,13 @@
 //! [`heartbeat`] tells the controller's seed index what the seed holds, every minute.
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha1collisiondetection::Sha1CD;
 use sha2::Digest as _;
@@ -132,6 +133,7 @@ pub trait Get: Send + Sync {
 /// never a stall.
 pub struct Http {
     client: reqwest::blocking::Client,
+    body_limit: usize,
 }
 
 impl Http {
@@ -142,18 +144,21 @@ impl Http {
             .timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(PARALLEL)
             .build()?;
-        Ok(Self { client })
+        Ok(Self { client, body_limit: MAX_HTTP_BODY_BYTES })
     }
 }
 
-fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
-    if response.content_length().is_some_and(|length| length > MAX_HTTP_BODY_BYTES as u64) {
+/// Check the advertised length before allocating, but also count streamed bytes: lengths may
+/// be absent or untrustworthy. Probe one byte past the limit to distinguish a complete body at
+/// the boundary from a truncated one. Neither a read failure nor an oversize returns any bytes.
+fn bounded_body(mut response: reqwest::blocking::Response, limit: usize) -> Answer {
+    if response.content_length().is_some_and(|length| length > limit as u64) {
         return Answer::Failed;
     }
     let mut bytes = Vec::new();
     let mut chunk = [0_u8; 8192];
     loop {
-        let remaining = MAX_HTTP_BODY_BYTES - bytes.len();
+        let remaining = limit - bytes.len();
         let read_limit = chunk.len().min(remaining.saturating_add(1));
         let Some(window) = chunk.get_mut(..read_limit) else { return Answer::Failed };
         let read = match response.read(window) {
@@ -161,8 +166,14 @@ fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
             Ok(read) if read <= remaining => read,
             _ => return Answer::Failed,
         };
-        if bytes.len().checked_add(read).is_none() {
-            return Answer::Failed;
+        let needed = bytes.len() + read;
+        if needed > bytes.capacity() {
+            // Grow geometrically without reserving beyond the cap or trusting a remote's
+            // length. Allocation pressure is another optional-source failure, not a panic.
+            let capacity = needed.max(bytes.capacity().saturating_mul(2)).min(limit);
+            if bytes.try_reserve_exact(capacity - bytes.len()).is_err() {
+                return Answer::Failed;
+            }
         }
         let Some(read) = chunk.get(..read) else { return Answer::Failed };
         bytes.extend_from_slice(read);
@@ -178,7 +189,9 @@ impl Get for Http {
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
-            Ok(response) if response.status().is_success() => bounded_body(response),
+            Ok(response) if response.status().is_success() => {
+                bounded_body(response, self.body_limit)
+            }
             _ => Answer::Failed,
         }
     }
@@ -803,31 +816,60 @@ pub fn peer_list(text: &str) -> Vec<String> {
 }
 
 /// Writes a verified blob into `git_dir` as a loose object (what `git hash-object -w` writes),
-/// through a temporary file and a rename, so a reader never sees half an object.
+/// through a private temporary file and an atomic link, so a reader never sees half an object and
+/// concurrent writers never replace one another's complete object.
 pub fn write_loose(git_dir: &Path, oid: &str, bytes: &[u8]) -> anyhow::Result<()> {
     anyhow::ensure!(verify(oid, bytes), "{oid}: bytes do not hash to it");
-    // `verify` checked `oid` is 40 or 64 ASCII hex, so these splits always succeed.
-    let (Some(fan), Some(name), Some(short)) = (oid.get(..2), oid.get(2..), oid.get(2..10)) else {
-        anyhow::bail!("{oid}: not an object id");
-    };
-    let dir = git_dir.join("objects").join(fan);
-    let file = dir.join(name);
+    let prefix: String = oid.chars().take(2).collect();
+    let suffix: String = oid.chars().skip(2).collect();
+    let dir = git_dir.join("objects").join(prefix);
+    let file = dir.join(&suffix);
     if file.exists() {
         return Ok(());
     }
     std::fs::create_dir_all(&dir)?;
-    let temp = dir.join(format!("tmp_obj_{}_{}", std::process::id(), short));
-    {
-        let mut encoder = flate2::write::ZlibEncoder::new(
-            std::fs::File::create(&temp)?,
-            flate2::Compression::fast(),
-        );
+    let (temp, temp_file) = unique_temp(&dir, &suffix)?;
+    let result = (|| -> anyhow::Result<()> {
+        let mut encoder = flate2::write::ZlibEncoder::new(temp_file, flate2::Compression::fast());
         encoder.write_all(format!("blob {}\0", bytes.len()).as_bytes())?;
         encoder.write_all(bytes)?;
         encoder.finish()?.sync_all()?;
+        // A replacing `rename` could overwrite an object another writer installed after the
+        // existence check. A hard link is atomic and refuses to replace it.
+        match std::fs::hard_link(&temp, &file) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    })();
+    let cleanup = std::fs::remove_file(&temp);
+    match result {
+        Ok(()) => match cleanup {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        },
+        Err(error) => {
+            let _ = cleanup;
+            Err(error)
+        }
     }
-    std::fs::rename(&temp, &file)?;
-    Ok(())
+}
+
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+fn unique_temp(dir: &Path, suffix: &str) -> anyhow::Result<(PathBuf, std::fs::File)> {
+    let pid = std::process::id();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    loop {
+        let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let temp = dir.join(format!("tmp_obj_{pid}_{now:x}_{sequence:x}_{suffix}"));
+        match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// A token bucket over an injected clock: [`Bucket::take`] says how long to wait before sending
@@ -872,6 +914,17 @@ pub struct SeedLimits {
     /// job-started hook takes for a nightly or CI job. While one is held the seed answers 503,
     /// so the host's own builds never wait on seeding.
     pub yield_locks: Vec<PathBuf>,
+}
+
+const MAX_CHUNK_DELAY: Duration = Duration::from_secs(5);
+const MAX_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Keep each token-bucket reservation within the delay the seed is willing to impose. Holding
+/// the bucket lock while sleeping serializes reservations, so concurrent connections cannot build
+/// unbounded debt and then bypass the configured rate.
+fn rate_chunk_size(rate: u64) -> usize {
+    let bytes = rate.saturating_mul(MAX_CHUNK_DELAY.as_secs()).min(MAX_CHUNK_BYTES as u64).max(1);
+    usize::try_from(bytes).unwrap_or(MAX_CHUNK_BYTES)
 }
 
 impl Default for SeedLimits {
@@ -922,8 +975,8 @@ pub fn serve(git_dir: &Path, listen: &str, limits: SeedLimits) -> anyhow::Result
     Ok(())
 }
 
-/// [`serve`] on a listener already bound, so a caller that needs the port (a test) has it before
-/// the first connection and no other socket can take it in between.
+/// [`serve`] on a listener already bound, so callers that need the port have it before the first
+/// connection and no other socket can take it in between.
 pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
     let bucket = Mutex::new(Bucket::new(limits.rate, Instant::now()));
     let active = AtomicUsize::new(0);
@@ -957,7 +1010,7 @@ pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
             active.fetch_add(1, Ordering::Relaxed);
             let (bucket, active) = (&bucket, &active);
             scope.spawn(move || {
-                let _ = connection(git_dir, stream, bucket);
+                let _ = connection(git_dir, stream, bucket, limits.rate);
                 active.fetch_sub(1, Ordering::Relaxed);
             });
         }
@@ -965,23 +1018,58 @@ pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &[u8], close: bool) -> std::io::Result<()> {
-    let connection = if close { "close" } else { "keep-alive" };
-    let mut out = format!(
-        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: {connection}\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
+    // One write: a 503 that closes without reading the request must reach the client before the
+    // close can reset the connection.
+    let mut out = headers(status, body.len(), close).into_bytes();
     out.extend_from_slice(body);
     stream.write_all(&out)
 }
 
-fn connection(git_dir: &Path, stream: TcpStream, bucket: &Mutex<Bucket>) -> anyhow::Result<()> {
-    // A client's idle pooled connection holds one of the seed's few slots, so an idle one is
-    // closed after 5 s, not held open for other checkouts to be answered busy.
+fn respond_headers(
+    stream: &mut TcpStream,
+    status: &str,
+    length: usize,
+    close: bool,
+) -> std::io::Result<()> {
+    stream.write_all(headers(status, length, close).as_bytes())
+}
+
+fn headers(status: &str, length: usize, close: bool) -> String {
+    let connection = if close { "close" } else { "keep-alive" };
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Length: {length}\r\nContent-Type: application/octet-stream\r\nConnection: {connection}\r\n\r\n"
+    )
+}
+
+fn write_rate_limited<W: std::io::Write>(
+    writer: &mut W,
+    bytes: &[u8],
+    bucket: &Mutex<Bucket>,
+    rate: u64,
+) -> std::io::Result<()> {
+    for chunk in bytes.chunks(rate_chunk_size(rate)) {
+        let mut bucket = bucket.lock().unwrap_or_else(PoisonError::into_inner);
+        let wait = bucket.take(chunk.len() as u64, Instant::now());
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
+        drop(bucket);
+        writer.write_all(chunk)?;
+    }
+    Ok(())
+}
+
+fn connection(
+    git_dir: &Path,
+    stream: TcpStream,
+    bucket: &Mutex<Bucket>,
+    rate: u64,
+) -> anyhow::Result<()> {
+    // An idle pooled connection should not hold one of the seed's few slots indefinitely.
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
-    let mut objects = crate::git::ObjectReader::spawn(git_dir)?;
+    let mut objects = crate::git::ObjectReader::spawn_local(git_dir)?;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -1019,15 +1107,8 @@ fn connection(git_dir: &Path, stream: TcpStream, bucket: &Mutex<Bucket>) -> anyh
         };
         match objects.blob(oid) {
             Some(bytes) => {
-                let wait = bucket
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take(bytes.len() as u64, Instant::now());
-                if !wait.is_zero() {
-                    // The rate limit's intentional, bounded delay.
-                    std::thread::sleep(wait.min(Duration::from_secs(5)));
-                }
-                respond(&mut writer, "200 OK", &bytes, false)?;
+                respond_headers(&mut writer, "200 OK", bytes.len(), false)?;
+                write_rate_limited(&mut writer, &bytes, bucket, rate)?;
             }
             None => respond(&mut writer, "404 Not Found", b"", false)?,
         }

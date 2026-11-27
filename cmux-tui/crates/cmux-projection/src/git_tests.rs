@@ -264,6 +264,158 @@ fn registering_the_same_checkout_again_leaves_head_untouched() {
 }
 
 #[test]
+fn registration_refuses_an_ordinary_worktree_without_touching_its_index() {
+    let (dir, git_dir, commit) = repo();
+    let work = git_dir.parent().unwrap();
+    let ordinary = dir.path().join("projected");
+    let ordinary_text = ordinary.to_str().unwrap();
+    run(work, &["worktree", "add", "--detach", ordinary_text, &commit]);
+    std::fs::write(ordinary.join("README.md"), "staged\n").unwrap();
+    run(&ordinary, &["add", "README.md"]);
+    let admin = git_dir.join("worktrees/projected");
+    let before = std::fs::read(admin.join("index")).unwrap();
+    let error =
+        Worktree::write(&git_dir, "projected", &dir.path().join("mnt"), &commit, b"new", &[])
+            .err()
+            .expect("ordinary worktrees must never be replaced");
+    assert!(error.to_string().contains("not owned by this projection"));
+    assert_eq!(std::fs::read(admin.join("index")).unwrap(), before);
+    assert_eq!(run(&ordinary, &["status", "--porcelain"]), "M  README.md\n");
+}
+
+#[test]
+fn a_second_mount_name_cannot_take_over_an_owned_admin_directory() {
+    let (dir, git_dir, commit) = repo();
+    let first_at = dir.path().join("first");
+    let second_at = dir.path().join("second");
+    let first = Worktree::write(&git_dir, "projected", &first_at, &commit, b"first", &[]).unwrap();
+    let before_gitdir = std::fs::read(first.admin.join("gitdir")).unwrap();
+    let before_index = std::fs::read(first.admin.join("index")).unwrap();
+    assert!(Worktree::write(&git_dir, "projected", &second_at, &commit, b"second", &[]).is_err());
+    assert_eq!(std::fs::read(first.admin.join("gitdir")).unwrap(), before_gitdir);
+    assert_eq!(std::fs::read(first.admin.join("index")).unwrap(), before_index);
+}
+
+#[test]
+fn concurrent_different_mounts_can_claim_a_name_only_once() {
+    let (dir, git_dir, commit) = repo();
+    let first_at = dir.path().join("first");
+    let second_at = dir.path().join("second");
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let (first, second) = std::thread::scope(|scope| {
+        let first_barrier = barrier.clone();
+        let first_git = git_dir.clone();
+        let first_commit = commit.clone();
+        let first_at = first_at.clone();
+        let first = scope.spawn(move || {
+            first_barrier.wait();
+            Worktree::write(&first_git, "racing", &first_at, &first_commit, b"first", &[]).is_ok()
+        });
+        let second_barrier = barrier.clone();
+        let second_git = git_dir.clone();
+        let second_commit = commit.clone();
+        let second_at = second_at.clone();
+        let second = scope.spawn(move || {
+            second_barrier.wait();
+            Worktree::write(&second_git, "racing", &second_at, &second_commit, b"second", &[])
+                .is_ok()
+        });
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    assert_ne!(first, second, "exactly one racing claimant must own the admin directory");
+    let admin = git_dir.join("worktrees/racing");
+    let gitdir = std::fs::read_to_string(admin.join("gitdir")).unwrap();
+    assert!(
+        gitdir == format!("{}/.git\n", first_at.display())
+            || gitdir == format!("{}/.git\n", second_at.display())
+    );
+}
+
+#[test]
+fn bare_mirrors_enable_worktree_config_for_projection_excludes() {
+    let dir = tempfile::tempdir().unwrap();
+    let git_dir = dir.path().join("mirror.git");
+    let git_dir_text = git_dir.to_str().unwrap();
+    run(dir.path(), &["init", "--bare", "-q", git_dir_text]);
+    let at = dir.path().join("mnt");
+    Worktree::write(&git_dir, "projected", &at, "deadbeef", b"index", &["target".into()]).unwrap();
+
+    assert_eq!(
+        run(
+            dir.path(),
+            &["--git-dir", git_dir_text, "config", "--bool", "extensions.worktreeConfig"]
+        ),
+        "true\n"
+    );
+    let config = git_dir.join("worktrees/projected/config.worktree");
+    let config_text = config.to_str().unwrap();
+    let exclude = git_dir.join("worktrees/projected/projection-exclude");
+    assert_eq!(
+        run(dir.path(), &["config", "--file", config_text, "--get", "core.excludesFile"]),
+        format!("{}\n", exclude.display())
+    );
+    assert_eq!(
+        run(dir.path(), &["config", "--file", config_text, "--get", "core.bare"]),
+        "false\n"
+    );
+}
+
+#[test]
+fn bare_mirror_moves_core_bare_out_of_shared_config_without_breaking_ordinary_worktrees() {
+    let (dir, source_git, commit) = repo();
+    let source = source_git.parent().unwrap();
+    let mirror = dir.path().join("mirror.git");
+    let source_text = source.to_str().unwrap();
+    let mirror_text = mirror.to_str().unwrap();
+    run(dir.path(), &["clone", "--bare", source_text, mirror_text]);
+    let ordinary = dir.path().join("ordinary");
+    let ordinary_text = ordinary.to_str().unwrap();
+    run(
+        dir.path(),
+        &["--git-dir", mirror_text, "worktree", "add", "--detach", ordinary_text, &commit],
+    );
+
+    let at = dir.path().join("mnt");
+    Worktree::write(&mirror, "projected", &at, &commit, b"index", &[]).unwrap();
+    Worktree::write(&mirror, "projected", &at, &commit, b"index", &[]).unwrap();
+    assert_eq!(run(&ordinary, &["status", "--porcelain"]), "");
+
+    let shared = mirror.join("config");
+    let shared_text = shared.to_str().unwrap();
+    let shared_bare = Command::new("git")
+        .args(["config", "--file", shared_text, "--get", "core.bare"])
+        .output()
+        .unwrap();
+    assert!(!shared_bare.status.success(), "core.bare must not leak to ordinary worktrees");
+    let main = mirror.join("config.worktree");
+    let main_text = main.to_str().unwrap();
+    assert_eq!(run(dir.path(), &["config", "--file", main_text, "--get", "core.bare"]), "true\n");
+}
+
+#[test]
+fn symbolic_head_remount_is_refused_without_reset_and_preserves_the_index() {
+    let (dir, git_dir, commit) = repo();
+    let at = dir.path().join("mnt");
+    let first = Worktree::write(&git_dir, "projected", &at, &commit, b"initial", &[]).unwrap();
+    std::fs::write(first.admin.join("HEAD"), b"ref: refs/heads/topic\n").unwrap();
+    std::fs::write(first.admin.join("index"), b"staged-state\n").unwrap();
+
+    let error = remount_needs_reset(&first.admin, &commit, false).unwrap_err();
+    assert!(error.to_string().contains("symbolic HEAD"));
+    assert_eq!(std::fs::read(first.admin.join("index")).unwrap(), b"staged-state\n");
+    assert!(remount_needs_reset(&first.admin, &commit, true).unwrap());
+}
+
+#[test]
+fn worktree_names_cannot_escape_the_mirror_admin_directory() {
+    let (_dir, git_dir, commit) = repo();
+    let at = git_dir.parent().unwrap().join("mnt");
+    for name in ["", ".", "..", "nested/projected", "/tmp/projected"] {
+        assert!(Worktree::write(&git_dir, name, &at, &commit, b"index", &[]).is_err(), "{name:?}");
+    }
+}
+
+#[test]
 fn git_reads_the_written_index_as_the_commit() {
     let (_dir, git_dir, commit) = repo();
     let mut book = Book::default();

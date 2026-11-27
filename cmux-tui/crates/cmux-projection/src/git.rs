@@ -701,20 +701,44 @@ pub struct Worktree {
 }
 
 impl Worktree {
-    /// Validates a name and refuses to take over an ordinary or differently mounted worktree.
+    /// Checks that an existing admin directory belongs to this projection, without writing it.
     pub fn validate(git_dir: &Path, name: &str, at: &Path) -> anyhow::Result<Self> {
-        let path = Path::new(name);
+        let name_path = Path::new(name);
         anyhow::ensure!(
-            path.components().count() == 1
-                && matches!(path.components().next(), Some(std::path::Component::Normal(_))),
+            name_path.components().count() == 1
+                && matches!(name_path.components().next(), Some(std::path::Component::Normal(_))),
             "invalid worktree name {name:?}"
         );
-        let admin = git_dir.join("worktrees").join(path);
-        if admin.exists() {
-            let expected = format!("{}\n", at.join(".git").display());
-            let held = std::fs::read_to_string(admin.join("gitdir"))
-                .map_err(|error| anyhow::anyhow!("cannot inspect worktree {name:?}: {error}"))?;
-            anyhow::ensure!(held == expected, "worktree {name:?} is not owned by this projection");
+        let admin = git_dir.join("worktrees").join(name_path);
+        match std::fs::symlink_metadata(&admin) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.file_type().is_dir(),
+                    "worktree admin {} is not a directory",
+                    admin.display()
+                );
+                let expected_gitdir = format!("{}\n", at.join(".git").display());
+                let checks = [
+                    ("commondir", b"../..\n".as_slice()),
+                    ("gitdir", expected_gitdir.as_bytes()),
+                    ("locked", b"a cmux-projection mount\n".as_slice()),
+                ];
+                for (file, expected) in checks {
+                    let held = std::fs::read(admin.join(file)).map_err(|error| {
+                        anyhow::anyhow!(
+                            "worktree admin {} is not owned by this projection: cannot read {file}: {error}",
+                            admin.display()
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        held == expected,
+                        "worktree admin {} is not owned by this projection",
+                        admin.display()
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
         Ok(Self { admin })
     }
@@ -732,8 +756,52 @@ impl Worktree {
         excludes: &[String],
     ) -> anyhow::Result<Self> {
         let worktree = Self::validate(git_dir, name, at)?;
-        let admin = worktree.admin.clone();
-        std::fs::create_dir_all(&admin)?;
+        let admin = &worktree.admin;
+
+        let mut bare = git(git_dir);
+        bare.args(["config", "--bool", "core.bare"]);
+        let bare = output(bare).is_ok_and(|out| config_is_true(&out));
+        let mut shared_bare = Command::new("git");
+        shared_bare
+            .arg("config")
+            .arg("--file")
+            .arg(git_dir.join("config"))
+            .args(["--bool", "core.bare"]);
+        let shared_bare = output(shared_bare).is_ok_and(|out| config_is_true(&out));
+        let mut extension = git(git_dir);
+        extension.args(["config", "--bool", "extensions.worktreeConfig"]);
+        let extension_enabled = output(extension).is_ok_and(|out| config_is_true(&out));
+        if shared_bare {
+            // A bare mirror's `core.bare=true` used to live in the shared config.  Once
+            // worktreeConfig is enabled that value is inherited by every ordinary worktree,
+            // making `git status` there fail with "must be run in a work tree".  Move the
+            // setting to the mirror's own worktree config before enabling the extension, then
+            // remove it from the shared config so ordinary worktrees stay non-bare.
+            let main_config = git_dir.join("config.worktree");
+            let mut command = Command::new("git");
+            command.arg("config").arg("--file").arg(&main_config);
+            command.args(["core.bare", "true"]);
+            output(command)?;
+            if !extension_enabled {
+                let mut command = git(git_dir);
+                command.args(["config", "extensions.worktreeConfig", "true"]);
+                output(command)?;
+            }
+            let mut command = git(git_dir);
+            command.args(["config", "--unset", "core.bare"]);
+            output(command)?;
+        }
+
+        std::fs::create_dir_all(git_dir.join("worktrees"))?;
+        match std::fs::create_dir(admin) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A concurrent claimant may have created this directory after the first
+                // validation. Re-read all ownership markers before touching any file.
+                Self::validate(git_dir, name, at)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         // Each file is written only when its bytes change: build scripts watch `HEAD` (cmux's
         // build identity does), and a rewrite with the same commit would rerun them.
         write_if_changed(&admin.join("commondir"), b"../..\n")?;
@@ -748,11 +816,9 @@ impl Worktree {
         }
         write_if_changed(&exclude, text.as_bytes())?;
         write_if_changed(&admin.join("index"), index)?;
-        // git reads a worktree's own config only with extensions.worktreeConfig (the lane mirrors
-        // have it); without it the build output links show as untracked, and nothing else differs.
-        let mut command = git(git_dir);
-        command.args(["config", "--bool", "extensions.worktreeConfig"]);
-        if output(command).is_ok_and(|out| out.starts_with(b"true")) {
+        // Git reads a worktree's own config only with extensions.worktreeConfig. Enable it for
+        // bare mirrors too; without it the build output links show as untracked.
+        if bare || extension_enabled {
             let config = admin.join("config.worktree");
             let mut read = Command::new("git");
             read.arg("config").arg("--file").arg(&config).args(["--get", "core.excludesFile"]);
@@ -761,6 +827,12 @@ impl Worktree {
                 let mut command = Command::new("git");
                 command.arg("config").arg("--file").arg(&config);
                 command.arg("core.excludesFile").arg(&exclude);
+                output(command)?;
+            }
+            if bare {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config);
+                command.args(["core.bare", "false"]);
                 output(command)?;
             }
         }
@@ -825,6 +897,23 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+/// Whether remounting may replace the worktree's HEAD and index.  A symbolic HEAD means that
+/// somebody used ordinary Git in the mounted checkout (for example `git switch -c topic`), so a
+/// non-fresh remount must refuse instead of silently discarding that branch and its staged state.
+pub fn remount_needs_reset(admin: &Path, commit: &str, fresh: bool) -> anyhow::Result<bool> {
+    let head = std::fs::read_to_string(admin.join("HEAD")).ok();
+    if !fresh && head.as_deref().is_some_and(|head| head.trim_start().starts_with("ref:")) {
+        anyhow::bail!(
+            "existing projection worktree has a symbolic HEAD; refusing remount without --fresh"
+        );
+    }
+    Ok(fresh || head.is_none_or(|head| head.trim() != commit) || !admin.join("index").exists())
+}
+
+fn config_is_true(value: &[u8]) -> bool {
+    value.strip_suffix(b"\n").unwrap_or(value) == b"true"
 }
 
 /// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
