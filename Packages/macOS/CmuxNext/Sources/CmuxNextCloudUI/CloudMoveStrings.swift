@@ -5,6 +5,9 @@ public import Foundation
 /// Resources/Cloud.xcstrings with every app locale.
 public struct CloudMoveStrings {
     public init() {}
+    public static var providerInvalid: String {
+        String(localized: "cloud.provider.invalid", defaultValue: "--provider must be gcp, own-host or freestyle.", table: "Cloud", bundle: .localizedModule)
+    }
     public static var moving: String {
         String(localized: "cloud.move.moving", defaultValue: "Moving this chat to Cloud…", table: "Cloud", bundle: .localizedModule)
     }

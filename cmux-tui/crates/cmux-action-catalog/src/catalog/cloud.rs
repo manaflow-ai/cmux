@@ -7,6 +7,10 @@ use crate::text::t;
 
 const GROUP: &str = "CloudActionCatalog";
 
+/// Explicit machine placement; omitted keeps the server's default.
+#[rustfmt::skip]
+const CLOUD_PROVIDER: Argument = Argument { name: "provider", title: t("AccountsActions", "argument.provider", "Provider"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 /// A stored Cloud secret, by its Keychain account (`*/NAME`, or `owner/repo/NAME` for one repo);
 /// the App lists the accounts of `~/.config/cmux/cloud-secrets.json`, which holds no value.
 #[rustfmt::skip]
@@ -35,13 +39,13 @@ pub static ACTIONS: &[Action] = &[
         id: "newCloudMachine",
         group: GROUP,
         title: t("ActionCatalog", "action.newCloudMachine", "New Cloud Machine…"),
-        description: Some("Creates a Cloud machine; returns machine_id, title, status and target once the server has it. After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, machine_config and enrollment. An agent's create may ask the person first."),
+        description: Some("Creates a Cloud machine; returns machine_id, title, status and target once the server has it. After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` before another. Options: --provider gcp|own-host|freestyle (omission keeps the server default), --size small|medium|large|xlarge, --name, --persistent (no idle pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, machine_config and enrollment. An agent's create may ask the person first."),
         keywords: &["vm", "remote", "create"],
         category: "cloud",
         symbol: "server.rack",
         surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::NAME.optional(), args::SIZE.optional(), args::PERSISTENT.optional(), args::BOOTSTRAP.optional(), args::BOOTSTRAP_SCRIPT.optional(), args::MACHINE_CONFIG.optional(), args::REPO.optional(), args::ENVIRONMENT],
+        arguments: &[CLOUD_PROVIDER, args::NAME.optional(), args::SIZE.optional(), args::PERSISTENT.optional(), args::BOOTSTRAP.optional(), args::BOOTSTRAP_SCRIPT.optional(), args::MACHINE_CONFIG.optional(), args::REPO.optional(), args::ENVIRONMENT],
         cli_name: "cloud new-machine",
         main_menu: Some("file"),
         waits_for_result: true,

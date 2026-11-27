@@ -121,6 +121,27 @@ fn explicit_provider_does_not_reuse_an_unverified_machine() {
 }
 
 #[test]
+fn explicit_provider_pending_start_gives_a_parseable_retry_on_its_created_machine() {
+    let asked = request(&["--provider", "gcp", "--name", "insurance"]);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        ok(json!({"pending": true, "machine_id": "vm-1", "text": "still starting"})),
+        signed_in(),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert_eq!(error["details"]["creation_accepted"], true);
+    let again = error["details"]["again"].as_str().expect("retry command");
+    let args = again.split_whitespace().skip(3).map(str::to_owned).collect::<Vec<_>>();
+    let Parsed::Run(retry) = parse(&args, || Ok(String::new())).expect("valid retry") else {
+        panic!("{again}")
+    };
+    assert_eq!(retry.machine, Machine::Target("vm-1".into()));
+    assert_eq!(retry.provider, None);
+}
+
+#[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
     assert_eq!(

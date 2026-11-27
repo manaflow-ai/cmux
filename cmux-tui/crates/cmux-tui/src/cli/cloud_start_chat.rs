@@ -126,7 +126,7 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
-    /// `--provider gcp|freestyle`: the infrastructure provider for a new machine.
+    /// `--provider gcp|own-host|freestyle`: the infrastructure provider for a new machine.
     pub provider: Option<String>,
     /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
     /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
@@ -1078,7 +1078,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     {
         words.push(format!("--environment {}", shell_quote(environment)));
     }
-    if let Some(provider) = &request.provider {
+    if let Some(provider) =
+        request.provider.as_ref().filter(|_| !matches!(machine, Machine::Target(_)))
+    {
         words.push(format!("--provider {}", shell_quote(provider)));
     }
     if request.agent != "claude" {
@@ -1531,6 +1533,11 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 // A failure names its new machine for caller cleanup only when rollback has not deleted it.
                 let deleted =
                     details.get("cleanup").and_then(|c| c.get("deleted")) == Some(&json!(true));
+                // Unlike a same-name create already in flight, this run's accepted create
+                // proves its provider choice. Recovery can safely pin that surviving machine.
+                if progress.created.is_some() && !deleted {
+                    details.insert("creation_accepted".to_owned(), json!(true));
+                }
                 if let Some(id) = progress.made.as_ref().filter(|_| !deleted) {
                     details.insert("machine_id".to_owned(), json!(id));
                     details.insert("new_machine".to_owned(), json!(true));
