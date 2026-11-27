@@ -25,6 +25,8 @@ public final class OnboardingModel {
     public let agents: AgentsStepModel
     public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
+    /// Make cmux Yours' split, read once so a walk's start and end go to the same log.
+    @ObservationIgnored private let walkSplit: (any IntroWalkSplitSource)?
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// Make cmux Yours' bundle for this install, read when the step first shows (nil: no split source).
@@ -40,6 +42,7 @@ public final class OnboardingModel {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
+        walkSplit = step == .makeItYours ? services.introWalkSplit : nil
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
         agents = AgentsStepModel(source: services.agentSignIns)
@@ -152,7 +155,7 @@ public final class OnboardingModel {
 
     /// The walk's start, once per window, against this install's bundle.
     private func recordWalkStart() {
-        guard walkBundle == nil, let split = services.introWalkSplit, let bundle = split.bundle() else { return }
+        guard walkBundle == nil, let split = walkSplit, let bundle = split.bundle() else { return }
         walkBundle = bundle
         split.record(bundle: bundle, ending: .started, screen: walkScreen)
     }
@@ -160,7 +163,7 @@ public final class OnboardingModel {
     /// The walk's end: Continue is completed; Skip, the close button and quit are skipped.
     private func recordWalkEnd(completed: Bool) {
         guard step == .makeItYours, let bundle = walkBundle else { return }
-        services.introWalkSplit?.record(bundle: bundle, ending: completed ? .completed : .skipped, screen: walkScreen)
+        walkSplit?.record(bundle: bundle, ending: completed ? .completed : .skipped, screen: walkScreen)
     }
 
     /// The window became key: back from an agent's sign-in, the Agents step reads again.

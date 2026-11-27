@@ -12,18 +12,20 @@ import os
 @MainActor
 public final class IntroWalkSplitLog: IntroWalkSplitSource {
     public static let installKeyPreference = "introWalkInstallKey"
-    /// This Mac's log: `Application Support/<bundle id>/intro-walk/outcomes.jsonl` (each build its own).
-    public static let shared = IntroWalkSplitLog(file: NextSupport.applicationSupportDirectory()
+    /// This Mac's log file: `Application Support/<bundle id>/intro-walk/outcomes.jsonl` (each build its own).
+    public static var defaultFile: URL {
+        NextSupport.applicationSupportDirectory()
         .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", isDirectory: true)
         .appendingPathComponent("intro-walk", isDirectory: true)
-        .appendingPathComponent("outcomes.jsonl", isDirectory: false))
+        .appendingPathComponent("outcomes.jsonl", isDirectory: false)
+    }
 
     private let defaults: UserDefaults
     public let file: IntroWalkOutcomeFile
     /// The last append; each waits for the one before, so the records keep their order.
     private var lastWrite: Task<Void, Never>?
 
-    public init(defaults: UserDefaults = .standard, file: URL) {
+    public init(defaults: UserDefaults = .standard, file: URL = IntroWalkSplitLog.defaultFile) {
         self.defaults = defaults
         self.file = IntroWalkOutcomeFile(url: file)
     }
@@ -108,14 +110,11 @@ public actor IntroWalkOutcomeFile {
         guard var line = try? JSONEncoder().encode(outcome) else { return }
         line.append(0x0A)
         do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: line)
-            } else {
-                try line.write(to: url, options: .atomic)
-            }
+            try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Two lines a walk, so the whole file is small: read, add the line, write it back atomically.
+            var all = (try? Data(blockingContentsOf: url)) ?? Data()
+            all.append(line)
+            try all.blockingWrite(to: url, options: .atomic)
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "intro-walk")
                 .error("intro walk record not written: \(error.localizedDescription, privacy: .public)")
@@ -124,7 +123,7 @@ public actor IntroWalkOutcomeFile {
 
     /// The records written so far, oldest first (tests, the probe).
     public func records() -> [IntroWalkOutcome] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let data = try? Data(blockingContentsOf: url) else { return [] }
         return data.split(separator: 0x0A).compactMap { try? JSONDecoder().decode(IntroWalkOutcome.self, from: Data($0)) }
     }
 }

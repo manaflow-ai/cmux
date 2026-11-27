@@ -54,7 +54,7 @@ public protocol OnboardingServices: AnyObject {
     /// The first run's choices (how the person works, density, background), or nil when this app has no settings owner.
     var firstRunChoices: (any FirstRunChoicesSource)? { get }
     /// Make cmux Yours' split: this install's bundle and its walk records, or nil when this app logs none
-    /// (default: this Mac's log, `IntroWalkSplitLog.shared`).
+    /// (default: this Mac's log file, `IntroWalkSplitLog.defaultFile`).
     var introWalkSplit: (any IntroWalkSplitSource)? { get }
 }
 
@@ -62,7 +62,7 @@ public extension OnboardingServices {
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     var agentSignIns: (any AgentSignInSource)? { nil }
     var firstRunChoices: (any FirstRunChoicesSource)? { nil }
-    var introWalkSplit: (any IntroWalkSplitSource)? { IntroWalkSplitLog.shared }
+    var introWalkSplit: (any IntroWalkSplitSource)? { IntroWalkSplitLog() }
     func canImportPasswords() async -> Bool { false }
     func importFromFiles(into profile: String?) {}
     func browsersAwaitingAccess() async -> [ImportBrowser] { [] }
