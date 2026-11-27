@@ -263,6 +263,23 @@ fn settings_crud_reads_a_key_alias_as_its_key() {
     }
 }
 
+/// `cmux settings explain KEY` is a daemon `settings.get` with `explain` (each layer, the winner,
+/// the last write), and takes `--project DIR` as get does.
+#[cfg(unix)]
+#[test]
+fn settings_explain_reaches_the_daemon_as_an_explained_get() {
+    assert!(super::super::daemon_settings_scope(&strings(&["settings", "explain", "on"])));
+    let explain = protocol(&["settings", "explain", "on"]);
+    assert_eq!(operation(&explain), "settings.get");
+    assert_eq!(
+        explain.params,
+        serde_json::json!({"key": "chat.on", "explain": true, "machine": "current", "session": "current"})
+    );
+    let project = protocol(&["settings", "explain", "on", "--project", "/tmp"]);
+    assert_eq!(project.params["project"], "/tmp");
+    assert_eq!(project.params["explain"], true);
+}
+
 /// `cmux settings history|undo|restore REV|reset --group G` reach the daemon's
 /// settings owner (the recovery ops), whoever made the change they take back.
 #[cfg(unix)]
