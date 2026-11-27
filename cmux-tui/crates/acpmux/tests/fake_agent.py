@@ -221,10 +221,36 @@ def send(obj):
 # microseconds) each such answer is written at, one per line (the cost-per-task bench).
 FAKE_USAGE = json.loads(os.environ["FAKE_USAGE"]) if os.environ.get("FAKE_USAGE") else None
 FAKE_SENT_LOG = os.environ.get("FAKE_SENT_LOG")
+# FAKE_USAGE_UPDATES=<json list of USD>: before a prompt's answer that ends its turn, one ACP
+# `usage_update` per entry, each carrying the session's cumulative `cost` (the turn's own spend so
+# far, the entry, on top of what earlier turns spent): the spend burn-rate warnings' bench
+# (hub/spend_burn.rs).
+FAKE_USAGE_UPDATES = json.loads(os.environ["FAKE_USAGE_UPDATES"]) if os.environ.get("FAKE_USAGE_UPDATES") else None
+# FAKE_USAGE_UPDATES: each prompt request's session, and each session's cumulative cost.
+prompt_sessions = {}
+session_spent = {}
+
+
+def usage_updates(objs):
+    """`objs` with FAKE_USAGE_UPDATES' usage updates before each prompt answer that ends a turn."""
+    out = []
+    for o in objs:
+        sid = prompt_sessions.pop(o.get("id"), None) if "stopReason" in (o.get("result") or {}) else None
+        if sid is not None:
+            base = session_spent.get(sid, 0.0)
+            for amount in FAKE_USAGE_UPDATES:
+                out.append({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                    "sessionUpdate": "usage_update", "used": 1000, "size": 200000,
+                    "cost": {"amount": round(base + amount, 6), "currency": "USD"}}}})
+            session_spent[sid] = base + (FAKE_USAGE_UPDATES[-1] if FAKE_USAGE_UPDATES else 0.0)
+        out.append(o)
+    return out
 
 
 def send_all(objs):
     """Write `objs` as one write: a burst the agent sends at once."""
+    if FAKE_USAGE_UPDATES is not None:
+        objs = usage_updates(objs)
     ends = [o for o in objs if isinstance(o.get("result"), dict) and "stopReason" in o["result"]]
     if FAKE_USAGE is not None:
         for o in ends:
@@ -2798,6 +2824,8 @@ def main():
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
+            if FAKE_USAGE_UPDATES is not None:
+                prompt_sessions[rid] = params.get("sessionId")
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue

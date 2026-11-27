@@ -124,7 +124,10 @@ fn generated_manifest() -> Manifest {
     let mut owners = BTreeMap::new();
     for id in wire_strings(&schema::<RemoteCapability>(), true) {
         let cap: RemoteCapability = serde_json::from_value(Value::from(id)).unwrap();
-        assert!(!cap.wire_names().is_empty(), "{id} needs a wire contract");
+        assert!(
+            cap.changes_no_wire() == cap.wire_names().is_empty(),
+            "{id} needs a wire contract, or changes_no_wire if it only changes behavior"
+        );
         for &name in cap.wire_names() {
             assert!(head.legacy.contains(name), "{id}: unknown wire name {name}");
             assert!(owners.insert(name.to_owned(), id.to_owned()).is_none(), "{name}");

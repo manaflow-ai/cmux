@@ -1,6 +1,6 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
+description: "Drive coding-agent sessions by name with acpmux (Claude Code, Codex, OpenCode, pi, Gemini; this machine or others): run, prompt, wait on, inspect, or start a second agent for a subtask."
 ---
 
 # acpmux guide
@@ -528,7 +528,10 @@ sign-in), `harness`, `capabilities`,
 `stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
 workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
 `fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
-another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), and `skill` (this guide).
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
+teammate's agent address while its grant lets you), `memory` (the fleet memory mount), `succeed`
+(make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
+addresses), and `skill` (this guide).
 
 ## 8. Output
 

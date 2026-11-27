@@ -87,6 +87,7 @@ async fn wire_lockstep_new_mux_daemon_compresses_only_for_a_client_that_lists_zl
                 ClientScope::new("old-mux-client", cmux_remote_protocol::SessionId([7; 16])),
                 RequestAdmission::new(),
                 None,
+                None,
                 incoming,
             );
             let read = async {

@@ -195,6 +195,10 @@ impl FrameFlags {
         ("heartbeat-response", Self::HEARTBEAT_RESPONSE),
     ];
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "const fn loop: i < NAMED.len() bounds the index, and iterators are not const"
+    )]
     const KNOWN: u16 = {
         let mut mask = 0;
         let mut i = 0;

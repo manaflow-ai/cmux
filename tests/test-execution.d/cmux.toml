@@ -42,6 +42,11 @@ lane = "manual"
 reason = "Checks scripts/ci/cmux_machine_channel_pr_head.py find (PR_HEAD_FAST_LANE): the merge takes its PR head's thin build only for a same-repo squash into feat-cmux-next with the same v2 tree key and both artifacts, waits a bounded time for a build still running, and otherwise builds; run python3 tests/test_cmux_machine_channel_pr_head.py yourself after changing it (no network)."
 
 [[test]]
+path = "tests/test_cmux_machine_channel_router_plan.py"
+lane = "manual"
+reason = "Checks that pr-router.yml's route job answers the machine channel's pull request plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and cmux-machine-channel.yml takes it with no plan runner, and runs the plan and the finder's tree key on a fixture repo; run python3 tests/test_cmux_machine_channel_router_plan.py yourself after changing them (under 1 s, no network)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 
@@ -107,7 +112,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_dev_daily_tree_wait.py"
 
 [[test]]
 path = "tests/test_cmux_next_dev_kick.py"
@@ -210,6 +216,10 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). A GUI regression test (plans/cmux-next/main-thread-scheduling.md 1.5): it builds the LARGE session in a bench app and types real keys, so it needs a quiet fleet mini with the input grant; each step's author runs scripts/measure/main-thread-large-session.sh --mode=test on the fleet before and after the step. --self-test checks its judge with no app."
 
 [[test]]
+path = "tests/test_cmux_next_media_base_build_keeps_afters.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -223,10 +233,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_media_tour_gate.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_media_last_toured.py"
 lane = "linux-guard"
 
 [[test]]
@@ -250,7 +256,8 @@ reason = "Run the portable summary regression locally (kept manual under the 202
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_perf_gate_unlit.py"
 
 [[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
@@ -271,12 +278,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_changed_paths.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_changed_paths.py"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
@@ -284,11 +291,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_gate.py"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_main_twin.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_main_twin.py"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
@@ -318,7 +327,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_route_replay.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_route_replay.py"
 
 [[test]]
 path = "tests/test_cmux_next_same_tree_failed.py"
@@ -407,7 +417,7 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_tree_request_rerun.py"
+path = "tests/test_cmux_tui_channel_keeper.py"
 lane = "linux-guard"
 
 [[test]]
@@ -418,6 +428,10 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
 reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_fallback_lost_leg.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_feat_latest_wins.py"
@@ -475,6 +489,10 @@ path = "tests/test_cmux_tui_republish_same_commit.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_stranded_owner_sweep.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_superseded_gate.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_superseded_gate.py yourself after changing the workflow steps it reads."
@@ -493,6 +511,15 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_key_verb.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_tree_key_verb.py"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_request_rerun.py"
 lane = "linux-guard"
 
 [[test]]

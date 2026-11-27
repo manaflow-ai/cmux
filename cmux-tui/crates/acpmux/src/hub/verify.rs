@@ -89,6 +89,35 @@ fn package_name(manifest: &Path) -> Option<String> {
     doc.get("package")?.get("name")?.as_str().map(str::to_owned)
 }
 
+fn rust_edition(dir: &Path) -> String {
+    let mut current = Some(dir);
+    while let Some(root) = current {
+        let manifest = root.join("Cargo.toml");
+        if let Ok(text) = std::fs::read_to_string(&manifest) {
+            if let Ok(doc) = text.parse::<toml::Value>() {
+                if let Some(edition) = doc
+                    .get("package")
+                    .and_then(|package| package.get("edition"))
+                    .and_then(toml::Value::as_str)
+                    .filter(|edition| *edition != "workspace")
+                {
+                    return edition.to_owned();
+                }
+                if let Some(edition) = doc
+                    .get("workspace")
+                    .and_then(|workspace| workspace.get("package"))
+                    .and_then(|package| package.get("edition"))
+                    .and_then(toml::Value::as_str)
+                {
+                    return edition.to_owned();
+                }
+            }
+        }
+        current = root.parent();
+    }
+    "2021".to_owned()
+}
+
 /// The checks `files` (absolute paths) call for, each once.
 pub(crate) fn plan(files: &[PathBuf]) -> Vec<Check> {
     let mut out: Vec<Check> = vec![];
@@ -277,7 +306,13 @@ fn run_cmd_blocking(dir: &Path, prog: &str, args: &[String]) -> Option<Ran> {
         Ok(None) => {
             // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
             // not reaped yet, so the id is still this check's.
-            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL)
+            };
+            // No process groups off unix: end the child itself.
+            #[cfg(not(unix))]
+            let _ = child.kill();
             let _ = child.wait();
             Some(Ran { text: String::new(), slow: true })
         }
@@ -302,11 +337,11 @@ fn local_tool(dir: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// Syntax errors of `files` only: the fast fallback for a crate whose full check ran out of time.
-async fn rustfmt_syntax(files: &[PathBuf]) -> Option<Ran> {
+async fn rustfmt_syntax(files: &[PathBuf], edition: &str) -> Option<Ran> {
     let mut text = String::new();
     for f in files {
         let r =
-            run_cmd(parent(f), "rustfmt", &["--check", "--edition", "2021", &f.to_string_lossy()])
+            run_cmd(parent(f), "rustfmt", &["--check", "--edition", edition, &f.to_string_lossy()])
                 .await?;
         text.push_str(&r.text);
     }
@@ -329,16 +364,21 @@ async fn run_check(
             };
             if full.slow {
                 slow_scopes.insert(check.key());
-                let r = rustfmt_syntax(files).await?;
+                let edition = rust_edition(dir);
+                let r = rustfmt_syntax(files, &edition).await?;
                 let lines = error_lines(&Check::Rustfmt { file: PathBuf::new() }, &r.text);
                 return Some(Outcome { lines, slow: true });
             }
             (full, check.clone())
         }
-        Check::Rustfmt { file } => (
-            run_cmd(parent(file), "rustfmt", &["--check", "--edition", "2021", &s(file)]).await?,
-            check.clone(),
-        ),
+        Check::Rustfmt { file } => {
+            let edition = rust_edition(parent(file));
+            (
+                run_cmd(parent(file), "rustfmt", &["--check", "--edition", &edition, &s(file)])
+                    .await?,
+                check.clone(),
+            )
+        }
         Check::Tsc { dir, plain_js } => {
             let tsc = local_tool(dir, "tsc")?;
             let r = run_cmd(dir, &s(&tsc), &["--noEmit", "-p", &s(dir)]).await?;
