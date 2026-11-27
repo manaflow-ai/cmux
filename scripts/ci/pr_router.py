@@ -636,6 +636,10 @@ def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"only={' '.join(only or [])}\n")
         out.write(f"land_status={status}\n")
+        import ios_gate
+        gate = ios_gate.plan(files)
+        out.write(f"ios_gate_ios={'true' if gate['ios'] else 'false'}\n")
+        out.write(f"ios_gate_pair={'true' if gate['pair'] else 'false'}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
         out.write(f"ui_status={ui[0]}\n")

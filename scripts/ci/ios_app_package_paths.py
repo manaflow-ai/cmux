@@ -101,6 +101,22 @@ def app_packages(root: Path = ROOT) -> list[str]:
     return sorted(found)
 
 
+def affects(paths: list[str], step: ci_steps.Step | None = None) -> bool:
+    """Cheap changed-path query over the app closure checked by --check; no Cargo or manifest walk."""
+    step = step or ci_steps.load(ROOT / TABLE).steps[TABLE_STEP]
+    for path in paths:
+        if not any(ci_steps.glob_pattern(glob).match(path) for glob in step.inputs):
+            continue
+        ignored = False
+        for glob in reversed(step.ignore):
+            if ci_steps.glob_pattern(glob.lstrip("!")).match(path):
+                ignored = not glob.startswith("!")
+                break
+        if not ignored:
+            return True
+    return False
+
+
 def workflow_filters(text: str) -> dict[str, list[str]]:
     """The `paths:` list of each pull_request and push trigger in a workflow's `on:` block."""
     out: dict[str, list[str]] = {}

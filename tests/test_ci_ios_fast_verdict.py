@@ -418,5 +418,125 @@ class WorkflowTest(unittest.TestCase):
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
 
 
+class RequiredGateTest(unittest.TestCase):
+    """scripts/ci/ios_gate.py: one stable check cannot mistake missing execution for success."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ios_gate
+        cls.gate = ios_gate
+
+    def test_unrelated_paths_are_immediate_noop(self):
+        plan = self.gate.plan(["docs/guide.md", "web/app/page.tsx"])
+        self.assertEqual(plan, {"ios": False, "pair": False})
+        self.assertEqual(self.gate.verdict(**plan)[0], "success")
+
+    def test_deleted_and_renamed_old_ios_paths_still_require_the_gate(self):
+        # pr_router.changed_files uses --no-renames, so a rename carries its old source too.
+        self.assertTrue(self.gate.plan(["cmux-next-ios/App/Old.swift", "docs/New.md"])["ios"])
+        self.assertTrue(self.gate.plan(["Packages/Shared/CmuxTheme/Sources/Removed.swift"])["ios"])
+
+    def test_unknown_paths_or_manifest_cannot_skip_checks(self):
+        self.assertEqual(self.gate.plan(None), {"ios": True, "pair": True})
+        self.assertEqual(self.gate.plan(["docs/a.md"], {}), {"ios": True, "pair": True})
+
+    def test_package_path_source_agrees_with_fast_build_path_source(self):
+        import ios_app_package_paths
+        for path in ("docs/a.md", "cmux-next-ios/App/A.swift", "cmux-next-ios/verify/a.md",
+                     "cmux-tui/crates/cmux-wg/src/lib.rs", "Packages/Shared/CmuxTheme/A.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(ios_app_package_paths.affects([path]), fv.affects([path]))
+
+    def test_pair_route_is_the_existing_connection_workflow_map(self):
+        manifest = {"callees": {"ios-link-ffi-linux.yml": {
+            "paths": ["transport/**"], "affects": ["transport/protocol/**"]}}}
+        self.assertTrue(self.gate.plan(["transport/protocol/wire.rs"], manifest)["pair"])
+        self.assertFalse(self.gate.plan(["transport/doc.md"], manifest)["pair"])
+
+    def test_explicit_matrix_assertion_failure_is_red_even_when_wrapper_succeeds(self):
+        self.assertEqual(self.gate.verdict(True, True, "success", "success", "failure")[0], "failure")
+
+    def test_missing_cancelled_or_skipped_execution_never_green(self):
+        for job in ("", "skipped", "cancelled", "failure"):
+            self.assertEqual(self.gate.verdict(True, False, "success", job)[0], "error")
+        for pair in ("", "pending", "unknown", "skipped"):
+            self.assertEqual(self.gate.verdict(False, True, pair_state=pair)[0], "error")
+
+    def test_proof_failure_or_pending_is_not_ignored(self):
+        self.assertEqual(self.gate.verdict(True, True, "failure", "success", "success")[0], "failure")
+        self.assertEqual(self.gate.verdict(True, True, "pending", "success", "success")[0], "error")
+        self.assertEqual(self.gate.verdict(True, True, "success", "success", "success")[0], "success")
+
+    def test_native_job_exit_tracks_verdict_and_never_accepts_missing_route(self):
+        from unittest.mock import patch
+        env = {"IOS_REQUIRED": "true", "PAIR_REQUIRED": "true", "ROUTE_JOB": "success",
+               "IOS_STATE": "success", "IOS_JOB": "success", "PAIR_STATE": "success"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(self.gate.main(), 0)
+        for overrides in ({"ROUTE_JOB": "failure"}, {"ROUTE_JOB": ""}, {"CANCELLED": "true"},
+                          {"PAIR_STATE": ""}, {"IOS_STATE": "failure"}):
+            with self.subTest(overrides=overrides), patch.dict(os.environ, dict(env, **overrides), clear=True):
+                self.assertEqual(self.gate.main(), 1)
+
+    def test_aggregate_imports_from_exact_sparse_checkout(self):
+        import shutil
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        paths = workflow["jobs"]["ios-gate"]["steps"][0]["with"]["sparse-checkout"].splitlines()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in paths:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / path, target)
+            env = dict(os.environ)
+            for key in ("TOKENS", "REPO", "SHA"):
+                env.pop(key, None)
+            result = subprocess.run([sys.executable, "-I", str(root / "scripts/ci/ios_gate.py")],
+                                    env=env, text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Workflow cancelled or changed paths unavailable", result.stdout)
+            self.assertNotIn("ModuleNotFoundError", result.stderr)
+
+    def test_workflow_uses_dependency_outputs_not_status_polling(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        jobs = workflow["jobs"]
+        gate = jobs["ios-gate"]
+        self.assertEqual(set(gate["needs"]), {"route", "ios-fast-status", "fast-gates"})
+        env = gate["steps"][-1]["env"]
+        self.assertEqual(env["PAIR_STATE"], "${{ needs.fast-gates.outputs.pair_verdict }}")
+        self.assertEqual(env["IOS_STATE"], "${{ needs.ios-fast-status.outputs.verdict }}")
+        noop = jobs["ios-gate-unrelated"]
+        self.assertEqual(noop["needs"], "route")  # no wait for heavy jobs, no checkout or network request
+        self.assertEqual(noop["permissions"], {})
+        proof_step = next(s for s in jobs["ios-fast-status"]["steps"] if s.get("id") == "verdict")
+        self.assertLess(proof_step["run"].index("proof_record.py gate"),
+                        proof_step["run"].index('echo "state=$state"'))
+
+
+    def test_exactly_one_canonical_name_for_every_route_and_cancellation_state(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        jobs = workflow["jobs"]
+        for ios, pair in (("false", "false"), ("true", "false"), ("false", "true"), ("true", "true"), ("", "")):
+            for route in ("success", "failure", "cancelled", "skipped"):
+                for cancelled in (False, True):
+                    with self.subTest(ios=ios, pair=pair, route=route, cancelled=cancelled):
+                        context = {"needs": {"route": {"result": route, "outputs": {
+                            "ios_gate_ios": ios, "ios_gate_pair": pair}}}}
+                        functions = {"always": True, "cancelled": cancelled}
+                        names = [gh_expr.evaluate(gh_expr.condition(jobs[j]["name"]), context, functions)
+                                 for j in ("ios-gate-unrelated", "ios-gate")]
+                        if route == "skipped" and not cancelled:
+                            self.assertEqual(names.count("cmux/ios-gate"), 0)
+                            self.assertFalse(gh_expr.truthy(gh_expr.evaluate(gh_expr.condition(jobs["ios-gate"]["if"]), context, functions)))
+                            continue
+                        self.assertEqual(names.count("cmux/ios-gate"), 1)
+                        if route != "success" or ios != "false" or pair != "false":
+                            self.assertTrue(gh_expr.truthy(gh_expr.evaluate(gh_expr.condition(jobs["ios-gate"]["if"]), context, functions)))
+                            self.assertEqual(names[1], "cmux/ios-gate")
+                        else:
+                            self.assertEqual(names[0], "cmux/ios-gate")
+                            self.assertFalse(gh_expr.truthy(gh_expr.evaluate(gh_expr.condition(jobs["ios-gate"]["if"]), context, functions)))
+
+
 if __name__ == "__main__":
     unittest.main()

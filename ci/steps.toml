@@ -2187,6 +2187,7 @@ inputs = [
   "cmux-tui/crates/cmux-unix-socket/**",
   "cmux-tui/crates/cmux-usage-patterns/**",
   "cmux-tui/crates/cmux-usage-share/**",
+  "cmux-tui/crates/cmux-vault-e2e/**",
   "cmux-tui/crates/cmux-vault-egress/**",
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-worktree-care/**",
