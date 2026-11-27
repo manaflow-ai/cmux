@@ -24,6 +24,10 @@ from pathlib import Path
 
 import yaml
 
+import sys as _step_sys  # noqa: E402
+from pathlib import Path as _StepPath  # noqa: E402
+_step_sys.path.insert(0, str(_StepPath(__file__).resolve().parent))  # tests/cmux_next_step_text.py
+from cmux_next_step_text import inline_steps  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CMUX_NEXT = WORKFLOWS / "cmux-next.yml"
@@ -39,7 +43,7 @@ LOST = "The self-hosted runner lost communication with the server. Verify the ma
 
 
 def jobs() -> dict:
-    return yaml.safe_load(CMUX_NEXT.read_text())["jobs"]
+    return yaml.safe_load(inline_steps(CMUX_NEXT.read_text()))["jobs"]
 
 
 class FakeApi:

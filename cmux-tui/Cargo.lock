@@ -1963,6 +1963,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -2579,6 +2580,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
