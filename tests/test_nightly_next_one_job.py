@@ -386,7 +386,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
         for step in steps:
             path = (step.get("with") or {}).get("path")
-            if path:
+            if path and "download-artifact@" not in step.get("uses", ""):
                 self.assertTrue(str(path).startswith(".nightly-next-deltas"), step.get("name"))
 
     def test_delta_artifact_cannot_replace_signing_code_or_shell_startup(self) -> None:
@@ -420,7 +420,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
             self.assertEqual(trusted.read_text(), "trusted")
             self.assertFalse((checkout / "startup.sh").exists())
             (source / "link.dmg").symlink_to(dmg)
-            for name in ("link.dmg", "../outside.dmg", "scripts/sign.sh", "missing.dmg"):
+            for name in ("link.dmg", "../outside.dmg", "scripts/sign.sh", "missing.dmg", "-option.dmg"):
                 with self.subTest(name=name):
                     self.assertNotEqual(run(name).returncode, 0)
 

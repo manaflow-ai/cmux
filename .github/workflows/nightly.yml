@@ -7600,15 +7600,7 @@ jobs:
         if: always()
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
 
-  # The nightly-next deltas after the feed, in their own job that needs it: published-build and the GitHub release
-  # start when nightly-next-one ends, not ~5 min later (run 45575194160: the delta build took 283 s and the upload
-  # 17 s after the feed; ask-c0123d25e8). The same steps as before, so hq#13299 stays satisfied: the deltas follow
-  # the feed minutes later, only while this build is still the feed's newest. Optional: a missing delta never fails
-  # the run, and a Mac without one downloads the full DMG. Never cancelled (no concurrency group).
-  # The signer label, a literal, as nightly-next-one takes it (the release-next Sparkle and R2 keys). Nothing from
-  # the bundle runs here: the delta build mounts DMGs and runs Sparkle's tools, behind its own stray-process check
-  # (tests/test_nightly_next_one_job.py). It checks out under .nightly-next-deltas, so the kept build workspace
-  # stays as nightly-next-one left it. Why: docs/ci/nightly-workflow-notes.md#note-31
+  # Delta trust boundary and topology: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-deltas-job.md
   nightly-next-deltas:
     needs: [decide, nightly-next-one]
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
@@ -7620,6 +7612,7 @@ jobs:
       contents: read
       actions: read
     env:
+      BASH_ENV: /dev/null
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -7636,6 +7629,7 @@ jobs:
       PUBLISH_TOOLING: ${{ github.workspace }}/.nightly-next-deltas/.publish-tooling/scripts
     steps:
       - *hold-the-whole-mac
+      - *github-token-for-git
       - name: Checkout the build ref's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -7662,16 +7656,29 @@ jobs:
         run: |
           echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
-      # nightly-next-one's own upload: the build's DMG as published.
+      - name: Isolate the downloaded artifact
+        id: delta-input
+        run: |
+          input="$(mktemp -d "$RUNNER_TEMP/nightly-delta-input.XXXXXX")"
+          echo "path=$input" >> "$GITHUB_OUTPUT"
       - name: Download the build's DMG
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-variant-arm64
-          path: .nightly-next-deltas
+          path: ${{ steps.delta-input.outputs.path }}
+      - name: Stage only the expected DMG
+        working-directory: .nightly-next-deltas
+        env:
+          DELTA_INPUT: ${{ steps.delta-input.outputs.path }}
+        run: |
+          set -euo pipefail
+          case "$NIGHTLY_DMG_IMMUTABLE" in */*|.*|-*) exit 1;; *.dmg) ;; *) exit 1;; esac
+          input="$DELTA_INPUT/$NIGHTLY_DMG_IMMUTABLE"
+          test -f "$input" && test ! -L "$input"
+          cp "$input" "$NIGHTLY_DMG_IMMUTABLE"
       - name: Refuse stray processes before secrets (deltas)
         id: deltas-stray
         run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
-      # The rolling name's copy too, as final-dmg/ had it in nightly-next-one.
       - name: Build the nightly-next deltas after the feed
         id: deltas-build
         timeout-minutes: 20
@@ -7700,10 +7707,7 @@ jobs:
             echo "No delta was built; the feed keeps the full-only item"
             exit 0
           fi
-          # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
-          # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-wake-nightly-next-tick-2.md
       - name: Check the published feed offers deltas
         env:
           BUILD: ${{ needs.nightly-next-one.outputs.build }}
@@ -7712,7 +7716,6 @@ jobs:
         if: always()
         working-directory: .nightly-next-deltas
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
-      # Only this job's own directory: the kept build workspace beside it stays.
       - name: Remove this job's checkout, DMG and deltas
         if: always()
         run: rm -rf "$GITHUB_WORKSPACE/.nightly-next-deltas"
@@ -8391,11 +8394,13 @@ jobs:
       # The replaced-build check lists this run's jobs.
       actions: read
     steps:
+      - *github-token-for-git
       - name: Checkout failure reporter at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
+          path: .publish-tooling
           sparse-checkout: scripts/ci/nightly-steps
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -8413,7 +8418,7 @@ jobs:
           REFUSAL_REASON: ${{ needs.publish-nightly.outputs.refusal_reason || needs.nightly-next-one.outputs.refusal_reason }}
           TRACK: ${{ needs.decide.outputs.track || needs.published-build.outputs.track || inputs.nightly_next_post_publish != '' && 'nightly-next' || '' }}
         with:
-          script: await require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')({github, context, core});
+          script: await require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')({github, context, core});
 
   # The nightly-next feed alarm (one `nightly-next-feed-stale` issue past
   # NIGHTLY_NEXT_MAX_FEED_LAG_HOURS) runs from main every 30 minutes, so it also
