@@ -2604,6 +2604,8 @@ function shapeTurn(
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
         // think we should distinguish the absolute top level one versus the inner ones").
         ...(style.countsCalls && (calls ?? 0) > 0 ? { workedCalls: calls } : {}),
+        // A turn that said nothing after its work: no reply for the line's rule to set off (TurnRows.tsx).
+        ...(!said && { workedAlone: true as const }),
         // It stands for the prompt it folds as the turn's start, open or closed, so the minimap keeps
         // the turn's tick where the closed fold draws no prompt (threadMinimap/model.ts minimapTurns).
         ...(foldsPrompt && first && { foldedPrompt: user }),
