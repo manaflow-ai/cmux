@@ -117,7 +117,7 @@ def run_preflight(source_status, source_run="77", marker="0", event="push", bran
                    GITHUB_RUN_ID="5", GH_TOKEN="x", GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log,
                    FAKE_SOURCE_STATUS=source_status, FAKE_SOURCE_RUN=source_run, FAKE_MARKER=marker,
                    FAKE_SOURCE_EVENT=event, FAKE_SOURCE_BRANCH=branch, FAKE_DAEMON_JOBS=daemon_jobs,
-                   DAEMON_POOL="glaeda-side-light-xcode-26.6")
+                   DAEMON_POOL="glaeda-side-light-xcode-27.2")
         result = subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
         return result, values, open(log).read()
@@ -154,7 +154,7 @@ def check_preflight_retest():
             _check("/actions/runs/" not in log, f"{why}: no run lookup")
     # 2026-10-21: the active publisher's daemon-test job sat queued on a label
     # the pool variable no longer names, and every later push deferred to it.
-    result, values, log = run_preflight("in_progress", daemon_jobs='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-26.6"]}]')
+    result, values, log = run_preflight("in_progress", daemon_jobs='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-27.2"]}]')
     _check(result.returncode == 0 and values.get("daemon_tested") == "false",
            f"a feat-cmux-next publisher whose daemon tests are stuck: re-tested ({values.get('daemon_tested')!r}, {result.stderr.strip()[-300:]})")
 

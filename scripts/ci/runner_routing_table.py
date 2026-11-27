@@ -138,7 +138,7 @@ POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
 # nightly-only pool, the nightly build slot, or an ephemeral hosted Ubuntu runner.
-NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-26.6'", "'ubuntu-24.04'")
+NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-27.2'", "'ubuntu-24.04'")
 
 
 def nightly_overflow_term(term: str) -> bool:

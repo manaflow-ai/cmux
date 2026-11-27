@@ -33,8 +33,8 @@ REF = re.compile(r"\b(?:needs|vars|github|inputs)\.[A-Za-z0-9_.-]+")
 # What the pick writes: runner and alternate a Blacksmith label (nightly_sign_runner.place) or nothing; owned an owned
 # pin on the side lane's label, or nothing. A repository variable may hold the side lane's label.
 BLACKSMITH = ("blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26", "")
-OWNED = ('["glaeda-side-std-xcode-26.6","glaeda-runner-cmux12-glaeda"]', "")
-SHARED = ("glaeda-side-std-xcode-26.6", "")
+OWNED = ('["glaeda-side-std-xcode-27.2","glaeda-runner-cmux12-glaeda"]', "")
+SHARED = ("glaeda-side-std-xcode-27.2", "")
 
 
 def sign_route() -> str:

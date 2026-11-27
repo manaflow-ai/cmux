@@ -100,7 +100,7 @@ def _patterns() -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
 
 @cache
 def _owned_pattern() -> re.Pattern[str]:
-    """The guard's owned pool label shape (glaeda-std-xcode-26.6), compiled."""
+    """The guard's owned pool label shape (glaeda-std-xcode-27.2), compiled."""
     try:
         body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as error:
@@ -171,7 +171,7 @@ def side_lane_reason(label: str) -> str | None:
 # vars.CI_SIDE_LANE_RUNNER takes first, when set (tests/test_ci_side_lane_capability_labels.py keeps every
 # reader on it). It holds one side pool label (glaeda-side-<class>-xcode-<v>, or glaeda-side-xcode-<v>: every
 # side runner with that Xcode, whatever its class) and the capability tiers the job needs. GitHub gives a job
-# a runner carrying every label, so `["glaeda-side-xcode-26.6", "glaeda-ram-48"]` reaches any 48 GiB+ side
+# a runner carrying every label, so `["glaeda-side-xcode-27.2", "glaeda-ram-48"]` reaches any 48 GiB+ side
 # runner with Xcode 26.6. The tiers are the ones cmuxterm-hq build-fleet/mini-ops/runner_labels.py
 # CAPABILITY_LABELS gives every root, side, gui and session runner from its host's measured shape.
 SIDE_LANE_LABELS_VARIABLE = "CI_SIDE_LANE_LABELS"
@@ -277,7 +277,7 @@ def dev_compile_reason(label: str) -> str | None:
     """Why CI_DEV_COMPILE_RUNNER is not allowed, or None when it is fine.
 
     cmux-next.yml's macos-placement reads it as the freshness slot's label
-    (FRESH_LABEL, default glaeda-dev-std-xcode-26.6): one dev instance on the
+    (FRESH_LABEL, default glaeda-dev-std-xcode-27.2): one dev instance on the
     owned minis, glaeda-dev-<class>-xcode-<version>, whose hook admits only
     trusted pushes and dispatches. Anything else is held to the workflow
     policy. Empty is fine (the default label).

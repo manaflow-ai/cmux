@@ -1468,7 +1468,7 @@ class WorkflowRoute(unittest.TestCase):
                  "${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
         mac = ("macos-26", None, "", "${{ needs.macos-placement.outputs.runner }}",
                "${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-ubuntu-2404' }}",
-               "${{ github.event_name == 'push' && 'ubuntu-24.04' || 'glaeda-gui-std-xcode-26.6' }}",
+               "${{ github.event_name == 'push' && 'ubuntu-24.04' || 'glaeda-gui-std-xcode-27.2' }}",
                "${{ inputs.runner || 'ubuntu-24.04' }}",
                "${{ github.event_name == 'push' && 'ubuntu-24.04' || github.event.inputs.label }}",
                "${{ vars.X && 'ubuntu-24.04' || format('{0}', needs.a.outputs.runner) }}",

@@ -26,7 +26,7 @@ import main_compile_attribution as mca  # noqa: E402
 ATTRIBUTION = ROOT / ".github/workflows/ci-compile-attribution.yml"
 PROBE = ROOT / ".github/workflows/main-compile-probe.yml"
 
-# Trimmed from job 109345503595 (seed, glaeda-trusted-std-xcode-26.6).
+# Trimmed from job 109345503595 (seed, glaeda-trusted-std-xcode-27.2).
 SEED_LOG = textwrap.dedent("""\
     2026-09-29T09:34:07.9935360Z /tmp/cmux-ci/src/cmuxTests/PaneDropTargetIdentityTests.swift:61:27: error: contextual type for closure argument list expects 1 argument, which cannot be implicitly ignored
     2026-09-29T09:34:07.9935710Z     |                           `- error: contextual type for closure argument list expects 1 argument, which cannot be implicitly ignored

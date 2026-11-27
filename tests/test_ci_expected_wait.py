@@ -18,7 +18,7 @@ import expected_wait as ew  # noqa: E402
 
 NOW = dt.datetime(2026, 11, 20, 18, 0, tzinfo=dt.timezone.utc)
 HOSTED = "ubuntu-24.04"
-STD, SIDE_STD, LIGHT = "glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-light-xcode-26.6"
+STD, SIDE_STD, LIGHT = "glaeda-std-xcode-27.2", "glaeda-side-std-xcode-27.2", "glaeda-light-xcode-27.2"
 
 
 def ago(minutes: float) -> str:
@@ -254,7 +254,7 @@ class Verdicts(unittest.TestCase):
                          {HOSTED: {"queued": 2, "running": 3}})
 
 
-ROOT_STD, GUI_STD, ROOT_LIGHT = "glaeda-root-std-xcode-26.6", "glaeda-gui-std-xcode-26.6", "glaeda-root-light-xcode-26.6"
+ROOT_STD, GUI_STD, ROOT_LIGHT = "glaeda-root-std-xcode-27.2", "glaeda-gui-std-xcode-27.2", "glaeda-root-light-xcode-27.2"
 
 
 def runner(ident: int, *labels: str, status: str = "online") -> dict:
@@ -281,19 +281,19 @@ class OnlineRunnerCounts(unittest.TestCase):
     def test_a_family_has_its_distinct_online_runners_not_the_max_or_sum_of_its_labels(self):
         _, families = ew.owned_capacity(LISTING)
         # std: runners 1-4 (the max over its labels is 3, the sum 7); light: runners 6 and 7.
-        self.assertEqual(families, {"std-xcode-26.6": 4, "light-xcode-26.6": 2})
+        self.assertEqual(families, {"std-xcode-27.2": 4, "light-xcode-27.2": 2})
 
     def test_a_configured_route_stays_above_zero(self):
         # pr_runner_pool.gui_runner() and side_runner() skip a label at 0: a label CI_OWNED_POOL_SLOTS routes to keeps
         # 1 with no runner online, and so does its family; a label it does not name stays absent.
-        xl, root_xl = "glaeda-xl-xcode-26.6", "glaeda-root-xl-xcode-26.6"
+        xl, root_xl = "glaeda-xl-xcode-27.2", "glaeda-root-xl-xcode-27.2"
         slots = json.dumps({STD: 60, xl: 4, root_xl: 2, "glaeda-ios-sim": 11})
         labels, families = ew.owned_capacity([runner(5, STD, status="offline")], slots)
         self.assertEqual(labels, {STD: 1, xl: 1, root_xl: 1})
-        self.assertEqual(families, {"std-xcode-26.6": 1, "xl-xcode-26.6": 1})
+        self.assertEqual(families, {"std-xcode-27.2": 1, "xl-xcode-27.2": 1})
         # The variable's count never raises an online one: 60 configured, 3 online.
         labels, families = ew.owned_capacity(LISTING, slots)
-        self.assertEqual((labels[STD], families["std-xcode-26.6"]), (3, 4))
+        self.assertEqual((labels[STD], families["std-xcode-27.2"]), (3, 4))
 
     def test_the_verdict_takes_the_online_runners_over_the_variable(self):
         # The variable says 60 std slots; 4 std runners are online and 5 jobs hold them with 3 queued: saturated.

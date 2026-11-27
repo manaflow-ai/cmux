@@ -54,7 +54,7 @@ REAL = {
 # A real one on macOS, where /usr/bin/git and /usr/bin/python3 resolve through it; only hashed here.
 DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR") or (
     subprocess.run(["xcode-select", "-p"], capture_output=True, text=True).stdout.strip()
-    if sys.platform == "darwin" else "") or "/Applications/Xcode_26.6.app/Contents/Developer"
+    if sys.platform == "darwin" else "") or "/Applications/Xcode_27.2.app/Contents/Developer"
 # The stub compile: where it ran and what it saw, then the app the script zips. With STUB_HOLD it
 # writes its pid to STUB_HOLD and waits for STUB_HOLD.go (a build in progress).
 STUB_COMPILE = r'''#!/bin/bash
@@ -156,7 +156,7 @@ class HostRootTests(unittest.TestCase):
         env = git_fixture_env.fixture_env({
             "PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.home), "RUNNER_TEMP": str(job),
             "RUNNER_NAME": runner, "GITHUB_WORKSPACE": str(ws), "TEST_LOG": str(job / "seen.json"),
-            "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6", "CMUX_NEXT_COMPILATION_CACHE": "1",
+            "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-27.2", "CMUX_NEXT_COMPILATION_CACHE": "1",
             "DEVELOPER_DIR": DEVELOPER_DIR,
         })
         env.update(overrides)

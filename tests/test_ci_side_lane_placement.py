@@ -26,18 +26,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/side_lane_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
-SIDE = "glaeda-side-std-xcode-26.6"
-STD = "glaeda-std-xcode-26.6"
+SIDE = "glaeda-side-std-xcode-27.2"
+STD = "glaeda-std-xcode-27.2"
 FALLBACK = "blacksmith-6vcpu-macos-26"
 CMUX_MAC = "cmux-mac"  # the one own-branch Mac label, behind vars.CI_OVERFLOW_MAC
-NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+NIGHTLY_POOL = "glaeda-trusted-light-xcode-27.2"
 NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 # The GUI suites take the owned pool's gui label, never the generic side label.
-GUI = "glaeda-gui-std-xcode-26.6"
+GUI = "glaeda-gui-std-xcode-27.2"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 # glaeda#1530: jobs that need a logged-in session but not the console gui token. They take the
 # session label while an online runner carries it, else the gui label exactly as before.
-SESSION = "glaeda-session-std-xcode-26.6"
+SESSION = "glaeda-session-std-xcode-27.2"
 SESSION_JOBS = ("daemon-test", "generated-files")
 
 
@@ -160,7 +160,7 @@ class Decide(unittest.TestCase):
 
     def test_only_runners_carrying_the_side_label_count(self):
         # A root runner of the same mini (std label, no side label) is not a side runner.
-        runners = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-26.6")), runner("mini-a-glaeda-3")]
+        runners = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-27.2")), runner("mini-a-glaeda-3")]
         self.assertEqual(placement.decide(env(), runners)[:2], (JOBS[:1], ()))
 
     def test_route_falls_back_to_the_owned_pool_when_side_label_is_absent(self):
@@ -183,14 +183,14 @@ class Decide(unittest.TestCase):
     def test_a_light_side_lane_borrows_the_std_gui_runners(self):
         # The light minis run no GUI runner, so a light side lane's GUI suites take the std minis'
         # live GUI label instead of the Blacksmith fallback; a live light GUI label still wins.
-        light_side, light_gui = "glaeda-side-light-xcode-26.6", "glaeda-gui-light-xcode-26.6"
-        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        light_side, light_gui = "glaeda-side-light-xcode-27.2", "glaeda-gui-light-xcode-27.2"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-27.2", light_side))
         std_gui = runner("mini-a-glaeda-4", labels=(STD, GUI))
         self.assertEqual(placement.gui_route_label(light_side, [light, std_gui]), GUI)
         self.assertEqual(placement.gui_route_label(light_side, [light]), "")
         self.assertEqual(placement.gui_route_label(light_side, [light, runner("mini-a-glaeda-4", labels=(STD, GUI),
                                                                               status="offline")]), "")
-        live_light = runner("light-b-glaeda-4", labels=("glaeda-light-xcode-26.6", light_gui))
+        live_light = runner("light-b-glaeda-4", labels=("glaeda-light-xcode-27.2", light_gui))
         self.assertEqual(placement.gui_route_label(light_side, [light, live_light, std_gui]), light_gui)
 
     def test_session_route_requires_an_online_runner_with_the_session_label(self):
@@ -210,12 +210,12 @@ class Decide(unittest.TestCase):
         # A session runner can run them while the console gui runner is offline.
         self.assertEqual(placement.session_route_label(SIDE, [session]), SESSION)
         # Light side lanes borrow the std minis' session runners, as they do the gui runners.
-        light_side = "glaeda-side-light-xcode-26.6"
-        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        light_side = "glaeda-side-light-xcode-27.2"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-27.2", light_side))
         self.assertEqual(placement.session_route_label(light_side, [light, gui]), SESSION)
         self.assertEqual(placement.session_route_label(light_side, [light, gui_only]), GUI)
         # Not an owned side label, or an AWS one: no session route.
-        for label in ("", FALLBACK, STD, "glaeda-aws-side-std-xcode-26.6"):
+        for label in ("", FALLBACK, STD, "glaeda-aws-side-std-xcode-27.2"):
             self.assertEqual(placement.session_route_label(label, [gui, session]), "", label)
 
     def test_free_gui_and_session_routes_skip_busy_owned_runners(self):
@@ -435,7 +435,7 @@ class Decide(unittest.TestCase):
         self.assertIn(" fast-tier ", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
 
     def test_main_weighs_the_session_lane_like_the_role_routes(self):
-        lane = "glaeda-session-light-xcode-26.6"
+        lane = "glaeda-session-light-xcode-27.2"
         light = [runner(f"mini-{host}-glaeda-2", busy=True, labels=(lane,)) for host in "ab"]
         small, large = placement.cascade.SMALL, placement.cascade.LARGE
         for queued, idle, expected in ((5, False, ""), (1, False, lane), (5, True, lane)):
@@ -515,7 +515,7 @@ class Decide(unittest.TestCase):
         # nothing: the jobs keep attempt 1's owned label and the rescue watches them, as before.
         idle = [runner("mini-a-glaeda-3")]
         self.assertEqual(placement.decide(env(), None)[:2], ((), ()))
-        for label in ("", FALLBACK, "macos-26", STD, "glaeda-root-std-xcode-26.6"):
+        for label in ("", FALLBACK, "macos-26", STD, "glaeda-root-std-xcode-27.2"):
             self.assertEqual(placement.decide(env(SIDE_LABEL=label), idle)[:2], ((), ()), label)
 
     def test_dedicated_nightly_runner_requires_online_idle_exact_labels(self):
@@ -641,7 +641,7 @@ class AutofixActionExportsRoute(unittest.TestCase):
 
     def context(self, name: str, attempt: str, actor: str, mac_runner: str = GUI) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
-                                 MACOS_RUNNER_26="glaeda-std-xcode-26.6")
+                                 MACOS_RUNNER_26="glaeda-std-xcode-27.2")
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
         context["needs"] = {self.READS[name]: {"outputs": {"mac_runner": mac_runner}}}
@@ -663,14 +663,14 @@ class AutofixActionExportsRoute(unittest.TestCase):
                 self.assertNotIn(SESSION, runs_on)
 
 
-LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
-LIGHT = "glaeda-light-xcode-26.6"
+LIGHT_SIDE = "glaeda-side-light-xcode-27.2"
+LIGHT = "glaeda-light-xcode-27.2"
 # The fleet dashboard at 2026-10-20 22:22Z: 133 jobs queued on the light side label's 3 online (all
 # busy) runners, while 51 of the std side label's 60 online runners sat idle.
 SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.json"
 
 
-FAST = "glaeda-fast-light-xcode-26.6"
+FAST = "glaeda-fast-light-xcode-27.2"
 
 
 class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
@@ -692,9 +692,9 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
         context = github_context("push", ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
                                  MACOS_RUNNER_26="blacksmith-12vcpu-macos-26", CI_NIGHTLY_NEXT_TRUSTED_POOL=NIGHTLY_POOL,
                                  CI_NIGHTLY_NEXT_TRUSTED_RUNNER=NIGHTLY_RUNNER,
-                                 CI_NEXT_PROMOTE_POOL="glaeda-promote-side-trusted-std-xcode-26.6",
-                                 CI_FAST_LANE_RUNNER="glaeda-fast-light-xcode-26.6",
-                                 CI_COMPILE_CHECK_GATEWAY="glaeda-side-light-xcode-26.6")
+                                 CI_NEXT_PROMOTE_POOL="glaeda-promote-side-trusted-std-xcode-27.2",
+                                 CI_FAST_LANE_RUNNER="glaeda-fast-light-xcode-27.2",
+                                 CI_COMPILE_CHECK_GATEWAY="glaeda-side-light-xcode-27.2")
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
         context["inputs"] = {}
         context["needs"] = {"path_route": {"outputs": {"native": "true", "swift_canary": "true", "scheme": "true"}}}
@@ -721,7 +721,7 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
                   "empty fleet": [], "unreadable fleet": RuntimeError("HTTP 403"), "no token": None}
         ready_with = {"idle nightly and side", "only the nightly runner online"}
         for why, runners in fleets.items():
-            for side in (SIDE, "glaeda-side-light-xcode-26.6"):
+            for side in (SIDE, "glaeda-side-light-xcode-27.2"):
                 for attempt in ("1", "2"):
                     with self.subTest(why=why, side=side, attempt=attempt), tempfile.TemporaryDirectory() as tmp:
                         output = Path(tmp) / "out"
@@ -788,7 +788,7 @@ class FastRoute(unittest.TestCase):
                 self.assertIn(f"fast_runner={expected}\n", output.read_text())
 
 
-LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
+LIGHT_SIDE = "glaeda-side-light-xcode-27.2"
 
 
 def light_seen(pools=None, *, stale: bool = False, queued=None):
@@ -808,7 +808,7 @@ class LightFastRoute(unittest.TestCase):
 
     def test_the_light_side_label_narrows_only_the_class(self):
         self.assertEqual(placement.light_side_label(SIDE), LIGHT_SIDE)
-        self.assertEqual(placement.light_side_label("glaeda-side-light-xcode-26.6"), "")
+        self.assertEqual(placement.light_side_label("glaeda-side-light-xcode-27.2"), "")
         self.assertEqual(placement.light_side_label(STD), "")
         self.assertEqual(placement.light_side_label("blacksmith-6vcpu-macos-26"), "")
 
@@ -818,12 +818,12 @@ class LightFastRoute(unittest.TestCase):
 
     def test_a_nightly_or_release_job_waiting_on_the_light_family_keeps_it_free(self):
         runners = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))]
-        for name in ("glaeda-light-xcode-26.6", "glaeda-trusted-light-xcode-26.6", LIGHT_SIDE):
+        for name in ("glaeda-light-xcode-27.2", "glaeda-trusted-light-xcode-27.2", LIGHT_SIDE):
             with self.subTest(name=name):
                 seen = light_seen({name: {"reserved_queued": 1}})
                 self.assertEqual(placement.light_fast_route(self.values(), runners, seen), "")
         # A nightly job on the std family does not hold the light minis.
-        seen = light_seen({"glaeda-nightly-std-xcode-26.6": {"reserved_queued": 3}})
+        seen = light_seen({"glaeda-nightly-std-xcode-27.2": {"reserved_queued": 3}})
         self.assertEqual(placement.light_fast_route(self.values(), runners, seen), LIGHT_SIDE)
 
     def test_nothing_known_or_nothing_free_places_nothing(self):
@@ -920,7 +920,7 @@ class LightSpillRoute(unittest.TestCase):
         self.assertEqual(placement.light_spill_route(self.values(), busy, light_seen(), live=free[0], waiting=free[1]),
                          ("", ()))
         # Never while a nightly waits on the light family, with the counts unread, or with no light runner online.
-        nightly = light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})
+        nightly = light_seen({"glaeda-trusted-light-xcode-27.2": {"reserved_queued": 1}})
         self.assertEqual(placement.light_spill_route(self.values(), busy, nightly, live=full[0], waiting=full[1]),
                          ("", ()))
         self.assertEqual(placement.light_spill_route(self.values(), busy, light_seen()), ("", ()))
@@ -935,7 +935,7 @@ class LightSpillRoute(unittest.TestCase):
             "no snapshot": (self.values(), idle, None),
             "stale snapshot": (self.values(), idle, light_seen(stale=True)),
             "nightly waits on light": (self.values(), idle,
-                                       light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
+                                       light_seen({"glaeda-trusted-light-xcode-27.2": {"reserved_queued": 1}})),
             "busy": (self.values(), self.light(2, busy=2), light_seen()),
             "a re-run": (self.values(GITHUB_RUN_ATTEMPT="2"), idle, light_seen()),
             "no spill jobs (push, fork)": (self.values(LIGHT_SPILL_JOBS=""), idle, light_seen()),
@@ -1057,7 +1057,7 @@ class LightRerunRoute(unittest.TestCase):
                                         idle, None),
             "no fit jobs (push, fork)": (self.values(LIGHT_FIT_JOBS=""), idle, None),
             "nightly waits on light": (self.values(), idle,
-                                       light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
+                                       light_seen({"glaeda-trusted-light-xcode-27.2": {"reserved_queued": 1}})),
             "stale snapshot": (self.values(), idle, light_seen(stale=True)),
             "busy light": (self.values(), self.light(2, busy=2), None),
             "unread runners": (self.values(), None, None),
@@ -1116,12 +1116,12 @@ class LightRerunRoute(unittest.TestCase):
         self.assertEqual(readers, measured)
 
 
-FRESH = "glaeda-dev-std-xcode-26.6"
+FRESH = "glaeda-dev-std-xcode-27.2"
 
 
 class SessionSpill(unittest.TestCase):
-    """2026-11-15 03:15Z: glaeda-side-std-xcode-26.6 had 57 jobs queued (oldest 76 min) on 8 online runners while
-    glaeda-session-std-xcode-26.6 had none queued on 13 online. A same-repo PR's daemon tests and generated files
+    """2026-11-15 03:15Z: glaeda-side-std-xcode-27.2 had 57 jobs queued (oldest 76 min) on 8 online runners while
+    glaeda-session-std-xcode-27.2 had none queued on 13 online. A same-repo PR's daemon tests and generated files
     take the session label while its queue is the shorter one; a push already does (session_runner)."""
 
     def side(self, count: int, *, busy: int):
@@ -1173,7 +1173,7 @@ class SessionSpill(unittest.TestCase):
         self.assertEqual(placement.session_spill(env(), self.side(4, busy=4), self.seen(**{SIDE: 50}), SIDE), ("", ()))
         self.assertEqual(placement.session_spill(env(), None, self.seen(**{SIDE: 50}), SIDE), ("", ()))
         # An AWS side label has no session route (a headless host).
-        aws = "glaeda-aws-side-std-xcode-26.6"
+        aws = "glaeda-aws-side-std-xcode-27.2"
         self.assertEqual(placement.session_spill(env(SIDE_LABEL=aws), runners, self.seen(**{aws: 50}), aws), ("", ()))
 
     def test_placement_writes_the_spill_and_the_pr_jobs_take_it(self):
@@ -1216,8 +1216,8 @@ class SessionSpill(unittest.TestCase):
 
 class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
     """Placement judges owned queues by the rescue's depth rule (#43799's deeper_queue()): more jobs queued, or as
-    many with an older oldest one. On 2026-11-15 glaeda-side-std-xcode-26.6 had 61 queued, the oldest 203 min, while
-    glaeda-gui-std-xcode-26.6 had 1; no runner was idle and no session runner took the job, yet a PR's daemon tests
+    many with an older oldest one. On 2026-11-15 glaeda-side-std-xcode-27.2 had 61 queued, the oldest 203 min, while
+    glaeda-gui-std-xcode-27.2 had 1; no runner was idle and no session runner took the job, yet a PR's daemon tests
     still queued on the side label."""
 
     def runners(self, *, session: int = 0):
@@ -1286,7 +1286,7 @@ class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
 
     def test_the_rescues_attempt_5_is_placed_and_takes_the_shallower_gui_queue(self):
         # Run 43716323834 (#43733): the rescue re-ran 'cmux-next generated files' as attempt 5 and it queued on
-        # glaeda-side-std-xcode-26.6 again while glaeda-gui-std-xcode-26.6 had 0 queued: macos-placement ran only
+        # glaeda-side-std-xcode-27.2 again while glaeda-gui-std-xcode-27.2 had 0 queued: macos-placement ran only
         # on attempt 1 and the bot's attempts up to 3.
         job = CmuxNextWiring().workflow()["jobs"]["macos-placement"]
         bots = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
@@ -1314,14 +1314,14 @@ class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
 
 
 class BorrowIdlePool(unittest.TestCase):
-    """2026-11-16 03:16Z, macos-pool-load: glaeda-side-std-xcode-26.6 had 44 queued (oldest 113 min) and
-    glaeda-std-xcode-26.6 48 (oldest 178 min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR
+    """2026-11-16 03:16Z, macos-pool-load: glaeda-side-std-xcode-27.2 had 44 queued (oldest 113 min) and
+    glaeda-std-xcode-27.2 48 (oldest 178 min) while glaeda-gui-std-xcode-27.2 had 0 queued, and the slowest PR
     verdicts ended on the Release compile. A PR's Release compile with no idle side runner borrows an idle gui
     runner, bounded: never while the gui label has a queue, always leaving BORROW_RESERVE idle for the gui pool's
     own jobs, and never past BORROW_CAP borrowed at once. The detector for the handbook's idle-pool pattern."""
 
     COMPILE = "cmux-next Release compile (Xcode 26)"
-    DEV = "glaeda-dev-std-xcode-26.6"
+    DEV = "glaeda-dev-std-xcode-27.2"
 
     def runners(self, *, gui_idle: int = 3, gui: int = 6, dev_idle: int = 0):
         return ([runner(f"mini{index}-glaeda-3", busy=True) for index in range(8)]
@@ -1911,11 +1911,11 @@ class SpillToCompatiblePool(unittest.TestCase):
         # Role, trust and fleet namespace never mix: only the class token widens.
         cases = {
             LIGHT_SIDE: (LIGHT_SIDE, SIDE),
-            "glaeda-aws-side-light-xcode-26.6": ("glaeda-aws-side-light-xcode-26.6", "glaeda-aws-side-std-xcode-26.6"),
+            "glaeda-aws-side-light-xcode-27.2": ("glaeda-aws-side-light-xcode-27.2", "glaeda-aws-side-std-xcode-27.2"),
             # Trusted and promote pools are not ordinary owned pools: they never widen.
-            "glaeda-trusted-light-xcode-26.6": ("glaeda-trusted-light-xcode-26.6",),
-            "glaeda-promote-side-trusted-std-xcode-26.6": ("glaeda-promote-side-trusted-std-xcode-26.6",),
-            "glaeda-root-light-xcode-26.6": ("glaeda-root-light-xcode-26.6", "glaeda-root-std-xcode-26.6"),
+            "glaeda-trusted-light-xcode-27.2": ("glaeda-trusted-light-xcode-27.2",),
+            "glaeda-promote-side-trusted-std-xcode-27.2": ("glaeda-promote-side-trusted-std-xcode-27.2",),
+            "glaeda-root-light-xcode-27.2": ("glaeda-root-light-xcode-27.2", "glaeda-root-std-xcode-27.2"),
             SIDE: (SIDE,),
             FALLBACK: (FALLBACK,),
             "": (),
@@ -1935,7 +1935,7 @@ class SpillToCompatiblePool(unittest.TestCase):
         self.assertEqual(placement.pool.RUN_CLASSES[-1], placement.pool.LIGHT_CLASS)
 
     def test_a_side_route_is_only_a_side_label(self):
-        root = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-26.6"))]
+        root = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-27.2"))]
         self.assertEqual(placement.side_route(LIGHT_SIDE, root), "")
         self.assertEqual(placement.side_route(LIGHT, [runner("mini-a-glaeda-3")]), "")
         self.assertEqual(placement.side_route(LIGHT_SIDE, None), "")
@@ -2014,7 +2014,7 @@ class CmuxNextWiring(unittest.TestCase):
         """STACK_SLOT (cmux#45498, 2026-11-17): a labelled same-repository PR's Mac jobs take the nightly slot, a label
         no other PR job asks for, instead of queueing behind the side label's backlog. The placement's real output,
         with an idle std side runner and free Blacksmith slots, is fed into each job's runs-on."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         place = next(step for step in self.workflow()["jobs"][self.PLACEMENT]["steps"] if step.get("id") == "place")
         expression = place["env"]["STACK_SLOT"]
         label = [{"name": "stack-blocker"}]
@@ -2056,7 +2056,7 @@ class CmuxNextWiring(unittest.TestCase):
                                                       context), slot, name)
                 else:
                     self.assertNotIn(slot, routes.values(), "without the label nothing takes the slot")
-        self.assertEqual(placement.stack_slot_outputs({"STACK_SLOT": "glaeda-side-std-xcode-26.6"}), "",
+        self.assertEqual(placement.stack_slot_outputs({"STACK_SLOT": "glaeda-side-std-xcode-27.2"}), "",
                          "only a nightly slot label")
         self.assertEqual(placement.stack_slot_outputs({"STACK_SLOT": slot, "GITHUB_RUN_ATTEMPT": "2"}), "")
 
@@ -2242,7 +2242,7 @@ class CmuxNextWiring(unittest.TestCase):
 
     def test_the_session_lane_variable_needs_this_attempts_room(self):
         # Review of #27201 at 175560bc: vars.CI_SESSION_LANE_RUNNER went around the health-checked session route.
-        lane = "glaeda-session-light-xcode-26.6"
+        lane = "glaeda-session-light-xcode-27.2"
         runs_on = runs_on_route(self.workflow()["jobs"]["generated-files"], "generated-files")
         deep = self.push_context(runner=STD)
         deep["vars"]["CI_SESSION_LANE_RUNNER"] = lane
@@ -2376,7 +2376,7 @@ class CmuxNextWiring(unittest.TestCase):
                                                                         gui_overflow=FALLBACK)
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # The fast tier's own fast-lane mini is left the same way.
-                    free["needs"][self.PLACEMENT]["outputs"]["fast_runner"] = "glaeda-fast-std-xcode-26.6"
+                    free["needs"][self.PLACEMENT]["outputs"]["fast_runner"] = "glaeda-fast-std-xcode-27.2"
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.push_context("2", runner=STD, triggering_actor=bot)
@@ -2658,8 +2658,8 @@ class SingleHostRoute(unittest.TestCase):
                                                                                 stale=True)))
 
     def test_no_reserved_route_names_a_busy_single_host_label(self):
-        fast, fresh, gateway = ("glaeda-fast-light-xcode-26.6", "glaeda-dev-std-xcode-26.6",
-                                "glaeda-side-light-xcode-26.6")
+        fast, fresh, gateway = ("glaeda-fast-light-xcode-27.2", "glaeda-dev-std-xcode-27.2",
+                                "glaeda-side-light-xcode-27.2")
         values = {"FAST_LABEL": fast, "FRESH_LABEL": fresh, "FRESH_JOBS": "cmux-scheme-compile",
                   "FRESH_SLOT_JOBS": "cmux-scheme-compile", "JOBS": "cmux-scheme-compile",
                   "GATEWAY_LABEL": gateway, "GATEWAY_JOBS": "app-compile-fleet"}
@@ -2698,7 +2698,7 @@ class AppFfiBuildPlacement(unittest.TestCase):
     env and the build's runs-on are evaluated from the workflow itself, so a workflow edit reaches the test.
     """
 
-    PROMOTE = "glaeda-promote-side-trusted-std-xcode-26.6"
+    PROMOTE = "glaeda-promote-side-trusted-std-xcode-27.2"
     LARGE = "blacksmith-12vcpu-macos-26"
 
     def workflow(self) -> dict:

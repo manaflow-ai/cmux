@@ -154,7 +154,7 @@ def run_wait(owner, script=None, **fake):
                    FAKE_LOG=log)
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
                "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
-               "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
+               "DAEMON_POOL": "glaeda-side-light-xcode-27.2", **fake}
         env["TREE_READY"] = "true" if env.get("FAKE_TREE_PUBLISHED") == "1" else "false"
         env["DAEMON_TESTED"] = "false" if env["TREE_READY"] == "true" and env.get("FAKE_MARKER", "1") != "1" else "true"
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
@@ -422,8 +422,8 @@ def main():
     # 2026-10-21: the owner's daemon-test job sat queued on a label the pool
     # variable no longer names, and every later push deferred to it.
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
-                                FAKE_OWNER_BRANCH="feat-cmux-next", DAEMON_POOL="glaeda-side-light-xcode-26.6",
-                                FAKE_DAEMON_JOBS='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-26.6"]}]')
+                                FAKE_OWNER_BRANCH="feat-cmux-next", DAEMON_POOL="glaeda-side-light-xcode-27.2",
+                                FAKE_DAEMON_JOBS='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-27.2"]}]')
     _check(result.returncode == 0 and "unmarked=true" in out,
            f"an unmarked tree whose feat-cmux-next owner's daemon tests are stuck is re-tested ({out.strip()!r})")
     for event, branch, why in (("push", "op-next-idle-caret", "lane-branch push"),

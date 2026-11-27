@@ -178,7 +178,7 @@ jobs:
     name: model cases A/B on the fleet
     needs: evals
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-27.2' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     continue-on-error: true
     permissions:

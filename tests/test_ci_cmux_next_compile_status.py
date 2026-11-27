@@ -576,7 +576,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
 
     def test_a_gateway_runner_submits_its_own_check_and_never_reads_the_result(self):
         # No client on this stand-in gateway: the existing path's unavailable, with no result read.
-        code, verdict, reads = self.run_step(self.reply("pass"), gateway="glaeda-gateway-xcode-26.6")
+        code, verdict, reads = self.run_step(self.reply("pass"), gateway="glaeda-gateway-xcode-27.2")
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
     def test_a_service_down_after_the_probes_hands_off_after_the_bound(self):

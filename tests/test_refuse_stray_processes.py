@@ -120,7 +120,7 @@ class Strays(unittest.TestCase):
         self.assertEqual(stray.HOOK_IN_PS.findall("sh ACTIONS_RUNNER_HOOK_JOB_STARTED=relative/y.sh"), [])
 
 
-DEV = "/Applications/Xcode_26.6.app/Contents/Developer"
+DEV = "/Applications/Xcode_27.2.app/Contents/Developer"
 
 
 class BuildDaemons(unittest.TestCase):

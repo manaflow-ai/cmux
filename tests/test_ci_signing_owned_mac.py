@@ -617,7 +617,7 @@ def runner(name: str, labels: list[str], busy: bool = False, status: str = "onli
     return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
 
-SIDE = "glaeda-side-std-xcode-26.6"
+SIDE = "glaeda-side-std-xcode-27.2"
 NOW = dt.datetime(2026, 10, 30, 12, 0, tzinfo=dt.timezone.utc)
 # warm_distance's job_seconds cell: a 300 s job (p50), 800 s at its p90.
 MODEL = {"job_seconds": {"shell-regressions": {"p50": 300, "p90": 800}}}
@@ -630,8 +630,8 @@ def started(job: str, seconds_ago: float) -> dict:
 
 class SigningOwnedMacTests(unittest.TestCase):
     def test_owned_pool_label_drops_the_runner_pin(self) -> None:
-        self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-26.6", "glaeda-runner-cmux12-glaeda-nightly"]'),
-                         "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-27.2", "glaeda-runner-cmux12-glaeda-nightly"]'),
+                         "glaeda-nightly-std-xcode-27.2")
         self.assertEqual(signing_runner.owned_pool_label(""), "")
         self.assertEqual(signing_runner.owned_pool_label("not-json"), "")
 
@@ -783,7 +783,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         key = {"env": {"NEXT_SPARKLE_PRIVATE_KEY": "${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}"},
                "run": "./scripts/ci/generate-nightly-deltas.sh"}
         owned = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || " \
-                "'glaeda-std-xcode-26.6' }}"
+                "'glaeda-std-xcode-27.2' }}"
         bare = {"runs-on": owned, "steps": [{"uses": "actions/checkout@v6"}, key]}
         # A job SIGNING_JOBS does not name, so every finding shows.
         failures, owned_jobs = check({"other-nightly.yml": {"jobs": {"deltas": bare}}})
@@ -807,7 +807,7 @@ class SigningOwnedMacTests(unittest.TestCase):
     def test_drained_runner_takes_only_a_mini_running_nothing(self) -> None:
         runners = [
             runner("cmux12-glaeda", [SIDE, "glaeda-runner-cmux12-glaeda"]),
-            runner("cmux12-glaeda-2", ["glaeda-gui-std-xcode-26.6"], busy=True),  # a busy gui runner: not drained
+            runner("cmux12-glaeda-2", ["glaeda-gui-std-xcode-27.2"], busy=True),  # a busy gui runner: not drained
             runner("cmux13-glaeda-3", [SIDE, "glaeda-runner-cmux13-glaeda-3"]),
             runner("cmux13-glaeda-nightly-next", ["glaeda-trusted-next-nightly"]),
             runner("cmux14-glaeda", [SIDE]),  # no runner label of its own: cannot be pinned
@@ -816,7 +816,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         labels, why = signing_runner.drained_runner(runners, [SIDE])
         self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"], why)
         # glaeda parks most of a mini's runners offline; an offline runner GitHub calls idle runs nothing.
-        runners.append(runner("cmux13-glaeda-5", ["glaeda-gui-std-xcode-26.6"], status="offline"))
+        runners.append(runner("cmux13-glaeda-5", ["glaeda-gui-std-xcode-27.2"], status="offline"))
         labels, why = signing_runner.drained_runner(runners, [SIDE])
         self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"],
                          f"a parked offline slot must not keep its mini: {why}")
@@ -828,7 +828,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"))
         self.assertEqual(signing_runner.drained_runner(runners, ["blacksmith-6vcpu-macos-26"])[0], "")
-        slot = "glaeda-nightly-std-xcode-26.6"  # glaeda's nightly slot, which CI_NIGHTLY_NEXT_BUILD_RUNNER may name
+        slot = "glaeda-nightly-std-xcode-27.2"  # glaeda's nightly slot, which CI_NIGHTLY_NEXT_BUILD_RUNNER may name
         labels, why = signing_runner.drained_runner(
             [runner("cmux20-glaeda-nightly", [slot, "glaeda-runner-cmux20-glaeda-nightly"])], [slot])
         self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux20-glaeda-nightly"], why)
@@ -839,7 +839,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         now"), so legacy signing always went to Blacksmith. Then an idle nightly slot on the mini whose busy runners
         finish soonest is offered (DRAIN_BY_REMAINING_TIME): glaeda holds every new job off that mini while the signing
         job waits there (SIGNING_DRAIN). A side label alone (the DEV daily's) is never drained for."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         runners = [
             runner("cmux12-glaeda", [SIDE], busy=True),
             runner("cmux12-glaeda-2", [SIDE], busy=True),
@@ -888,7 +888,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         """DRAIN_BY_REMAINING_TIME: the 2026-10-30 refusals. cmux12s had one busy runner (swift-test, which the model
         has no length for) and the fewest-busy pick drained it for 600 s eleven times. A busy runner with no estimate
         (no snapshot entry, an unmodelled job, one past its p90, no fresh snapshot) never lets its mini be drained."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         runners = [runner("cmux12-glaeda-2", [SIDE], busy=True),
                    runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"]),
                    runner("cmux13-glaeda", [SIDE], busy=True),
@@ -912,7 +912,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         """DRAIN_BY_REMAINING_TIME: a mini is offered only when every busy runner on it finishes within
         DRAIN_HORIZON_SECONDS (2 min); past that the job signs on Blacksmith at once instead of waiting out glaeda's
         600 s drain and being refused."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         self.assertEqual(signing_runner.DRAIN_HORIZON_SECONDS, 120.0)
         runners = [runner("cmux12-glaeda", [SIDE], busy=True),
                    runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"])]
@@ -931,7 +931,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         """DRAIN_ANYWAY (nightly.yml's legacy sign, Leo 2026-10-30): past the horizon, or with no estimate, the nightly
         slot on the mini that frees up soonest is still offered; known waits come before unknown ones, then the fewest
         busy runners. Without it the horizon still sends the job to Blacksmith."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         runners = [runner("cmux12-glaeda", [SIDE], busy=True),
                    runner("cmux12-glaeda-2", [SIDE], busy=True),
                    runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"]),
@@ -972,9 +972,9 @@ class SigningOwnedMacTests(unittest.TestCase):
         signing = signing_runner.SIGNER_LABEL
         self.assertEqual(signing, "glaeda-trusted-next-signing")
         runners = [runner("ultra-glaeda", [SIDE]),
-                   runner("ultra-glaeda-4", ["glaeda-nightly-std-xcode-26.6", "glaeda-runner-ultra-glaeda-4"]),
+                   runner("ultra-glaeda-4", ["glaeda-nightly-std-xcode-27.2", "glaeda-runner-ultra-glaeda-4"]),
                    runner("cmux12-glaeda", [SIDE], busy=True),
-                   runner("cmux12-glaeda-nightly", ["glaeda-nightly-std-xcode-26.6",
+                   runner("cmux12-glaeda-nightly", ["glaeda-nightly-std-xcode-27.2",
                                                     "glaeda-runner-cmux12-glaeda-nightly"]),
                    runner("cmux15-glaeda-1", [signing, "glaeda-runner-cmux15-glaeda-1"], busy=True),
                    runner("cmux15-glaeda-2", [signing, "glaeda-runner-cmux15-glaeda-2"])]
@@ -987,7 +987,7 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                     drain_anyway=True, signer_only=True)
         self.assertEqual(labels, "", why)
         # A drifted OWNED_LABELS (a shared nightly slot, a side lane) yields no pick at all in nightly.yml's pick.
-        shared = ["glaeda-nightly-std-xcode-26.6", SIDE]
+        shared = ["glaeda-nightly-std-xcode-27.2", SIDE]
         labels, why = signing_runner.drained_runner(runners, shared, running=None, model=MODEL, now=NOW,
                                                     drain_anyway=True, signer_only=True)
         self.assertEqual(labels, "", why)
@@ -998,7 +998,7 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                 signer_only=True)
         self.assertEqual(labels, "", why)
         self.assertTrue(signing_runner.signing_route_label(signing))
-        for label in ("glaeda-trusted-next-signing-2", "glaeda-nightly-std-xcode-26.6", SIDE, "glaeda-std-xcode-26.6"):
+        for label in ("glaeda-trusted-next-signing-2", "glaeda-nightly-std-xcode-27.2", SIDE, "glaeda-std-xcode-27.2"):
             self.assertFalse(signing_runner.signing_route_label(label), label)
         jobs = workflows()["nightly.yml"]["jobs"]
         route = "glaeda-trusted-next-signing"  # a literal: no variable chooses the label
@@ -1021,7 +1021,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         """owned_pick reads `running` from the queue janitor's pool snapshot (no new GitHub polling) and passes it on
         only when it is at most DRAIN_SNAPSHOT_MAX_MINUTES old; an older or unreadable one leaves every busy runner
         unknown, so nothing is drained."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "glaeda-nightly-std-xcode-27.2"
         runners = [runner("cmux12-glaeda", [SIDE], busy=True),
                    runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"])]
         env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
@@ -1622,7 +1622,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
     """The keychain guard's rule 7a waives a repository variable only for a job that proves the claim."""
 
     SPARKLE = {"name": "Sign the feed", "run": "echo sign", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"}}
-    RUNS_ON = "${{ vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+    RUNS_ON = "${{ vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-27.2' }}"
 
     def failures(self, label: str, job: dict) -> list[str]:
         found: list[str] = []
@@ -1739,7 +1739,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
         # #53754 deleted rule 7, so a runs-on whose variable is only tested in a condition is no longer refused.
         # the tree's shape: the variable gives the label, after a mode test or among alternatives
         for runs_on in ("${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
-                        "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}",
+                        "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-27.2' }}",
                         "${{ github.event_name == 'push' && vars.CI_NIGHTLY_SIGN_RUNNER }}"):
             with self.subTest(runs_on=runs_on):
                 job = {"runs-on": runs_on,

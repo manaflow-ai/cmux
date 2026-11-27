@@ -3,7 +3,7 @@
 
 On 2026-11-15 about 14 lanes dispatched cmux-next.yml on their own branches. A dispatch runs every
 tier, so each one put a 5-unit `cmux app scheme compile (Debug)` (and a Release compile) on
-glaeda-side-std-xcode-26.6: 24 jobs queued there, the oldest 81 minutes. path_route now writes
+glaeda-side-std-xcode-27.2: 24 jobs queued there, the oldest 81 minutes. path_route now writes
 scheme=false and native=false for such a dispatch unless it passes `full=true`; pushes, pull
 requests, the DEV daily, base tier, tip suites and same-tree runs keep their routing.
 

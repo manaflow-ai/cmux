@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_ci_tui_routes_avoid_nightly_label import route  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
-RETRY_MAC = "glaeda-side-std-xcode-26.6"
+RETRY_MAC = "glaeda-side-std-xcode-27.2"
 
 
 def runs_on() -> str:

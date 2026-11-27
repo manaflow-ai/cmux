@@ -254,7 +254,7 @@ class WorkflowRoutingTests(unittest.TestCase):
     def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
         # Nightlies never run on Blacksmith: a resume restores on our own nightly Macs, as a fresh build does.
         for name, native_runner, resume_runner in (("build-nightly-app", "glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro"),
-                                                   ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6")):
+                                                   ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-27.2", "glaeda-nightly-std-xcode-27.2")):
             with self.subTest(name=name):
                 cells = workflow_jobs.runs_on_cells(self.jobs[name])
                 self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")

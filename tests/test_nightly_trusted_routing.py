@@ -44,7 +44,7 @@ TAIL_CONTROL_JOBS = (
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
-NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
+NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-27.2'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
 # jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
@@ -264,8 +264,8 @@ def select(field='runs-on', **changes):
         # The picker ran on this attempt; a re-run of failed jobs keeps an older value.
         'needs.pick-nightly-build-runner.outputs.attempt': '1',
         'vars.CI_PR_POOL_OWNED': '1',
-        'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
-        'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
+        'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-27.2',
+        'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-27.2',
         'vars.MACOS_RUNNER_26': 'blacksmith-12vcpu-macos-26',
         'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404',
     }
@@ -280,7 +280,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         for name in TAIL_CONTROL_JOBS:
             source = runs_on_text(DOC['jobs'][name], name).removeprefix('${{').removesuffix('}}')
             expr = parse_expression(source)
-            for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
+            for helper in ('', 'glaeda-side-std-xcode-27.2', 'glaeda-trusted-next-nightly',
                            'blacksmith-6vcpu-macos-26'):
                 for attempt in (1, 2, 3):
                     for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
@@ -329,9 +329,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                                     self.assertEqual(evaluate(expr, context), expected)
 
     def test_next_push_selects_the_picked_idle_owned_mac(self):
-        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-27.2',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
-        self.assertEqual(select(**picked), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(select(**picked), 'glaeda-side-std-xcode-27.2')
         # No idle owned runner now: the plain nightly-only pool, never the picker's Blacksmith label, and
         # never the warm builder label, which only its idle pick names (test_ci_runs_on_fallback.py).
         self.assertEqual(select(**{**picked, 'needs.pick-nightly-build-runner.outputs.owned': ''}), NIGHTLY_ONLY)
@@ -341,7 +341,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_main_keeps_its_worker_and_writer_environment(self):
         changes = {'github.ref': 'refs/heads/main'}
-        self.assertEqual(select(**changes), 'glaeda-trusted-std-xcode-26.6')
+        self.assertEqual(select(**changes), 'glaeda-trusted-std-xcode-27.2')
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
         # nightly-next enters artifacts for the App Store signing key (CMUX_STORE_SIGNING_KEY); any other ref none.
         self.assertEqual(select('environment'), 'artifacts')
@@ -353,24 +353,24 @@ class NightlyTrustedRouting(unittest.TestCase):
         # to the label that had refused it. The variable now only feeds the picker (OWNED_LABELS), and a
         # re-run of failed jobs (attempt 2, the rescue's), which keeps attempt 1's pick, takes the nightly-only
         # builder pool (many minis, never one label), never Blacksmith. A re-run that picks again reads its own pick.
-        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-27.2',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26',
-                  'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6'}
+                  'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-27.2'}
         self.assertEqual(select(**{**picked, 'github.run_attempt': 2}), NIGHTLY_ONLY)
         self.assertEqual(select(**{**picked, 'github.run_attempt': 3}), NIGHTLY_ONLY)
         self.assertEqual(select(**{**picked, 'github.run_attempt': 2,
                                    'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
-                         'glaeda-side-std-xcode-26.6')
-        self.assertEqual(select(**{**picked, 'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
+                         'glaeda-side-std-xcode-27.2')
+        self.assertEqual(select(**{**picked, 'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-27.2')
         # A failed pick (empty outputs) takes the plain nightly-only pool, never an unvalidated variable.
-        for variable in ('macos-26', 'macos-15', 'glaeda-side-std-xcode-26.6', 'blacksmith-12vcpu-macos-26', ''):
+        for variable in ('macos-26', 'macos-15', 'glaeda-side-std-xcode-27.2', 'blacksmith-12vcpu-macos-26', ''):
             for attempt in (1, 2):
                 with self.subTest(variable=variable, attempt=attempt):
-                    self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6',
+                    self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-27.2',
                                                'vars.MACOS_RUNNER_26': variable, 'github.run_attempt': attempt}),
                                      NIGHTLY_ONLY)
         # An unsigned resume reads its pick like a build: restore work never leaves our runners.
-        self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-27.2')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
     def test_decide_uses_only_read_permissions_for_metadata_and_placement(self):
@@ -461,21 +461,21 @@ class NightlyTrustedRouting(unittest.TestCase):
                 runs_on_text(DOC['jobs']['build-nightly-ghostty-cli-helper'], 'build-nightly-ghostty-cli-helper').removeprefix('${{').removesuffix('}}')),
                 {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                  'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
-                 'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
-                 'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
+                 'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-27.2',
+                 'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-27.2',
                  # nightly-next reads pick-nightly-build-runner's owned picks
                  # (tests/test_nightly_build_runner.py covers every combination).
-                 'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-side-std-xcode-26.6',
+                 'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-side-std-xcode-27.2',
                  'needs.pick-nightly-build-runner.outputs.attempt': '1',
                  'needs.pick-nightly-build-runner.outputs.dedicated': '',
                  'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26', **changes})
-        self.assertEqual(helper(), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(helper(), 'glaeda-side-std-xcode-27.2')
         # A retry or rescue re-run (a re-run of failed jobs keeps attempt 1's pick) leaves a busy mini for
         # the owned nightly slot; a dispatch, or a re-run that picked again, takes its own owned pick.
         self.assertEqual(helper(**{'github.run_attempt': 2}), NIGHTLY_SLOT)
-        self.assertEqual(helper(**{'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(helper(**{'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-27.2')
         self.assertEqual(helper(**{'github.run_attempt': 2, 'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
-                         'glaeda-side-std-xcode-26.6')
+                         'glaeda-side-std-xcode-27.2')
         # The dedicated builder admits only build-nightly-app: the helper never takes it.
         self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
@@ -483,10 +483,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # While the app build holds the dedicated builder, the helper takes its own idle owned pick.
         self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
-                         'glaeda-side-std-xcode-26.6')
-        self.assertEqual(helper(**{'github.ref': 'refs/heads/main'}), 'glaeda-trusted-std-xcode-26.6')
+                         'glaeda-side-std-xcode-27.2')
+        self.assertEqual(helper(**{'github.ref': 'refs/heads/main'}), 'glaeda-trusted-std-xcode-27.2')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main', 'github.event_name': 'schedule'}),
-                         'glaeda-trusted-std-xcode-26.6')
+                         'glaeda-trusted-std-xcode-27.2')
         # No owned pick (busy fleet, no routing token): the owned nightly slot, never Blacksmith.
         for changes in ({'github.run_attempt': 2},
                         {'github.event_name': 'workflow_dispatch', 'needs.pick-nightly-build-runner.outputs.helper': ''},
@@ -497,7 +497,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertEqual(helper(**changes), NIGHTLY_SLOT)
         # An unsigned resume reads the helper pick like a build.
-        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-27.2')
         # The nightly-only reservation, when enabled, comes first on attempt 1 only.
         self.assertEqual(helper(**{'vars.CI_NIGHTLY_ONLY_RUNNER': NIGHTLY_ONLY,
                                    'needs.decide.outputs.track': 'nightly-next'}), NIGHTLY_ONLY)
@@ -762,14 +762,14 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
                 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1, 'github.run_id': '1',
                 'needs.decide.outputs.fast_build': 'false', 'vars.CI_PR_POOL_OWNED': '1',
-                'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
+                'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-27.2',
             }
             context.update(changes)
             return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
-        self.assertIn('glaeda-side-std-xcode-26.6', select(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6'}))
+        self.assertIn('glaeda-side-std-xcode-27.2', select(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-27.2'}))
         self.assertEqual(select(**{'github.run_attempt': 2}), NIGHTLY_ONLY)
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), NIGHTLY_ONLY)
         self.assertEqual(group(**{'vars.CI_SIDE_LANE_RUNNER': '', 'github.run_id': '1'}), 'nightly-build-app-1')
@@ -995,7 +995,7 @@ class DaemonBesideTheApp(unittest.TestCase):
         # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty. With no helper, NEXT's first
         # attempt takes the all-nightly reservation, and every other case our nightly-only pool.
         source = runs_on_text(DOC['jobs']['build-nightly-remote-daemon'], 'build-nightly-remote-daemon').removeprefix('${{').removesuffix('}}')
-        mini = 'glaeda-side-std-xcode-26.6'
+        mini = 'glaeda-side-std-xcode-27.2'
         base = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                 'needs.decide.outputs.track': 'nightly-next',

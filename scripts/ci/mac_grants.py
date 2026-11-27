@@ -59,8 +59,8 @@ def grant_label(run_id: str | int, attempt: str | int) -> str:
 
 
 def xcode_label(sources: Iterable[str | None]) -> str:
-    """`xcode-<version>` from the first source naming one (`/Applications/Xcode_26.6.app`,
-    `glaeda-std-xcode-26.6`); "" with none."""
+    """`xcode-<version>` from the first source naming one (`/Applications/Xcode_27.2.app`,
+    `glaeda-std-xcode-27.2`); "" with none."""
     for source in sources:
         match = _XCODE.search((source or "").strip())
         if match:

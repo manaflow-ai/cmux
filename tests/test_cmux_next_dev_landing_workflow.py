@@ -106,7 +106,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("run_attempt", job["if"])
         place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
         self.assertEqual(place_env["NIGHTLY_LABEL"],
-                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-27.2' }}")
         runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
         self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
         self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)

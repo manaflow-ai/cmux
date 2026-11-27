@@ -554,7 +554,7 @@ def session_label_problems(text: str) -> list[str]:
     """Why a runs-on can send a job to a session label without a placement having judged that label's queue.
 
     The session label's runners are often online and busy on gui jobs while it starts nothing: on 2026-10-29
-    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-26.6, twice, with five session
+    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-27.2, twice, with five session
     runners online (36 offline) and the gui label beside it starting jobs within a minute, and the janitor
     opened "Runner label starved" issues for it twice that day. The gui-or-session rule above passed those
     jobs, because it counts ci-owned-pool-rescue.yml's watch as the way off; but the rescue watches a cmux-next
@@ -579,7 +579,7 @@ def session_label_problems(text: str) -> list[str]:
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
 # label: on 2026-10-29 the NEXT post-publish launch smoke waited 45 minutes to 2 hours on
-# glaeda-side-std-xcode-26.6 (build 4086860262501 published 12:18Z, smoked from 13:14Z).
+# glaeda-side-std-xcode-27.2 (build 4086860262501 published 12:18Z, smoked from 13:14Z).
 CASCADE_PLACED = {("nightly-next-launch-smoke.yml", "smoke"): ("pick", "launch-smoke")}
 
 
@@ -839,7 +839,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         """The reserved-slot rule above trusts each placement to name the slot only while it can take the job.
         dev-daily-place reads the slot's label too (FRESH_LABEL) and its output goes straight into
         cmux-scheme-compile's runs-on, so a busy slot there is the only route: on 2026-11-02 from 10:12Z 15 DEV
-        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6 (one runner busy, the other offline) while
+        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-27.2 (one runner busy, the other offline) while
         Blacksmith overflow was never tried. With every owned runner busy and a Blacksmith macOS label moving, no
         such placement may answer the slot (or any owned label): the routing order's last resort comes first."""
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -855,7 +855,7 @@ class RunsOnFallbackTests(unittest.TestCase):
                   "label_started": {"blacksmith-6vcpu-macos-26": "2026-11-02T10:10:00Z"},
                   "pools": {"blacksmith-6vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 2},
                             "blacksmith-12vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 1}}}
-        slot, side = "glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6"
+        slot, side = "glaeda-dev-std-xcode-27.2", "glaeda-side-std-xcode-27.2"
         busy = [{"name": "m1-glaeda-2", "status": "online", "busy": True, "labels": [{"name": slot}]},
                 {"name": "m2-glaeda-2", "status": "offline", "busy": False, "labels": [{"name": slot}]},
                 {"name": "m3-glaeda-1", "status": "online", "busy": True, "labels": [{"name": side}]}]
@@ -902,10 +902,10 @@ class RunsOnFallbackTests(unittest.TestCase):
 
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"
-        gui = "'glaeda-gui-std-xcode-26.6'"
+        gui = "'glaeda-gui-std-xcode-27.2'"
         # A bare gui label, or one whose last alternative is another owned label or a variable.
         self.assertTrue(role_label_problems(here, f"${{{{ {gui} }}}}", {here}))
-        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'glaeda-side-std-xcode-26.6' }}}}", {here}))
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'glaeda-side-std-xcode-27.2' }}}}", {here}))
         self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || vars.MACOS_RUNNER_26 }}}}", {here}))
         # A gui label on every attempt: the rescue's re-run would queue on it again.
         self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
@@ -967,7 +967,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(overflow_preempted(f"${{{{ a || ({fork} || github.run_attempt != 1 && {small} || {overflow}) }}}}"))
         self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
         # No gui_overflow read: another rule's business.
-        self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+        self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-27.2' }}}}"), [])
 
     def test_a_session_label_comes_only_from_a_placement_that_judged_it(self) -> None:
         failures, placed = [], 0
@@ -980,14 +980,14 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertGreaterEqual(placed, 1, "cmux-next's daemon tests read the placement's session_runner")
 
     def test_the_session_label_rule_catches_what_it_is_for(self) -> None:
-        session = "'glaeda-session-std-xcode-26.6'"
-        gui = "'glaeda-gui-std-xcode-26.6'"
+        session = "'glaeda-session-std-xcode-27.2'"
+        gui = "'glaeda-gui-std-xcode-27.2'"
         # cmux#24295's route: the literal session label behind a variable switch, gated and with a Blacksmith end.
         self.assertTrue(session_label_problems(
             f"${{{{ github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && {session} || {gui}) "
             "|| 'blacksmith-6vcpu-macos-26' }}"))
         self.assertTrue(session_label_problems(f"${{{{ {session} }}}}"))
-        self.assertTrue(session_label_problems("glaeda-session-light-xcode-26.6".join("''")))
+        self.assertTrue(session_label_problems("glaeda-session-light-xcode-27.2".join("''")))
         # A session variable taken without the placement's verdict, or behind another `||` branch.
         self.assertTrue(session_label_problems(
             "${{ vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"))
@@ -1068,7 +1068,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertIsNotNone(POOL_FALLBACK.search(" || vars.MACOS_RUNNER_26 || 'x'"))
         self.assertTrue(SINGLE_HOST.search("glaeda-runner-cmux15"))
         self.assertTrue(SINGLE_HOST.search("runs-on: cmux22"))
-        self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-26.6"))
+        self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-27.2"))
         self.assertFalse(SINGLE_HOST.search("blacksmith-6vcpu-macos-26"))
         # The large-Mac rule: a literal last resort fails; a picker's answer, or a 6 vCPU last resort, passes.
         owner = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "

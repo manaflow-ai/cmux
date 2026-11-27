@@ -105,7 +105,7 @@ def check_cmux_next_tree_miss_does_not_wait(failures: list) -> None:
         log = scratch / "swift.log"
         (scratch / "tmp").mkdir()
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_LOG": str(log),
-               "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
+               "DEVELOPER_DIR": "/Applications/Xcode_27.2.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
                "GITHUB_REPOSITORY": "o/r", "GITHUB_API_URL": f"file://{scratch / 'api'}",
                "CMUX_TUI_PIN_BASE": "https://127.0.0.1:9/cmux-tui",
                "CMUX_TUI_TREE_FALLBACK_REMOTE": str(scratch / "no-remote"),
@@ -164,7 +164,7 @@ def main() -> int:
         (bin_dir / "xcrun").chmod(0o755)
         log = scratch / "swift.log"
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_LOG": str(log),
-               "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
+               "DEVELOPER_DIR": "/Applications/Xcode_27.2.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
                # The macOS path, on any host (on Linux the lane runs only swift-linux-packages.txt).
                "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
         (scratch / "tmp").mkdir()

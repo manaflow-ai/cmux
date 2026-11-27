@@ -36,8 +36,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
-SIDE = "glaeda-side-std-xcode-26.6"
-ROOT_LABEL = "glaeda-root-std-xcode-26.6"
+SIDE = "glaeda-side-std-xcode-27.2"
+ROOT_LABEL = "glaeda-root-std-xcode-27.2"
 REPO_ID = "42"
 
 
@@ -136,7 +136,7 @@ class PickerTests(unittest.TestCase):
     def test_busy_offline_and_unpinnable_runners_are_not_free(self):
         roots, sides = place.free_runners([
             root_runner("a-glaeda-1", busy=True), root_runner("b-glaeda-1", status="offline"),
-            runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-26.6")], SIDE)
+            runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-27.2")], SIDE)
         self.assertEqual((roots, sides), ([], []))
 
     def test_no_free_owned_mac_for_two_minutes_compiles_nothing(self):
@@ -199,7 +199,7 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(gap("f" * 40, commits[9]), "")
 
 
-FRESH = "glaeda-dev-std-xcode-26.6"
+FRESH = "glaeda-dev-std-xcode-27.2"
 SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
 NOW = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
 
@@ -310,7 +310,7 @@ class DailyPickerTests(unittest.TestCase):
         self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
 
     def test_with_nothing_owned_idle_it_overflows_to_a_moving_blacksmith_label_not_the_busy_dev_slot(self):
-        # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6, whose two
+        # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-27.2, whose two
         # runners were busy and offline: a label one or two runners serve is a reservation, and
         # every reservation has a fallback within minutes. Blacksmith macOS is the routing order's last resort.
         busy = [slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2", status="offline"),
@@ -327,7 +327,7 @@ class DailyPickerTests(unittest.TestCase):
         self.assertEqual(json.loads(result["runs_on"]), LARGE)
 
     def test_only_with_every_blacksmith_label_stalled_it_waits_on_a_busy_dev_slot_not_behind_the_side_queue(self):
-        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-26.6 from 13:55Z behind about 184 PR
+        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-27.2 from 13:55Z behind about 184 PR
         # and side jobs (GitHub hands a label's queue out oldest first), while the DEV slots, which admit only feed
         # work, ran DEV compiles. Waiting on the slot label puts it behind DEV work only.
         stalled = snapshot({SMALL: 49, LARGE: 30})
@@ -378,7 +378,7 @@ class DailyPickerTests(unittest.TestCase):
     def test_an_idle_nightly_slot_comes_after_the_nearest_cache_and_before_the_dev_slot_and_blacksmith(self):
         # The runner hook ranks the DEV daily compile nightly-tier, so the nightly slot admits it. Leo: "Nightlies
         # come first on the fleet". Order: owned idle on the nearest cache, idle nightly slot, DEV slot, Blacksmith.
-        nightly = "glaeda-nightly-std-xcode-26.6"
+        nightly = "glaeda-nightly-std-xcode-27.2"
         night = runner("cmux20s-glaeda-nightly", nightly)
         # A claimable warm host still wins.
         result = self.daily([slot("cmux8s-glaeda-2"), night], self.records(cmux8s=1), NIGHTLY_LABEL=nightly)

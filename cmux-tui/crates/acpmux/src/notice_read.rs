@@ -38,7 +38,7 @@ pub fn read(text: &str) -> Option<Value> {
 
 /// The condition a notice reports, so a repeat of it folds whatever its counts say now: its
 /// sender and title, lowercased, every run of digits one `#`, whitespace one space.
-/// `now` · "Runner label stalled: trusted xcode-26.6, 9 queued" and the same with 12 queued
+/// `now` · "Runner label stalled: trusted xcode-27.2, 9 queued" and the same with 12 queued
 /// are one condition; another label is another.
 pub fn condition_key(sender: &str, title: &str) -> String {
     let mut key = format!("{}\n", sender.trim().to_lowercase());

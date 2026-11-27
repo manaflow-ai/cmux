@@ -567,7 +567,7 @@ class Notify(unittest.TestCase):
 
 class SupersededSameTreeRuns(unittest.TestCase):
     """2026-11-09 13:30Z: 14 same-tree runs of pull requests whose heads had moved on waited in the Mac
-    queue (glaeda-side-std-xcode-26.6: 11 runners, 100 queued jobs), each only for its `cmux app scheme
+    queue (glaeda-side-std-xcode-27.2: 11 runners, 100 queued jobs), each only for its `cmux app scheme
     compile (Debug)`; lane/review-from-link alone had 3 (42607592895, 42613668792, 42620815281). Each
     same-tree run has a concurrency group of its own, and is_current() is read only at the dispatch.
     After a dispatch for a pull request, the older open first-attempt same-tree runs of that pull request

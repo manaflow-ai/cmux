@@ -359,10 +359,10 @@ MAC_TOOLCHAIN = {
 # The env flags each Mac job passes; '' is a value (an empty swift filter runs every selected target).
 MAC_FLAGS = {
     "swift-test": {"swift_targets": "CmuxNextAppTests", "swift_filter": "", "mini": "true",
-                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false",
+                   "xcode_app": "/Applications/Xcode_27.2.app", "web_bundles": "0123abcd", "layout_reducer": "false",
                    "generated_base": ""},
-    "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
-    "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app"},
+    "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_27.2.app", "web_bundles": "0123abcd"},
+    "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_27.2.app"},
 }
 MAC_JOBS = tuple(MAC_FLAGS)
 

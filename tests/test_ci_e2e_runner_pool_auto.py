@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import e2e_runner_pool  # noqa: E402
 import simple_pool_picker  # noqa: E402
 
-GUI = "glaeda-gui-std-xcode-26.6"
+GUI = "glaeda-gui-std-xcode-27.2"
 
 
 def auto_pick(label: str) -> tuple[int, str]:
@@ -41,7 +41,7 @@ def auto_pick(label: str) -> tuple[int, str]:
         with contextlib.redirect_stdout(out):
             code = e2e_runner_pool.main(
                 ["--requested", "auto", "--owned", "1", "--owned-slots", f'{{"{GUI}": 1}}',
-                 "--pr-xcode-app", "/Applications/Xcode_26.6.app"],
+                 "--pr-xcode-app", "/Applications/Xcode_27.2.app"],
                 env={"GH_REPO": "manaflow-ai/cmux", "ROUTE_TOKEN": "token"},
             )
     finally:
@@ -59,8 +59,8 @@ def test_an_auto_pick_with_no_owned_mac_free_names_a_blacksmith_pool() -> None:
     assert code == 0 and label and not label.startswith("glaeda-"), (code, label)
 
 
-AWS = "glaeda-aws-std-xcode-26.6"
-MINI = "glaeda-std-xcode-26.6"
+AWS = "glaeda-aws-std-xcode-27.2"
+MINI = "glaeda-std-xcode-27.2"
 
 
 def frame_pacing_pick(labels: list[str], *, busy: tuple[str, ...] = (), fork: bool = False,
@@ -80,7 +80,7 @@ def frame_pacing_pick(labels: list[str], *, busy: tuple[str, ...] = (), fork: bo
          contextlib.redirect_stdout(io.StringIO()) as out:
         code = e2e_runner_pool.main(
             ["--requested", "auto", "--owned", "1", "--owned-slots", json.dumps(dict.fromkeys(labels, 1)),
-             "--pr-xcode-app", "/Applications/Xcode_26.6.app"], env=env)
+             "--pr-xcode-app", "/Applications/Xcode_27.2.app"], env=env)
     assert code == 0
     return out.getvalue().strip()
 

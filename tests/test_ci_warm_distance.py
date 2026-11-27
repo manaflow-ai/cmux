@@ -31,7 +31,7 @@ git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 NOW = dt.datetime(2026, 9, 26, 3, 0, tzinfo=dt.timezone.utc)
-ROOT_LABEL = "glaeda-root-std-xcode-26.6"
+ROOT_LABEL = "glaeda-root-std-xcode-27.2"
 
 
 def label(name: str) -> str:

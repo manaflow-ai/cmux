@@ -33,8 +33,8 @@ def test_non_main_dispatch_remote_daemon_uses_picked_owned_side_runner() -> None
     context = github_context("workflow_dispatch", ref="refs/heads/topic")
     context["github"].update(repository="manaflow-ai/cmux", run_attempt=1,
                              workflow_ref="manaflow-ai/cmux/.github/workflows/ci.yml@refs/heads/topic")
-    context["inputs"].update(pr_owned_jobs=" remote-daemon ", pr_side_runner="glaeda-side-std-xcode-26.6")
-    assert evaluate(route, context) == "glaeda-side-std-xcode-26.6"
+    context["inputs"].update(pr_owned_jobs=" remote-daemon ", pr_side_runner="glaeda-side-std-xcode-27.2")
+    assert evaluate(route, context) == "glaeda-side-std-xcode-27.2"
 
 
 if __name__ == "__main__":

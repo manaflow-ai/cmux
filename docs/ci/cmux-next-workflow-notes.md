@@ -118,11 +118,11 @@ passed 40 minutes later, and the PR went red on the wait).
 Above `fast-tier: runs-on` in `.github/workflows/cmux-next.yml`.
 
 vars.CI_FAST_LANE_RUNNER is the fast tier's own reserved runner label
-(glaeda-fast-<class>-xcode-26.6). The tier takes it only through the
+(glaeda-fast-<class>-xcode-27.2). The tier takes it only through the
 placement's fast_runner, set while one of its runners is idle, and only on
 attempt 1: a re-run reuses attempt 1's placement, whose idle reading is stale.
 With no fast runner idle, fast_runner names an idle light side runner instead
-(glaeda-side-light-xcode-26.6, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
+(glaeda-side-light-xcode-27.2, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
 "the light minis are largely idling"), never while a nightly job waits on the light minis.
 Otherwise the tier takes the current cascade allocation. With every
 alternative excluded, deferred_runner preserves the base owned queue;
@@ -197,12 +197,12 @@ runner listing: a host with any busy runner is occupied (whatever holds its host
 pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
 its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
 record. Otherwise an idle nightly slot (NIGHTLY_LABEL, from vars.CI_DEV_COMPILE_NIGHTLY_RUNNER, default
-glaeda-nightly-std-xcode-26.6, picked as nightly_build_runner.owned_route() picks the nightly's own): the
+glaeda-nightly-std-xcode-27.2, picked as nightly_build_runner.owned_route() picks the nightly's own): the
 runner hook ranks the DEV daily compile nightly-tier, and Leo's rule is "Nightlies come first on the fleet".
 Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
 hands that label's queue out oldest first, so an idle side runner in the one listing is no place in line,
 and the compile joins the tail behind every PR job there (run 44941204257, 2026-11-21: 76 min on
-glaeda-side-std-xcode-26.6 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first
+glaeda-side-std-xcode-27.2 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first
 on the fleet"). With nothing owned idle it overflows to a moving Blacksmith macOS label, else waits on the DEV
 slot, else prints no route and the compile keeps macos-placement's. It places every attempt, not only the
 first: a re-run (the owned-pool rescue's after a refusal) is placed again instead of falling to the side
@@ -403,11 +403,11 @@ labels) are as stale, so from attempt 2 on a Mac job takes one only while this e
 run_attempt too; a carried reading, whoever re-ran the run, sends it to the moving Blacksmith label
 (vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
 cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
-glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
+glaeda-side-std-xcode-27.2 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
 (tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs on attempt 1 and on every
 rescue bot attempt, placed afresh (next_macos_cascade.bot_rerun()); a person's re-run past attempt 1 carries
 attempt 1's reading and never takes an owned label. Run 43716323834's attempt 5 (#43733, 2026-11-15) queued
-on glaeda-side-std-xcode-26.6 while glaeda-gui-std-xcode-26.6 had nothing queued, because placement then ran only
+on glaeda-side-std-xcode-27.2 while glaeda-gui-std-xcode-27.2 had nothing queued, because placement then ran only
 up to the bot's attempt 3; fast-tier-handback-placement's
 reading is gated on its own placed_attempt the same way.
 
@@ -3183,7 +3183,7 @@ gh's message and body (`gh_failure` in `scripts/ci/cmux_next_push_attribution.py
 Above `light_runner` in macos-placement's outputs and `LIGHT_SPILL_JOBS` in its place step in `.github/workflows/cmux-next.yml`.
 
 A pull request's swift-canary, daemon-test and generated-files take an idle light side runner
-(glaeda-side-light-xcode-26.6) when no idle std side runner took them, before the cascade
+(glaeda-side-light-xcode-27.2) when no idle std side runner took them, before the cascade
 (side_lane_placement.light_spill_route(); Leo, 2026-11-11: "nobody seems to be doing stuff rn", with
 the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units). Only these three: they
 build the same CmuxNext package seed the fast tier builds, which the 16 GB light minis already run, and
@@ -3195,7 +3195,7 @@ CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
 Also above `LIGHT_FIT_JOBS`, beside `LIGHT_SPILL_JOBS`: the re-run's light move.
 
 Leo, 2026-11-15: "you can decide on best routing for stuff". On 2026-11-15 from 01:10Z, 32 jobs on
-glaeda-side-std-xcode-26.6 (generated files, the fast tier, the app scheme compile) stayed queued after light
+glaeda-side-std-xcode-27.2 (generated files, the fast tier, the app scheme compile) stayed queued after light
 side runners freed: note-348's spill places attempt 1 only, and GitHub never moves a queued job. The rescue on
 main (owned_pool_rescue.light_wait()) now cancels such a pull request run and re-runs its placement once a job
 it can move has waited LIGHT_MOVE_SECONDS on the std side label while the fleet gates show a light side runner
@@ -3246,7 +3246,7 @@ placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
 
-The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6` had 76 jobs queued, the oldest
+The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-27.2` had 76 jobs queued, the oldest
 150 min, and no owned Mac was free) is Blacksmith macOS for this workflow's pull-request jobs only. Its
 placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
 `pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
@@ -3261,7 +3261,7 @@ refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; att
 `tip_daemon_suite`, `base_tier` or `no_reuse` set, so its run name is the default `cmux-next · <sha>` that
 main's `owned_pool_rescue.same_tree_pull_dispatch()` reads. Without it the stall move skipped every such run under
 `pr-rescue`, its re-run rejoining the side lane: cmux#44529's scheme compile (run 43879624016, job 133341854319)
-queued on `glaeda-side-std-xcode-26.6` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
+queued on `glaeda-side-std-xcode-27.2` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
 run only when its head's cmux-next.yml carries this clause. DEV daily, the tip suites, the base tier and a push's
 same-tree run keep the side lane. Every other
 workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
@@ -3428,7 +3428,7 @@ compile (Debug)` (scheme=false) and `cmux-next Release compile (Xcode 26)` (nati
 dispatch, native drives only the Release compile: the build fleet's app compile runs on pull
 requests only. Dispatch with `full=true` to run both. On 2026-11-15 about 14 lanes dispatched
 the workflow on their branches, and each dispatch put a 5-unit scheme compile on
-glaeda-side-std-xcode-26.6: 24 jobs queued there, the oldest 81 minutes (macos-pool-load,
+glaeda-side-std-xcode-27.2: 24 jobs queued there, the oldest 81 minutes (macos-pool-load,
 10:35Z), and the NOW runner-starve alarm fired. Pushes, pull requests, nightly, DEV daily and
 base tier runs are unchanged (tests/test_cmux_next_dispatch_heavy_compiles.py).
 
@@ -3715,8 +3715,8 @@ Above `borrow_runner` in `jobs.macos-placement.outputs` and above `BORROW_JOBS` 
 of `.github/workflows/cmux-next.yml`.
 
 Borrowing an idle pool beside a backed-up one (scripts/ci/side_lane_placement.py borrow_route()). On 2026-11-16
-at 03:16Z macos-pool-load showed glaeda-std-xcode-26.6 48 queued and glaeda-side-std-xcode-26.6 44 (oldest 113
-min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR verdicts ended on the Release compile. A
+at 03:16Z macos-pool-load showed glaeda-std-xcode-27.2 48 queued and glaeda-side-std-xcode-27.2 44 (oldest 113
+min) while glaeda-gui-std-xcode-27.2 had 0 queued, and the slowest PR verdicts ended on the Release compile. A
 same-repo PR's Release compile that no idle side or light runner took takes the gui label (`borrow_runner`,
 listed in `borrow_jobs`) only while the side route has a queue, the gui label has nothing queued, more idle
 runners than the reserve (1) plus this run's own GUI jobs, and fewer than BORROW_CAP (2) gui runners already run a
@@ -3743,7 +3743,7 @@ feat-cmux-next in (update-branch), and only after every check at the older head 
 then lands the base merge M on its merged-tree checks alone (cmux-next/fast-gates on Linux,
 cmux-next/compile on the build fleet, the web compile) and carries the rest from H (land-judge
 merged_tree_hold). This workflow still ran every Mac tier again at M. On 2026-11-16 at 05:44Z, with
-macos-pool-load at 134 queued on glaeda-std-xcode-26.6 and 126 on glaeda-side-std-xcode-26.6 (oldest 187
+macos-pool-load at 134 queued on glaeda-std-xcode-27.2 and 126 on glaeda-side-std-xcode-27.2 (oldest 187
 min), 18 of the 60 open cmux-next pull request runs were on base-merge heads and 13 more same-tree dispatches
 tested their trees: Mac jobs no merge waited on, queued in front of pull requests that do wait on theirs. The
 land loops take the update-branch step up to four rounds, so one PR could queue four copies of its Mac tiers.
@@ -3920,7 +3920,7 @@ daemon tests job fetches the tree and runs the daemon suites.
 
 Above `environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}` in `.github/workflows/cmux-next.yml`.
 
-vars.CI_SESSION_LANE_RUNNER is generated files' own owned label (glaeda-session-light-xcode-26.6,
+vars.CI_SESSION_LANE_RUNNER is generated files' own owned label (glaeda-session-light-xcode-27.2,
 the light minis' session runner: a logged-in session, no console token). It is set only after
 those runners are registered; while it is unset the route below is unchanged. The fork clause
 stays first, so a fork pull request never reaches it. Same-repository PRs use the
@@ -5028,7 +5028,7 @@ Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-nex
 With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
 fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
 label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
-glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+glaeda-side-std-xcode-27.2 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
 76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
 fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label

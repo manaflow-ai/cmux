@@ -45,7 +45,7 @@ Load command 0
      path /usr/lib/swift (offset 12)
 Load command 1
       cmd LC_RPATH
-     path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx (offset 12)
+     path /Applications/Xcode_27.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx (offset 12)
 Load command 2
       cmd LC_RPATH
      path @loader_path/../Frameworks (offset 12)
@@ -125,7 +125,7 @@ if CMUX_FAKE_MODE=bad-rpath run_guard > "$TMP_DIR/bad-rpath.log" 2>&1; then
   echo 'FAIL: the guard accepted an absolute Xcode toolchain rpath' >&2
   exit 1
 fi
-grep -Fq '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains' "$TMP_DIR/bad-rpath.log"
+grep -Fq '/Applications/Xcode_27.2.app/Contents/Developer/Toolchains' "$TMP_DIR/bad-rpath.log"
 grep -Fq 'cmux-diff-sidecar' "$TMP_DIR/bad-rpath.log"
 
 if CMUX_FAKE_MODE=bad-load run_guard > "$TMP_DIR/bad-load.log" 2>&1; then

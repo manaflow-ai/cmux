@@ -202,14 +202,14 @@ class DedicatedMini(unittest.TestCase):
         output = DOC["jobs"]["pick-nightly-sign-runner"]["outputs"]["owned"]
         expression = parse_expression(output.removeprefix("${{").removesuffix("}}"))
         valid = context(**{"github.ref_name": "nightly-next",
-                            "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"})
+                            "steps.owned.outputs.owned": "glaeda-side-std-xcode-27.2"})
         self.assertEqual(evaluate(expression, valid), LABEL)
         self.assertEqual(evaluate(expression, {**valid, "github.event_name": "workflow_dispatch"}), LABEL)
         # A bad variable, fork, other track or retry falls through to the normal
         # owned picker (or an empty output); it can never widen the reservation.
         self.assertEqual(evaluate(expression, {**valid, VARIABLE: "glaeda-unregistered"}),
-                         "glaeda-side-std-xcode-26.6")
-        for changes in ({VARIABLE: "", "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"},
+                         "glaeda-side-std-xcode-27.2")
+        for changes in ({VARIABLE: "", "steps.owned.outputs.owned": "glaeda-side-std-xcode-27.2"},
                         {"github.run_attempt": 2},
                         {"github.repository": "other/cmux", "github.repository_owner": "other"},
                         {"github.ref_name": "main"}):

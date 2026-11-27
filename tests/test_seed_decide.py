@@ -160,7 +160,7 @@ class Decide(unittest.TestCase):
         # part of the seed key, so the trusted pool seeds there as its own job.
         import json
         import tempfile
-        trusted = "glaeda-trusted-std-xcode-26.6"
+        trusted = "glaeda-trusted-std-xcode-27.2"
         self.assertEqual(seed_decide.lane(f"{trusted}@2"), {"pool": trusted, "root": "2"})
         self.assertEqual(seed_decide.seed_job_name(f"{trusted}@2"), f"seed ({trusted}, 2)")
         self.assertEqual(seed_decide.seed_job_name(trusted), f"seed ({trusted})")
@@ -239,7 +239,7 @@ class FarLane(unittest.TestCase):
         self.assertEqual(far, [])
 
     def test_each_lane_measures_from_its_own_covering_seed(self):
-        trusted = "glaeda-trusted-std-xcode-26.6"
+        trusted = "glaeda-trusted-std-xcode-27.2"
         api = Api([run(2, "p1"), run(1, "p2")], {2: [seed_job(pool=trusted)], 1: [seed_job(pool=f"{trusted}, 2")]})
         far = []
         build, _ = decide(api, ["p1", "p2"], {"HEAD": "v3", "p1": "v1", "p2": "v2"},

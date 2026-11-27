@@ -259,7 +259,7 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
     return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
-# The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-26.6 had 76 jobs
+# The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-27.2 had 76 jobs
 # queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
 # Only a cmux-next.yml pull_request run, or a dispatch gating one, honors it (pr_rescue()): its placement takes Blacksmith macOS once the
 # owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
@@ -438,7 +438,7 @@ class Seen:
     # The owned labels the janitor found unserved (queue_janitor.py's `unserved`, starved_labels.unserved()): a
     # job queued on the label and none running or started on it within starved_labels.STARVED_AFTER. A label
     # whose runners are online and busy elsewhere looks like room by its counts, yet starts nothing:
-    # glaeda-session-std-xcode-26.6 held cmux#24295's daemon tests 90 minutes on 2026-10-29 that way, with
+    # glaeda-session-std-xcode-27.2 held cmux#24295's daemon tests 90 minutes on 2026-10-29 that way, with
     # five runners online and the queue shorter than them (role_room() in side_lane_placement.py reads this).
     unserved: frozenset[str] = frozenset()
 
@@ -765,7 +765,7 @@ def dead_end(route_wait: float | None, live: Mapping[str, int], waiting: Mapping
     host), or None (an idle runner, or nothing read). It is a dead end once that wait reaches STALL_MINUTES
     (the stall rule every picker reads) and exceeds SMALL's own oldest wait, while SMALL still starts jobs:
     a runner in flight, or no queue. On 2026-10-29 cmux#26723's fast tier (run 40841809952) queued on
-    glaeda-side-std-xcode-26.6 from 08:24Z behind 96 jobs whose oldest had waited 443 minutes, while
+    glaeda-side-std-xcode-27.2 from 08:24Z behind 96 jobs whose oldest had waited 443 minutes, while
     blacksmith-6vcpu-macos-26 ran 4 with its oldest queued 27 minutes: overflow() called that queue stalled
     and kept the job on the far longer one.
     """
@@ -796,7 +796,7 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
     waits on one reserved pool with no fallback (2026-10-24: "THERE SHOULD BE 0 QUEUE EVER HERE"). With
     every owned side runner busy and no free Blacksmith slot, the jobs used to stay on the side label and
     the run took the refusals-only marker, so nothing moved them again: on 2026-10-29 cmux#26723's fast
-    tier waited on glaeda-side-std-xcode-26.6 from 03:14Z for hours while glaeda's listener gate held the
+    tier waited on glaeda-side-std-xcode-27.2 from 03:14Z for hours while glaeda's listener gate held the
     saturated std minis' side runners offline, and cmux#27066's waited 2 h the same way.
 
     6 vCPU is the overflow, never 12: its ten slots turn over (median start 2.6 min on 2026-10-20), while a
@@ -879,9 +879,9 @@ def bot_rerun(env: Mapping[str, str]) -> bool:
     """The rescue's re-run: any attempt from 2 on that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1.
 
     Until 2026-11-10 attempt 2 was the last placement, until 2026-11-15 attempt 3: whatever the last one chose held.
-    cmux#40330's run 42858473381 stayed on glaeda-side-std-xcode-26.6 for hours after a placement read a stalled
+    cmux#40330's run 42858473381 stayed on glaeda-side-std-xcode-27.2 for hours after a placement read a stalled
     Blacksmith, and run 43716323834's attempt 5 (#43733) queued 'cmux-next generated files' on side-std again while
-    glaeda-gui-std-xcode-26.6 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
+    glaeda-gui-std-xcode-27.2 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
     return (attempt.isdigit() and int(attempt) >= 2
             and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
@@ -941,7 +941,7 @@ def fleet_spill(env: Mapping[str, str], owned: Sequence[str], saturated: bool,
     """The FLEET_CLIENT_JOBS that take the fleet gateway while Blacksmith macOS is off (place()).
 
     With the switch off no Blacksmith label takes a job, so a cascade job no idle mini took waits on its owned
-    label: 2026-11-23 09-11Z the fast tier queued 46 to 65 min on glaeda-side-std-xcode-26.6 (173 jobs queued
+    label: 2026-11-23 09-11Z the fast tier queued 46 to 65 min on glaeda-side-std-xcode-27.2 (173 jobs queued
     there, every one of its 31 slots busy) while the gateway had idle runners. `saturated` (the owned runners
     were read live and none was idle for it) lists such a job for its build-fleet client instead;
     side_lane_placement.fleet_gateway() still keeps it only with an idle gateway runner of its own, and a fleet

@@ -86,7 +86,7 @@ class PackageLanePreflightTests(unittest.TestCase):
             'PATH': str(binaries) + os.pathsep + os.environ['PATH'],
             'HOME': str(self.scratch),
             'RUNNER_TEMP': str(self.scratch),
-            'DEVELOPER_DIR': '/Applications/Xcode_26.6.app/Contents/Developer',
+            'DEVELOPER_DIR': '/Applications/Xcode_27.2.app/Contents/Developer',
             'CMUX_PACKAGE_LANE_TEST_OS': 'Darwin',
             'FAKE_SWIFT_CALLS': str(self.calls),
         }

@@ -16,9 +16,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/admission_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
-ROOT_STD = "glaeda-root-std-xcode-26.6"
-ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
-STD = "glaeda-std-xcode-26.6"
+ROOT_STD = "glaeda-root-std-xcode-27.2"
+ROOT_AWS = "glaeda-aws-root-std-xcode-27.2"
+STD = "glaeda-std-xcode-27.2"
 
 
 def load():
@@ -36,7 +36,7 @@ def runner(host: str, k: int, *, busy: bool = False, status: str = "online", own
            namespace: str = "") -> dict:
     name = f"{host}-glaeda" + (f"-{k}" if k else "")
     prefix = f"glaeda-{namespace}-" if namespace else "glaeda-"
-    labels = ["self-hosted", f"{prefix}std-xcode-26.6", f"{prefix}root-std-xcode-26.6",
+    labels = ["self-hosted", f"{prefix}std-xcode-27.2", f"{prefix}root-std-xcode-27.2",
               *([f"glaeda-runner-{name}"] if own else [])]
     return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
@@ -72,7 +72,7 @@ class Decide(unittest.TestCase):
         runners = [runner("mini-a", 0, busy=True), runner("mini-a", 1)]
         warm = dict(ENV, ADMISSION_WARM='["mini-a-glaeda-1"]')
         self.assertEqual(placement.decide(warm, runners)[:2],
-                         ('["glaeda-root-std-xcode-26.6","glaeda-runner-mini-a-glaeda-1"]', "warm"))
+                         ('["glaeda-root-std-xcode-27.2","glaeda-runner-mini-a-glaeda-1"]', "warm"))
         self.assertEqual(placement.decide(ENV, runners)[:2], (json.dumps([ROOT_STD]), "root"))
         # The pull request's tier after the merge base's.
         tiers = dict(ENV, ADMISSION_WARM='[["mini-z-glaeda"],["mini-a-glaeda-1"]]')

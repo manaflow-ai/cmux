@@ -35,7 +35,7 @@ NOW = dt.datetime(2026, 11, 21, 7, 30, tzinfo=dt.timezone.utc)
 
 
 def snapshot(generated: dt.datetime) -> dict:
-    return {"generated_at": generated.isoformat().replace("+00:00", "Z"), "pools": {"glaeda-std-xcode-26.6": {"queued": 0}}}
+    return {"generated_at": generated.isoformat().replace("+00:00", "Z"), "pools": {"glaeda-std-xcode-27.2": {"queued": 0}}}
 
 
 class JobSnapshotCache(unittest.TestCase):

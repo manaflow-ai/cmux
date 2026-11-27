@@ -62,13 +62,13 @@ label glaeda issues, `glaeda-<class>-xcode-<version>`. glaeda puts that label
 only on a dedicated member whose Xcode at the pinned path reports the pinned
 build, so the one label carries the class, the availability and the Xcode.
 The version follows the pull-request lane's pin (vars.CMUX_CI_XCODE_APP_PR,
-`/Applications/Xcode_26.6.app` -> `glaeda-std-xcode-26.6`), so moving the
+`/Applications/Xcode_27.2.app` -> `glaeda-std-xcode-27.2`), so moving the
 pin moves the pool, and no runner carries the new label until glaeda has
 verified the new Xcode on it. Owned pools are persistent: the machine
 outlives the job. They take part only when `vars.CI_PR_POOL_OWNED == '1'`,
 and then go first in the default order so Blacksmith is overflow. Their
 capacity is the number of machines the fleet manifest gives each label,
-published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 12}`;
+published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-27.2": 12}`;
 `{"std": 12}` and a bare `12` mean the same for the lane's Xcode pin).
 The janitor's snapshot counts the jobs queued and running on each owned label
 from the job listings it already makes, and `committed`: what the runs
@@ -613,7 +613,7 @@ def sim_first(label: str) -> bool:
 
 
 def sim_first_label(pr_xcode_app: str | None) -> str:
-    """The sim-first label for the lane's Xcode pin (`glaeda-sim-xcode-26.6`), or "" without one."""
+    """The sim-first label for the lane's Xcode pin (`glaeda-sim-xcode-27.2`), or "" without one."""
     match = XCODE_APP.search(pr_xcode_app or "")
     return f"glaeda-sim-xcode-{match.group(1)}" if match else ""
 
@@ -1131,11 +1131,11 @@ def slot_problems(raw: str | None, pr_xcode_app: str | None = None) -> list[str]
 
 def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, int], list[str]]:
     # Accepted forms, so a plausible value never silently means "no minis":
-    #   {"glaeda-std-xcode-26.6": 40}  a full label
+    #   {"glaeda-std-xcode-27.2": 40}  a full label
     #   {"std": 40, "light": 4}        a class, for the lane's Xcode pin
     #   40                             the std class, for the lane's Xcode pin
     #   {"root-std": 10}               a class's root runners, one per mini
-    #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
+    #   {"glaeda-root-std-xcode-27.2": 10}  (root_label()), beside its pool
     #   {"gui-std": 10}                a class's gui runners, one per mini (gui_runner())
     #   {"session-std": 20}            the runners carrying a class's session label (session_label()),
     #                                  up to guiRunners per mini, so not bounded by its machines

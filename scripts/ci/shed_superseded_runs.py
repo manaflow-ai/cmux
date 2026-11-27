@@ -88,7 +88,7 @@ LANE_EVENTS = ("push", "pull_request", "workflow_run")
 # Pull request runs of a workflow whose PR Mac jobs moved elsewhere, created before the move: the run, even at its
 # branch tip, asks for a Mac route no current run asks for. cmux#53487 (merged 2026-11-25T00:59:59Z) moved the PR
 # fast tier and Swift gates to pr-pipeline.yml's mac job; at 01:20Z 191 jobs still waited on
-# glaeda-side-std-xcode-26.6 for those old runs (median 39 min, oldest 143 min), 184 of 187 queued cmux-next runs
+# glaeda-side-std-xcode-27.2 for those old runs (median 39 min, oldest 143 min), 184 of 187 queued cmux-next runs
 # predating the move, ahead of every newer job on that label. Shedding one stops only jobs that never started; the
 # PR's next head (a push or land's base update) runs the new route. Leo, 2026-11-25: "do not catch-22 yourselves".
 RETIRED_PR_ROUTES = {".github/workflows/cmux-next.yml": "2026-11-25T00:59:59Z"}

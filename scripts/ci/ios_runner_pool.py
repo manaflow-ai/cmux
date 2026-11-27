@@ -263,7 +263,7 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 GRANT_LABEL = "cmux-mac"
 OVERFLOW_VARIABLE = "CI_OVERFLOW_MAC"
 OWNER = "manaflow-ai"
-# The version in /Applications/Xcode_26.6.app or glaeda-std-xcode-26.6 (mac_grants._XCODE).
+# The version in /Applications/Xcode_27.2.app or glaeda-std-xcode-27.2 (mac_grants._XCODE).
 XCODE_IN = re.compile(r"(?:-xcode-|(?:^|/)Xcode[_-])(?P<version>[0-9]+(?:\.[0-9]+)*)(?:\.app)?(?:/|$)")
 XCODE_PINS = Path(__file__).resolve().parent / "xcode-pins.txt"
 # The `runner` choice that forces the owned pool for a proof run.
@@ -980,14 +980,14 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     a re-run on SMALL_RUNNER: the controller's grant bound (cmuxterm-hq build-fleet/internal/sched/labels.go
     Request.Rerunnable) re-runs pull request runs only, and ci-owned-pool-rescue.yml watches owned routes only. On
     2026-11-25 feat-cmux-next's push run 45609484199 granted its CmuxMobileKit job to cmux-mac + glaeda-ios-sim +
-    xcode-26.6 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
+    xcode-27.2 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
     later base push run of the workflow pending or cancelled with no jobs, so the base had no kit result. A push,
     dispatch or schedule run keeps the Blacksmith default, which always serves.
 
     A starved route (the picker read the simulator Macs, live or from the snapshot, and found none free for the
     run) keeps its default too, so the labels match the "staying on" the picker logged. On 2026-11-25 cmux#53546's
     ios job 139577184055 logged "staying on blacksmith-6vcpu-macos-26" and still took cmux-mac + glaeda-ios-sim +
-    xcode-26.6, where it waited 39 min and its re-run 41 min; the Mac queue was 80 of the head's 151 min (48 of
+    xcode-27.2, where it waited 39 min and its re-run 41 min; the Mac queue was 80 of the head's 151 min (48 of
     68.7 min on cmux#55016). Blacksmith always serves. A route the picker did not measure is still granted.
     """
     if fork or owner != OWNER or route.persistent or blocker:
