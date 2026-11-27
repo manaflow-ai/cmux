@@ -118,7 +118,7 @@ extension ScreenContentView {
             self.dropSnapshotOpen()
         }
         perform(#selector(dropSnapshotOpenFailsafe), with: nil, afterDelay: SplitSnapshotOpen.failsafe)
-        context.frameTiming?.changed(in: window, path: "snapshot", endsAtDisplay: true)
+        markSnapshotSplit(giver: giver)
         CATransaction.flush()
     }
 

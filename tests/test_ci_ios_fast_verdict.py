@@ -162,27 +162,18 @@ class PlanTest(unittest.TestCase):
     def test_status_posts_the_context_capped(self) -> None:
         seen = []
 
-        class Resp:
-            status = 201
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        def fake(req, timeout=0):
+        def fake(req, seconds=0, **kw):
             seen.append((req.full_url, json.loads(req.data), req.headers["Authorization"]))
             if len(seen) == 1:
                 raise OSError("spent")
-            return Resp()
+            return 201, b"{}", {}
 
-        old = fv.urllib.request.urlopen
-        fv.urllib.request.urlopen = fake
+        old = fv.gh_http.request
+        fv.gh_http.request = fake
         try:
             self.assertTrue(fv.post_status("pending", "d" * 300, "o/r", "abc", ["t1", "t2"], pause=0))
         finally:
-            fv.urllib.request.urlopen = old
+            fv.gh_http.request = old
         self.assertEqual([s[2] for s in seen], ["Bearer t1", "Bearer t2"])
         self.assertEqual(seen[1][0], "https://api.github.com/repos/o/r/statuses/abc")
         self.assertEqual(seen[1][1]["context"], "cmux/ios-fast")
