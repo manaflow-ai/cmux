@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 import CmuxNextWakeups
 public import Foundation
 
@@ -50,6 +50,11 @@ public nonisolated enum CloudPlaceRefusal: Error, Equatable {
 public struct CloudPlaceIdentity: Equatable, Sendable {
     public var user: String?, team: String?, cloud: String
     public init(user: String?, team: String?, cloud: String) { self.user = user; self.team = team; self.cloud = cloud }
+    /// The account, team and Cloud `auth` is signed in to now; nil signed out.
+    @MainActor public init?(signedIn auth: CloudAuth) {
+        guard auth.isSignedIn else { return nil }
+        self.init(user: auth.user?.id, team: auth.teamID, cloud: auth.configuration.apiBaseURL.absoluteString)
+    }
 }
 
 /// What the app supplies: its chats, how it runs a move, and what its ledger knows. Everything else is here.
@@ -71,7 +76,8 @@ public protocol CloudPlaceHost: AnyObject {
     /// What a bulk run's chats that never started say when the Cloud account or team changed under it.
     func placeIdentityChangedReason() -> String
     /// The daemon's host budget verdict (`_acpmux/status` `host_pressure`, raw JSON), the one source of memory pressure
-    /// and battery for Auto; nil when no daemon answered.
+    /// and battery for Auto; nil when no daemon answered. Asked once a pass (every 30 s at most): a daemon that does not
+    /// answer in 5 s leaves memory and battery unknown that pass.
     func placeVerdict() async -> Data?
     /// Appends one line to this build's `auto-shadow.jsonl`: what Auto would do for the verdict alone.
     func placeShadow(_ line: String)
