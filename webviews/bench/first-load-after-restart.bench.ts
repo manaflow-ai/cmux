@@ -1558,6 +1558,12 @@ try {
       // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
       if (process.env.PARK)
         await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
+      // REHEARSE=off: the spare skips its offscreen warm-up of a sample chat (spareRehearsal.tsx).
+      if (process.env.REHEARSE)
+        await page.addInitScript(
+          (rehearse) => Object.assign(window, { __cmuxSpareRehearse: rehearse }),
+          process.env.REHEARSE,
+        );
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
