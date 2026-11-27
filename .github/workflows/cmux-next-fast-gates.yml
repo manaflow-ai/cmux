@@ -45,6 +45,16 @@ on:
   # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
   # that finds none dispatches this workflow as before.
   workflow_call:
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: App key for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_1:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_2:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
   workflow_dispatch:
     inputs:
       pr:
@@ -136,19 +146,39 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -165,6 +195,7 @@ jobs:
           DISPATCH_REF: ${{ github.ref }}
           DISPATCH_SHA: ${{ github.sha }}
           BRANCH: feat-cmux-next
+          LANE: ${{ vars.CI_LANE_RECEIPTS }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
@@ -191,7 +222,7 @@ jobs:
             # again (2026-10-31: 13 of 34 dispatches between 22:16Z and 22:19Z, #29724's among them).
             base=""
             if pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
-              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')"; then
+              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha, .head.ref] | @tsv')"; then
               :
             else
               status=$?
@@ -203,21 +234,21 @@ jobs:
                   query($owner: String!, $name: String!, $number: Int!, $branch: String!) {
                     repository(owner: $owner, name: $name) {
                       pullRequest(number: $number) {
-                        state headRefOid baseRefName headRepository { nameWithOwner }
+                        state headRefOid baseRefName headRefName headRepository { nameWithOwner }
                       }
                       ref(qualifiedName: $branch) { target { oid } }
                     }
                   }' \
                 --jq '.data.repository | [(.pullRequest.state // "" | ascii_downcase),
                   (.pullRequest.headRepository.nameWithOwner // ""), (.pullRequest.baseRefName // ""),
-                  (.pullRequest.headRefOid // ""), (.ref.target.oid // "")] | @tsv')" || exit $?
-              IFS=$'\t' read -r state head_repo base_ref head base extra <<<"$fields"
+                  (.pullRequest.headRefOid // ""), (.pullRequest.headRefName // ""), (.ref.target.oid // "")] | @tsv')" || exit $?
+              IFS=$'\t' read -r state head_repo base_ref head head_ref base extra <<<"$fields"
               # The PR's merged/closed states read as merged/closed; only open goes on, as with REST.
-              pr_fields="$(printf '%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head")"
+              pr_fields="$(printf '%s\t%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head" "$head_ref")"
               [[ -n "$base" && -z "$extra" ]] || { echo "::error::#$PR returned incomplete branch metadata from GitHub"; exit 1; }
             fi
-            IFS=$'\t' read -r state head_repo base_ref head extra <<<"$pr_fields"
-            if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" ]]; then
+            IFS=$'\t' read -r state head_repo base_ref head head_ref extra <<<"$pr_fields"
+            if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" || -z "$head_ref" ]]; then
               echo "::error::#$PR returned incomplete pull request metadata from GitHub"
               exit 1
             fi
@@ -237,6 +268,33 @@ jobs:
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
             fi
             post=true
+            # A lane's head: the land-time dispatch is where a lane receipt pays (78 of 100 fast-gates runs on
+            # 2026-11-26 were dispatches; on feat-cmux-next the pull request event skips the gates). Its tree is the
+            # receipt's key; a dispatch has no merge ref, so the merge tree stays empty and only a receipt on an
+            # older base counts (ci_receipt.py base_covers). A failed read leaves no tree, and the gates run.
+            # The tree comes from git, not the REST API: the installation's REST budget was spent on every
+            # dispatch from 07:08Z to 07:45Z on 2026-11-27, and a REST read of the commit missed all 12 lane heads.
+            # One commit object, no trees or blobs (--filter=tree:0 --depth=1), in a throwaway repository.
+            head_commit_tree() {
+              local dir auth tree
+              dir="$(mktemp -d)"
+              git init -q --bare "$dir"
+              auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+              if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+                git -C "$dir" fetch -q --no-tags --no-recurse-submodules --depth=1 --filter=tree:0 \
+                  "https://github.com/$GITHUB_REPOSITORY" "$1" >&2; then
+                tree="$(git -C "$dir" rev-parse "$1^{tree}")"
+              fi
+              rm -rf "$dir"
+              printf '%s' "${tree:-}"
+            }
+            if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then
+              if head_tree="$(head_commit_tree "$head")" && [[ "$head_tree" =~ ^[0-9a-f]{40}$ ]]; then
+                { echo "head_tree=$head_tree"; echo "merge_tree="; echo "lane_dispatch=true"; } >> "$GITHUB_OUTPUT"
+              else
+                echo "::notice title=CI receipt::could not read #$PR's head tree; the gates run"
+              fi
+            fi
           else
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
             head=$PR_HEAD
@@ -250,6 +308,34 @@ jobs:
           [[ "$head" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the head and base"; exit 1; }
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
+
+      # A lane dispatch's verifier comes out of git at the base (Verify the local test receipt): only its files.
+      - name: Checkout the base for the receipt verifier (lane dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && !startsWith(runner.name, 'cmux-runner-pool-') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ steps.resolve.outputs.base }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: &verifier-sparse |
+            /scripts/ci/ci_receipt.py
+            /scripts/ci/deadline_http.py
+            /scripts/ci/cmux_next_fast_gates.py
+            /scripts/ci/gh_http.py
+
+      - name: "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SHA: ${{ steps.resolve.outputs.base }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *verifier-sparse
+        run: *pool-checkout
 
       # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches
       # none skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate
@@ -298,9 +384,9 @@ jobs:
       # the verifier adds only its own directory.
       - name: Verify the local test receipt
         id: receipt-verify
-        if: ${{ (github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+        if: ${{ ((github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) || (github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 5  # OIDC 20 s + lookup 60 s + head-tree and base git reads 60 s each
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -333,7 +419,8 @@ jobs:
           fi
           DISCOVER_ARGS=()
           # The base's verifier decides: one from before discover existed has no --pr.
-          if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
+          # A dispatch has no pull request event: only the lane lookup (no run search).
+          if [[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
           # A lane's own pass recorded with the controller (on unless vars.CI_LANE_RECEIPTS=0), when the base's
           # verifier knows it.
           if [[ "${LANE:-1}" != 0 ]] && grep -q -- '"--lane"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS+=(--lane); fi
@@ -420,11 +507,13 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
-            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
-            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            # The egress gate (scripts/ci/egress_new_sites.py) imports these, directly or through each other; without
+            # one, every pull request's fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424;
+            # guard_delta.py after #61088, run 45997666983).
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
             /tests/test_classic_cloud_routes.py
+            /tests/guard_delta.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
