@@ -732,6 +732,11 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
     ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
     confirming probe), oldest first."""
+    if conclusion == "skipped":
+        # The job's own condition skipped it at this commit (probe_conclusion reads a skip behind a lost or red
+        # job as no verdict): the same inputs skip it again. Probes 716208d2c92 and d98c77aec8a (compile-fleet,
+        # 11-27) each ran three times, every run skipped, before the bisect stopped all the same.
+        return "lost", None
     if conclusion not in ("success", "failure"):
         if probe.tries < MAX_PROBE_RETRIES:
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
@@ -809,20 +814,46 @@ def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
     """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
     (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    if mine.get(probe.job) == "skipped" and any(c not in ("success", "skipped") for c in mine.values()):
+        return ""  # skipped behind a job that failed or lost its runner: no verdict, worth running again
     return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
 
 
 def known_verdict(runs: list[dict], probe: Probe, jobs_of) -> tuple[str, dict] | None:
     """A finished probe run of the same title (suite, job, commit) from an earlier bisect, and its verdict, if it
     gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
-    web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first)."""
+    web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first).
+    "skipped" counts too: the job's own condition skipped it there, and would again."""
     title = probe_title(probe)
     for run in runs:
         if (run.get("display_title") or "") == title and run.get("status") == "completed":
             conclusion = probe_conclusion(jobs_of(run["id"])[0], probe)
-            if conclusion in ("success", "failure"):
+            if conclusion in ("success", "failure", "skipped"):
                 return conclusion, run
     return None
+
+
+def first_unknown_probe(runs: list[dict], probe: Probe, commits: list[str], jobs_of) -> tuple[Probe | None, list[str]]:
+    """The batch judge's first probe of a bisect, past the probes an earlier bisect already ran: while a probe's
+    verdict is known and the next step is another probe, take that one. A known verdict that would end the bisect
+    (a culprit or a flake) keeps its probe, so that probe's judge names it as before; a known skip gives None (the
+    same probe would skip again). A stuck red's bisect starts again about hourly and re-ran the same middle
+    commits: 7f0fe7d8a65 (rust-workspaces) four times, 716208d2c92 (compile-fleet) four, 11-27."""
+    notes: list[str] = []
+    for _ in range(len(commits) + 1):  # each known verdict narrows the range, so this ends
+        known = known_verdict(runs, probe, jobs_of)
+        if not known:
+            break
+        step, value = next_step(probe, known[0], commits)
+        if step == "lost":
+            notes.append(f"`{probe.job}` was already skipped at `{probe.sha[:11]}` (probe run {known[1]['id']}); no probe.")
+            return None, notes
+        if step != "probe":
+            break
+        assert isinstance(value, Probe)
+        notes.append(f"`{probe.job}` was already {known[0]} at `{probe.sha[:11]}` (probe run {known[1]['id']}); probing `{value.sha[:11]}` instead.")
+        probe = value
+    return probe, notes
 
 
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
@@ -945,7 +976,13 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
         for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
             inner = name.partition(" / ")[2]
-            probe = stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), first_parent_range(good, bad))
+            span = first_parent_range(good, bad)
+            probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), span), span, jobs_of)
+            for note in known_notes:
+                summary(args.summary, f"  - {note}")
+            if probe is None:
+                summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; its probe is known to skip, no bisect.")
+                continue
             summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; bisecting there from `{probe.sha[:11]}`.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, probe)
@@ -1024,6 +1061,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         out.update(culprit=value, job=probe.job, good=probe.good if conclusion == "failure" else probe.sha, origin=probe.origin)
     elif step == "flake":
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
+    elif conclusion == "skipped":
+        summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
         summary(args.summary, f"`{probe.job}` gave no verdict at `{probe.sha[:11]}` twice; the bisect stops here.")
     write_outputs(args.github_output, out)
