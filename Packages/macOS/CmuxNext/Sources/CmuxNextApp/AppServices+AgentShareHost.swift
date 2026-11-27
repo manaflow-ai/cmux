@@ -23,12 +23,7 @@ extension AppServices: AgentShareHost {
     var shareAccountScope: String? { cloud.auth.accountKey }
     var shareTeams: [AgentShareTeam] {
         guard cloud.isSignedIn, cloud.mayCallCloud else { return [] }
-        return cloud.auth.activeTeam.rows.compactMap { row in
-            guard let id = try? CloudAccessToken.team(requested: nil, activeStackTeam: row.id,
-                                                      managedStackTeam: cloud.auth.managedTeamID,
-                                                      stackProjectID: cloud.auth.configuration.stackProjectID) else { return nil }
-            return AgentShareTeam(id: id, name: row.title)
-        }
+        return cloud.auth.shareTeams.map { AgentShareTeam(id: $0.id, name: $0.name) }
     }
     func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String? {
         guard shareAccountScope == accountScope, shareTeams.contains(where: { $0.id == team }) else { return nil }

@@ -6,7 +6,7 @@ import Foundation
 /// The agent chat's Share dialog (`share.op`, ``AgentPaneShareOp``): the same daemon work as
 /// `agent.share`, `-.invite`, `-.uninvite` and `-.revoke`, always on the chat of the pane that
 /// asked. The pane gated a link or an invite on the person's click in their own chat, which is the
-/// owner's consent, so no consent sheet is shown. `manage` is the app's (it opens Settings).
+/// owner's consent. Team access additionally requires native confirmation. `manage` opens Settings.
 extension AgentShareActions {
     /// The dialog's link lasts a week and works for anyone who has it (bounded by the daemon).
     static let paneLinkTTL: UInt64 = 604_800

@@ -11,7 +11,8 @@ struct AgentShareTeamConsent {
     func requireCurrent(chat: AgentShareChat, host: any AgentShareHost) throws {
         guard host.shareAccountScope == accountScope, host.shareTeams.contains(team),
               let tabID = host.shareTabID(showing: chat.session), let tab = host.shareTab(id: tabID),
-              AgentShareChat.session(of: tab) == chat.session else { throw AgentShareTeamUnavailable() }
+              AgentShareChat.session(of: tab) == chat.session, tab.surface.rawValue == chat.surface,
+              host.shareConnection(holding: tab) === chat.connection else { throw AgentShareTeamUnavailable() }
     }
 }
 

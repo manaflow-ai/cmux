@@ -4,6 +4,8 @@
 .share-dialog-popup {
   --ui-dialog-padding: var(--ds-space-5);
   width: min(480px, calc(100vw - 32px));
+  max-height: calc(88dvh - var(--ds-space-4));
+  overflow-y: auto;
 }
 .share-dialog {
   container-type: inline-size;
