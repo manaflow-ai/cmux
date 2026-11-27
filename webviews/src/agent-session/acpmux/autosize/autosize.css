@@ -70,11 +70,6 @@
   border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
   background: var(--surface-raised, transparent);
   color: var(--text-primary, inherit);
-  cursor: pointer;
-}
-
-.autosize-row-upgrade:disabled {
-  cursor: default;
 }
 
 /* chip: one centered pill per row, like a timestamp divider */
