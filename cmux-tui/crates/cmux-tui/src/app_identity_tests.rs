@@ -75,7 +75,7 @@ fn control_socket_reaches_an_app_from_before_the_move() {
 
 /// A terminal from before the app moved its socket keeps `CMUX_SOCKET_PATH` at the old name. Once that
 /// name is gone and the build's own socket is there, the CLI reaches the live app; a live override, or
-/// one that names another socket, still wins (cosmic-gray 2026-11-27: every `cmux` in such a terminal
+/// one that names another socket, still wins (2026-11-27: every `cmux` in such a terminal
 /// said "no cmux app is running" while NIGHTLY answered).
 #[test]
 fn a_stale_pre_move_socket_override_reaches_the_moved_app() {

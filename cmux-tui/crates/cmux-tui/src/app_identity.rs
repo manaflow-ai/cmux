@@ -151,7 +151,7 @@ impl AppIdentity {
     /// is there: a terminal whose daemon outlived the app's update keeps the
     /// old app's environment, and every `cmux` in it said "no cmux app is
     /// running" while NIGHTLY answered at `~/.local/state/cmux-next`
-    /// (cosmic-gray 2026-11-27, NIGHTLY 1.0.0-nightly.4594117542401).
+    /// (2026-11-27, NIGHTLY 1.0.0-nightly.4594117542401).
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
         let own = self.own_control_socket(home);
         let Some(path) = &self.socket_override else {
