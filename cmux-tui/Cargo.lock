@@ -101,7 +101,6 @@ dependencies = [
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
- "diffy",
  "dirs",
  "flate2",
  "futures",
