@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "96fdd810cffbc0561025fcf62f11518ed27c690bddd91e6ba838c9768d84cf08";
+pub const ir_sha256 = "9ec1d3440e72be897efbf6745418d097eab21efe2bdbb94d565135281177ddb9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3853,6 +3853,8 @@ pub const Workspace = struct {
     /// The workspace icon.
     icon: wire.Field([]const u8) = .absent,
     id: Id,
+    /// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
+    keep_awake: ?bool = null,
     key: ?[]const u8 = null,
     /// What the workspace is.
     kind: ?WorkspaceKind = null,
@@ -3877,6 +3879,7 @@ pub const Workspace = struct {
     unread_count: ?u64 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep_awake",
         "key",
         "kind",
         "marked_unread",

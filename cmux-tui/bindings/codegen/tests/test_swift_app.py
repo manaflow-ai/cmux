@@ -406,16 +406,6 @@ class ReadTypeTests(unittest.TestCase):
         self.assertIn('case zoomedPane = "zoomed_pane"', source)
         self.assertNotIn("var zoomedPane", source)
 
-    def test_read_options_refuse_what_has_no_swift_shape(self) -> None:
-        self.assert_refused("when needs an optional field", {"ZoomState": {
-            "type": "ZoomPaneResult", "fields": {"zoomed": {"when": "true", "default": "false"}}}})
-        self.assert_refused("lenient needs an optional field or a default", {"ZoomState": {
-            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True}}}})
-        self.assert_refused("omit it", {"ZoomState": {
-            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "zoomed_pane"}}}})
-        self.assert_refused("which the schema does not have", {"ZoomState": {
-            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
-
     def test_optional_makes_a_required_field_optional(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"zoomed": {"optional": True}}}}))
@@ -464,6 +454,16 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
         with self.assertRaises(BindingError) as raised:
             rendered(bindings=bindings or read_bindings(objects))
         self.assertIn(message, str(raised.exception))
+
+    def test_read_options_refuse_what_has_no_swift_shape(self) -> None:
+        self.assert_refused("when needs an optional field", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"when": "true", "default": "false"}}}})
+        self.assert_refused("lenient needs an optional field or a default", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True}}}})
+        self.assert_refused("omit it", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "zoomed_pane"}}}})
+        self.assert_refused("which the schema does not have", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
 
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})

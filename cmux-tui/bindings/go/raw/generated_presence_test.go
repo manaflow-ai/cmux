@@ -10695,6 +10695,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "icon", true, "\"value\"")
 	})
+	t.Run("Workspace.KeepAwake", func(t *testing.T) {
+		var missing Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.KeepAwake != nil {
+			t.Fatal("KeepAwake did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "keep_awake", false, "")
+		var nullValue Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[],\"keep_awake\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field keep_awake accepted null")
+		}
+		var presentValue Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[],\"keep_awake\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.KeepAwake == nil {
+			t.Fatal("KeepAwake lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "keep_awake", true, "true")
+	})
 	t.Run("Workspace.Key", func(t *testing.T) {
 		var missing Workspace
 		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]}"), &missing); err != nil {
@@ -69716,10 +69738,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1963
+	generatedFieldShapeCount               = 1964
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 176
-	generatedOptionalNonnullableFieldCount = 422
+	generatedOptionalNonnullableFieldCount = 423
 	generatedRequiredFieldCount            = 1652
 	generatedRequiredNonnullableFieldCount = 1476
 	generatedConstrainedFieldCount         = 139

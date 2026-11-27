@@ -21,6 +21,8 @@ public final class Workspace implements WireValue {
     /** The workspace icon. */
     private final Field<String> icon;
     private final UInt64 id;
+    /** workspace-keep-awake-v1: the freeing timer never ends this workspace's shells. */
+    private final Field<Boolean> keepAwake;
     private final Field<String> key;
     /** What the workspace is. */
     private final Field<WorkspaceKind> kind;
@@ -53,6 +55,7 @@ public final class Workspace implements WireValue {
         this.icon = builder.icon;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
+        this.keepAwake = builder.keepAwake;
         this.key = builder.key;
         this.kind = builder.kind;
         this.markedUnread = builder.markedUnread;
@@ -79,6 +82,7 @@ public final class Workspace implements WireValue {
     public Field<String> group() { return group; }
     public Field<String> icon() { return icon; }
     public UInt64 id() { return id; }
+    public Field<Boolean> keepAwake() { return keepAwake; }
     public Field<String> key() { return key; }
     public Field<WorkspaceKind> kind() { return kind; }
     public Field<Boolean> markedUnread() { return markedUnread; }
@@ -117,6 +121,10 @@ public final class Workspace implements WireValue {
         }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.uint64(rawId, "Workspace.id"));
+        Object rawKeepAwake = Wire.optional(object, "keep_awake");
+        if (!Wire.isMissing(rawKeepAwake)) {
+            builder.keepAwake(Wire.bool(rawKeepAwake, "Workspace.keep_awake"));
+        }
         Object rawKey = Wire.optional(object, "key");
         if (!Wire.isMissing(rawKey)) {
             builder.key(Wire.string(rawKey, "Workspace.key"));
@@ -181,6 +189,7 @@ public final class Workspace implements WireValue {
         Wire.put(object, "group", group);
         Wire.put(object, "icon", icon);
         Wire.put(object, "id", id);
+        Wire.put(object, "keep_awake", keepAwake);
         Wire.put(object, "key", key);
         Wire.put(object, "kind", kind);
         Wire.put(object, "marked_unread", markedUnread);
@@ -201,11 +210,11 @@ public final class Workspace implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Workspace that)) return false;
-        return Objects.equals(active, that.active) && Objects.equals(app, that.app) && Objects.equals(color, that.color) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(id, that.id) && Objects.equals(key, that.key) && Objects.equals(kind, that.kind) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(name, that.name) && Objects.equals(nameRevision, that.nameRevision) && Objects.equals(nameSource, that.nameSource) && Objects.equals(pinned, that.pinned) && Objects.equals(recovered, that.recovered) && Objects.equals(resourceId, that.resourceId) && Objects.equals(screenGroups, that.screenGroups) && Objects.equals(screens, that.screens) && Objects.equals(shortId, that.shortId) && Objects.equals(title, that.title) && Objects.equals(unreadCount, that.unreadCount);
+        return Objects.equals(active, that.active) && Objects.equals(app, that.app) && Objects.equals(color, that.color) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(id, that.id) && Objects.equals(keepAwake, that.keepAwake) && Objects.equals(key, that.key) && Objects.equals(kind, that.kind) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(name, that.name) && Objects.equals(nameRevision, that.nameRevision) && Objects.equals(nameSource, that.nameSource) && Objects.equals(pinned, that.pinned) && Objects.equals(recovered, that.recovered) && Objects.equals(resourceId, that.resourceId) && Objects.equals(screenGroups, that.screenGroups) && Objects.equals(screens, that.screens) && Objects.equals(shortId, that.shortId) && Objects.equals(title, that.title) && Objects.equals(unreadCount, that.unreadCount);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(active, app, color, group, icon, id, key, kind, markedUnread, name, nameRevision, nameSource, pinned, recovered, resourceId, screenGroups, screens, shortId, title, unreadCount); }
+    public int hashCode() { return Objects.hash(active, app, color, group, icon, id, keepAwake, key, kind, markedUnread, name, nameRevision, nameSource, pinned, recovered, resourceId, screenGroups, screens, shortId, title, unreadCount); }
 
     @Override
     public String toString() { return "Workspace" + toWire(); }
@@ -219,6 +228,7 @@ public final class Workspace implements WireValue {
         private Field<String> icon = Field.omitted();
         private UInt64 id;
         private boolean idSet;
+        private Field<Boolean> keepAwake = Field.omitted();
         private Field<String> key = Field.omitted();
         private Field<WorkspaceKind> kind = Field.omitted();
         private Field<Boolean> markedUnread = Field.omitted();
@@ -260,6 +270,10 @@ public final class Workspace implements WireValue {
         public Builder id(UInt64 value) {
             this.id = value;
             this.idSet = true;
+            return this;
+        }
+        public Builder keepAwake(Boolean value) {
+            this.keepAwake = Field.of(value);
             return this;
         }
         public Builder key(String value) {
