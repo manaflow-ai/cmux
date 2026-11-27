@@ -266,6 +266,59 @@ fn a_named_machine_is_never_replaced_or_deleted() {
     assert!(fake.said.is_empty());
 }
 
+/// A `--name` no machine has yet is made by this run, so it is as new as a fresh name's: cosmic-gray 2026-11-27,
+/// `start-chat --name lane-X` (tools/product_cloud_lanes.py) got the app's "didn't connect" and stopped there.
+/// Now that machine is deleted and the chat starts on one made again under the same name.
+#[test]
+fn a_named_machine_this_run_makes_is_replaced_when_it_never_connects() {
+    let listed_lane = |id: &str| {
+        ok(json!({"account": {"signed_in": true},
+                  "machines": [{"title": "dev"}, {"title": "lane-x", "machine_id": id, "status": "running"}]}))
+    };
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("lane-x", "vm-stuck"),
+        listed_lane("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--name", "lane-x"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["machine_id"], "vm-1");
+    assert_eq!(answer["fresh_retry"][0]["why"], "app");
+    assert_eq!(fake.ran[3], kill("vm-stuck"));
+    assert_eq!(starts(&fake), 2);
+    let second = fake
+        .ran
+        .iter()
+        .filter(|w| w.get(1).map(String::as_str) == Some("start-session"))
+        .nth(1)
+        .unwrap();
+    assert!(
+        second.windows(2).any(|w| w[0] == "--name" && w[1] == "lane-x"),
+        "made again under its name: {second:?}"
+    );
+}
+
+/// A `--name` whose machine is listed is the caller's: never bounded, deleted or replaced, even on "didn't connect".
+#[test]
+fn a_listed_named_machine_that_never_connects_is_kept() {
+    let mut fake = Fake::new(vec![
+        ok(
+            json!({"account": {"signed_in": true}, "machines": [{"title": "lane-x", "machine_id": "vm-lane"}]}),
+        ),
+        not_connected("lane-x", "vm-lane"),
+    ]);
+    fake.slow.push((1, Duration::from_secs(180)));
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--name", "lane-x"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(fake.ran.len(), 2, "no delete and no second start: {:?}", fake.ran);
+}
+
 fn agent_refused(code: &str) -> Ran {
     Ran {
         code: 1,

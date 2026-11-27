@@ -1815,6 +1815,19 @@ fn steps(
         }
         other => other.clone(),
     };
+    // The machine this run makes for itself: a fresh name's, or a `--name` no listed machine or create has yet (a
+    // product Cloud lane's `lane-NAME` on its first start). Either is bounded and, stuck, deleted and made again
+    // (fresh.rs). cosmic-gray 2026-11-27 21:xxZ: `start-chat --name lane-X` answered the app's "Machine `lane-X`
+    // didn't connect, so no agent started" with no retry, because only an unnamed start's machine was bounded,
+    // though the named one was just as new. A listed or still-creating name is the caller's and is never deleted.
+    let own = fresh.clone().or_else(|| match (&request.environment, &machine) {
+        (None, Machine::Named(name))
+            if at(&listed, "loaded").as_bool() != Some(false) && !lists_name(&listed, name) =>
+        {
+            Some(name.clone())
+        }
+        _ => None,
+    });
     progress.machine = Some(machine.clone());
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
@@ -1844,10 +1857,10 @@ fn steps(
         start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
-    // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
+    // On a machine this run makes for itself (`own`), the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
     // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
-    let mut boot = fresh
+    let mut boot = own
         .as_ref()
         .filter(|_| request.from_folder.is_none())
         .map(|name| fresh::Boot::new(runner, name, deadline));
@@ -1858,7 +1871,7 @@ fn steps(
         }
         None => runner.cmux(&start),
     };
-    if let Some(name) = &fresh
+    if let Some(name) = &own
         && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
