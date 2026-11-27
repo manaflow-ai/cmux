@@ -1032,7 +1032,8 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-path_route-4.md
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
-          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       - name: Mint a read token with its own quota
         id: base-red-token
@@ -2263,7 +2264,7 @@ jobs:
           restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache the webviews Bun package cache (restore only off base branches)
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -3348,7 +3349,7 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["cmux-fleet-linux-x64","cmux-has-netem"]') }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
     permissions:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
@@ -3577,6 +3578,8 @@ jobs:
         env:
           DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
           WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+          # Why: 2026-11-27-fast-tier-pool-miss-r2.md (repo var CI_FAST_TIER_POOL_MISS_R2=0 restores the old link)
+          CMUX_POOL_WARM_TARGET_MISS_R2: ${{ format('{0}', vars.CI_FAST_TIER_POOL_MISS_R2) != '0' && '1' || '' }}
         run: bash -e scripts/ci/cmux-next-steps/fast-tier-cargo-link-this-runner-s-warm-cargo-target.sh
 
       # Why: 2026-11-24-fast-tier-cargo-6.md, note-210
