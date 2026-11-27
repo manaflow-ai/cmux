@@ -391,6 +391,11 @@ def add_fake_harness(work):
     and the acpmux home's entries before the run (None when it had no home)."""
     agent = os.path.join(work, "fake_agent.py")
     shutil.copy(FAKE_AGENT, agent)
+    # The fake agent reads files that sit beside it (guidance_sources.json);
+    # copy every one so the copy runs like the original.
+    for name in os.listdir(os.path.dirname(FAKE_AGENT)):
+        if name.endswith(".json"):
+            shutil.copy(os.path.join(os.path.dirname(FAKE_AGENT), name), work)
     entries = set(os.listdir(ACPMUX_HOME)) if os.path.isdir(ACPMUX_HOME) else None
     previous = open(ACPMUX_CONFIG, "rb").read() if os.path.exists(ACPMUX_CONFIG) else None
     config = json.loads(previous or b"{}")
