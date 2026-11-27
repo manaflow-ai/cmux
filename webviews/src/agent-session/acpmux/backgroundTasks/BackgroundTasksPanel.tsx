@@ -709,7 +709,15 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={<TaskElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} className="acpmux-bg-card__time" />}
+        time={
+          <TaskElapsed
+            t={t}
+            from={task.startedAt}
+            to={task.endedAt}
+            running={task.state === "running"}
+            className="acpmux-bg-card__time"
+          />
+        }
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
         openAt={openAt}
@@ -732,7 +740,13 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <TaskElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} className="acpmux-bg__time" />
+      <TaskElapsed
+        t={t}
+        from={task.startedAt}
+        to={task.endedAt}
+        running={task.state === "running"}
+        className="acpmux-bg__time"
+      />
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );

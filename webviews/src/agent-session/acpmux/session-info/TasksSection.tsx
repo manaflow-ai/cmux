@@ -182,7 +182,11 @@ export function TasksSection({
             row(
               command,
               // A task only the transcript knows may not say when it started.
-              command.startedAt !== undefined ? <RunningTaskElapsed startedAt={command.startedAt} /> : t(COMMAND_STATE.running),
+              command.startedAt !== undefined ? (
+                <RunningTaskElapsed startedAt={command.startedAt} />
+              ) : (
+                t(COMMAND_STATE.running)
+              ),
               undefined,
               arrived.has(arrivalKey(command)),
             ),

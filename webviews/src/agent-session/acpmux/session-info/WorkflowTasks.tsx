@@ -173,7 +173,8 @@ function WorkflowTask({
         {workflow.elapsedMs !== undefined ? (
           <span className="acpmux-session-info-task__time">{formatDuration(workflow.elapsedMs)}</span>
         ) : (
-          workflow.startedAt !== undefined && running && (
+          workflow.startedAt !== undefined &&
+          running && (
             <span className="acpmux-session-info-task__time">
               <Elapsed since={workflow.startedAt} />
             </span>
@@ -463,13 +464,11 @@ export function WorkflowAgentRow({
       : agent.startedAt !== undefined && agent.state === "running"
         ? formatDuration(Math.max(0, Date.now() - agent.startedAt))
         : undefined;
-  const time = queued
-    ? undefined
-    : agent.elapsedMs !== undefined
-      ? <Clock text={formatDuration(agent.elapsedMs)} />
-      : agent.startedAt !== undefined && agent.state === "running"
-        ? <Elapsed since={agent.startedAt} />
-        : undefined;
+  const time = queued ? undefined : agent.elapsedMs !== undefined ? (
+    <Clock text={formatDuration(agent.elapsedMs)} />
+  ) : agent.startedAt !== undefined && agent.state === "running" ? (
+    <Elapsed since={agent.startedAt} />
+  ) : undefined;
   const accessibleLabel = [agent.name, modelLabel, message, state, timeText].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the

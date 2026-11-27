@@ -80,7 +80,11 @@ test("a running subagent clock updates its leaf without re-rendering the row par
   let parentRenders = 0;
   function Parent() {
     parentRenders += 1;
-    return <div data-parent><SubagentElapsed agent={agent("running")} clock="test-clock" /></div>;
+    return (
+      <div data-parent>
+        <SubagentElapsed agent={agent("running")} clock="test-clock" />
+      </div>
+    );
   }
 
   const container = await render(<Parent />);
@@ -96,6 +100,8 @@ test("a running subagent clock updates its leaf without re-rendering the row par
 test("a subagent that ended without a measurable span keeps the unknown time blank", async () => {
   now = STARTED + 1_000;
   Date.now = () => now;
-  const container = await render(<SubagentElapsed agent={{ ...agent("completed"), endedAt: STARTED }} clock="test-clock" />);
+  const container = await render(
+    <SubagentElapsed agent={{ ...agent("completed"), endedAt: STARTED }} clock="test-clock" />,
+  );
   expect(container.querySelector(".test-clock")).toBeNull();
 });

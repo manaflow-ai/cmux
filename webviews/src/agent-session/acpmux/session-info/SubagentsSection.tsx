@@ -276,7 +276,12 @@ function AgentCard({ item }: { item: Line }) {
       status={item.status}
       state={
         <>
-          {[item.state, item.kind, progress, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
+          {[
+            item.state,
+            item.kind,
+            progress,
+            item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+          ]
             .filter(Boolean)
             .join(" · ")}
           {item.time && <> · {item.time}</>}
