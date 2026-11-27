@@ -7873,7 +7873,18 @@ jobs:
       - *mint-dispatch-pools
       - *mint-dispatch-spare
       - *wait-through-github-api-rate-l
+      # A run that says published reads the live feeds first: an unmoved feed fails here, red, and a refused build
+      # (nightly-next-one reds a real refusal) asks for no post-publication run (2026-11-25, run 45607031207).
+      - name: Read the feed back before saying published
+        id: readback
+        env:
+          FEED_BASE: ${{ needs.published-build.outputs.feed_base }}
+          FEEDS: ${{ needs.published-build.outputs.feeds }}
+          BUILD: ${{ needs.published-build.outputs.publish_build }}
+          REFUSED: ${{ needs.published-build.outputs.publish_refused }}
+        run: python3 scripts/ci/nightly_published_feed_check.py --feed-base "$FEED_BASE" --feeds "$FEEDS" --build "$BUILD" --refused "$REFUSED"
       - name: Record the published build
+        if: steps.readback.outputs.published == 'true'
         env:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: |
@@ -7883,6 +7894,7 @@ jobs:
       # The tail run reads the record only from here (published-build), never from its input.
       - name: Upload the record
         id: upload-record
+        if: steps.readback.outputs.published == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -7891,7 +7903,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Upload the record (retry)
-        if: "!cancelled() && steps.upload-record.outcome == 'failure'"
+        if: "!cancelled() && steps.readback.outputs.published == 'true' && steps.upload-record.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-published-build-${{ github.run_attempt }}
@@ -7900,6 +7912,7 @@ jobs:
           retention-days: 3
           overwrite: true
       - name: Ask for this build's post-publication run
+        if: steps.readback.outputs.published == 'true'
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-dispatch-published-in-1.md
         # A 422 "twirp error resource_exhausted" is GitHub failing to read the workflow file (45798252585): tried again like a 5xx.
         env: *dispatch-pools

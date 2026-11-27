@@ -257,7 +257,13 @@ export function startupChecklist(
           ...(start.setup.logTail ? { logTail: start.setup.logTail } : {}),
         }
       : {}),
-    ...(hasScript === false ? { detail: t("cloudStartup.setupHint"), action: true } : {}),
+    ...(hasScript === false ||
+    (start.state === "failed" && setupState === "error" && Boolean(start.environmentId ?? start.environment))
+      ? {
+          detail: hasScript === false ? t("cloudStartup.setupHint") : start.setup?.logTail || start.setup?.error,
+          action: true,
+        }
+      : {}),
   };
   const harnessStatus: ChecklistStatus =
     failedStep === "harness" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending";

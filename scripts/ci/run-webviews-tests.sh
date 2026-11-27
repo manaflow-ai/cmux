@@ -223,6 +223,8 @@ if [ "${1:-}" = --one ]; then
   if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
+  # The same with the verdict, for the manifest: a failed first run records no seconds (webviews_test_shards.py record).
+  printf '%s %s %s\n' "$((SECONDS - started))" "$result" "$file" >> "$results/timed"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
   echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
@@ -969,7 +971,7 @@ done < <(sort -k2 "$results/summary")
 
 if [ -n "${CMUX_WEB_TEST_DURATIONS_OUT:-}" ]; then
   mkdir -p "$(dirname "$CMUX_WEB_TEST_DURATIONS_OUT")"
-  python3 "$shards_py" record "$results/durations" "$CMUX_WEB_TEST_DURATIONS_OUT"
+  python3 "$shards_py" record "$results/timed" "$CMUX_WEB_TEST_DURATIONS_OUT"
 fi
 
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.

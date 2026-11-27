@@ -454,6 +454,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
 pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
