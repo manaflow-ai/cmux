@@ -499,6 +499,10 @@ pub mod method {
     pub const MUX_PIN: &str = "_acpmux/pin";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// The owner's Live on or off (`hub/presence.rs`, RFD 0141 phase 1).
+    pub const MUX_LIVE: &str = "_acpmux/live";
+    /// Everyone Live on this daemon, as `cmux-presence` records.
+    pub const MUX_LIVE_LIST: &str = "_acpmux/live_list";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
     /// The rooms (chats, workspaces) a client shows now; replaces its set (`hub/presence.rs`,
@@ -876,6 +880,9 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Hold this daemon's systemd watchdog until the machine resumes: the platform asks it just
+    /// before it pauses the VM (`daemon/watchdog.rs`). This machine's own clients only.
+    pub const MUX_WATCHDOG_HOLD: &str = "_acpmux/watchdog_hold";
     /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
     /// bench only, `available: false` in every other build.
     pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
@@ -1079,6 +1086,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
+    /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
+    /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are
+    /// re-armable waits. The person and a peer reach it; it is forwarded to the chat's host.
+    pub const MUX_BG_REARM: &str = "_acpmux/bg/rearm";
     /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
     /// to a connected machine, and its start there as a background task of the chat.
     pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";
@@ -1210,9 +1222,14 @@ pub mod method {
     /// Local socket only.
     pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
     /// A browser on the web listener presents its own enrolled device credential
-    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// (`server/web_device.rs`): `{credential, nonce?, signature?}` -> `{auth: "webDevice"}`. Once per connection;
     /// the connection's hub reads and prompts then go with that credential only. Web only.
     pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A bound web device's challenge (`server/web_device.rs`, RFD 0083): `{credential}` ->
+    /// `{machineId, nonce, binding}`, a single-use hub nonce for the browser's key to sign and
+    /// this connection's binding; `device_hello {credential, nonce, signature}` then presents the
+    /// proof. Web only.
+    pub const MUX_DEVICE_CHALLENGE: &str = "_acpmux/device_challenge";
     /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
     /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
     /// userId}`, to that connection only. Nothing is written to disk. Web only.

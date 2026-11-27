@@ -517,6 +517,12 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// `heard` when the running turn's prompt was written (`stalled_turn.rs`
+    /// `watch_stalled_turn`): equal to it while the model has not answered that prompt. codex-acp
+    /// takes a steer then as a new prompt that cancels the running one (`inbox_admit.rs`).
+    pub(super) prompt_heard: AtomicU64,
+    /// A stop-condition chat's open goal left idle (`goal_watch.rs`).
+    pub(super) goal_watch: StdMutex<super::goal_watch::GoalWatch>,
     /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
     /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
     /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`

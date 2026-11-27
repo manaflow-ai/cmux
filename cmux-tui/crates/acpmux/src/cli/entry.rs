@@ -84,8 +84,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
-    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
-    // starts, since on macOS this re-executes the host in place under a clamp.
+    // Its tier (`qos.rs`) is set before any thread starts.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
