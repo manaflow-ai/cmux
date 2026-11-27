@@ -203,6 +203,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_feeds" => {
+                use cmux_layout_reducer::sidebar_feeds;
+                let request: sidebar_feeds::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_feeds::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_list_rules" => {
                 use cmux_layout_reducer::sidebar_list_rules;
                 let request: sidebar_list_rules::Request =
