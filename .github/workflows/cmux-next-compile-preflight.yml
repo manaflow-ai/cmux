@@ -47,6 +47,11 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # Its own test (no tier gate, no job-level if:, the build NIGHTLY runs) is the step table's
+      # compile-preflight-rules step (ci/steps.toml), routed by these files. It ran here on every head, 14-15 s of a
+      # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
+      # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+
       - name: Does this change reach a web bundle
         id: touched
         env:
@@ -58,22 +63,12 @@ jobs:
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
             echo "web=true" >> "$GITHUB_OUTPUT"
           fi
-          # A head that edits this check or its script or test runs the self-test even when no web source changed.
-          if [ "$EVENT_NAME" != pull_request ] || ! git rev-parse -q --verify HEAD^2 >/dev/null \
-            || git diff --name-only HEAD^1 HEAD -- .github/workflows/cmux-next-compile-preflight.yml scripts/ci/compile_preflight.py tests/test_ci_compile_preflight.py | grep -q .; then
-            echo "self=true" >> "$GITHUB_OUTPUT"
-          fi
 
-      # The reset and the self-test only matter to a head that builds, or edits this check: a head that reaches no web
-      # bundle (about 60% of heads, a 43 s median job) passes after the diff alone (ci140-pr-segment).
+      # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
+      # job) passes after the diff alone (scripts/measure/ci140-pr-segment).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: steps.touched.outputs.web == 'true'
         run: scripts/ci/reset-stale-submodules.sh
-
-      # Its own rules (no tier gate, no job-level if:, the build NIGHTLY runs), in about a second.
-      - name: The compile preflight's own test
-        if: steps.touched.outputs.web == 'true' || steps.touched.outputs.self == 'true'
-        run: python3 -I tests/test_ci_compile_preflight.py
 
       - name: Source key of the web bundles
         id: web-bundle-key
