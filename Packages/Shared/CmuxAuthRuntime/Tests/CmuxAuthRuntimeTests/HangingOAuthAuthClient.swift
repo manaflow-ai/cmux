@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// An ``AuthClient`` whose OAuth call suspends forever, like a system sign-in
 /// sheet (`ASAuthorizationController` / `ASWebAuthenticationSession`) whose

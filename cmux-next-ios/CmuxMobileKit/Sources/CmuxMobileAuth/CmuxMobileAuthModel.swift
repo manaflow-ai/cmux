@@ -1,8 +1,7 @@
 #if os(iOS)
 import CmuxEgress
-import AuthenticationServices
 import CMUXAuthCore
-import CmuxAuthRuntime
+import CmuxAuthRuntimeCore
 import CmuxMobileBilling
 import CmuxMobileModel
 import Foundation
@@ -173,7 +172,7 @@ public final class CmuxMobileAuthModel {
             sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmuxMobile.auth.hasTokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmuxMobile.auth.cachedUser"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmuxMobile.auth.selectedTeam"),
-            anchor: AuthPresentationContextProvider(),
+            anchor: SystemUIAuthPresentationAnchor(),
             config: config,
             launch: AuthLaunchOptions(
                 clearAuthRequested: isDebug && environment["CMUX_MOBILE_CLEAR_AUTH"] == "1",
@@ -806,11 +805,20 @@ public final class CmuxMobileAuthModel {
         await coordinator?.signOut()
     }
 
+    /// A provider sheet the person dismissed: StackAuth's `oauth_cancelled`,
+    /// or a raw `ASAuthorizationError.canceled`, matched by domain and code so
+    /// this module does not link AuthenticationServices.
+    private static func isProviderCancel(_ error: any Error) -> Bool {
+        if let error = error as? StackAuthError, error.code == "oauth_cancelled" { return true }
+        let nsError = error as NSError
+        return nsError.domain == "com.apple.AuthenticationServices.AuthorizationError" && nsError.code == 1001
+    }
+
     /// The welcome's message for a failed provider sign-in, naming the
     /// provider ("Couldn't sign in with Google. Try again."), or `nil` for a
     /// user cancel. Connection problems keep their own words.
     public static func message(for error: any Error, provider: Provider) -> String? {
-        if let error = error as? ASAuthorizationError, error.code == .canceled { return nil }
+        if isProviderCancel(error) { return nil }
         if error is CancellationError { return nil }
         // retry-prompt-ok: signing in needs the person (the provider's sheet, their account)
         switch AuthError(displaySafe: error) {
@@ -825,7 +833,7 @@ public final class CmuxMobileAuthModel {
 
     /// A user-facing message for an auth error, or `nil` for a user cancel.
     public static func message(for error: any Error) -> String? {
-        if let error = error as? ASAuthorizationError, error.code == .canceled { return nil }
+        if isProviderCancel(error) { return nil }
         if let authError = AuthError(displaySafe: error) {
             if authError == .cancelled { return nil }
             return authError.errorDescription

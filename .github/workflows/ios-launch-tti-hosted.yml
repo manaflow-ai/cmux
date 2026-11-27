@@ -196,6 +196,43 @@ jobs:
           print()
           PY
 
+      # The lazy system UI frameworks load from CmuxMobileSystemUI.framework on first use; linked by
+      # the app or any other embedded framework, they cost every launch again (QuickLook alone ~1.55 s).
+      - name: Lazy system UI frameworks not linked (otool -L)
+        if: ${{ !cancelled() && matrix.leg == 'after' }}
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          app="$(find .build/ios-sim -maxdepth 6 -type d -path '*/Demo-iphonesimulator/CmuxMobileApp.app' | head -n 1)"
+          [ -n "$app" ] || { echo "no Demo app; skipped"; exit 0; }
+          lazy='^/System/Library/Frameworks/(AuthenticationServices|SafariServices|StoreKit|_StoreKit_SwiftUI|PhotosUI|_PhotosUI_SwiftUI|QuickLook)\.framework/'
+          bins=("$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")")
+          for fw in "$app"/Frameworks/*.framework; do
+            [ -d "$fw" ] || continue
+            [ "$(basename "$fw")" = CmuxMobileSystemUI.framework ] && continue
+            exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || basename "$fw" .framework)"
+            bins+=("$fw/$exe")
+          done
+          fail=0
+          report="### lazy system UI frameworks (otool -L, ${#bins[@]} binaries)\n\n"
+          for bin in "${bins[@]}"; do
+            hits="$(otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -E "$lazy" || true)"
+            [ -z "$hits" ] && continue
+            fail=1
+            while IFS= read -r hit; do
+              echo "::error::${bin#"$app/"} links $hit; it belongs in CmuxMobileSystemUI.framework, loaded on first use"
+              report+="- \`${bin#"$app/"}\` links \`$hit\`\n"
+            done <<<"$hits"
+          done
+          if [ ! -d "$app/Frameworks/CmuxMobileSystemUI.framework" ]; then
+            fail=1
+            echo "::error::CmuxMobileSystemUI.framework is missing from $app/Frameworks"
+            report+="- CmuxMobileSystemUI.framework missing from the app's Frameworks\n"
+          fi
+          [ "$fail" -eq 0 ] && report+="none linked; CmuxMobileSystemUI.framework embedded\n"
+          printf '%b\n' "$report" >> "$GITHUB_STEP_SUMMARY"
+          exit "$fail"
+
       - name: Pre-main (dylibs, initializers, XCTest inserts; simctl launches)
         if: ${{ !cancelled() }}
         timeout-minutes: 15

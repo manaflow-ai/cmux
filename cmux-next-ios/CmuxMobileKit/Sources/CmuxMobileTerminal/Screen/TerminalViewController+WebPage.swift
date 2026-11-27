@@ -1,5 +1,5 @@
 #if os(iOS)
-import SafariServices
+import CmuxMobileSystemUIBridge
 import UIKit
 
 extension TerminalViewController {
@@ -8,13 +8,14 @@ extension TerminalViewController {
     /// page streamed from the Mac lacks), and Done comes back to the terminal. A sheet, so
     /// the terminal stays on screen under it and keeps its size and stream.
     ///
-    /// Returns false when nothing could present it (the terminal is off screen) or the
+    /// Returns false when nothing could present it (the terminal is off screen or
+    /// CmuxMobileSystemUI.framework, which holds the Safari view, did not load) or the
     /// address is not an `http(s)` page, which a Safari view refuses.
     func presentWebPage(_ url: URL) -> Bool {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""), viewIfLoaded?.window != nil else { return false }
         var presenter: UIViewController = self
         while let presented = presenter.presentedViewController, !presented.isBeingDismissed { presenter = presented }
-        let safari = SFSafariViewController(url: url)
+        guard let safari = SystemUI.safariController(url: url) else { return false }
         safari.modalPresentationStyle = .pageSheet
         presenter.present(safari, animated: true)
         return true

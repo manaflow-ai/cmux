@@ -50,6 +50,9 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxConversation"),
         // App Store plans (StoreKit 2, server-verified by cmux.com), shared with the classic app.
         .package(path: "../../Packages/iOS/CmuxMobileBilling"),
+        // AuthenticationServices, SafariServices, StoreKit, PhotosUI and QuickLook, through
+        // CmuxMobileSystemUI.framework, loaded on first use: linked, each costs ~1.55 s before main.
+        .package(path: "../../Packages/iOS/CmuxMobileSystemUIBridge"),
         // The agents' brand marks (Claude, Codex), shared with the Mac app.
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
         // The Action Button call flow (plans/cmux-next/ios-action-button-DESIGN.md).
@@ -101,7 +104,7 @@ let package = Package(
         .target(name: "CmuxMobileDiff", dependencies: ["CmuxMobileDesign"]),
         // Session artifacts: the reference model and extractor, sources (mock, inline, the Mac's `file`
         // link service), the browser and previews. Shared by the terminal and agent sessions.
-        .target(name: "CmuxMobileArtifacts", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .target(name: "CmuxMobileArtifacts", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime", .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS]))]),
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CmuxMobileAgentChat", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
@@ -110,6 +113,7 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
             // Kept row heights, keyed by row and content (ChatRowHeightMemory): Rust's RowLayoutMemory.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ], resources: [.process("Resources")]),
@@ -125,9 +129,10 @@ let package = Package(
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxMobileModel",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "CmuxAuthRuntimeCore", package: "CmuxAuthRuntime"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ]
         ),
@@ -141,7 +146,7 @@ let package = Package(
             ],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing", .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])), .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry")], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing", .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])), .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"), .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileRealtime"]),
@@ -155,6 +160,8 @@ let package = Package(
             "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            // New Task's photo picker.
+            .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
             // Toggle Terminal and Chat: which faces a tab offers and what a tap does are Rust's.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
@@ -199,6 +206,7 @@ let package = Package(
                 "CmuxMobileTransport",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
@@ -268,6 +276,7 @@ let package = Package(
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
                 .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 // The window's layout at its size (one pane or two), decided in Rust.
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),

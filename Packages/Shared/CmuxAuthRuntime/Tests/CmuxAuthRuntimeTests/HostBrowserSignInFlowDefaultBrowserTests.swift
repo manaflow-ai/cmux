@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// A sign-in that runs in the default browser from the start: no popup, the
 /// hosted page opens there, and its `<scheme>://auth-callback` signs the app in.

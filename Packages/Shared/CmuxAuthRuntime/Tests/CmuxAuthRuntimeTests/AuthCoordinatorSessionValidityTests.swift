@@ -2,7 +2,7 @@ import CMUXAuthCore
 import Foundation
 import StackAuth
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Behavior tests for the live-session-validity seam that drives the mobile
 /// login-vs-main gate.

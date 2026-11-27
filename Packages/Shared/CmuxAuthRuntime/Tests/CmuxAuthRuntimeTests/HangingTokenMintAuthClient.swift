@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// An ``AuthClient`` whose teardown access-token mint (`freshAccessToken`)
 /// suspends until cancelled, like the Stack `/auth/sessions/current/refresh`

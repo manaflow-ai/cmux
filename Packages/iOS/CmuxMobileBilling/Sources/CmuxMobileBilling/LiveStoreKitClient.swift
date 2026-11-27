@@ -1,188 +1,199 @@
-#if canImport(StoreKit)
+#if os(iOS)
 import Foundation
-import StoreKit
+import CmuxMobileSystemUIBridge
 
-/// ``StoreKitClient`` over StoreKit 2.
+/// ``StoreKitClient`` over StoreKit 2, reached through
+/// CmuxMobileSystemUI.framework (``SystemUI/provider``'s store): linked,
+/// StoreKit costs the app about 1.55 s before `main` on a cold launch, so this
+/// module does not import it. The framework's store keeps the transactions it
+/// hands out for ``finish(transactionID:)``: the model finishes a transaction
+/// only after the server accepted it, which can be long after StoreKit
+/// delivered it.
 ///
-/// An actor so the transactions it hands out stay retrievable for
-/// ``finish(transactionID:)``: the model finishes a transaction only after the
-/// server accepted it, which can be long after StoreKit delivered it.
+/// Without the framework (it failed to load), product loads, purchases and
+/// sync throw ``StoreKitClientError/system``, the transaction lists are empty
+/// and the update stream finishes at once.
 public actor LiveStoreKitClient: StoreKitClient {
-    /// Delivered but not yet finished transactions, by id.
-    private var heldTransactions: [UInt64: Transaction] = [:]
-
-    /// Creates the client.
+    /// Creates the client. Loads nothing until the first call.
     public init() {}
 
     public func products(for ids: [String]) async throws -> [StoreProduct] {
         guard !ids.isEmpty else { return [] }
-        let products: [Product]
-        do {
-            products = try await Product.products(for: ids)
-        } catch {
-            throw Self.normalized(error)
+        guard let store = Self.store else { throw StoreKitClientError.system }
+        let (products, failure) = await withCheckedContinuation { (continuation: CheckedContinuation<([StoreProduct], SystemUIStoreFailure), Never>) in
+            store.products(identifiers: ids) { products, failure in
+                continuation.resume(returning: (products.map(Self.storeProduct(_:)), failure))
+            }
         }
-        return products.map(Self.storeProduct(_:))
+        if let error = Self.error(failure) { throw error }
+        return products
     }
 
     public func purchase(productID: String, appAccountToken: UUID) async throws -> StorePurchaseResult {
-        let product: Product
-        do {
-            guard let found = try await Product.products(for: [productID]).first else {
-                throw StoreKitClientError.productUnavailable
+        guard let store = Self.store else { throw StoreKitClientError.system }
+        let (outcome, transaction, failure) = await withCheckedContinuation { (continuation: CheckedContinuation<(SystemUIPurchaseOutcome, StoreTransactionVerification?, SystemUIStoreFailure), Never>) in
+            store.purchase(productID: productID, appAccountToken: appAccountToken) { outcome, transaction, failure in
+                continuation.resume(returning: (outcome, transaction.map(Self.verification(_:)), failure))
             }
-            product = found
-        } catch let error as StoreKitClientError {
-            throw error
-        } catch {
-            throw Self.normalized(error)
         }
-        let result: Product.PurchaseResult
-        do {
-            result = try await product.purchase(options: [.appAccountToken(appAccountToken)])
-        } catch {
-            throw Self.normalized(error)
-        }
-        switch result {
-        case .success(let verification):
-            return .completed(hold(verification))
+        if let error = Self.error(failure) { throw error }
+        switch outcome {
+        case .completed:
+            guard let transaction else { throw StoreKitClientError.system }
+            return .completed(transaction)
         case .pending:
             return .pending
         case .userCancelled:
             return .userCancelled
-        @unknown default:
-            throw StoreKitClientError.system
         }
     }
 
+    /// The first call loads the framework off the calling thread: the model
+    /// calls this from the main actor at launch, and loading links StoreKit.
     public nonisolated func transactionUpdates() -> AsyncStream<StoreTransactionVerification> {
         AsyncStream { continuation in
-            let task = Task { [weak self] in
-                for await verification in Transaction.updates {
-                    guard let self else { break }
-                    continuation.yield(await self.hold(verification))
+            let observation = UpdatesObservation()
+            continuation.onTermination = { _ in observation.cancel() }
+            Task.detached {
+                guard let store = Self.store else {
+                    continuation.finish()
+                    return
                 }
-                continuation.finish()
+                observation.attach(store.observeTransactionUpdates { transaction in
+                    continuation.yield(Self.verification(transaction))
+                })
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     public func unfinishedTransactions() async -> [StoreTransactionVerification] {
-        var results: [StoreTransactionVerification] = []
-        for await verification in Transaction.unfinished {
-            results.append(hold(verification))
+        guard let store = Self.store else { return [] }
+        return await withCheckedContinuation { continuation in
+            store.unfinishedTransactions { transactions in
+                continuation.resume(returning: transactions.map(Self.verification(_:)))
+            }
         }
-        return results
     }
 
     public func currentEntitlements() async -> [StoreTransactionVerification] {
-        var results: [StoreTransactionVerification] = []
-        for await verification in Transaction.currentEntitlements {
-            results.append(hold(verification))
+        guard let store = Self.store else { return [] }
+        return await withCheckedContinuation { continuation in
+            store.currentEntitlements { transactions in
+                continuation.resume(returning: transactions.map(Self.verification(_:)))
+            }
         }
-        return results
     }
 
     public func syncWithAppStore() async throws {
-        do {
-            try await AppStore.sync()
-        } catch {
-            throw Self.normalized(error)
+        guard let store = Self.store else { throw StoreKitClientError.system }
+        let failure = await withCheckedContinuation { continuation in
+            store.syncWithAppStore { failure in
+                continuation.resume(returning: failure)
+            }
         }
+        if let error = Self.error(failure) { throw error }
     }
 
     public func storefrontCountryCode() async -> String? {
-        await Storefront.current?.countryCode
+        guard let store = Self.store else { return nil }
+        return await withCheckedContinuation { continuation in
+            store.storefrontCountryCode { code in
+                continuation.resume(returning: code)
+            }
+        }
     }
 
     public func finish(transactionID: UInt64) async {
-        if let transaction = heldTransactions.removeValue(forKey: transactionID) {
-            await transaction.finish()
-            return
-        }
-        // Not handed out by this process (a relaunch since delivery): look it
-        // up among StoreKit's unfinished transactions.
-        for await verification in Transaction.unfinished {
-            guard case .verified(let transaction) = verification, transaction.id == transactionID else { continue }
-            await transaction.finish()
-            return
+        guard let store = Self.store else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            store.finish(transactionID: transactionID) {
+                continuation.resume()
+            }
         }
     }
 
     /// The App Store environment this build buys in: `Production` for App
     /// Store builds, `Sandbox` for TestFlight and App Review, nil for Xcode
-    /// testing or when StoreKit cannot tell. Read from the signed
-    /// `AppTransaction`, which StoreKit caches after the first read.
+    /// testing, when StoreKit cannot tell, or without the framework. Read from
+    /// the signed `AppTransaction`, which StoreKit caches after the first read.
     public static func appStoreEnvironment() async -> String? {
-        guard case .verified(let appTransaction) = try? await AppTransaction.shared else { return nil }
-        switch appTransaction.environment {
-        case .production: return "Production"
-        case .sandbox: return "Sandbox"
-        default: return nil
+        guard let store = Self.store else { return nil }
+        return await withCheckedContinuation { continuation in
+            store.appStoreEnvironment { environment in
+                continuation.resume(returning: environment)
+            }
         }
     }
 
-    /// Records a verified transaction for a later finish and converts it.
-    private func hold(_ verification: VerificationResult<Transaction>) -> StoreTransactionVerification {
-        switch verification {
-        case .verified(let transaction):
-            heldTransactions[transaction.id] = transaction
-            return .verified(StoreTransaction(
-                id: transaction.id,
-                productID: transaction.productID,
-                jwsRepresentation: verification.jwsRepresentation,
-                appAccountToken: transaction.appAccountToken,
-                environment: Self.environmentName(transaction.environment)
-            ))
-        case .unverified(let transaction, _):
-            return .unverified(transactionID: transaction.id, productID: transaction.productID)
-        }
+    /// The framework's store; nil when the framework did not load.
+    private static var store: (any SystemUIStore)? {
+        SystemUI.provider?.store
     }
 
-    private static func storeProduct(_ product: Product) -> StoreProduct {
-        let period = product.subscription?.subscriptionPeriod
-        let isYearly = period.map { $0.unit == .year && $0.value == 1 } ?? false
-        return StoreProduct(
-            id: product.id,
+    private static func storeProduct(_ product: any SystemUIStoreProduct) -> StoreProduct {
+        StoreProduct(
+            id: product.productID,
             displayName: product.displayName,
-            productDescription: product.description,
+            productDescription: product.productDescription,
             displayPrice: product.displayPrice,
-            periodUnitName: period.map { $0.unit.localizedDescription },
-            price: product.price,
-            currencyCode: product.priceFormatStyle.currencyCode,
-            monthlyEquivalentDisplayPrice: isYearly ? (product.price / 12).formatted(product.priceFormatStyle) : nil
+            periodUnitName: product.periodUnitName,
+            price: product.price?.decimalValue,
+            currencyCode: product.currencyCode,
+            monthlyEquivalentDisplayPrice: product.monthlyEquivalentDisplayPrice
         )
     }
 
-    private static func environmentName(_ environment: AppStore.Environment) -> String? {
-        switch environment {
-        case .production: "Production"
-        case .sandbox: "Sandbox"
-        case .xcode: "Xcode"
-        default: nil
+    private static func verification(_ transaction: any SystemUIStoreTransaction) -> StoreTransactionVerification {
+        guard transaction.isVerified else {
+            return .unverified(transactionID: transaction.transactionID, productID: transaction.productID)
         }
+        return .verified(StoreTransaction(
+            id: transaction.transactionID,
+            productID: transaction.productID,
+            jwsRepresentation: transaction.jwsRepresentation,
+            appAccountToken: transaction.appAccountToken,
+            environment: transaction.environment
+        ))
     }
 
-    private static func normalized(_ error: any Error) -> StoreKitClientError {
-        if let error = error as? StoreKitClientError { return error }
-        if let error = error as? StoreKitError {
-            switch error {
-            case .userCancelled: return .userCancelled
-            case .networkError: return .network
-            case .notAvailableInStorefront: return .productUnavailable
-            default: return .system
-            }
+    /// The framework's failure as the error this client throws; nil for none.
+    private static func error(_ failure: SystemUIStoreFailure) -> StoreKitClientError? {
+        switch failure {
+        case .none: nil
+        case .productUnavailable: .productUnavailable
+        case .userCancelled: .userCancelled
+        case .purchasesNotAllowed: .purchasesNotAllowed
+        case .network: .network
+        case .system: .system
         }
-        if let error = error as? Product.PurchaseError {
-            switch error {
-            case .productUnavailable: return .productUnavailable
-            case .purchaseNotAllowed: return .purchasesNotAllowed
-            default: return .system
-            }
+    }
+}
+
+/// The framework's `Transaction.updates` observation for one stream, which
+/// may end before the observation starts: then it is cancelled on attach.
+private final class UpdatesObservation: @unchecked Sendable {
+    // @unchecked: `lock` guards both fields; the handle's `cancel()` only
+    // cancels a task, so any thread may call it.
+    private let lock = NSLock()
+    private var handle: (any SystemUICancellable)?
+    private var cancelled = false
+
+    func attach(_ handle: any SystemUICancellable) {
+        let cancelNow = lock.withLock {
+            if cancelled { return true }
+            self.handle = handle
+            return false
         }
-        if error is URLError { return .network }
-        return .system
+        if cancelNow { handle.cancel() }
+    }
+
+    func cancel() {
+        let handle = lock.withLock {
+            cancelled = true
+            defer { self.handle = nil }
+            return self.handle
+        }
+        handle?.cancel()
     }
 }
 #endif

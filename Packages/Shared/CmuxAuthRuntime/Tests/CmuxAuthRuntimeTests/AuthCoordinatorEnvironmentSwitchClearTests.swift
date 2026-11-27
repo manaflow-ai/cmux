@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// The auth-environment-switch clear (``AuthLaunchOptions/clearStaleAuthOnLaunch``):
 /// an install whose resolved Stack project changed since its last launch (an

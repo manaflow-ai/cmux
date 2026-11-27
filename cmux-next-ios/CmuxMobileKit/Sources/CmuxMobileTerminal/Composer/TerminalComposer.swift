@@ -4,9 +4,9 @@ import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileRealtime
+import CmuxMobileSystemUIBridge
 import CmuxMobileTransport
 import CmuxSpinner
-import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
@@ -25,7 +25,6 @@ import UniformTypeIdentifiers
 /// Jump to bottom floats above the key row and takes no space (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
-    @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
     /// The + menu's Autocorrect toggle, remembered across launches (off by
@@ -90,12 +89,10 @@ struct TerminalComposer: View {
         // intrinsic size) the frame is the card's own height.
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
-        .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
-                      matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
-        .onChange(of: photoItems) { _, items in
-            guard !items.isEmpty else { return }
-            photoItems = []
-            loadPhotos(items)
+        .systemPhotoPicker(isPresented: $model.showPhotoPicker, filter: .imagesAndVideos, selectionLimit: 6,
+                           encoding: .compatible) { picks in
+            guard !picks.isEmpty else { return }
+            loadPhotos(picks)
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
@@ -476,12 +473,12 @@ struct TerminalComposer: View {
     /// Picked photos and videos keep their bytes (a video its local copy).
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
-    private func loadPhotos(_ items: [PhotosPickerItem]) {
+    private func loadPhotos(_ items: [SystemPhotoPick]) {
         let stamp = Self.stamp()
         for (index, item) in items.enumerated() {
             let suffix = items.count > 1 ? " \(index + 1)" : ""
-            let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
-            let ext = item.supportedContentTypes.first { type in
+            let isVideo = item.isMovie
+            let ext = item.contentTypes.first { type in
                 isVideo ? type.conforms(to: .movie) : type.conforms(to: .image)
             }?.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
             let kind: ComposerAttachment.Kind = isVideo ? .video : .image
@@ -491,14 +488,15 @@ struct TerminalComposer: View {
             model.loadPickedAttachment(placeholder) { [item] in
                 if isVideo {
                     let movie: MovieFile = try await Self.loadWithInactivityDeadline { completion in
-                        item.loadTransferable(type: MovieFile.self, completionHandler: completion)
+                        item.loadFile(conformingTo: .movie, copy: { MovieFile(copy: try PickedMovieCopy(copying: $0)) },
+                                      completion: completion)
                     }
                     let thumbnail = await Self.videoThumbnail(movie.url)
                     let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                     return .movie(movie.copy, thumbnail: thumbnail, byteCount: size)
                 }
                 let data: Data = try await Self.loadWithInactivityDeadline { completion in
-                    item.loadTransferable(type: Data.self, completionHandler: completion)
+                    item.loadData(completion: completion)
                 }
                 guard let image = UIImage(data: data) else { throw PhotoLoadError.unavailable }
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))

@@ -3,6 +3,7 @@ import AuthenticationServices
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Pins the `ASWebAuthenticationSession` completion contract: the session does
 /// not reliably deliver on the main thread (macOS 26's cancel path uses the

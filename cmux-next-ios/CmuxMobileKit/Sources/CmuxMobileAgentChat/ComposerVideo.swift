@@ -21,12 +21,18 @@ struct PickedMovie: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .movie) { received in
-            let folder = PickedMovie.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let copy = folder.appendingPathComponent(received.file.lastPathComponent)
-            try FileManager.default.copyItem(at: received.file, to: copy)
-            return PickedMovie(url: copy)
+            try PickedMovie.copying(received.file)
         }
+    }
+
+    /// The picker's file copied into its own folder under ``root``, while the picker still
+    /// keeps it (the system photo picker's file load hands it over the same way).
+    static func copying(_ file: URL) throws -> PickedMovie {
+        let folder = PickedMovie.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let copy = folder.appendingPathComponent(file.lastPathComponent)
+        try FileManager.default.copyItem(at: file, to: copy)
+        return PickedMovie(url: copy)
     }
 }
 

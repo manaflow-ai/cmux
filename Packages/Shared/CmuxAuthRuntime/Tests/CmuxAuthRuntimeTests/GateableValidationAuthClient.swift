@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// An ``AuthClient`` whose network phases can be parked on demand, so a test
 /// can hold a round trip (the `/users/me` validation fetch, the team list, or

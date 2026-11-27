@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 actor ParkedValidationTokenRefreshAuthClient: AuthClient {
     private let user: CMUXAuthUser

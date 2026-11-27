@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 actor ReleasableCancellationIgnoringMagicLinkAuthClient: AuthClient {
     private var startWaiters: [CheckedContinuation<Void, Never>] = []

@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import os
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Behavior at the sign-in service boundary: the production Stack client,
 /// the real file token store, and a real HTTP server on 127.0.0.1.

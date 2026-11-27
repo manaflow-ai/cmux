@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Regression coverage for ``AuthCoordinator/authenticatedSessionSnapshot()``
 /// reading the access and refresh tokens as ONE coherent pair.

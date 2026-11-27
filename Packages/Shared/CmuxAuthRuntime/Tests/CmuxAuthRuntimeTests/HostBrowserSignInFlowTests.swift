@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Behavior tests for the hosted-browser sign-in flow: callback completion,
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.

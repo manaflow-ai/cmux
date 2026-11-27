@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationGeometry
-import PhotosUI
+import CmuxMobileSystemUIBridge
 import UIKit
 
 /// Messages' Photos drawer: a real sheet (`AppCardContainerViewController`,
@@ -12,7 +12,7 @@ import UIKit
 /// shows the system photo picker's chrome ("Select up to 50 items", Photos
 /// and Collections); dragged down it closes.
 @MainActor
-final class ConversationPhotoSheetController: UIViewController, PHPickerViewControllerDelegate, UISheetPresentationControllerDelegate {
+final class ConversationPhotoSheetController: UIViewController, UISheetPresentationControllerDelegate {
     static let keyboardDetent = UISheetPresentationController.Detent.Identifier("keyboard")
 
     /// The selection changed: picked asset identifiers in selection order.
@@ -21,7 +21,8 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
     var onDismiss: (() -> Void)?
     private let grid = ConversationPhotoGridView()
     /// The full picker, shown at the large detent.
-    private var picker: PHPickerViewController?
+    /// The system photo picker (CmuxMobileSystemUI.framework, so PhotosUI loads on first use).
+    private var picker: (any SystemUIPhotoPicker)?
     /// The grabber's strip over the picker: the picker draws in another
     /// process and keeps the sheet's drag from starting on its top edge.
     private let grabberStrip = UIView()
@@ -99,40 +100,52 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
 
     private func showPicker() {
         guard picker == nil else { return }
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27)
-        configuration.selection = .continuousAndOrdered
-        configuration.preferredAssetRepresentationMode = .current
-        configuration.preselectedAssetIdentifiers = selection
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        addChild(picker)
-        picker.view.frame = view.bounds
-        picker.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        picker.view.alpha = 0
-        view.insertSubview(picker.view, belowSubview: grabberStrip)
-        picker.didMove(toParent: self)
+        // No framework: the sheet stays on its grid at the large detent.
+        guard let provider = SystemUI.provider else { return }
+        var made: (any SystemUIPhotoPicker)?
+        made = provider.makePhotoPicker(
+            filter: .images,
+            selectionLimit: PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27),
+            selection: .continuousAndOrdered,
+            encoding: .current,
+            photoLibrary: true,
+            preselectedAssetIdentifiers: selection,
+            onPick: { [weak self] picks in
+                MainActor.assumeIsolated {
+                    guard let self, let made, made === self.picker else { return }
+                    self.didPick(picks)
+                }
+            }
+        )
+        guard let picker = made else { return }
+        let controller = picker.viewController
+        addChild(controller)
+        controller.view.frame = view.bounds
+        controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.alpha = 0
+        view.insertSubview(controller.view, belowSubview: grabberStrip)
+        controller.didMove(toParent: self)
         self.picker = picker
         // motion: allow crossfade, the Reduce Motion form
-        UIView.animate(withDuration: 0.25) { picker.view.alpha = 1 }
+        UIView.animate(withDuration: 0.25) { controller.view.alpha = 1 }
     }
 
     private func hidePicker() {
         guard let picker else { return }
         self.picker = nil
+        let controller = picker.viewController
         // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) {
-            picker.view.alpha = 0
+            controller.view.alpha = 0
         } completion: { _ in
-            picker.willMove(toParent: nil)
-            picker.view.removeFromSuperview()
-            picker.removeFromParent()
+            controller.willMove(toParent: nil)
+            controller.view.removeFromSuperview()
+            controller.removeFromParent()
         }
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        guard picker === self.picker else { return }
-        let ids = results.compactMap(\.assetIdentifier)
+    private func didPick(_ picks: [any SystemUIPhotoPick]) {
+        let ids = picks.compactMap(\.assetIdentifier)
         grid.setSelection(ids)
         onSelection?(ids)
     }

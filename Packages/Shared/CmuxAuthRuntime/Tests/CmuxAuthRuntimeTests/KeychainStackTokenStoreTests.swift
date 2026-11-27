@@ -3,7 +3,7 @@ import Foundation
 import Security
 #endif
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite(.serialized)
 struct KeychainStackTokenStoreTests {

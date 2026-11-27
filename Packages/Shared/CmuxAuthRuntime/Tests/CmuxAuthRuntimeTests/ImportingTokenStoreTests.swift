@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite struct ImportingTokenStoreTests {
     /// A source that counts its reads.

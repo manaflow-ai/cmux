@@ -518,8 +518,12 @@ extension ConversationViewController {
         view.endEditing(true)
         let presenter = ConversationQuickLookPresenter(items: items, index: index, sourceView: sourceView)
         presenter.onDismiss = { [weak self] in self?.quickLookPresenter = nil }
+        guard let controller = presenter.makeController() else {
+            quickLookPresenter = nil
+            return
+        }
         quickLookPresenter = presenter
-        present(presenter.makeController(), animated: true)
+        present(controller, animated: true)
     }
 
     func presentPhotoDrawer() {

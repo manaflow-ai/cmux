@@ -3,9 +3,6 @@ import Foundation
 import FoundationNetworking
 #endif
 import Crypto
-#if canImport(AuthenticationServices)
-import AuthenticationServices
-#endif
 
 /// OAuth URL result
 public struct OAuthUrlResult: Sendable {
@@ -184,9 +181,11 @@ public actor StackClientApp {
         return OAuthUrlResult(url: url, state: actualState, codeVerifier: actualCodeVerifier, redirectUrl: redirectUrl)
     }
     
-    #if canImport(AuthenticationServices) && !os(watchOS)
-    private final class WebAuthenticationSessionHolder {
-        var session: ASWebAuthenticationSession?
+    #if canImport(Darwin) && !os(watchOS)
+    /// The running system flow, touched only on the main actor; `@unchecked`
+    /// so the gate's teardown can hop it to the main actor.
+    private final class InteractiveAuthSessionHolder: @unchecked Sendable {
+        var session: (any StackInteractiveAuthSession)?
     }
 
     /// One-shot continuation gate that makes the interactive OAuth waits
@@ -270,19 +269,23 @@ public actor StackClientApp {
         }
     }
 
-    /// Sign in with OAuth using ASWebAuthenticationSession (or native Apple Sign In for "apple" provider)
+    /// Sign in with OAuth through `authenticator`'s web authentication session
+    /// (or its native Apple Sign In for the "apple" provider).
+    ///
+    /// The authenticator owns the system UI (`StackAppleInteractiveAuthenticator`
+    /// in `StackAuthAppleUI` wraps AuthenticationServices), so this module
+    /// never links AuthenticationServices.
     /// - Parameters:
     ///   - provider: The OAuth provider ID (e.g., "google", "github", "apple")
-    ///   - presentationContextProvider: Context provider for presenting the auth UI
+    ///   - authenticator: Presents the browser session or Apple Sign In sheet
     @MainActor
     public func signInWithOAuth(
         provider: String,
-        presentationContextProvider: ASWebAuthenticationPresentationContextProviding? = nil
+        authenticator: any StackInteractiveAuthenticator
     ) async throws {
         // Use native Apple Sign In for "apple" provider
         if provider == "apple" {
-            let applePresentationContextProvider = presentationContextProvider as? ASAuthorizationControllerPresentationContextProviding
-            try await signInWithAppleNative(presentationContextProvider: applePresentationContextProvider)
+            try await signInWithAppleNative(authenticator: authenticator)
             return
         }
 
@@ -296,7 +299,7 @@ public actor StackClientApp {
             errorRedirectUrl: callbackScheme + "://error"
         )
         let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
-        let sessionHolder = WebAuthenticationSessionHolder()
+        let sessionHolder = InteractiveAuthSessionHolder()
         let gate = AuthFlowCancellationGate<URL>()
         let prefersEphemeralWebBrowserSession =
             oauthBrowserSessionPrivacy == .ephemeral
@@ -320,18 +323,16 @@ public actor StackClientApp {
                     // Cancelled before the session was built; present nothing.
                     return
                 }
-                let session = ASWebAuthenticationSession(
+                let session = authenticator.startWebAuthentication(
                     url: providerAuthorizationUrl,
-                    callbackURLScheme: callbackScheme
+                    callbackScheme: callbackScheme,
+                    prefersEphemeralSession: prefersEphemeralWebBrowserSession
                 ) { callbackUrl, error in
+                    // Authenticators call back on the main thread.
                     sessionHolder.session = nil
 
                     if let error = error {
-                        if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                            gate.resume(throwing: StackAuthError(code: "oauth_cancelled", message: "User cancelled OAuth"))
-                        } else {
-                            gate.resume(throwing: OAuthError(code: "oauth_error", message: error.localizedDescription))
-                        }
+                        gate.resume(throwing: error.webAuthenticationFailure)
                         return
                     }
 
@@ -343,27 +344,18 @@ public actor StackClientApp {
                     gate.resume(returning: callbackUrl)
                 }
 
-                session.prefersEphemeralWebBrowserSession =
-                    prefersEphemeralWebBrowserSession
-
-                #if os(iOS) || os(macOS)
-                if let provider = presentationContextProvider {
-                    session.presentationContextProvider = provider
-                }
-                #endif
-
-                sessionHolder.session = session
-                if !session.start() {
-                    sessionHolder.session = nil
+                guard let session else {
                     gate.resume(throwing: OAuthError(code: "oauth_error", message: "Failed to start OAuth session"))
                     return
                 }
+                sessionHolder.session = session
                 if gate.isFinished {
-                    // Cancelled between the pre-start check and start(): the
-                    // teardown already ran against an empty holder, so the
-                    // just-presented sheet is dismissed here instead. This
-                    // re-check runs synchronously on the main actor, so it
-                    // cannot interleave with the teardown's main-actor task.
+                    // Cancelled between the pre-start check and the start (or
+                    // finished during it): the teardown already ran against an
+                    // empty holder, so the just-presented sheet is dismissed
+                    // here instead. This re-check runs synchronously on the
+                    // main actor, so it cannot interleave with the teardown's
+                    // main-actor task.
                     sessionHolder.session?.cancel()
                     sessionHolder.session = nil
                 }
@@ -414,69 +406,52 @@ public actor StackClientApp {
         return providerUrl
     }
 
-    /// Native Apple Sign In using ASAuthorizationController
+    /// Native Apple Sign In through `authenticator`
     @MainActor
     private func signInWithAppleNative(
-        presentationContextProvider: ASAuthorizationControllerPresentationContextProviding?
+        authenticator: any StackInteractiveAuthenticator
     ) async throws {
-        let appleIDProvider = ASAuthorizationAppleIDProvider()
-        let request = appleIDProvider.createRequest()
-        request.requestedScopes = [.fullName, .email]
-        
-        let authController = ASAuthorizationController(authorizationRequests: [request])
-        #if os(iOS) || os(macOS)
-        if let provider = presentationContextProvider {
-            authController.presentationContextProvider = provider
-        }
-        #endif
-        
-        // Use delegate helper to bridge async/await. The wait is gated so task
-        // cancellation tears the request down instead of suspending forever
-        // when the system never calls the delegate back.
-        let gate = AuthFlowCancellationGate<ASAuthorizationAppleIDCredential>()
-        let credential = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ASAuthorizationAppleIDCredential, Error>) in
-                let sessionId = UUID()
+        // The wait is gated so task cancellation tears the request down
+        // instead of suspending forever when the system never calls back.
+        let sessionHolder = InteractiveAuthSessionHolder()
+        let gate = AuthFlowCancellationGate<Data?>()
+        let identityTokenData = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
                 gate.activate(continuation) {
                     // Tear down the pending authorization so the system sheet
                     // does not outlive the cancelled flow; the gate has
                     // already resumed.
                     Task { @MainActor in
-                        AppleSignInSessionStore.shared.cancelAndRemove(sessionId)
+                        sessionHolder.session?.cancel()
+                        sessionHolder.session = nil
                     }
                 }
                 if gate.isFinished {
                     // Cancelled before the request started; present nothing.
                     return
                 }
-                let delegate = AppleSignInDelegate(resume: { result in
+                let session = authenticator.startAppleSignIn { result in
+                    // Authenticators call back on the main thread.
+                    sessionHolder.session = nil
                     switch result {
-                    case .success(let credential):
-                        gate.resume(returning: credential)
+                    case .credential(let identityToken):
+                        gate.resume(returning: identityToken)
+                    case .unexpectedCredential:
+                        gate.resume(throwing: StackAuthError(code: "oauth_error", message: "Unexpected credential type from Apple"))
                     case .failure(let error):
-                        gate.resume(throwing: error)
+                        gate.resume(throwing: error.appleSignInFailure)
                     }
-                }, onFinish: {
-                    Task { @MainActor in
-                        AppleSignInSessionStore.shared.remove(sessionId)
-                    }
-                })
-                authController.delegate = delegate
-
-                // Keep delegate alive during the authorization
-                objc_setAssociatedObject(authController, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
-
-                let session = AppleSignInSession(id: sessionId, controller: authController, delegate: delegate)
-                AppleSignInSessionStore.shared.add(session)
-
-                authController.performRequests()
+                }
+                sessionHolder.session = session
                 if gate.isFinished {
-                    // Cancelled between the pre-start check and
-                    // performRequests(): the teardown already ran against an
-                    // empty store, so tear the request down here instead. This
-                    // re-check runs synchronously on the main actor, so it
-                    // cannot interleave with the teardown's main-actor task.
-                    AppleSignInSessionStore.shared.cancelAndRemove(sessionId)
+                    // Cancelled between the pre-start check and the request
+                    // (or finished during it): the teardown already ran
+                    // against an empty holder, so tear the request down here
+                    // instead. This re-check runs synchronously on the main
+                    // actor, so it cannot interleave with the teardown's
+                    // main-actor task.
+                    sessionHolder.session?.cancel()
+                    sessionHolder.session = nil
                 }
             }
         } onCancel: {
@@ -484,7 +459,7 @@ public actor StackClientApp {
         }
         
         // Extract identity token
-        guard let identityTokenData = credential.identityToken,
+        guard let identityTokenData,
               let identityToken = String(data: identityTokenData, encoding: .utf8) else {
             throw StackAuthError(code: "oauth_error", message: "No identity token received from Apple")
         }
@@ -1213,147 +1188,3 @@ public actor StackClientApp {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-
-// MARK: - Apple Sign In Delegate
-
-#if canImport(AuthenticationServices) && !os(watchOS)
-/// Helper class to bridge ASAuthorizationController delegate-based API to async/await.
-/// Resumes through a one-shot closure (the cancellation gate) instead of holding
-/// the continuation directly, so a cancelled flow's late delegate callback is
-/// dropped instead of double-resuming.
-private class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
-    private let resumeOnce: (Result<ASAuthorizationAppleIDCredential, Error>) -> Void
-    private let onFinish: () -> Void
-    
-    init(
-        resume: @escaping (Result<ASAuthorizationAppleIDCredential, Error>) -> Void,
-        onFinish: @escaping () -> Void
-    ) {
-        self.resumeOnce = resume
-        self.onFinish = onFinish
-    }
-    
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-            onFinish()
-            resumeOnce(.failure(StackAuthError(code: "oauth_error", message: "Unexpected credential type from Apple")))
-            return
-        }
-        onFinish()
-        resumeOnce(.success(credential))
-    }
-    
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        let nsError = error as NSError
-        
-        // Check if it's an ASAuthorizationError
-        if nsError.domain == ASAuthorizationError.errorDomain {
-            let errorCode = ASAuthorizationError.Code(rawValue: nsError.code)
-            
-            switch errorCode {
-            case .canceled:
-                // User tapped Cancel or dismissed the Sign In with Apple dialog
-                onFinish()
-                resumeOnce(.failure(StackAuthError(code: "oauth_cancelled", message: "User cancelled Apple Sign In")))
-                
-            case .unknown:
-                // Error 1000 - The app is not properly configured for Sign In with Apple.
-                // This is the most common error during development.
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_not_configured",
-                    message: "Apple Sign In is not configured correctly (error 1000). " +
-                             "To fix this: " +
-                             "(1) Open your project in Xcode, go to Signing & Capabilities, and add 'Sign In with Apple'. " +
-                             "(2) Ensure the app is signed with a valid Apple Developer certificate (not just a personal team). " +
-                             "(3) Register your Bundle ID at developer.apple.com and enable Sign In with Apple for it."
-                )))
-                
-            case .invalidResponse:
-                // Apple's servers returned an unexpected/malformed response.
-                // Usually a temporary server-side issue.
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_invalid_response",
-                    message: "Apple's servers returned an unexpected response. This is usually temporary - please try again in a moment."
-                )))
-                
-            case .notHandled:
-                // No authorization provider could handle this request.
-                // This can happen if Apple ID is not set up on the device.
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_not_handled",
-                    message: "Apple Sign In could not be completed. Ensure you are signed in to an Apple ID on this device (Settings > Apple ID)."
-                )))
-                
-            case .failed:
-                // Authentication failed - could be network issues, Apple ID issues, etc.
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_failed",
-                    message: "Apple Sign In authentication failed. Check your internet connection and ensure your Apple ID is working correctly."
-                )))
-                
-            case .notInteractive:
-                // Attempted silent/automatic sign-in but user interaction is required.
-                // This shouldn't happen with our implementation since we always show the dialog.
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_not_interactive",
-                    message: "Apple Sign In requires user interaction. Please try signing in again."
-                )))
-                
-            default:
-                onFinish()
-                resumeOnce(.failure(StackAuthError(
-                    code: "apple_signin_error",
-                    message: "Apple Sign In failed with error code \(nsError.code): \(error.localizedDescription)"
-                )))
-            }
-        } else {
-            // Non-ASAuthorizationError (rare)
-            onFinish()
-            resumeOnce(.failure(OAuthError(code: "oauth_error", message: error.localizedDescription)))
-        }
-    }
-}
-#endif
-
-#if canImport(AuthenticationServices) && !os(watchOS)
-@MainActor
-private final class AppleSignInSessionStore {
-    static let shared = AppleSignInSessionStore()
-    private var sessions: [UUID: AppleSignInSession] = [:]
-    
-    func add(_ session: AppleSignInSession) {
-        sessions[session.id] = session
-    }
-    
-    func remove(_ id: UUID) {
-        sessions[id] = nil
-    }
-    
-    /// Cancel the pending authorization request (dismissing its system UI when
-    /// the OS supports it) and drop the session. Used when the awaiting task is
-    /// cancelled so the sheet does not outlive the flow.
-    func cancelAndRemove(_ id: UUID) {
-        guard let session = sessions.removeValue(forKey: id) else { return }
-        if #available(iOS 16.0, macOS 13.0, tvOS 16.0, visionOS 1.0, *) {
-            session.controller.cancel()
-        }
-    }
-}
-
-private final class AppleSignInSession {
-    let id: UUID
-    let controller: ASAuthorizationController
-    let delegate: AppleSignInDelegate
-    
-    init(id: UUID, controller: ASAuthorizationController, delegate: AppleSignInDelegate) {
-        self.id = id
-        self.controller = controller
-        self.delegate = delegate
-    }
-}
-#endif

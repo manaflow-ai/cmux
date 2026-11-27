@@ -1,5 +1,8 @@
 #if canImport(AuthenticationServices)
 public import AuthenticationServices
+public import CmuxAuthRuntimeCore
+public import StackAuth
+public import StackAuthAppleUI
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -10,12 +13,21 @@ import AppKit
 ///
 /// Resolves the active key window on iOS or macOS and returns it as the
 /// presentation anchor for `ASWebAuthenticationSession` and
-/// `ASAuthorizationController`. Construct it once at the app composition root
-/// and inject it; it holds no mutable state and is safe to share.
-public final class AuthPresentationContextProvider: NSObject, AuthPresentationAnchoring {
+/// `ASAuthorizationController`, and presents both through
+/// `StackAppleInteractiveAuthenticator`. Construct it once at the app
+/// composition root and inject it; it holds no mutable state and is safe to
+/// share.
+public final class AuthPresentationContextProvider: NSObject,
+    AuthPresentationAnchoring,
+    ASWebAuthenticationPresentationContextProviding,
+    ASAuthorizationControllerPresentationContextProviding {
     /// Creates a presentation-anchor provider.
     public override init() {
         super.init()
+    }
+
+    public var interactiveAuthenticator: (any StackInteractiveAuthenticator)? {
+        StackAppleInteractiveAuthenticator(presentationContextProvider: self)
     }
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

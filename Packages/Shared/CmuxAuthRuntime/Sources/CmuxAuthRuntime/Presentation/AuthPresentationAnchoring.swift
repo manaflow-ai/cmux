@@ -1,22 +1,19 @@
 public import Foundation
-#if canImport(AuthenticationServices)
-public import AuthenticationServices
-#endif
+public import StackAuth
 
-/// Supplies the presentation anchor (key window) for interactive auth flows.
+/// Supplies the system UI for interactive auth flows: web OAuth and native
+/// Apple Sign In, both of which present from a platform window.
 ///
-/// Conformers bridge to `ASWebAuthenticationSession` (web OAuth) and
-/// `ASAuthorizationController` (native Apple Sign In), both of which require a
-/// platform window to present from. The production conformer is
-/// ``AuthPresentationContextProvider``; tests can supply their own. Construct it
-/// once at the app composition root and inject it as `any AuthPresentationAnchoring`.
-#if canImport(AuthenticationServices)
-public protocol AuthPresentationAnchoring: NSObjectProtocol,
-    ASWebAuthenticationPresentationContextProviding,
-    ASAuthorizationControllerPresentationContextProviding,
-    Sendable {}
-#else
-/// Linux's auth runtime has no presentation APIs. The protocol remains an
-/// injectable anchor seam so coordinator tests can exercise the state machine.
-public protocol AuthPresentationAnchoring: NSObjectProtocol, Sendable {}
-#endif
+/// This module never imports AuthenticationServices, so an app that links
+/// only `CmuxAuthRuntimeCore` does not load it at launch. The production
+/// conformer is `AuthPresentationContextProvider` in `CmuxAuthRuntime`,
+/// which wraps `ASWebAuthenticationSession` and `ASAuthorizationController`;
+/// an app can instead forward to a framework it loads lazily, and tests can
+/// supply their own. Construct it once at the app composition root and inject
+/// it as `any AuthPresentationAnchoring`.
+public protocol AuthPresentationAnchoring: NSObjectProtocol, Sendable {
+    /// Presents the browser session and Apple Sign In sheet, or nil where
+    /// this platform has none (OAuth sign-in then throws
+    /// ``AuthClientError/unsupported``).
+    var interactiveAuthenticator: (any StackInteractiveAuthenticator)? { get }
+}

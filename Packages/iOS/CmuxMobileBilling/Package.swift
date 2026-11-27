@@ -44,13 +44,18 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
     ] + (targetsLinux ? [] : [
+        // StoreKit through CmuxMobileSystemUI.framework (iOS): linked, StoreKit costs the
+        // app about 1.55 s before main, so LiveStoreKitClient reaches it through the bridge.
+        .package(path: "../CmuxMobileSystemUIBridge"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../../Shared/CmuxSpinner"),
     ]),
     targets: [
         .target(
             name: "CmuxMobileBilling",
-            dependencies: ["CMUXMobileCore"],
+            dependencies: ["CMUXMobileCore"] + (targetsLinux ? [] : [
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
+            ]),
             swiftSettings: swiftSettings
         ),
         .testTarget(
@@ -64,6 +69,7 @@ let package = Package(
             dependencies: [
                 "CmuxMobileBilling",
                 "CmuxMobileSupport",
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             swiftSettings: swiftSettings

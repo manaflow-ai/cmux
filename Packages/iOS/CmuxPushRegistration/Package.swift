@@ -25,7 +25,7 @@ let package = Package(
         .target(
             name: "CmuxPushRegistration",
             dependencies: [
-                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "CmuxAuthRuntimeCore", package: "CmuxAuthRuntime"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

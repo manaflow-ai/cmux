@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Observation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @MainActor
 final class OpenedURLRecorder {

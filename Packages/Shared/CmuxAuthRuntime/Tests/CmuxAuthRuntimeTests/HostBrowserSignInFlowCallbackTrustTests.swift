@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Which token-bearing callbacks the hosted-browser flow is willing to apply.
 /// A callback is applied only for an app-issued, unexpired, single-use state,

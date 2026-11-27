@@ -168,8 +168,10 @@
     "CmuxHomeCoreTestSupport": {"layer": "core", "package": "Packages/Shared/CmuxHomeCore", "note": "test helper declared as a regular target"},
 
     "CmuxAppAttest": {"layer": "service", "package": "Packages/Shared/CmuxAppAttest", "note": "DeviceCheck / App Attest calls"},
-    "CmuxAuthRuntime": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "Stack auth runtime: keychain, SQLite, web sign-in"},
+    "CmuxAuthRuntime": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "AuthenticationServices sign-in presentation; re-exports CmuxAuthRuntimeCore"},
+    "CmuxAuthRuntimeCore": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "Stack auth runtime: keychain, SQLite, sign-in through an injected authenticator"},
     "StackAuth": {"layer": "service", "package": "vendor/stack-auth-swift-sdk-prerelease", "note": "vendored Stack Auth HTTP SDK"},
+    "StackAuthAppleUI": {"layer": "service", "package": "vendor/stack-auth-swift-sdk-prerelease", "note": "StackAuth's AuthenticationServices authenticator"},
     "CmuxSentryReporting": {"layer": "service", "package": "Packages/Shared/CmuxSentryTelemetry", "note": "sends crash reports to Sentry"},
     "CmuxVNC": {"layer": "service", "package": "Packages/Shared/CmuxVNC", "note": "RFB client"},
     "CmuxVNCDemoServer": {"layer": "service", "package": "Packages/Shared/CmuxVNC", "note": "demo RFB server"},
@@ -191,6 +193,7 @@
     "CmuxSpinner": {"layer": "ui", "package": "Packages/Shared/CmuxSpinner", "note": "the shared spinner layer and its UIKit, AppKit and SwiftUI views"},
     "CmuxScreenKitUI": {"layer": "ui", "package": "Packages/Shared/CmuxScreenKit", "note": "SwiftUI screen views"},
     "CmuxMobileSupport": {"layer": "ui", "package": "Packages/iOS/CmuxMobileSupport", "note": "SwiftUI and UIKit iOS support"},
+    "CmuxMobileSystemUIBridge": {"layer": "ui", "package": "Packages/iOS/CmuxMobileSystemUIBridge", "note": "UIKit contract and loader of the lazy CmuxMobileSystemUI.framework"},
     "MessagesLabHome": {"layer": "ui", "package": "Packages/Shared/CmuxMessagesLab", "note": "vendored AppKit Home transcript"},
     "MessagesLabSidebar": {"layer": "ui", "package": "Packages/Shared/CmuxMessagesLab", "note": "vendored AppKit conversation list"}
   },

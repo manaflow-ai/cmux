@@ -1,8 +1,8 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxMobileSystemUIBridge
 import ImageIO
-import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
@@ -27,7 +27,7 @@ enum ConversationBackgroundChoice {
 /// live preview of the conversation over the candidate background, the
 /// categories (None, Color, Photo, Sky, Water, Aurora, Glitter) and the
 /// looks of the selected one. "Set" applies it for everyone.
-final class ConversationBackgroundPickerViewController: UIViewController, PHPickerViewControllerDelegate {
+final class ConversationBackgroundPickerViewController: UIViewController {
     var onSet: ((ConversationBackgroundChoice) -> Void)?
 
     private var choice: ConversationBackgroundChoice
@@ -266,17 +266,14 @@ final class ConversationBackgroundPickerViewController: UIViewController, PHPick
     // MARK: Photo
 
     private func presentPhotoPicker() {
-        var configuration = PHPickerConfiguration()
-        configuration.filter = .images
-        configuration.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        present(picker, animated: true)
+        // The system photo picker (CmuxMobileSystemUI.framework, so PhotosUI loads on first use).
+        SystemUI.presentPhotoPicker(from: self, filter: .images, selectionLimit: 1) { [weak self] picks in
+            self?.didPick(picks)
+        }
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider, provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
+    private func didPick(_ picks: [SystemPhotoPick]) {
+        guard let provider = picks.first?.itemProvider, provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
         provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] data, _ in
             let picked = data.flatMap(Self.preparePhoto)
             Task { @MainActor [weak self] in
