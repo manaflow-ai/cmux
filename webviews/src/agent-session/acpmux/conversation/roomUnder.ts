@@ -206,8 +206,16 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
       : released
         ? dockTray - Math.min(0, dockTray - bases.tray + input.rowsGrew)
         : bases.tray;
-  // Never over the running turn's live line: at most half its rest gap.
-  const trayBase = input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase;
+  // Never over the running turn's live line: at most half its rest gap. And never under the rows: a
+  // fold of a list the room had already taken (opened from the tucked tab, or taken by the wheel or the
+  // rows' growth) gives that room back as it closes, so the rows come down on the fold's own frames
+  // and rest on the folded hat. Held, it left the list's height as blank room under the last row
+  // until the rows grew again, the transcript's end gone from view over the hat's one line (Leo,
+  // ask-31a1e4b192, 2026-11-27: "this isn't great").
+  const trayBase = Math.min(
+    dockTray,
+    input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase,
+  );
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // The overlay card's growth where the view follows but cannot lift, until the rows move.
   const cardHolds =
