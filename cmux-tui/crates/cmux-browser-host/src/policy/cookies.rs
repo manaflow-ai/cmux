@@ -125,6 +125,15 @@ impl Policy {
         self.base
             .cookie_set_refusal(raw, &host)
             .or_else(|| self.agent.cookie_set_refusal(raw, &host))
+            // Writing a sign-in cookie acts on the site: a read lease never
+            // allows it (RFD 0125 D7.2 tiers).
+            .or_else(|| {
+                self.leases.as_ref()?.refusal_for(
+                    &host,
+                    cmux_browser_grants::Tier::Act,
+                    super::now_ms(),
+                )
+            })
     }
 }
 

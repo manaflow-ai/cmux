@@ -34,6 +34,24 @@ fn refusal(gate: &Gate, url: &str) -> DriverError {
     error
 }
 
+fn asset(url: &str) -> crate::driver::RequestInfo<'_> {
+    crate::driver::RequestInfo { target: "T", url, kind: crate::driver::RequestKind::Asset }
+}
+
+/// The lease of `tier` on peer.test, the fake driver's current page.
+fn tiered(tier: Tier) -> Leases {
+    Leases(vec![Lease { site: "peer.test".into(), tier, expires_at_ms: far() }])
+}
+
+/// Whether the gate refused the call (any other error is the fake driver's).
+fn forbidden(gate: &Gate, method: &str, params: Value) -> bool {
+    matches!(gate.driver_call(method, params), Err(e) if e.code == ErrorCode::Forbidden)
+}
+
+fn key() -> Value {
+    json!({"targetId": "T", "key": "Enter"})
+}
+
 fn doc(url: &str) -> crate::driver::RequestInfo<'_> {
     crate::driver::RequestInfo { target: "T", url, kind: crate::driver::RequestKind::Document }
 }
@@ -51,8 +69,12 @@ fn a_leased_session_reaches_only_its_leased_sites() {
     let filter = driver.filter.lock().unwrap().clone().expect("a request filter");
     assert!(filter(&doc("https://github.com/x")).is_none());
     assert!(filter(&doc("https://mail.google.com/")).is_some());
-    // A page's own subresources follow it (its CDN is not a sign-in).
-    assert!(filter(&sub("https://github.githubassets.com/app.js")).is_none());
+    // A page's passive assets follow it (its CDN is not a sign-in) ...
+    assert!(filter(&asset("https://github.githubassets.com/app.js")).is_none());
+    // ... but a fetch, an XHR or an unnamed request can carry a sign-in.
+    let fetched = filter(&sub("https://mail.google.com/api")).expect("an unleased fetch");
+    assert!(fetched.contains("google.com is not lent"), "{fetched}");
+    assert!(filter(&sub("https://api.github.com/user")).is_none(), "a leased fetch");
     // Its cookies: the leased site's only.
     assert!(gate.policy.lock().unwrap().cookie_refusal(".github.com").is_none());
     assert!(gate.policy.lock().unwrap().cookie_refusal("mail.google.com").is_some());
@@ -104,4 +126,54 @@ fn the_agent_profile_takes_no_lease() {
     let (gate, _) = make_gate(Value::Null, false);
     assert!(gate.set_leases(Some(Leases(vec![lease("github.com", far())]))).is_err());
     gate.set_leases(None).unwrap();
+}
+
+#[test]
+fn a_read_lease_never_types_runs_script_writes_cookies_or_posts() {
+    let (gate, _) = signed_in_gate();
+    gate.set_leases(Some(tiered(Tier::Read))).unwrap();
+    assert!(!forbidden(&gate, "frame.observe", json!({"targetId": "T", "method": "text"})));
+    assert!(!forbidden(&gate, "tab.screenshot", json!({"targetId": "T"})));
+    assert!(forbidden(&gate, "input.key", key()));
+    let script = json!({"targetId": "T", "source": "() => 1", "args": []});
+    assert!(forbidden(&gate, "frame.evaluate", script));
+    let cookie = json!({"cookies": [{"name": "a", "value": "1", "url": "https://peer.test/"}]});
+    assert!(forbidden(&gate, "cookies.set", cookie));
+    let post = json!({"targetId": "T", "url": "https://peer.test/api", "method": "POST"});
+    assert!(forbidden(&gate, "net.fetch", post));
+    let get = json!({"targetId": "T", "url": "https://peer.test/api", "method": "GET"});
+    assert!(!forbidden(&gate, "net.fetch", get));
+}
+
+#[test]
+fn an_act_lease_types_on_its_site() {
+    let (gate, _) = signed_in_gate();
+    gate.set_leases(Some(tiered(Tier::Act))).unwrap();
+    assert!(!forbidden(&gate, "input.key", key()));
+    assert!(!forbidden(&gate, "input.key", key()), "an act lease is not spent");
+}
+
+#[test]
+fn a_commit_lease_is_spent_by_one_action() {
+    let (gate, _) = signed_in_gate();
+    gate.set_leases(Some(tiered(Tier::Commit))).unwrap();
+    assert!(!forbidden(&gate, "input.key", key()), "the one approved action");
+    assert!(forbidden(&gate, "input.key", key()), "spent");
+    // The daemon pushing the same row again does not revive it.
+    gate.set_leases(Some(tiered(Tier::Commit))).unwrap();
+    assert!(forbidden(&gate, "input.key", key()), "still spent");
+}
+
+#[test]
+fn a_loaded_page_is_rechecked_after_its_lease_ends() {
+    let (gate, _) = signed_in_gate();
+    gate.set_leases(Some(tiered(Tier::Act))).unwrap();
+    assert!(!forbidden(&gate, "frame.observe", json!({"targetId": "T", "method": "text"})));
+    // Stop All: the tab still shows peer.test, but nothing reaches it.
+    gate.set_leases(Some(Leases::default())).unwrap();
+    assert!(forbidden(&gate, "frame.observe", json!({"targetId": "T", "method": "text"})));
+    assert!(forbidden(&gate, "tab.screenshot", json!({"targetId": "T"})));
+    assert!(forbidden(&gate, "input.key", key()));
+    let script = json!({"targetId": "T", "source": "() => 1", "args": []});
+    assert!(forbidden(&gate, "frame.evaluate", script));
 }

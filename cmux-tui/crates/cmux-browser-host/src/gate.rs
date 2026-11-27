@@ -22,6 +22,7 @@ mod fetch;
 mod guards;
 #[cfg(unix)]
 mod history;
+mod lease_tiers;
 mod press;
 mod private_data;
 mod proxy;
@@ -283,9 +284,13 @@ impl Gate {
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
                     let lease = || match request.kind {
-                        // A document (a page or a frame) is where a sign-in
-                        // is used; a page's own subresources follow it.
-                        crate::driver::RequestKind::Subresource => None,
+                        // A passive asset (image, font, style, script,
+                        // media) follows its page: its CDN is not a sign-in,
+                        // and the page cannot read a cross-site answer.
+                        // Every other request (fetch, XHR, a WebSocket, a
+                        // beacon, a document, a kind the engine did not
+                        // name) can carry a sign-in, so it needs a lease.
+                        crate::driver::RequestKind::Asset => None,
                         _ => policy.lease_refusal(&parsed),
                     };
                     policy.subresource_refusal(&parsed).or_else(lease).or_else(|| match &isolated {
@@ -640,6 +645,7 @@ impl VmHost for Gate {
         }
         self.check(method, &params)?;
         self.check_cookies(method, &params)?;
+        self.check_lease_tier(method, &params)?;
         let mut params = params;
         if method == "input.insertText" {
             Self::secret_insert(&mut params)?;
