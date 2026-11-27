@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mac only. The host screenshot's own OCR against the text the scene drew, on a real 1x capture: 13 pt
-# Menlo on cmux-austin-mini-0's 1920x1080 display (rd-ladder host-1.png of the 11-26 c9339d12 run,
+# Menlo on a 1920x1080 1x display (rd-ladder host-1.png of the 11-26 c9339d12 run,
 # grayscale, the strip under the last whole line white as scene.swift's ocr mask now draws it).
 # The old engine settings read it at about 17 % CER; the fix must read it at <= 2 %.
 #
