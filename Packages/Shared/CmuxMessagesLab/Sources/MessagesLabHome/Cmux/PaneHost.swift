@@ -300,8 +300,10 @@ final class HostView: NSView {
     /// keeps a mask that fades the rows under the top (a see-through window's top fade, the soft mask, a bare top): only
     /// the window's own live resize pauses a fade. A mask that fades nothing clips nothing the pane's bounds do not.
     private func liveResizeBegan() {
-        guard let demo else { return }
+        // Recorded with no transcript yet too (Home installs it at the first data): a transcript that comes mid-resize
+        // defers the field's width, and the resize's end places it.
         liveApplied = true
+        guard let demo else { return }
         demo.chrome.liveResizing = true
         let fades = demo.topFade > 0 || !demo.topMaskStops.isEmpty
         if fades, !windowLiveResize, window?.inLiveResize != true { return }
