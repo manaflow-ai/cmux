@@ -292,6 +292,7 @@ mod permissions;
 pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+pub(crate) mod team_send_queue;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -1658,6 +1659,8 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Team messages accepted while the mesh hub is offline (`team_send_queue.rs`).
+    pub(crate) team_send_queue: team_send_queue::TeamSendQueue,
     /// Active outbox attempts share a budget across replay, retries and reconnects. Waiters
     /// park before taking the journal lock or starting a blocking SSH carrier.
     pub(crate) outbox_attempts: tokio::sync::Semaphore,
@@ -2080,6 +2083,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            team_send_queue: Default::default(),
             outbox_attempts: tokio::sync::Semaphore::new(8),
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
@@ -2197,6 +2201,45 @@ impl Hub {
     /// How many outbox deliveries are not settled yet (`outbox.rs`).
     pub fn outbox_unsettled(&self) -> usize {
         self.outbox.unsettled()
+    }
+
+    /// Replay is opt-in at the moment of delivery as well as admission.
+    pub(crate) async fn flush_team_send_queue(
+        self: &Arc<Self>,
+        mesh: Arc<dyn crate::mesh::MeshHub>,
+    ) {
+        let hub = self.clone();
+        self.team_send_queue
+            .flush(
+                mesh.as_ref(),
+                move |queued, receipt| {
+                    if !hub.outbox.record_team_receipt(
+                        &receipt.message_id,
+                        &queued.address,
+                        queued.caller.as_deref(),
+                    ) {
+                        return false;
+                    }
+                    if let Some(caller) = queued.caller.as_deref()
+                        && let Ok(session) = hub.resolve(caller)
+                    {
+                        return hub.record_team_send(&session, &receipt.message_id);
+                    }
+                    true
+                },
+                || async {
+                    !self.is_stopping()
+                        && self.mesh.get().is_some_and(|current| Arc::ptr_eq(&current, &mesh))
+                        && self
+                            .config
+                            .read()
+                            .await
+                            .mesh_relay
+                            .as_ref()
+                            .is_some_and(|relay| relay.team_messaging)
+                },
+            )
+            .await;
     }
 
     /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,

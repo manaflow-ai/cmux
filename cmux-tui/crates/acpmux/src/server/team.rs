@@ -23,14 +23,26 @@ pub(super) async fn handle(
     if let Some(answer) = super::team_directory::handle(hub, conn, method, params) {
         return answer;
     }
-    let mesh =
-        hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
-        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_LISTEN => listen(&mesh, params).await,
+        crate::rpc::method::MUX_TEAM_SEND => {
+            let mesh = hub.mesh.get();
+            send(hub, conn, mesh.as_ref(), params).await
+        }
+        crate::rpc::method::MUX_TEAM_INBOX
+        | crate::rpc::method::MUX_TEAM_READ
+        | crate::rpc::method::MUX_TEAM_ACK
+        | crate::rpc::method::MUX_TEAM_LISTEN => {
+            let mesh = hub
+                .mesh
+                .get()
+                .ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
+            match method {
+                crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
+                crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
+                crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
+                _ => listen(&mesh, params).await,
+            }
+        }
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -110,7 +122,7 @@ pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), Rp
 async fn send(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
-    mesh: &Arc<dyn MeshHub>,
+    mesh: Option<&Arc<dyn MeshHub>>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let raw = required(params, "to")?;
@@ -133,26 +145,64 @@ async fn send(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let caller = conn.caller().filter(|_| !conn.is_person());
-    let receipt = mesh
-        .send(&OutMessage {
-            to: Target { team_address: Some(wire_address.clone()), ..Target::default() },
-            from: Sender {
-                name: caller.map(|id| hub.session_name(id)),
-                session_id: caller.map(str::to_owned),
-                host: Some(crate::pairing::mesh_host()),
-                ..Sender::default()
-            },
-            kind: Kind::Prompt,
-            op: None,
-            body,
-            // The hub alone decides whether this message may start work.
-            mode: Mode::TurnEnd,
-            idempotency_key: sender_key(conn, &id)?,
-        })
-        .await
-        .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
-    remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
+    let message = OutMessage {
+        to: Target { team_address: Some(wire_address.clone()), ..Target::default() },
+        from: Sender {
+            name: caller.map(|id| hub.session_name(id)),
+            session_id: caller.map(str::to_owned),
+            host: Some(crate::pairing::mesh_host()),
+            ..Sender::default()
+        },
+        kind: Kind::Prompt,
+        op: None,
+        body,
+        // The hub alone decides whether this message may start work.
+        mode: Mode::TurnEnd,
+        idempotency_key: sender_key(conn, &id)?,
+    };
+    let receipt = submit(hub, conn, mesh, message, &wire_address).await?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
+}
+
+/// Shared admission for team_send and the legacy send_queue team-address route.
+pub(super) async fn submit(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: Option<&Arc<dyn MeshHub>>,
+    message: OutMessage,
+    address: &str,
+) -> Result<crate::mesh::Receipt, RpcError> {
+    let receipt = hub
+        .team_send_queue
+        .enqueue(
+            message,
+            address.to_owned(),
+            conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        )
+        .await
+        .map_err(|e| RpcError::internal(format!("could not persist team message: {e}")))?;
+    if let Some(mesh) = mesh {
+        let (queue_hub, mesh) = (hub.clone(), mesh.clone());
+        // Durable admission already succeeded. A slow hub or an older offline backlog must
+        // not hold this RPC indefinitely; the replay task survives the bounded fast path.
+        let replay = hub.scope.spawn_until_cancelled("team-send-admission", async move {
+            queue_hub.flush_team_send_queue(mesh).await
+        });
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), replay).await;
+    }
+    let receipt = hub
+        .team_send_queue
+        .lookup(&receipt.message_id)
+        .await
+        .map(|(receipt, _, _)| receipt)
+        .unwrap_or(receipt);
+    if receipt.state == "refused" {
+        return Err(RpcError::invalid_params(format!(
+            "the mesh hub refused team message: {}",
+            receipt.detail.as_deref().unwrap_or("refused")
+        )));
+    }
+    Ok(receipt)
 }
 
 async fn inbox(
@@ -344,29 +394,6 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
 #[cfg(test)]
 #[path = "team_tests.rs"]
 mod tests;
-
-/// Ownership comes from the proven connection and a local journal entry, never sender hints.
-pub(super) fn remember_sender(
-    hub: &Hub,
-    conn: &Conn,
-    id: &str,
-    address: &str,
-) -> Result<(), RpcError> {
-    if !hub.outbox.record_team_receipt(id, address, conn.caller().filter(|_| !conn.is_person())) {
-        return Err(RpcError::internal("team message sent, but its origin could not be persisted")
-            .with_data(json!({"messageId": id})));
-    }
-    if let Some(caller) = conn.caller().filter(|_| !conn.is_person()) {
-        let session = hub.resolve(caller).map_err(|_| forbidden())?;
-        if !hub.record_team_send(&session, id) {
-            return Err(RpcError::internal(
-                "team message sent, but sender receipt could not be persisted",
-            )
-            .with_data(json!({"messageId": id})));
-        }
-    }
-    Ok(())
-}
 
 /// Namespace caller-selected retry keys so another session cannot recover a sender's receipt.
 pub(super) fn sender_key(conn: &Conn, id: &str) -> Result<String, RpcError> {

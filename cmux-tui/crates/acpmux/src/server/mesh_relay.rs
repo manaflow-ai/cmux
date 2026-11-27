@@ -415,6 +415,15 @@ async fn heartbeats(
                 Ok(reply) => {
                     beat.taken(covered);
                     taken = true;
+                    // A successful heartbeat is the reconnect signal for offline team sends. The
+                    // queue serializes flushes and stops at its first transient failure.
+                    if let Some(hub) = hub.upgrade() {
+                        let queue_hub = hub.clone();
+                        let queue_client = client.clone();
+                        hub.scope.spawn_until_cancelled("team-send-reconnect", async move {
+                            queue_hub.flush_team_send_queue(queue_client).await;
+                        });
+                    }
                     // Both read: a refused heartbeat ends as a failed one does.
                     if std::mem::take(&mut failing) | refusals.heartbeat.swap(false, Ordering::SeqCst) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");

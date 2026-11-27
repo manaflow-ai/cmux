@@ -440,7 +440,7 @@ fn relay_of(request: &Value) -> Option<Value> {
 pub(super) async fn send(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
-    mesh: &Arc<dyn MeshHub>,
+    mesh: Option<&Arc<dyn MeshHub>>,
     request: &Value,
     target: &str,
 ) -> Result<Value, RpcError> {
@@ -469,17 +469,16 @@ pub(super) async fn send(
             idempotency_key(&carried.prompt_id)
         },
     };
-    // The idempotency key makes a second post the same message, so a full rate window is waited
-    // out (the hub's `retryAfterSeconds`) rather than failing the send.
-    let receipt = crate::mesh_retry::retry_send(|| mesh.send(&message))
-        .await
-        .map_err(|e| refusal(target, e))?;
-    if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+    let receipt = if target.starts_with('@') {
+        super::team::submit(hub, conn, mesh, message, target).await?
     } else {
-        // Sent either way; unrecorded, its status is gated as a team message's (`status`).
+        let mesh = mesh.ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
+        let receipt = crate::mesh_retry::retry_send(|| mesh.send(&message))
+            .await
+            .map_err(|e| refusal(target, e))?;
         hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
-    }
+        receipt
+    };
     let mut row = status_of(&receipt, target);
     class_note(&mut row, inline, dropped);
     Ok(row)
@@ -492,6 +491,38 @@ pub(super) async fn status(
     mesh: &Arc<dyn MeshHub>,
     id: &str,
 ) -> Result<Value, RpcError> {
+    // A queued team send has a local durable id until the hub accepts it. Once replayed, the
+    // queue keeps an alias from that id to the hub's message id so callers can keep polling the
+    // receipt they already received, including after a daemon restart.
+    if let Some((queued, target, caller)) = hub.team_send_queue.lookup(id).await {
+        super::team::authorize(hub, conn).await?;
+        if !conn.is_person()
+            && let Some(sender) = conn.caller()
+            && Some(sender) != caller.as_deref()
+        {
+            return Err(super::team::forbidden());
+        }
+        if queued.message_id.starts_with("teamq:") {
+            return Ok(status_of(&queued, &target));
+        }
+        match mesh.receipt(&queued.message_id).await {
+            Ok(receipt) => {
+                return Ok(status_of(
+                    &receipt,
+                    receipt.to.team_address.as_deref().unwrap_or(&target),
+                ));
+            }
+            Err(error) if error.refused => return Ok(status_of(&queued, &target)),
+            Err(error) => {
+                return Err(RpcError::internal(format!(
+                    "the mesh hub did not answer for {id}: {error}"
+                ))
+                .with_data(
+                    json!({"reason": "mesh.unavailable", "retryable": true, "deliveryId": id}),
+                ));
+            }
+        }
+    }
     let message = id.strip_prefix(PREFIX).unwrap_or(id);
     let receipt = mesh.receipt(message).await.map_err(|e| {
         if e.refused {
@@ -539,6 +570,26 @@ pub(super) async fn status(
                 (_, name) => name.clone().unwrap_or_default(),
             }
         });
+    Ok(status_of(&receipt, &target))
+}
+
+/// Status for a queued id when reconnect has not supplied a mesh client yet.
+pub(super) async fn queued_status(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    id: &str,
+) -> Result<Value, RpcError> {
+    let Some((receipt, target, caller)) = hub.team_send_queue.lookup(id).await else {
+        return Err(RpcError::invalid_params(format!("no delivery {id}"))
+            .with_data(json!({"reason": "outbox.unknown", "deliveryId": id})));
+    };
+    super::team::authorize(hub, conn).await?;
+    if !conn.is_person()
+        && let Some(sender) = conn.caller()
+        && Some(sender) != caller.as_deref()
+    {
+        return Err(super::team::forbidden());
+    }
     Ok(status_of(&receipt, &target))
 }
 
