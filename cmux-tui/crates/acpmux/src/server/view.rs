@@ -110,6 +110,9 @@ pub(super) fn subscribe_remote(
 ) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     let before = subs.get(id).cloned();
+    if before.as_ref().is_some_and(|sub| sub.remote && sub.remote_peer.as_deref() != Some(peer)) {
+        conn.outgoing_presence.detach(hub, id);
+    }
     if let Some(local) = before.as_ref().filter(|b| !b.remote) {
         conn.unbind_mailbox_receipt(id);
         if let Ok(s) = hub.resolve(id) {
@@ -147,6 +150,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             hub.attach_count(s, 1, true);
         }
         Some(opts) if opts.remote => {
+            conn.outgoing_presence.detach(hub, &s.id);
             // A chat that came back from the peer it moved to goes on from the last record of
             // it sent (`follow.rs`), not from the log's end.
             let at = conn.follows.to_local(&s.id).unwrap_or_else(|| s.meta().last_seq);
@@ -161,6 +165,21 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
         }
         Some(_) => {}
     }
+}
+
+/// A remote attachment belongs to this client; the shared peer link stays attached for others.
+pub(super) fn detach_remote(hub: &Hub, conn: &Conn, id: &str) {
+    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    if subs.get(id).is_some_and(|sub| sub.remote) {
+        subs.remove(id);
+        conn.interest.detach(id);
+        conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
+        conn.chunk_deltas.forget(id);
+        conn.stream_cursors.forget(id);
+        conn.follows.forget(id);
+        conn.unbind_mailbox_receipt(id);
+    }
+    conn.outgoing_presence.detach(hub, id);
 }
 
 /// `_acpmux/detach`.
@@ -218,10 +237,14 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .get_mut(&s.id)
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
+    if conn.incoming_presence.leave(hub, conn, params) {
+        return Ok(json!({}));
+    }
     if presence_open(conn, author.as_ref()) {
+        let key = conn.incoming_presence.key(conn, params)?;
         hub.presence.view_with_cutover(
             &s.id,
-            &conn.id,
+            &key,
             &Who::of(author.as_ref()),
             visible,
             attending,
@@ -279,7 +302,8 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     if subs.get(&s.id).is_none_or(|opts| opts.remote) || !presence_open(conn, author.as_ref()) {
         return Err(RpcError::invalid_params("attach to the session before _acpmux/typing"));
     }
-    hub.presence.typing(&s.id, &conn.id, &Who::of(author.as_ref()), on)?;
+    let key = conn.incoming_presence.key(conn, params)?;
+    hub.presence.typing(&s.id, &key, &Who::of(author.as_ref()), on)?;
     Ok(json!({}))
 }
 
@@ -394,6 +418,7 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     let mut held = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     let subs: Vec<(String, SubOpts)> = held.drain().collect();
     hub.presence.close(&conn.id);
+    conn.incoming_presence.close(hub);
     drop(held);
     for (id, opts) in subs {
         conn.unbind_mailbox_receipt(&id);

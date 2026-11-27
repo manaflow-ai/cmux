@@ -558,6 +558,28 @@ async fn shared_presence_over_peer(peer_auth: bool) {
         .await
         .unwrap();
     watcher.wait("_acpmux/presence", |p| p["participants"][0]["viewing"] == true).await;
+    second.call("_acpmux/detach", json!({"sessionId": key})).await.unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
+    assert!(
+        second
+            .call(
+                "_acpmux/view",
+                json!({"sessionId": key, "visible": true,
+        "_meta": {"acpmux": {"author": author}}})
+            )
+            .await
+            .is_err()
+    );
+    second.call("_acpmux/attach", json!({"sessionId": key, "limit": 0})).await.unwrap();
+    second
+        .call(
+            "_acpmux/view",
+            json!({"sessionId": key, "visible": true,
+        "_meta": {"acpmux": {"author": author}}}),
+        )
+        .await
+        .unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"][0]["viewing"] == true).await;
     drop(second);
     watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
     assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
@@ -581,6 +603,15 @@ async fn peer_presence_is_scoped_to_the_attached_source() {
     }
     let mut watcher = client(a.clone()).await;
     watcher.call("_acpmux/attach", json!({"sessionId": "right/twin", "limit": 0})).await.unwrap();
+    watcher.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    let legacy = watcher
+        .raw(
+            "_acpmux/view",
+            json!({"sessionId": "right/twin", "visible": true,
+        "_meta": {"acpmux": {"author": {"id": "ana", "name": "Ana"}}}}),
+        )
+        .await;
+    assert_eq!(legacy["error"]["data"]["reason"], "peerFeature.unsupported", "{legacy}");
     a.presence.publish_remote(
         &json!({"sessionId": "same-chat", "participants": [{"id": "wrong"}]}),
         "left",

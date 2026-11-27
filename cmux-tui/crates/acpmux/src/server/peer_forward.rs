@@ -656,12 +656,26 @@ async fn forward_inner(
         let held = m == method::SESSION_PROMPT
             && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
         let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
+        if m == method::MUX_DETACH {
+            super::view::detach_remote(hub, conn, &id);
+            return Ok(Some(json!({})));
+        }
+        let shared_presence =
+            m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params));
         let feature = match m {
+            _ if shared_presence => Some(crate::hub::presence::PEER_FEATURE),
             method::MUX_QUEUE_GET => Some(crate::author::QUEUE_GET_FEATURE),
             _ => approval.then_some(crate::author::QUEUE_APPROVAL_FEATURE),
         };
         let bound = feature.map(|f| peer.lists_on(f));
         if bound.is_some_and(|link| link.is_none()) {
+            if shared_presence {
+                return Err(peer_feature_unsupported(
+                    &peer,
+                    m,
+                    &[crate::hub::presence::PEER_FEATURE],
+                ));
+            }
             return Err(crate::author::approval_unsupported(&peer));
         }
         // So do a message's attachments, under their caps (`attach.rs`).
@@ -744,7 +758,7 @@ async fn forward_inner(
         }
         // Authored view and typing belong to the person named by the caller. Forward them to the
         // owner daemon so its presence fanout can relay the entry back to this daemon.
-        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
+        if shared_presence {
             if !peer.ready() {
                 wake_if_composing(&peer, m, params, conn.origin);
             }
@@ -1032,7 +1046,9 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(
+        let result = if shared_presence {
+            conn.outgoing_presence.send(hub, conn, peer.clone(), m, p, on.unwrap_or(link)).await
+        } else if matches!(
             m,
             method::MUX_INFO
                 | method::MUX_EVENTS

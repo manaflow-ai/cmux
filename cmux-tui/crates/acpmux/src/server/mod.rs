@@ -174,6 +174,7 @@ mod paused_files;
 pub mod peer_auth;
 mod peer_demand_wait;
 mod peer_forward;
+mod peer_presence;
 pub(crate) mod peer_status;
 mod peer_targeted;
 pub mod peer_text;
@@ -554,6 +555,8 @@ pub struct Conn {
     /// The media files of peers' chats it opened, closed on the peer when it closes
     /// (`media_forward.rs`).
     pub(super) remote_media: media_forward::RemoteMedia,
+    outgoing_presence: peer_presence::Outgoing,
+    incoming_presence: peer_presence::Incoming,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
     /// The client's requests being served, by id, with their slots: what its

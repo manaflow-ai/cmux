@@ -94,6 +94,8 @@ pub const FOLLOW_SELF: &str = "presence.follow_self";
 /// Internal marker on a presence note relayed from a peer. It is removed before a local client
 /// receives the note and prevents the note from being sent back over the peer link.
 pub const REMOTE_MARKER: &str = "_acpmuxPeer";
+/// Peers preserve individual originating clients when relaying authored presence.
+pub const PEER_FEATURE: &str = "shared-peer-presence-v1";
 
 /// A room a client shows (RFD 0141 "Transport"): a chat, or a workspace row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -268,6 +270,7 @@ struct Inner {
     state: Mutex<State>,
     live: AtomicBool,
     live_changes: tokio::sync::watch::Sender<bool>,
+    off_changes: tokio::sync::watch::Sender<u64>,
     changes: broadcast::Sender<Arc<Value>>,
 }
 
@@ -283,6 +286,7 @@ impl Default for Presence {
                 state: Mutex::new(State::default()),
                 live: AtomicBool::new(false),
                 live_changes: tokio::sync::watch::Sender::new(false),
+                off_changes: tokio::sync::watch::Sender::new(0),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
         }
@@ -321,12 +325,24 @@ impl Presence {
         self.inner.live_changes.subscribe()
     }
 
+    /// A monotonic off epoch preserves an off/on transition even if a watcher coalesces it.
+    pub fn off_epoch(&self) -> u64 {
+        *self.inner.off_changes.borrow()
+    }
+
+    pub fn subscribe_off(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.off_changes.subscribe()
+    }
+
     /// Change Live and publish fresh snapshots, including an empty shared snapshot on off.
     pub fn set_live(&self, live: bool) -> bool {
         let state = self.inner.state.lock_or_recover();
         let previous = self.inner.live.swap(live, Ordering::AcqRel);
         if previous != live {
             self.inner.live_changes.send_replace(live);
+            if !live {
+                self.inner.off_changes.send_modify(|epoch| *epoch += 1);
+            }
             for chat in state.chats.keys() {
                 let _ = self.inner.changes.send(Arc::new(note(chat, &state.participants(chat))));
             }
@@ -778,6 +794,19 @@ mod tests {
         assert!(changes.has_changed().unwrap());
         assert_eq!(presence.shared_snapshot("chat"), none("chat"));
         assert_eq!(presence.snapshot("chat"), local);
+    }
+
+    #[test]
+    fn live_off_epoch_survives_coalesced_off_on() {
+        let presence = Presence::default();
+        let mut off = presence.subscribe_off();
+        presence.set_live(true);
+        presence.set_live(false);
+        presence.set_live(true);
+        assert!(presence.is_live());
+        assert!(off.has_changed().unwrap());
+        assert_eq!(*off.borrow_and_update(), 1);
+        assert_eq!(presence.off_epoch(), 1);
     }
 
     fn typing(presence: &Presence) -> Option<bool> {

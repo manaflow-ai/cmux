@@ -112,11 +112,17 @@ pub(super) fn start(
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
+    let mut live_off = hub.presence.subscribe_off();
     tokio::spawn(async move {
         loop {
             let rows_due = conn.held_rows.due();
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                changed = live_off.changed() => {
+                    if changed.is_err() { break; }
+                    conn.outgoing_presence.live_off(&hub, *live_off.borrow_and_update());
+                    continue;
+                }
                 // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
                 () = super::held_rows::wait(rows_due), if rows_due.is_some() => {
                     super::held_rows::flush(&hub, &conn);
@@ -152,7 +158,7 @@ pub(super) fn start(
                 // Never to a peer daemon's connection: its handshake watches, and this host's
                 // peers, their states and their errors are this machine's, not that peer's.
                 note = peer_states.recv() => {
-                    let hears = !super::view::a_link(conn)
+                    let hears = !super::view::a_link(&conn)
                         && conn.watch_all.load(Ordering::SeqCst);
                     match note {
                         Ok(note) if hears => harness_admin::watch_note(&conn, note),
