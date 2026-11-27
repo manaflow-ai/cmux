@@ -26,25 +26,27 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
-  type RowsChange,
   replyMore,
+  type RowsChange,
 } from "./model";
+import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
 import { focusRoute } from "../../../ui/focusRoute";
 import {
-  MAP_HIT,
   MAP_MARGIN,
   MAP_MIN_PROMPTS,
   mapMarks,
   mapProgress,
-  mapRows,
-  type MapRows,
   mapThumb,
   markAt,
   marksIn,
-  promptAt,
   scrollTopAt,
   type MapMark,
+  mapY,
+  MAP_HIT,
+  mapRows,
+  type MapRows,
+  promptAt,
 } from "./mapGeometry";
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
@@ -256,7 +258,11 @@ export function ScrollMap({
     const node = scroller.current;
     if (!node) return;
     stopScroll(node);
-    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
+    writeScrollTop(
+      node,
+      physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight)),
+      "minimap",
+    );
   };
   /// The mark rail point `y` is on: the nearest mark within MAP_HIT, and on a prompt's mark the
   /// prompt nearest the point among those its band draws for (promptAt), so a pointer lands where

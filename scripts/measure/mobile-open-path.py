@@ -20,7 +20,7 @@ Scenarios (each repeated --runs times):
   reattach  DaemonTerminalSession.attach (CmuxMobileLive/DaemonTerminalSession.swift:690-870):
             (1) resolve-terminal {terminal_id}; (2) set-client-info + identify in one write;
             (3) attach-surface {surface, cols, rows, replay_history_rows: 0}. Complete = the
-            first `vt-state` event of the surface. Three round trips (one with attach-terminal-id-v1). The terminal's grid on
+            first `vt-state` event of the surface. Three round trips. The terminal's grid on
             the daemon is Mac-sized (160x50) and filled with --scrollback-lines numbered
             lines before the phone attaches at 46x42. Variants, each on its own fresh terminal:
               attach     the phone's first attach on a fresh connection (steps 1-3);
@@ -30,11 +30,18 @@ Scenarios (each repeated --runs times):
                          settle_hosted_viewer_size (server/cmd_attach.rs:518-526, up to 1 s)
                          has nothing to wait for. attach minus same_size is the time spent
                          in it (the daemon gives no finer signal).
-            A daemon whose identify (the phone remembers the one of its earlier attach) lists
-            attach-terminal-id-v1 is sent set-client-info, identify and attach-surface
-            {terminal_id, surface, ...} in ONE write, with no resolve-terminal: one round trip.
-            The harness learns the capabilities from a probe identify before the runs, as the phone
-            does from its earlier attach; an older daemon keeps the three round trips.
+              reconnect_fenced, same_size_fenced
+                         a daemon whose identify lists attach-identity-v1 (the phone
+                         remembers its earlier attach's, with the boot `generation`): the
+                         same reattach as ONE write, set-client-info + identify +
+                         attach-surface {surface, expected_generation, expected_terminal_id,
+                         ...}, no resolve-terminal: one round trip
+                         (DaemonTerminalSession.fencedAttach). Run on the same terminals,
+                         right after the serial variant: before and after on one daemon.
+            Before each fenced reconnect, an attach naming another boot must be refused with
+            attachment_generation_mismatch and no vt-state (the phone's fallback); the first
+            vt-state of every sized attach must be at the phone's size (the first correct
+            grid), or the run fails.
             A phone's very first attach of a terminal skips step 1 (it resolves only on a
             reattach or retry, DaemonTerminalSession.swift:704): subtract resolve_ms and one
             round trip.
@@ -68,7 +75,9 @@ SETUP_CAPABILITIES = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tab
 ATTACH_CAPABILITIES = ["size-lease-v2", "size-lease-v1", "shared-sizing-v1", "host-grid-view-v1"]
 REPLAY_HISTORY_ROWS_CAPABILITY = "attach-replay-history-rows-v1"
 INITIAL_SIZE_CAPABILITY = "attach-initial-size"
-ATTACH_TERMINAL_ID_CAPABILITY = "attach-terminal-id-v1"
+# The phone's fenced reattach: attach-surface names the boot and the terminal it expects, so it
+# goes in the setup's write (DaemonTerminalSession.fencedAttach).
+ATTACH_IDENTITY_CAPABILITY = "attach-identity-v1"
 FIRST_WINDOW_CAPABILITY = "list-workspaces-page-v1"
 FIRST_WINDOW_LIMIT = 40  # ListFirstWindow.limit
 
@@ -267,7 +276,7 @@ def scenario_setup(binary, runs, scales):
         for scale in scales:
             grow_workspaces(daemon, have, scale)
             have = scale
-            first_window = FIRST_WINDOW_CAPABILITY in probe_capabilities(daemon.socket)
+            first_window = FIRST_WINDOW_CAPABILITY in probe_capabilities(daemon.socket)[0]
             samples = [setup_once(daemon.socket, first_window) for _ in range(runs)]
             rows.append({"scenario": "setup", "variant": "setup", "scale": scale, "scale_unit": "workspaces",
                          "round_trips": 1, "runs": samples})
@@ -286,7 +295,9 @@ def make_terminal(daemon, lines, index):
     surface = terminal_id = None
     for _, tab in daemon.tabs():
         if tab.get("name") == f"open-path-{index}":
-            surface, terminal_id = tab["surface"], tab.get("terminal_id")
+            # The id the phone holds: the public one when listed (LiveCoordinator+Links.swift
+            # terminalSession: `resourceID ?? id`), which resolve-terminal and the fence both take.
+            surface, terminal_id = tab["surface"], tab.get("terminal_resource_id") or tab.get("terminal_id")
     if surface is None or terminal_id is None:
         fail(f"could not find the new terminal (surface and terminal_id) in list-workspaces (run reply: {created!r})")
     want = f"OPENPATH_2_{index}"
@@ -315,18 +326,26 @@ def attach_params(request_id, surface, size, capabilities):
 
 
 def probe_capabilities(path):
-    """The daemon's identify capabilities: what the phone remembers from an earlier attach."""
+    """What the phone remembers from an earlier attach's identify: (capabilities, generation)."""
     conn = Connection(path)
     try:
-        return conn.call({"id": 1, "cmd": "identify"}).get("capabilities") or []
+        data = conn.call({"id": 1, "cmd": "identify"})
+        return data.get("capabilities") or [], data.get("generation")
     finally:
         conn.close()
 
 
-def attach_pipelined(conn, terminal_id, surface, size, known, started):
-    """attach-terminal-id-v1: set-client-info, identify and attach-surface in one write."""
+def check_grid(message, size, sized):
+    """The first vt-state is the grid the phone shows: at its size when the attach claimed one."""
+    if sized and "cols" in message and (message.get("cols"), message.get("rows")) != tuple(size):
+        fail(f"first vt-state is {message.get('cols')}x{message.get('rows')}, expected {size[0]}x{size[1]}")
+
+
+def attach_pipelined(conn, terminal_id, surface, size, known, started, generation):
+    """attach-identity-v1: set-client-info, identify and the fenced attach-surface in one write."""
     params, sized, tail = attach_params(4, surface, size, known)
-    params["terminal_id"] = terminal_id
+    params["expected_generation"] = generation
+    params["expected_terminal_id"] = terminal_id
     before = conn.bytes
     conn.write([
         {"id": 2, "cmd": "set-client-info", "name": DEVICE_NAME, "kind": "ios", "device_kind": "iphone",
@@ -338,9 +357,10 @@ def attach_pipelined(conn, terminal_id, surface, size, known, started):
     while vt_bytes is None:
         message, size_of_line = conn.read()
         if message.get("event") == "vt-state" and message.get("surface") == surface:
+            check_grid(message, size, sized)
             vt_bytes = size_of_line
         elif message.get("id") in (2, 3, 4) and not message.get("ok"):
-            fail(f"pipelined reattach: request {message['id']} failed: {message.get('error')}")
+            fail(f"fenced reattach: request {message['id']} failed: {message.get('error')}")
     total_ms = (time.monotonic() - started) * 1000
     steps = {"resolve_ms": 0.0, "setup_ms": 0.0, "attach_ms": round(total_ms, 3)}
     sample = {"wall_ms": round(total_ms, 3), "bytes": conn.bytes, "round_trips": 1, "steps": steps,
@@ -351,13 +371,14 @@ def attach_pipelined(conn, terminal_id, surface, size, known, started):
 
 def attach_once(path, terminal_id, surface, size, with_resolve=True, known=None):
     """The phone's reattach on a fresh connection; returns the sample and the open connection.
-    known: the capabilities of its earlier identify (None: unknown, the serial path)."""
+    known: (capabilities, generation) of its earlier identify (None: unknown, the serial path:
+    resolve-terminal, then set-client-info + identify, then attach-surface)."""
     conn = Connection(path)
     steps = {}
     started = time.monotonic()
     rtts = 0
-    if known is not None and ATTACH_TERMINAL_ID_CAPABILITY in known:
-        return attach_pipelined(conn, terminal_id, surface, size, known, started), conn
+    if known is not None and ATTACH_IDENTITY_CAPABILITY in known[0] and known[1]:
+        return attach_pipelined(conn, terminal_id, surface, size, known[0], started, known[1]), conn
     if with_resolve:
         reply = conn.call({"id": 1, "cmd": "resolve-terminal", "terminal_id": terminal_id})
         if reply.get("surface") != surface:
@@ -392,6 +413,7 @@ def attach_once(path, terminal_id, surface, size, with_resolve=True, known=None)
     while vt_ms is None:
         message, size_of_line = conn.read()
         if message.get("event") == "vt-state" and message.get("surface") == surface:
+            check_grid(message, size, sized)
             vt_ms = (time.monotonic() - mark) * 1000
             vt_bytes = size_of_line
         elif message.get("id") == 4 and not message.get("ok"):
@@ -405,30 +427,62 @@ def attach_once(path, terminal_id, surface, size, with_resolve=True, known=None)
     return sample, conn
 
 
+def check_fence_refuses(path, terminal_id, surface):
+    """A fenced attach naming another boot is refused before any stream: the fallback holds."""
+    conn = Connection(path)
+    try:
+        conn.write([{"id": 4, "cmd": "attach-surface", "surface": surface, "cols": PHONE_COLS, "rows": PHONE_ROWS,
+                     "expected_generation": "another-boot", "expected_terminal_id": terminal_id}])
+        while True:
+            message, _ = conn.read()
+            if message.get("event") == "vt-state":
+                fail("a fenced attach naming another boot streamed")
+            if message.get("id") == 4:
+                if message.get("ok") or "attachment_generation_mismatch" not in str(message.get("error")):
+                    fail(f"a fenced attach naming another boot was not refused: {message}")
+                return
+    finally:
+        conn.close()
+
+
 def scenario_reattach(binary, runs, scales):
     daemon = Daemon(binary)
     rows = []
     try:
         index = 0
         known = probe_capabilities(daemon.socket)
+        fenced = ATTACH_IDENTITY_CAPABILITY in known[0] and bool(known[1])
         for scale in scales:
+            # The serial reattach (resolve, setup, attach) and, against a daemon that fences, the
+            # phone's one-write reattach to the same terminals on the same daemon.
             collected = {"attach": [], "reconnect": [], "same_size": []}
+            if fenced:
+                collected.update({"reconnect_fenced": [], "same_size_fenced": []})
             for _ in range(runs):
                 # attach, then reconnect from a second connection while the first is detached.
                 index += 1
                 terminal_id, surface = make_terminal(daemon, scale, index)
-                first, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS), known=known)
+                first, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS))
                 conn.close()
-                second, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS), known=known)
+                second, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS))
                 conn.close()
                 collected["attach"].append(first)
                 collected["reconnect"].append(second)
+                if fenced:
+                    check_fence_refuses(daemon.socket, terminal_id, surface)
+                    third, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS), known=known)
+                    conn.close()
+                    collected["reconnect_fenced"].append(third)
                 # No size change: attach at the grid the terminal already has.
                 index += 1
                 terminal_id, surface = make_terminal(daemon, scale, index)
-                same, conn = attach_once(daemon.socket, terminal_id, surface, (MAC_COLS, MAC_ROWS), known=known)
+                same, conn = attach_once(daemon.socket, terminal_id, surface, (MAC_COLS, MAC_ROWS))
                 conn.close()
                 collected["same_size"].append(same)
+                if fenced:
+                    same_fenced, conn = attach_once(daemon.socket, terminal_id, surface, (MAC_COLS, MAC_ROWS), known=known)
+                    conn.close()
+                    collected["same_size_fenced"].append(same_fenced)
             for variant, samples in collected.items():
                 rows.append({"scenario": "reattach", "variant": variant, "scale": scale,
                              "scale_unit": "scrollback lines",

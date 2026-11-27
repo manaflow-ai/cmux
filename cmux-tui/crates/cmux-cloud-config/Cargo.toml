@@ -14,5 +14,9 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 unicode-segmentation = { workspace = true }
 
+[dev-dependencies]
+# The selection a fresh build resolves, for the sign-in allowlist test (stack_redirects_tests.rs).
+cmux-cloud-environment = { workspace = true }
+
 [lints]
 workspace = true

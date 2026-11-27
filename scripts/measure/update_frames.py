@@ -41,9 +41,35 @@ def load_windows(path):
     return display, samples
 
 
+def covered(windows):
+    """Indexes of windows nobody can see: inside an opaque window in front at the same or a higher layer.
+
+    Rows come front to back (CGWindowList). The launch shell orders the real window right below its stage-0
+    window at the same frame until the real one has drawn (LaunchShell.presented): two "new" windows on
+    screen, one of them behind the other and never seen. Counting it as a state of its own read a hidden
+    window as a transition frame."""
+    hidden = set()
+    for i, w in enumerate(windows):
+        x, y, width, height = w[4:8]
+        for front in windows[:i]:
+            fx, fy, fw, fh = front[4:8]
+            if (front[3] >= 1 and front[2] >= w[2] and fx <= x and fy <= y
+                    and x + width <= fx + fw and y + height <= fy + fh):
+                hidden.add(i)
+                break
+    return hidden
+
+
+def visible(windows):
+    """The windows someone can see (``covered``)."""
+    hidden = covered(windows)
+    return [w for i, w in enumerate(windows) if i not in hidden]
+
+
 def shape(windows, role):
-    """The visible state of a window list: (role, layer, alpha, x, y, w, h) per window, ignoring window numbers."""
-    return tuple(sorted((role(w[0]), w[2], w[3], *w[4:8]) for w in windows))
+    """The visible state of a window list: (role, layer, alpha, x, y, w, h) per window someone can see, ignoring
+    window numbers."""
+    return tuple(sorted((role(w[0]), w[2], w[3], *w[4:8]) for w in visible(windows)))
 
 
 def judge_windows(samples, click, v1_pid):
@@ -73,7 +99,8 @@ def judge_windows(samples, click, v1_pid):
         lasted = (after[i + 1][0] if i + 1 < len(after) else t) - t
         extra.append({"at_ms": t, "lasted_ms": lasted, "windows": [list(x) for x in s]})
         seen.add(s)
-    partial_alpha = sum(1 for _, w in after for x in w if 0 < x[3] < 1)
+    partial_alpha = sum(1 for _, w in after for x in visible(w) if 0 < x[3] < 1)
+    covered_samples = sum(1 for _, w in after if covered(w))
     old_frames = sorted(tuple(x[4:8]) for x in (before[-1] if before else []) if x[2] == 0)
     new_frames = sorted(tuple(x[3:7]) for x in settled or () if x[1] == 0)
     return {
@@ -84,6 +111,7 @@ def judge_windows(samples, click, v1_pid):
         "transition_states": len(seen),
         "transition_ms": sum(e["lasted_ms"] for e in extra),
         "partial_alpha_samples": partial_alpha,
+        "covered_samples": covered_samples,
         "same_frame": old_frames == new_frames if settled is not None else None,
         "old_frames": [list(f) for f in old_frames],
         "new_frames": [list(f) for f in new_frames],

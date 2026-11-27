@@ -606,6 +606,12 @@ public final class WorkspaceCreator {
     @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
     /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
     public var taskRefusal: String?
+    /// The Cloud machines New Task can run on (``refreshCloudTaskTargets()``), beside the Macs.
+    public var cloudTaskTargets: [CloudTaskTarget] = []
+    /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
+    @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
+    /// Opens a started Cloud task: its machine and the first message.
+    @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
     /// The saved New Task drafts (the drafts list).
@@ -855,6 +861,8 @@ public final class WorkspaceCreator {
                 // there after a relaunch would start the task a second time.
                 await taskDrafts.flush()
                 if taskDrafts.lastWriteFailed {
+                    // retry-prompt-ok: starting the task is the person's action, refused before it
+                    // reached the Mac so it never runs twice; the person decides whether to send it again.
                     throw WorkspaceCreationError("Couldn't update this iPhone's saved drafts, so the task wasn't started. Try again.",
                                                  isForPerson: true)
                 }
@@ -1050,7 +1058,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         switch catalogMode {
         case .normal: break
         case .empty: return AgentCatalog(harnesses: [])
-        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
+        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         case .slow: try await clock.sleep(for: catalogDelay)
         case .many:
             // More agents than a task takes (agentLimit), and a model the account can't use.
