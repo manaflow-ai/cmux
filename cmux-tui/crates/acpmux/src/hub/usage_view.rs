@@ -2,7 +2,9 @@
 //! result goes (`SessionSummary.usageStats`).
 //!
 //! A pass reads every Claude Code and Codex chat that is open or changed in the
-//! last day, on one blocking thread, from where the last pass ended. It finds them among the
+//! last day, on one blocking thread, from where the last pass ended. A chat whose harness
+//! profile declares `no_model = true` (a bench or probe agent) is read as zero tokens, no
+//! records read. It finds them among the
 //! live chats and the kept list order's rows of the last day (`list_order.rs`), never by a walk
 //! of every chat: a god daemon's 110,000 closed chats cost a first pass 161 ms. No timer runs:
 //! a session list that asks for usage (`usage: true`: `acpmux ls --wide`, `--json`, Session
@@ -184,6 +186,38 @@ pub(super) fn transcript_family(family: &str) -> Option<&'static str> {
     }
 }
 
+/// The source family of a chat whose harness calls no model (`Config::runs_no_model`: a
+/// profile that declares `no_model = true`, the built-in `chief`), so a pass reads no records for it and writes
+/// zero tokens ([`no_model_stats`]), stamped like any chat's. Before this, a `benchecho`,
+/// delivery-probe or Chief chat had no `usageStats` at all, and its machine read as unmetered.
+pub(super) const NO_MODEL_FAMILY: &str = "no-model";
+
+/// What a no-model chat spent and holds: nothing, as of `now`. Counts are 0 and the per-model
+/// maps empty, not null: a null reads as "not measured".
+pub(super) fn no_model_stats(source: &Source, now: u64) -> UsageStats {
+    UsageStats {
+        launcher: source.argv.as_deref().and_then(crate::usage_stats::launcher),
+        autocompact: crate::protocol::session::Autocompact::Uncapped,
+        autocompact_cap: None,
+        context_tokens: Some(0),
+        context_window: None,
+        compactions24h: Some(0),
+        subagents_live: Some(0),
+        subagents1h: Some(0),
+        subagents24h: Some(0),
+        tokens24h: Some(0),
+        tokens_by_model1h: Some(Default::default()),
+        tokens_by_model_previous_utc_hour: Some(Default::default()),
+        cache_read_by_model1h: Some(Default::default()),
+        cache_read_by_model_previous_utc_hour: Some(Default::default()),
+        cost_usd24h: Some(0.0),
+        calls24h: Some(0),
+        cache_read_share24h: None,
+        cost_per_call_usd24h: None,
+        updated_at: now,
+    }
+}
+
 /// A profile env var naming a folder that holds one Codex home per chat: the chat's rollouts
 /// are under `<folder>/<chat id>/sessions/`, so its Codex home is `<folder>/<chat id>`.
 /// leo-workspace's codex-review-box sets it: its reviewer runs Codex in a box whose own home is
@@ -327,25 +361,48 @@ impl Hub {
         candidates
     }
 
-    /// Whether a whole pass reads `m`'s chat: a Claude Code or Codex chat with its agent's
-    /// session id, open or changed in the last day.
-    fn reads_usage(m: &SessionMeta, now: u64) -> bool {
-        m.agent_session_id.as_deref().is_some_and(|s| !s.is_empty())
-            && transcript_family(m.family.as_deref().unwrap_or_default()).is_some()
-            && !(m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now)
+    /// Whether a whole pass reads `m`'s chat, open or changed in the last day: a chat on a
+    /// harness of `no_model` (its profile declares no model, so it spends nothing), else a
+    /// Claude Code or Codex chat with its agent's session id.
+    fn reads_usage(m: &SessionMeta, now: u64, no_model: &HashSet<String>) -> bool {
+        !(m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now)
+            && (no_model.contains(&m.harness)
+                || (m.agent_session_id.as_deref().is_some_and(|s| !s.is_empty())
+                    && transcript_family(m.family.as_deref().unwrap_or_default()).is_some()))
+    }
+
+    /// The harnesses whose chats call no model ([`crate::config::Config::runs_no_model`]).
+    async fn no_model_harnesses(&self) -> HashSet<String> {
+        let cfg = self.config.read().await;
+        cfg.harnesses.keys().filter(|id| cfg.runs_no_model(id)).cloned().collect()
     }
 
     /// The sources of the chats of `sessions` a pass reads ([`Self::reads_usage`], tested on
-    /// each chat's metadata in place); only those are copied.
+    /// each chat's metadata in place); only those are copied. A no-model chat's family is
+    /// [`NO_MODEL_FAMILY`]: no records are read for it.
     async fn usage_sources(&self, sessions: &[Arc<Session>], now: u64) -> Vec<(String, Source)> {
+        let no_model = self.no_model_harnesses().await;
         let mut sources = Vec::new();
         for session in sessions {
-            if !session.read_meta(|m| Self::reads_usage(m, now)) {
+            if !session.read_meta(|m| Self::reads_usage(m, now, &no_model)) {
                 continue;
             }
             let m = session.meta();
             // Tested above on the same chat: a write since may have taken it out.
-            if !Self::reads_usage(&m, now) {
+            if !Self::reads_usage(&m, now, &no_model) {
+                continue;
+            }
+            let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
+            if no_model.contains(&m.harness) {
+                let source = Source {
+                    family: NO_MODEL_FAMILY.to_owned(),
+                    agent_session_id: m.agent_session_id.clone().unwrap_or_default(),
+                    cwd: m.cwd.clone(),
+                    created_at: m.created_at,
+                    argv,
+                    env: Default::default(),
+                };
+                sources.push((m.id.clone(), source));
                 continue;
             }
             let family = transcript_family(m.family.as_deref().unwrap_or_default())
@@ -359,7 +416,6 @@ impl Hub {
             }
             // Only an argv this daemon started it with says how it runs: a watched chat runs in
             // another app, and one never started here (adopted, revived) ran with unknown flags.
-            let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
             let mut source = Source {
                 family,
                 agent_session_id: sid,
@@ -441,6 +497,11 @@ impl Hub {
             std::thread::sleep(delay);
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
+                if source.family == NO_MODEL_FAMILY {
+                    let found = no_model_stats(source, crate::store::now_ms());
+                    fresh.push((id.clone(), found, vec![UsageTag::Chat(id.clone())]));
+                    continue;
+                }
                 let tracker = trackers.entry(id.clone()).or_default();
                 if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
                     let mut tags = vec![UsageTag::Chat(id.clone())];
