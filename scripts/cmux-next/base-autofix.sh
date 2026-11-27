@@ -587,7 +587,7 @@ if (( sdk )) && [[ -f "$repo/cmux-tui/crates/cmux-api-compat/Cargo.toml" ]]; the
       fi
     else
       cp "$abi_before" "$repo/$daemon_surface"
-      echo "left: daemon ABI surface not refreshed (api-compat-check refused; check spec/api-compat.json and spec/api-compat-fixtures.json): $(grep -m1 -E 'api-compat-check:|^error' "$abi_log" || tail -n 1 "$abi_log")"
+      echo "left: $daemon_surface not refreshed (api-compat-check refused; check spec/api-compat.json and spec/api-compat-fixtures.json): $(grep -m1 -E 'api-compat-check:|^error' "$abi_log" || tail -n 1 "$abi_log")"
     fi
     rm -f "$abi_before" "$abi_log"
   fi
