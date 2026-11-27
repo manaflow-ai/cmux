@@ -13,7 +13,9 @@
     "RowHeight": "RowHeightValue",
     "ConversationSummary": "ConversationSummary",
     "ConversationPart": "ConversationPart",
-    "ConversationReactionKind": "ConversationReactionKind"
+    "ConversationReactionKind": "ConversationReactionKind",
+    "NameSource": "WorkspaceNameSource",
+    "SplitDirection": "SplitDirection"
   },
   "families": {
     "Agents": {
@@ -102,9 +104,7 @@
         "feed-local-handoff-abort": {
           "name": "FeedLocalHandoffAbortRequest",
           "doc": [
-            "`feed-local-handoff-abort {item}` (the verified app connection only): the",
-            "cloud owner answered `feed.adopt.cancel` with `cancelled: true`, so the",
-            "item is open here again. Never on a timeout or a lost reply."
+            "The cloud owner cancelled the adopt, so the item is open here again."
           ],
           "order": [
             "item"
@@ -119,8 +119,7 @@
         "feed-local-handoff-done": {
           "name": "FeedLocalHandoffDoneRequest",
           "doc": [
-            "`feed-local-handoff-done {item, home}` (the verified app connection only):",
-            "the new owner committed the item; it becomes `moved`."
+            "The new owner committed the item; it becomes `moved`."
           ],
           "order": [
             "item",
@@ -585,6 +584,34 @@
             "zoomed",
             "zoomed_pane"
           ]
+        },
+        "new-row": {
+          "name": "NewRowRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "`new-row` (`rows-v1`): a row of `heightPermille` below `pane`'s row, in its column, holding one new pane with one new terminal."
+          ],
+          "order": [
+            "pane",
+            "height_permille",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "height_permille": {
+              "name": "heightPermille",
+              "type": "Int"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          }
         }
       }
     },
@@ -1514,9 +1541,7 @@
         "reopen-saved-tab-group": {
           "name": "ReopenSavedTabGroupRequest",
           "doc": [
-            "Reopens a saved group into `pane`. A still-linked live group is returned",
-            "unchanged; otherwise running terminals reattach, others start in their",
-            "saved directory, and browsers reopen at their saved URL."
+            "Reopens a saved group into `pane`; a still-linked live group is returned unchanged."
           ],
           "order": [
             "saved",
@@ -1794,6 +1819,23 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "close-tab-group": {
+          "name": "CloseTabGroupRequest",
+          "response": "TabGroupResult",
+          "doc": [
+            "Closes every member placement in one commit. Terminal processes keep running, as with any closed view, unless",
+            "`endTerminals` (`batch-close-v1`) ends each member terminal left with no tab and not kept in the same commit; a",
+            "linked saved group remains."
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "end_terminals": {
+              "encode": "when_true"
+            }
+          }
         }
       }
     },
@@ -2045,6 +2087,56 @@
         "remote-terminal-snapshot": {
           "name": "RemoteTerminalSnapshotRequest",
           "response": "hand-written"
+        },
+        "close-pane": {
+          "name": "ClosePaneRequest",
+          "fields": {
+            "end_terminals": {
+              "encode": "when_true"
+            }
+          }
+        },
+        "close-screen": {
+          "name": "CloseScreenRequest",
+          "fields": {
+            "end_terminals": {
+              "encode": "when_true"
+            }
+          }
+        },
+        "close-tabs": {
+          "name": "CloseTabsRequest",
+          "response": "CloseTabsResult",
+          "mutation": true,
+          "doc": [
+            "Closes several tabs in one daemon commit (`batch-close-v1`). With `endTerminals`, each terminal whose tabs all",
+            "close ends in that same commit, unless it is kept; a terminal still shown elsewhere keeps running."
+          ],
+          "order": [
+            "surfaces",
+            "end_terminals",
+            "transaction",
+            "mutation",
+            "reason"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]"
+            },
+            "end_terminals": {
+              "encode": "when_true"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          }
+        }
+      },
+      "enums": {
+        "CloseReason": {
+          "doc": [
+            "Why tabs or a workspace close (`close-reason-v1`); `.sessionEnd` keeps them out of closed history."
+          ]
         }
       }
     },
@@ -2189,6 +2281,108 @@
             }
           },
           "response": "IconAssetBlob"
+        },
+        "close-workspace": {
+          "name": "CloseWorkspaceRequest",
+          "response": "WorkspaceMutationResult",
+          "mutation": true,
+          "order": [
+            "workspace",
+            "end_terminals",
+            "reason",
+            "if_empty",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            }
+          },
+          "fields": {
+            "end_terminals": {
+              "encode": "when_true"
+            },
+            "if_empty": {
+              "encode": "when_true"
+            }
+          }
+        },
+        "move-workspace": {
+          "name": "MoveWorkspaceRequest",
+          "response": "WorkspaceMutationResult",
+          "mutation": true,
+          "order": [
+            "workspace",
+            "index",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            }
+          },
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          }
+        },
+        "rename-workspace": {
+          "name": "RenameWorkspaceRequest",
+          "response": "WorkspaceMutationResult",
+          "mutation": true,
+          "order": [
+            "workspace",
+            "name",
+            "source",
+            "expected_name_revision",
+            "release",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            }
+          },
+          "fields": {
+            "release": {
+              "encode": "when_true"
+            }
+          }
+        },
+        "set-workspace-metadata": {
+          "name": "SetWorkspaceMetadataRequest",
+          "response": "WorkspaceMetadataResult",
+          "mutation": true,
+          "doc": [
+            "Shared color/icon/title (`workspace-metadata-v1`), the sidebar pin (`workspace-pin-v1`), and the manual unread",
+            "mark (`notification-mark-unread-v1`). Emits `workspace-changed`."
+          ],
+          "order": [
+            "workspace",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            }
+          },
+          "fields": {
+            "color": {
+              "update": true
+            },
+            "icon": {
+              "update": true
+            },
+            "title": {
+              "update": true
+            }
+          }
         }
       }
     },
@@ -2992,6 +3186,215 @@
           }
         }
       }
+    },
+    "Creation": {
+      "$comment": "SpawnOptions, the responses and the DaemonCreatingRequest conformances stay hand-written in Requests/Creation; new-screen's ScreenSpec form and create-terminal's detached form stay hand-written too (a second Swift type on one command).",
+      "enums": {
+        "ColumnSide": {
+          "doc": [
+            "The side of the pane's column a new viewport column opens on (`new-pane-right`)."
+          ]
+        },
+        "PaneKind": {
+          "doc": [
+            "What a new pane holds: a terminal or a browser (`pane-browser-kind-v1`)."
+          ]
+        }
+      },
+      "requests": {
+        "create-terminal": {
+          "name": "CreateTerminalRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "CreateTerminalResult",
+          "mutation": true,
+          "doc": [
+            "Spawns a terminal inside a workspace (a new screen/pane when it is empty)."
+          ],
+          "order": [
+            "workspace",
+            "argv",
+            "command",
+            "cwd",
+            "name",
+            "size",
+            "terminal_id",
+            "env",
+            "keep",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            },
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "env": {
+              "doc": [
+                "Extra environment for the child only (`terminal-env-v1`); stored on disk with the receipt, so never pass secrets."
+              ]
+            }
+          }
+        },
+        "new-pane": {
+          "name": "NewPaneRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Adds a pane to the pane's column (vertical stack inside a column)."
+          ],
+          "order": [
+            "pane",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          }
+        },
+        "new-pane-right": {
+          "name": "NewColumnRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Adds a new scrolling column to the right (`viewport-splits-v1`), or to the left with `side: .left`."
+          ],
+          "order": [
+            "pane",
+            "width",
+            "side",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          }
+        },
+        "new-screen": {
+          "name": "NewScreenRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "order": [
+            "workspace",
+            "size"
+          ],
+          "flatten": {
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "group": {
+              "type": "TabGroupID"
+            },
+            "terminal_id": {
+              "type": "TerminalID"
+            }
+          }
+        },
+        "new-tab": {
+          "name": "NewTabRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "place": {
+              "type": "JSONValue"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          }
+        },
+        "split": {
+          "name": "SplitRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Splits a pane with a new terminal (`cwd`/`env` with `terminal-env-v1`). Moving an existing tab into a",
+            "new pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)` routes there)."
+          ],
+          "order": [
+            "pane",
+            "dir",
+            "options",
+            "before"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "dir": {
+              "name": "direction"
+            },
+            "before": {
+              "encode": "when_true"
+            }
+          }
+        }
+      }
+    }
+  },
+  "flatten": {
+    "$comment": "Swift values a request binding's flatten may fold schema fields into: the wire names each writes and the statement that writes them into the request's own object.",
+    "CellSize": {
+      "wire": [
+        "cols",
+        "rows"
+      ],
+      "encode": "try {value}.encode(to: encoder)"
+    },
+    "SpawnOptions": {
+      "wire": [
+        "cwd",
+        "cols",
+        "rows",
+        "argv",
+        "command",
+        "name",
+        "env",
+        "keep",
+        "terminal_id",
+        "shell_args",
+        "pane_id",
+        "tab_id",
+        "split_id",
+        "around"
+      ],
+      "encode": "try {value}.encode(to: encoder)"
+    },
+    "WorkspaceRef": {
+      "wire": [
+        "key",
+        "workspace"
+      ],
+      "encode": "try WorkspaceRefFields(ref: {value}).encode(to: encoder)"
     }
   }
 }
