@@ -12,12 +12,6 @@ export type NotYet = { field: string; home: Home; builder: Builder; note: string
 
 export const NOT_YET: readonly NotYet[] = [
   {
-    field: "assistant.turnStartedAtMs",
-    home: "b",
-    builder: "2c",
-    note: "the group row's start, in ms (decision 231)",
-  },
-  {
     field: "turnSummary.turnStartedAtMs",
     home: "b",
     builder: "2c",

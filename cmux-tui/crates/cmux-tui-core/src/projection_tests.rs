@@ -26,6 +26,28 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
 }
 
 #[test]
+fn a_rejected_mount_does_not_create_parent_directories() {
+    let root = cmux_unix_socket::short_test_dir("proj-root");
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let missing = outside.path().join("never-created").join("chat");
+    assert!(mount_point(missing.to_str().unwrap(), &[root.path().to_path_buf()]).is_err());
+    assert!(!outside.path().join("never-created").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mount_point_symlink_cannot_escape_the_roots() {
+    use std::os::unix::fs::symlink;
+
+    let home = cmux_unix_socket::short_test_dir("proj-symlink");
+    let roots = vec![home.path().to_path_buf()];
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let link = home.path().join("link");
+    symlink(outside.path(), &link).unwrap();
+    assert!(mount_point(link.to_str().unwrap(), &roots).is_err());
+}
+
+#[test]
 fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![home.path().to_path_buf()];
@@ -402,6 +424,7 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
                 // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
                 .env_remove("GIT_CONFIG_GLOBAL")
                 .env_remove("XDG_CONFIG_HOME")
@@ -455,7 +478,9 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
+    for op in [
+        BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM, UNSYNCED,
+    ] {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -486,26 +511,20 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         path: None,
         paths: Vec::new(),
         chat: None,
+        prune: false,
     }
 }
 
 #[cfg(target_os = "linux")]
 #[test]
-fn detach_wins_over_a_redial_that_already_loaded_its_manifest() {
+fn a_detached_projection_rejects_redial() {
     let home = cmux_unix_socket::short_test_dir("proj");
     let name = "p-late-redial";
-    let (state, at) = projected_state(home.path(), name);
-    let manifest = cmux_projection::manifest::Manifest::build(0, Vec::new()).unwrap();
+    let (state, _) = projected_state(home.path(), name);
     detach(&control_line(name, None, None), &state).unwrap();
-    // Exercise the mount decision after the store fetch or the client's full-manifest retry.
-    for bytes in [0, 123] {
-        let line = serde_json::from_value(json!({
-            "cmd": SERVE, "name": name, "at": at, "manifest_bytes": bytes, "redial": true
-        }))
-        .unwrap();
-        let refused = mount(&line, manifest.clone(), &state, &at, 0).err().unwrap();
-        assert_eq!(refused.0, "projection.detached");
-    }
+    // Attach checks this after reading either a stored or a full manifest, before mounting.
+    let refused = allow_redial(&state, name).err().unwrap();
+    assert_eq!(refused.0, "projection.detached");
 }
 
 /// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
@@ -552,6 +571,24 @@ fn the_detach_notice_names_the_folder_and_says_its_edits_are_kept() {
         body.contains("EROFS") && body.contains("kept") && body.contains("bring back"),
         "{body}"
     );
+}
+
+/// `projection.unsynced`: what Bring Back would carry and what stays on the machine, counted.
+#[test]
+fn unsynced_counts_the_changes_and_what_stays_on_the_machine() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, _) = projected_state(home.path(), "p-count");
+    std::fs::create_dir_all(state.join("upper/node_modules/x")).unwrap();
+    std::fs::write(state.join("upper/node_modules/x/i.js"), b"1;").unwrap();
+    std::fs::write(state.join("upper/node_modules/x/package.json"), b"{}").unwrap();
+    assert_eq!(
+        unsynced(&state, true).unwrap(),
+        json!({"files": 1, "bytes": 23, "deleted": 1,
+               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4,
+                                   "paths": ["node_modules"]}})
+    );
+    // Unpruned (the caller's manifest holds `node_modules`): its edits count.
+    assert_eq!(unsynced(&state, false).unwrap(), json!({"files": 3, "bytes": 27, "deleted": 1}));
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read
@@ -777,4 +814,22 @@ fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
     let state =
         crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
     let _ = std::fs::remove_dir_all(&state);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_swap_link_out_of_the_served_home_keeps_the_projected_git() {
+    let home = Path::new("/h/me");
+    let at = Path::new("/h/me/work/chats/c/app");
+    // The default state folder is under HOME: fs-v1 follows the link.
+    assert!(swap_link_served(
+        at,
+        Path::new("/h/me/.local/state/cmux-tui/projections/c"),
+        Some(home)
+    ));
+    // A state folder outside HOME: fs-v1 would refuse `.git/cmux-sync.json`, so no swap.
+    assert!(!swap_link_served(at, Path::new("/var/state/projections/c"), Some(home)));
+    // A folder fs-v1 does not serve, or no HOME: nothing to refuse.
+    assert!(swap_link_served(Path::new("/srv/app"), Path::new("/var/state/p"), Some(home)));
+    assert!(swap_link_served(at, Path::new("/var/state/p"), None));
 }

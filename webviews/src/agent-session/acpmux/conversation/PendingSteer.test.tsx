@@ -266,3 +266,118 @@ test("the X is offered in every Claude Code chat, whatever its family is named, 
   expect(takesSteersBack(codex, true)).toBe(false);
   expect(takesSteersBack(claude, false)).toBe(false);
 });
+
+// Leo, 2026-11-24, on a waiting message drawn two ways (this queued row with Send now, and a
+// "(clock) Sending" in the footer of another): "why is THIS one find and good? skip the move to left
+// bit. this one is good. why were ther e2 of them". One pending look now serves every state of a
+// message on its way: queued, sending (past its first second) and going again by itself.
+const controls = (container: Element) =>
+  [...container.querySelectorAll(".cv-user__pending button")].map((node) =>
+    node.classList.contains("cv-user__send-now")
+      ? "send-now"
+      : node.classList.contains("cv-user__take-back")
+        ? "x"
+        : (node.getAttribute("aria-label") ?? "?"),
+  );
+
+async function drawOne(row: AcpmuxRow, unsteer: (() => Promise<"back">) | undefined = async () => "back" as const) {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <TurnActionsContext.Provider value={{ unsteer }}>
+        <PendingSteer row={row} send={async () => true} queued={{}}>
+          <span className="cv-test-footer">sent footer</span>
+        </PendingSteer>
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  return container;
+}
+
+const sending = (sentAt: number): AcpmuxRow => ({
+  id: "user-on-way",
+  version: 1,
+  at: sentAt,
+  kind: "user",
+  text: "Use the cache dir",
+  pending: true,
+  delivery: { state: "sending", promptId: "p-on-way", sessionId: "s", sentAt },
+});
+const retrying: AcpmuxRow = {
+  id: "user-again",
+  version: 1,
+  at: 1,
+  kind: "user",
+  text: "Use the cache dir",
+  failed: true,
+  error: "Not sent: no answer.",
+  delivery: { state: "failed", promptId: "p-again", sessionId: "s", sentAt: 0, failedAt: 10, code: "timeout" },
+};
+
+test("the queued row reads copy, X and Send now, all working, with no Save as Prompt", async () => {
+  const container = await drawOne({ ...waiting, steerPromptId: "p-queued-look" });
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
+  const sendNow = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
+  expect(sendNow.dataset.pendingState).toBe("queued");
+  expect(sendNow.disabled).toBe(false);
+  expect(container.querySelector<HTMLButtonElement>(".cv-user__take-back")!.disabled).toBe(false);
+  expect(container.querySelector(".cv-test-footer")).toBeNull();
+});
+
+test("a send on its way past its first second takes the queued row's look, its X and Send now disabled", async () => {
+  const container = await drawOne(sending(Date.now() - 5_000));
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
+  const sendNow = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
+  expect(sendNow.dataset.pendingState).toBe("sending");
+  // It cannot be hurried or taken back while acpmux has not answered: drawn, disabled, same size.
+  expect(sendNow.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>(".cv-user__take-back")!.disabled).toBe(true);
+  // No "(clock) Sending" of its own: one look.
+  expect(container.querySelector(".cv-user__pending-state")).toBeNull();
+  expect(container.textContent).not.toContain("Sending");
+  expect(container.querySelector(".cv-test-footer")).toBeNull();
+});
+
+test("a send that lands within its first second shows no pending row, only its footer", async () => {
+  const container = await drawOne(sending(Date.now()));
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+  expect(container.querySelector(".cv-test-footer")).not.toBeNull();
+});
+
+test("a send going again by itself keeps the same row: Send now tries at once, X takes it back", async () => {
+  const container = await drawOne(retrying);
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
+  expect(container.textContent).not.toContain("Not sent");
+  const calls: string[] = [];
+  window.cmuxAcpmuxActions = Object.fromEntries(
+    ["chat.retryPrompt", "chat.editFailedPrompt"].map((name) => [name, async () => void calls.push(name)]),
+  );
+  const sendNow = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
+  expect(sendNow.dataset.pendingState).toBe("retrying");
+  expect(sendNow.disabled).toBe(false);
+  await act(async () => sendNow.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__take-back")!.click());
+  expect(calls).toEqual(["chat.retryPrompt", "chat.editFailedPrompt"]);
+});
+
+test("a refusal that would come back the same leaves the pending row: its footer and one line say it", async () => {
+  const refused: AcpmuxRow = {
+    ...retrying,
+    delivery: { ...retrying.delivery!, code: undefined, reason: "message.too_large" },
+  };
+  const container = await drawOne(refused);
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a steer whose own delivery is slow keeps the queued terms, and is gone once sent now", async () => {
+  const steer: AcpmuxRow = {
+    ...waiting,
+    steerPromptId: "p-slow-steer",
+    delivery: { state: "sending", promptId: "p-slow-steer", sessionId: "s", sentAt: Date.now() - 5_000 },
+  };
+  const container = await drawOne(steer);
+  expect(container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.dataset.pendingState).toBe("queued");
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
