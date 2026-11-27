@@ -590,7 +590,10 @@ final class CEFRuntime {
         CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        // Downloaded Chromium paks (CMUX-570) are listed with them, and Chromium reads that folder first.
+        let downloaded = Bundle.main.bundleIdentifier.map { ChromiumLocalePaks.directory(bundleID: $0) }
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory, downloadedDirectory: downloaded)
+        if let downloaded { downloaded.path.withCString { shim.setLocalesDir($0) } }
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
