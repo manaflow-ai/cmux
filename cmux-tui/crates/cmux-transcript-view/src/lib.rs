@@ -25,7 +25,7 @@
 use std::collections::VecDeque;
 use std::sync::LazyLock;
 
-use regex_lite::Regex;
+use regex::Regex;
 use serde_json::Value;
 
 #[cfg(target_arch = "wasm32")]
