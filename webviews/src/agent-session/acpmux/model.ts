@@ -4185,12 +4185,11 @@ const LAYOUT_BUFFER_SETS = 3;
 /// god chat's extra collector time. Now a set's capacity grows by doubling, and a layout writes
 /// into the set written longest ago, copying only the rows that changed since that set was written.
 export class LayoutBuffers {
-  private sets: { arrays?: LayoutArrays; generation: number }[] = Array.from({ length: LAYOUT_BUFFER_SETS }, () => ({
-    generation: -1,
-  }));
+  private sets: { arrays?: LayoutArrays; generation: number; unchanged: number }[] = Array.from(
+    { length: LAYOUT_BUFFER_SETS },
+    () => ({ generation: -1, unchanged: 0 }),
+  );
   private generation = 0;
-  /// Per generation: the first row its layout may differ from the one before it in.
-  private written = new Map<number, number>();
   private last: { layout?: ConversationLayout; set: number } = { set: -1 };
   private pending?: { set: number; from: number };
   private held?: ArrayBufferLike;
@@ -4220,12 +4219,7 @@ export class LayoutBuffers {
     }
     // Rows this set already holds as `previous` does: those before the first row any layout written
     // since this set changed. Anything else is copied from `previous`.
-    let agree = 0;
-    if (lineal && set.generation >= 0) {
-      agree = start;
-      for (let generation = set.generation + 1; generation < this.generation; generation += 1)
-        agree = Math.min(agree, this.written.get(generation) ?? 0);
-    }
+    const agree = lineal && set.generation >= 0 ? Math.min(start, set.unchanged) : 0;
     if (previous && start > agree) copyLayoutRows(arrays, previous, agree, start);
     // Rows a layout leaves alone (a row that draws nothing keeps no gap) read 0, as in new arrays.
     arrays.gaps.fill(0, start, length);
@@ -4253,13 +4247,13 @@ export class LayoutBuffers {
     const pending = this.pending;
     if (!pending) return;
     this.pending = undefined;
-    this.written.set(this.generation, pending.from);
-    this.sets[pending.set]!.generation = this.generation;
+    // Each set needs only the prefix it still shares with this layout, even when a placement
+    // holds its arrays through thousands of estimates.
+    for (const set of this.sets) set.unchanged = Math.min(set.unchanged, pending.from);
+    const written = this.sets[pending.set]!;
+    written.unchanged = layout.tops.length;
+    written.generation = this.generation;
     this.generation += 1;
-    // A set reads the generations after its own: older ones are dropped, so at most a few are kept.
-    let oldest = this.generation;
-    for (const each of this.sets) if (each.generation >= 0) oldest = Math.min(oldest, each.generation);
-    for (const generation of this.written.keys()) if (generation <= oldest) this.written.delete(generation);
     this.last = { layout, set: pending.set };
   }
 }

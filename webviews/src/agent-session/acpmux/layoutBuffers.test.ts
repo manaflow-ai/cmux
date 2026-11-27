@@ -179,4 +179,24 @@ test("a layout the transcript still holds keeps its values however many estimate
     last = { rows: next, layout };
   }
   expect(arrays(held)).toEqual(values);
+
+  // Release the oldest set so the next estimate can reuse it. The change above the tail must
+  // survive even though this estimate changes only the last row.
+  buffers.hold(null);
+  const next = [...last.rows.slice(0, -1), prompt(200)];
+  const resumed = layoutConversation(
+    next,
+    720,
+    undefined,
+    undefined,
+    known,
+    last,
+    "s",
+    undefined,
+    undefined,
+    undefined,
+    buffers,
+  );
+  expect(resumed.tops.buffer).toBe(held.tops.buffer);
+  expect(arrays(resumed)).toEqual(arrays(layoutConversation(next, 720, undefined, undefined, known, undefined, "s")));
 });
