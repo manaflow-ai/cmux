@@ -1,6 +1,7 @@
 import Foundation
 
-/// A stand-in relay admin socket: answers each connection's first line with `reply`.
+/// A stand-in relay admin socket: answers each request line of a connection with the next of `replies`.
+/// Shared by the add-account and inline /btw tests; it lived in LocalRouterLongHomeTests until #57508 deleted that file.
 nonisolated final class OneShotRelay: @unchecked Sendable {
     let path: String
     private let listener: Int32

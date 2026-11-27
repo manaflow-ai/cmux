@@ -121,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
-            guard let services = self?.services else { return NSApp.terminate(nil) }
+            guard let services = self?.services else { return NSApplication.terminateFromRunLoop() }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
@@ -186,12 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services, laps: binderLaps)
+        AppActions.bind(services, laps: binderLaps, deferring: true)
         DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
+        firstFrame.whenOpen { [weak services] in guard let services else { return }; binderLaps.restart(); AppActions.bindDeferred(services, laps: binderLaps); DebugTimings.markLaunch("dfl.app_actions_deferred") } // before HandlerCoverage.verify below
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter); self.ghosttyKeybinds = ghosttyKeybinds; ghosttyKeybinds.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")

@@ -247,7 +247,7 @@ impl NoActivateGuard {
         }
         // Input during the wait: a click ended the wait already, so this is
         // a key typed after the activation began (meant for the person's app).
-        !self.wait_started_at_ns.is_some_and(|started| last_input >= started)
+        self.wait_started_at_ns.is_none_or(|started| last_input < started)
     }
 
     fn check(
