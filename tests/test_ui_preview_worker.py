@@ -686,5 +686,74 @@ class ColdSideTests(unittest.TestCase):
             self.assertEqual(w.prune_transforms(Path(tmp) / "absent"), 0)
 
 
+LOOK = "http://100.64.0.1:8765/looks/" + "f" * 32 + "/"
+
+
+class PublishTests(unittest.TestCase):
+    """The census copy goes through the broker's state_put, which refuses a file over 1 MiB: the local file passed it
+    on 2026-11-26 (1.4 MB) and NOW read a copy 12 h old, 3 covered of 2203 pushes."""
+
+    def receipt(self, n: int, pushed: "w.dt.datetime") -> dict:
+        at = pushed.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"repo": "manaflow-ai/cmux", "head_sha": f"{n:040x}", "base_sha": BASE, "branch": f"lane/x{n}",
+                "pushed_at": at, "ui_files": ["webviews/src/a.tsx"], "recipient": "lane-x", "posted_at": at,
+                "scenes": [{"scene": "agent-pane.x", "kind": "web", "before": f"{LOOK}before/web-agent-pane.x.png",
+                            "after": f"{LOOK}after/web-agent-pane.x.png", "changed": True,
+                            "before_path": "/tmp/b.png"}],
+                "plan": {"web": True, "needs_build": [], "swift": [], "nothing": []}, "look": "f" * 32,
+                "web_entries": [f"agent-pane.e{i}" for i in range(20)], "stages": {"fetch": 1.0, "web_after": 9.0},
+                "error": "x" * 2000}
+
+    def test_a_full_receipts_file_publishes_under_the_cap_newest_kept(self):
+        now = w.dt.datetime(2026, 11, 26, 23, 30, tzinfo=w.dt.timezone.utc)
+        rows = [self.receipt(n, now - w.dt.timedelta(minutes=2 * (3000 - n))) for n in range(3000)]  # 100 h of pushes
+        doc = {"schema": "ui-preview/v1", "host": "h", "at": "2026-11-26T23:30:00Z", "receipts": rows}
+        self.assertGreater(len(json.dumps(doc, indent=1)), 4 << 20)
+        text = w.publish_doc(doc, now)
+        self.assertLessEqual(len(text.encode()), w.PUBLISH_MAX)
+        out = json.loads(text)
+        self.assertEqual(out["schema"], "ui-preview/v1")
+        got = out["receipts"]
+        self.assertEqual(got[-1]["head_sha"], f"{2999:040x}", "the newest receipt is kept")
+        oldest = min(w.parse_ts(r["pushed_at"]) for r in got)
+        self.assertGreaterEqual(oldest, now - w.dt.timedelta(hours=w.PUBLISH_WINDOW_H))
+        self.assertEqual(len(got), 25 * 30, "every receipt in the window fits once its look detail is left out")
+        self.assertLess(len(text.encode()) / len(got), 700, "a busy host's day (about 1000 pushes) fits under the cap")
+        row = got[-1]
+        # What NOW's covered_seconds reads stays; the look's detail does not.
+        for key in ("repo", "head_sha", "pushed_at", "ui_files", "recipient", "posted_at"):
+            self.assertIn(key, row)
+        self.assertEqual(row["look_base"], LOOK)
+        self.assertEqual(row["scenes"], [{"scene": "agent-pane.x", "kind": "web",
+                                          "before": "before/web-agent-pane.x.png",
+                                          "after": "after/web-agent-pane.x.png"}])
+        for key in ("stages", "plan", "web_entries", "look", "base_sha"):
+            self.assertNotIn(key, row)
+        self.assertLessEqual(len(row["error"]), 200)
+        wide = dict(rows[-1], ui_files=[f"webviews/src/f{i}.tsx" for i in range(900)])
+        one = json.loads(w.publish_doc(dict(doc, receipts=[wide]), now))["receipts"][0]
+        self.assertEqual((len(one["ui_files"]), one["ui_files_n"]), (w.PUBLISH_FILES, 900))
+        small = w.publish_doc(doc, now, limit=50_000)
+        self.assertLessEqual(len(small.encode()), 50_000)
+        self.assertEqual(json.loads(small)["receipts"][-1]["head_sha"], f"{2999:040x}")
+        with self.assertRaises(ValueError):
+            w.publish_doc({"schema": "other"}, now)
+
+    def test_a_refused_publish_is_logged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            refuse = Path(tmp) / "refuse.py"
+            refuse.write_text("import sys\nsys.exit('refused: over STATE_MAX')\n")
+            worker.publish_template = f"{sys.executable} {refuse} {{file}} {{host}}"
+            lines = []
+            real = w.log
+            w.log = lines.append
+            try:
+                w.Worker.publish_now(worker)
+            finally:
+                w.log = real
+            self.assertTrue(any("publish exited 1" in x and "STATE_MAX" in x for x in lines), lines)
+
+
 if __name__ == "__main__":
     unittest.main()
