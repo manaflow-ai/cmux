@@ -314,6 +314,38 @@ impl Hub {
             .collect()
     }
 
+    /// The chat's running tasks that are re-armable waits (`rearm.rs`), as `bgWaits` rows:
+    /// `{id, kind, form, repo, number, sha, until, deadlineMs, description, notify, resultLine}`.
+    /// A session move starts each again at the destination (`server/bg_rearm.rs`).
+    pub(crate) fn bg_waits(&self, session: &Session) -> Vec<Value> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .filter_map(|t| {
+                let r = &t.record;
+                let mut row = crate::rearm::parse(&r.command, r.started_at)?.to_json();
+                row.set("id", json!(r.id));
+                row.set("description", json!(r.description));
+                row.set("notify", json!(r.notify));
+                row.set("resultLine", json!(r.result_line));
+                Some(row)
+            })
+            .collect()
+    }
+
+    /// The running task `id` of the chat, when it is a re-armable wait.
+    pub(crate) fn bg_wait(&self, session: &Session, id: &str) -> Option<crate::rearm::Wait> {
+        let dir = self.bg_dir(session);
+        let folder = self.bg_records(&dir);
+        let t = folder.tasks.iter().find(|t| t.record.id == id)?;
+        if t.record.ended_at.is_some() || bg_gone(&dir, id) {
+            return None;
+        }
+        crate::rearm::parse(&t.record.command, t.record.started_at)
+    }
+
     /// One task's list view, when the chat's folder holds it.
     pub(crate) fn bg_task_view(&self, session: &Session, id: &str) -> Option<Value> {
         let dir = self.bg_dir(session);

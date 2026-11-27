@@ -732,8 +732,8 @@ class WorkflowTests(unittest.TestCase):
                                                "&& github.event_name == 'pull_request' && "))
         early = ci_web["jobs"]["react-apps-base-early"]["if"]
         self.assertTrue(early.startswith("${{ !cancelled() && ("))
-        self.assertIn(" && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, "
-                      "'full-ci')", early)
+        # #58290: full-ci is one-shot into feat-cmux-next.
+        self.assertIn(" && github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", early)
 
 
 if __name__ == "__main__":
