@@ -125,6 +125,26 @@ public nonisolated struct CloudStartCore: Sendable {
         }
     }
 
+    /// What the chat pane's start does with its failure before the card shows it (`recover::pane_step`, the same
+    /// table as `cmux cloud start-chat`'s): start again on its own after `ms`, or show the card.
+    public enum PaneRecovery: Sendable, Equatable {
+        /// Pause `ms`, then do what the card's Retry does; `cls` is the table's class it ran for, if any.
+        case rerun(ms: Int, cls: String?)
+        /// Show the card.
+        case surface
+    }
+
+    /// The pane's step for a failed start: its `code` (empty for none), `message`, whether the card would offer
+    /// Retry, how many reruns already ran and the milliseconds since the send began. An FFI that does not answer
+    /// shows the card, as before.
+    public func paneRecovery(code: String?, message: String, retryable: Bool, reruns: Int, elapsedMs: Int) -> PaneRecovery {
+        struct Request: Encodable { var code: String, message: String, retryable: Bool, reruns: Int, elapsedMs: Int }
+        struct Reply: Decodable { var next: String, pauseMs: Int?, `class`: String? }
+        let request = Request(code: code ?? "", message: message, retryable: retryable, reruns: max(reruns, 0), elapsedMs: max(elapsedMs, 0))
+        guard let reply = call("cloud_start_pane_recovery", request, as: Reply.self), reply.next == "rerun", let ms = reply.pauseMs, ms > 0 else { return .surface }
+        return .rerun(ms: ms, cls: reply.class)
+    }
+
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`
     /// spells it): never copied to a machine. An FFI that does not answer counts it too broad.
     public func isTooBroad(root: String, home: String) -> Bool {
