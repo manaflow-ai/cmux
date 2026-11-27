@@ -105,7 +105,7 @@ impl Feed {
         viewer: Option<&str>,
     ) -> Option<String> {
         let event = wire_event(frame, team)?;
-        self.add(&event, viewer).then(|| event.machine)
+        self.add(&event, viewer).then_some(event.machine)
     }
 
     /// The rows of the record `machine` belongs to, oldest first; empty for a machine with none.

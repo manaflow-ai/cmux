@@ -39,7 +39,7 @@ fn only_an_autosize_frame_of_the_sockets_team_is_read() {
     let mut snapshot = grow.clone();
     snapshot["t"] = json!("snapshot");
     assert_eq!(wire_event(&snapshot, Some("t1")), None);
-    let mut broken = grow.clone();
+    let mut broken = grow;
     broken["data"]["kind"] = json!("explode");
     assert_eq!(wire_event(&broken, Some("t1")), None, "a data this build cannot read");
     assert_eq!(wire_event(&json!("text"), Some("t1")), None);
