@@ -311,3 +311,22 @@ fn a_transcript_reads_back_and_has_an_outline_and_digests() {
     // The last turns are one range.
     assert_eq!(m.tail_turns(2), t.starts[118]);
 }
+
+#[test]
+fn an_acpmux_outline_restores_long_prompt_fields() {
+    for field in ["promptLine", "prompt"] {
+        let prompt = "x".repeat(384);
+        let bytes = format!(
+            r#"{{"seq":1,"at":1795000000000,"dir":"mux","kind":"turn_started","msg":{{"{field}":"{prompt}"}}}}
+"#
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("events.ndjson");
+        std::fs::write(&file, bytes).unwrap();
+        let store = Store::new(dir.path().join("store"));
+        let (manifest, _) = pack(&store, "mux", &[file], &small(), false).unwrap();
+        let pack = Pack::with_manifest(&store, manifest);
+        let row = cmux_session_pack::digest::outline(&pack).unwrap();
+        assert!(row.trim_end().ends_with(&prompt[..160]), "{field}: {row}");
+    }
+}

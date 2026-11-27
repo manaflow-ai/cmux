@@ -332,9 +332,9 @@ pub fn outline(pack: &Pack) -> Result<String> {
     let m = &pack.manifest;
     let starts: Vec<u64> = m.marks().collect();
     let mut out = String::new();
-    // Long strings are left out, so no blob chunk is read: an acpmux prompt's first line is
-    // short. A transcript holds only the whole prompt, so one that is a long string is read
-    // again with its blobs, and only those lines' blob chunks are read.
+    // Long strings are left out, so no blob chunk is read. Rows whose prompt was
+    // stored as a blob are read again with their blobs, and only those lines' blob
+    // chunks are read.
     let all = pack.skim_lines(&starts)?;
     let mut rows = Vec::with_capacity(starts.len());
     let mut again = Vec::new();
@@ -353,6 +353,9 @@ pub fn outline(pack: &Pack) -> Result<String> {
                 .or_else(|| v.pointer("/msg/prompt"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            if v.get("kind").is_some() && prompt.is_empty() {
+                again.push(i);
+            }
             (v.get("at").and_then(Value::as_u64).unwrap_or(0), prompt.to_owned())
         };
         rows.push(row);
@@ -360,8 +363,19 @@ pub fn outline(pack: &Pack) -> Result<String> {
     let lines: Vec<u64> = again.iter().filter_map(|i| starts.get(*i).copied()).collect();
     for (i, line) in again.iter().zip(pack.lines_at(&lines)?) {
         let v: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
-        if let (Some(row), Some(asked)) = (rows.get_mut(*i), claude::asked(&v)) {
-            row.1 = one_line(&asked);
+        if let Some(row) = rows.get_mut(*i) {
+            if v.get("kind").is_none() {
+                if let Some(asked) = claude::asked(&v) {
+                    row.1 = one_line(&asked);
+                }
+            } else {
+                row.1 = v
+                    .pointer("/msg/promptLine")
+                    .or_else(|| v.pointer("/msg/prompt"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+            }
         }
     }
     for (i, (first, (at, prompt))) in starts.iter().zip(&rows).enumerate() {
