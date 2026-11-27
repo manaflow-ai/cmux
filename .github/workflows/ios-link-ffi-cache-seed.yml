@@ -104,7 +104,7 @@ jobs:
 
       - name: Save CmuxMobileLinkFFI.xcframework
         id: save
-        if: steps.build.outputs.built == 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build.outputs.built == 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
@@ -161,6 +161,7 @@ jobs:
 
       - name: Save CmuxMobileLinkFFI.xcframework (fleet entry)
         continue-on-error: true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
@@ -169,6 +170,7 @@ jobs:
 
       - name: Save CmuxMobileLinkFFI.xcframework (this Xcode's entry)
         continue-on-error: true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
