@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
@@ -3402,6 +3403,22 @@ open(out, 'w').write(json.dumps(seen))
       rmSync(home, { recursive: true, force: true });
     }
   });
+  test("a start with no launch credential (a receipt spare's own login) sends session/new with no credentials", { timeout: 30_000 }, () => {
+    const home = mkdtempSync("/tmp/jn-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX);
+      const program = launchCredentialStartProgram("journey-jr-1", "claude", null, null);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nwait`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      expect(r.stdout).toContain("@@session s-1");
+      const seen = JSON.parse(readFileSync(join(home, "seen.json"), "utf8"));
+      expect(seen[1].params).toEqual({ mcpServers: [], cwd: home, _meta: { acpmux: { name: "journey-jr-1", harness: "claude" } } });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
   // The same fake, but it stays for the first prompt and accepts it, as acpmux's queue_prompt does.
   const FAKE_ACPMUX_PROMPT = `import json, os, socket, sys
 path, out, accept = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
@@ -3842,5 +3859,15 @@ describe("a machine create with one overall deadline (run 45874526877: cold crea
       expect(Date.now() - t0).toBeLessThan(2_500);
       expect(creates()).toBeLessThanOrEqual(2);
     });
+  });
+});
+
+describe("rpcFailureReason", () => {
+  test("a 503 vm_unavailable says which Durable Object failure it was, and only the three fixed words", () => {
+    expect(rpcFailureReason("restarted")).toBe(" (restarted)");
+    expect(rpcFailureReason("overloaded")).toBe(" (overloaded)");
+    expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
+    expect(rpcFailureReason("Error: secret text")).toBe("");
+    expect(rpcFailureReason(undefined)).toBe("");
   });
 });
