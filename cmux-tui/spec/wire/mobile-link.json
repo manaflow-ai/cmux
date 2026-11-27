@@ -402,6 +402,9 @@
     "send-expect-agent-v1": [
       "param:send#expect_agent"
     ],
+    "site-data-handoff-v1": [
+      "service:site-data"
+    ],
     "surface-stream-v1": [
       "param:surface#tab",
       "param:surface#video",
