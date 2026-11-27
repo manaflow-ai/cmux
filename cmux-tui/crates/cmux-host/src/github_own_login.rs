@@ -110,13 +110,16 @@ fn cannot(reach: Reach, repo: &str) -> String {
     }
 }
 
+/// The carried token and the probe that says how far it reaches a repository.
+pub type OwnLogin<'a> = (&'a str, &'a mut dyn FnMut(&str) -> Reach);
+
 /// `credential get` with the carried login first. `own` is the carried token and its probe;
 /// `ask` mints the cmux GitHub App's token, as [`credential_get`] does.
 pub fn credential_get_own_first(
     input: &str,
     op: GitOp,
     workflows: bool,
-    own: Option<(&str, &mut dyn FnMut(&str) -> Reach)>,
+    own: Option<OwnLogin<'_>>,
     ask: &mut dyn FnMut(&TokenAsk) -> Result<Minted, Refused>,
 ) -> (String, Option<String>) {
     let desc = parse_credential_input(input);
