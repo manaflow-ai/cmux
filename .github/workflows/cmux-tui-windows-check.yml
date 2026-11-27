@@ -189,7 +189,9 @@ on:
 concurrency:
   # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job
   # each) never cancel one another.
-  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # Under the post-merge batch (inputs.sha set) each caller run is its own group: its probes and a confirm round's
+  # red-N/green-N runs share sha and job, and a shared group cancelled all but one (11-27: 39 of 92 probes).
+  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-run-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

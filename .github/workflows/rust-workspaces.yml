@@ -214,7 +214,9 @@ on:
 
 concurrency:
   # Every feat-cmux-next push gets its own run: the next one only diffs against its own parent.
-  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  # Under the post-merge batch (inputs.sha set) each caller run is its own group: its probes and a confirm round's
+  # red-N/green-N runs share sha and job, and a shared group cancelled all but one (11-27: 39 of 92 probes).
+  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-run-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
