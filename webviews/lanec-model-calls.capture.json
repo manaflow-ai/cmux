@@ -1,0 +1,8 @@
+{
+  "envs": [["dark", "none"], ["light", "none"]],
+  "shots": [
+    {"name": "before-chunk-timed", "entry": "agent-pane.turn-waterfall", "variant": "model-calls-before", "width": 640, "height": 300, "deviceScaleFactor": 2, "arms": {"before": ""}},
+    {"name": "after-model-calls", "entry": "agent-pane.turn-waterfall", "variant": "model-calls", "width": 640, "height": 300, "deviceScaleFactor": 2, "arms": {"after": ""}},
+    {"name": "after-model-calls-plain", "entry": "agent-pane.turn-waterfall", "variant": "model-calls-plain", "width": 640, "height": 300, "deviceScaleFactor": 2, "arms": {"after": ""}}
+  ]
+}

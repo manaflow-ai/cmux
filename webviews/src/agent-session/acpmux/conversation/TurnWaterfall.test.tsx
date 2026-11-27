@@ -428,3 +428,67 @@ test("a turn of all model time around one call lists Thinking and the call, and 
   const busy = waterfall({ at: 1_000, durationMs: 1_000 }, [call("b", 0, 1_000)]);
   expect(waterfallLines(busy).map((line) => line.span?.toolId)).toEqual(["b"]);
 });
+
+// Leo, 2026-11-27, on a Timeline that read "Thinking 3ms" beside two calls of 2.2s and 2.5s: "was
+// your thinkin really 3ms only? from anthropic and back?". Claude Code's thinking comes in one burst
+// at its call's end, so its first to last chunk measured 3ms of a call's seconds. acpmux times each
+// model call where it reads the stream (claude_stdio/model_calls.rs): request out, first byte, last
+// token, and the Timeline draws those.
+const queue = (from: number, to: number): AcpmuxActivity => ({
+  kind: "tool",
+  text: "Queue lands",
+  tool: { id: "queue", title: "Queue lands", kind: "other", status: "completed", startedAt: from, endedAt: to },
+});
+const burst: AcpmuxActivity = { kind: "thought", text: "Queue both", startedAt: 5_997, endedAt: 6_000 };
+const leosRows = (timed: boolean): AcpmuxRow[] => [
+  {
+    ...activity("a", [burst, queue(6_000, 8_200), sent(5_700, 8_200)]),
+    ...(timed && {
+      modelCalls: [
+        { requestAt: 0, firstTokenAt: 2_100, lastTokenAt: 6_100, thought: true as const },
+        { requestAt: 8_210, firstTokenAt: 9_900, lastTokenAt: 10_400 },
+      ],
+    }),
+  },
+];
+
+test("before: a turn timed only by its thought chunks reads Thinking 3ms", () => {
+  const work = turnWork(leosRows(false))!;
+  const chart = waterfall({ at: 8_200 }, work);
+  const thought = chart.spans.find((span) => !span.item.tool)!;
+  expect(thought.to - thought.from).toBe(3);
+});
+
+test("a timed turn's model calls run from request to last token, in place of the burst of thought chunks", () => {
+  const work = turnWork(leosRows(true))!;
+  expect(work.map((item) => item.tool?.id ?? item.kind)).toEqual(["model", "msg", "queue", "model"]);
+  const chart = waterfall({ at: 10_400, durationMs: 800 }, work);
+  // The axis opens at the prompt's request, not at the first call.
+  expect(chart.start).toBe(0);
+  expect(chart.total).toBe(10_400);
+  const models = chart.spans.filter((span) => span.item.kind === "model");
+  expect(models.map((span) => [span.from, span.to])).toEqual([
+    [0, 6_100],
+    [8_210, 10_400],
+  ]);
+  // Thinking is the model's own time, request to last token: 6.1s and 2.19s, never 3ms.
+  expect(waterfallLines(chart)[0]).toEqual({ ms: 8_290 });
+  // The slowest is still a call.
+  expect(chart.spans[chart.slowest!]!.toolId).toBe("msg");
+  const markup = renderToStaticMarkup(<TurnWaterfall row={{ at: 10_400, durationMs: 800 }} work={work} form="chart" />);
+  // The call that thought reads Thinking, the one that did not reads Model call, each with its wait.
+  expect(markup).toContain("Thinking · 6s · first token after 2s");
+  expect(markup).toContain("Model call · 2s · first token after 1s");
+  expect(markup).not.toContain("3ms");
+});
+
+test("a model call whose request was not seen starts at its first byte and names no wait", () => {
+  const rows: AcpmuxRow[] = [
+    { ...activity("a", [queue(3_000, 4_000)]), modelCalls: [{ firstTokenAt: 1_000, lastTokenAt: 2_500 }] },
+  ];
+  const work = turnWork(rows)!;
+  expect(work[0]).toMatchObject({ kind: "model", startedAt: 1_000, endedAt: 2_500 });
+  const markup = renderToStaticMarkup(<TurnWaterfall row={{ at: 4_000 }} work={work} form="chart" />);
+  expect(markup).toContain("Model call · 1s");
+  expect(markup).not.toContain("first token");
+});
