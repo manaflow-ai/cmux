@@ -196,7 +196,9 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     }
     let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    let mut peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    // The refusal itself is what this checks: no wait for the handshake to finish.
+    Arc::get_mut(&mut peer).unwrap().timings.reconnect_wait = Duration::ZERO;
     let cursor = if rollback { 0 } else { 10 };
     let remembered = if rollback { 1000 } else { cursor };
     if !late_attach {
