@@ -5,7 +5,14 @@ fn proc(pid: u32, comm: &str, ticks: u64) -> ProcStat {
 }
 
 fn snap(mono_ms: u64, procs: Vec<ProcStat>) -> Snapshot {
-    Snapshot { mono_ms, clk_tck: 100, procs, listeners: Vec::new(), timers: Vec::new() }
+    Snapshot {
+        mono_ms,
+        clk_tck: 100,
+        procs,
+        listeners: Vec::new(),
+        timers: Vec::new(),
+        net_bytes: None,
+    }
 }
 
 #[test]
@@ -302,4 +309,37 @@ fn acpmux_running_reads_the_process_list() {
     assert!(snap(0, vec![proc(1, "systemd", 0), proc(7, "acpmux", 0)]).acpmux_running());
     let kthread = ProcStat { kthread: true, ..proc(9, "acpmux", 0) };
     assert!(!snap(0, vec![kthread]).acpmux_running());
+}
+
+const NET_DEV: &str = "Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 9000000    100    0    0    0     0          0         0  9000000     100    0    0    0     0       0          0
+  eth0: 1000    10    0    0    0     0          0         0     200      2    0    0    0     0       0          0
+tailscale0: 30    1    0    0    0     0          0         0     40      1    0    0    0     0       0          0
+";
+
+#[test]
+fn net_dev_sums_every_interface_but_loopback() {
+    assert_eq!(parse_net_dev(NET_DEV), Some(1000 + 200 + 30 + 40));
+    assert_eq!(parse_net_dev("Inter-|\n face |\n"), None);
+}
+
+#[test]
+fn a_download_reads_busy_and_a_trickle_does_not() {
+    let quiet = |ms, bytes| Snapshot { net_bytes: Some(bytes), ..snap(ms, Vec::new()) };
+    let mut t = Tracker::default();
+    assert!(t.observe(&quiet(0, 1_000_000), 1).is_none());
+    // 1.7 Mbit/s for 30 s: about 6.4 MB, no process using CPU.
+    let w = t.observe(&quiet(30_000, 1_000_000 + 6_375_000), 2).unwrap();
+    assert_eq!(w.busy_processes, vec![NETWORK_BUSY.to_owned()]);
+    assert!(w.busy());
+    // Keepalives: well under the line over the next 30 s.
+    let w = t.observe(&quiet(60_000, 7_375_000 + NET_BUSY_BYTES_PER_S), 3).unwrap();
+    assert!(w.busy_processes.is_empty());
+    // A counter that went down is no transfer.
+    let w = t.observe(&quiet(90_000, 10), 4).unwrap();
+    assert!(w.busy_processes.is_empty());
+    // No /proc/net/dev: the network never counts.
+    let none = |ms| Snapshot { net_bytes: None, ..snap(ms, Vec::new()) };
+    assert!(t.observe(&none(120_000), 5).unwrap().busy_processes.is_empty());
 }
