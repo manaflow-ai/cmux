@@ -52,13 +52,20 @@ class PlanTest(unittest.TestCase):
 
     def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
         # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
-        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
+        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.toml",
                      "cmux-tui/vendor/smoltcp/src/lib.rs"):
             with self.subTest(path=path):
                 p = self.plan(path)
                 self.assertTrue(p["build"])
                 self.assertTrue(p["app"])
                 self.assertTrue(fv.affects([path]))
+
+    def test_cmux_tui_s_lock_alone_plans_nothing(self) -> None:
+        # Cargo reads only the building workspace's lock (cmux-next-ios/rust/Cargo.lock, which routes), so cmux-tui's
+        # lock builds nothing new; it took a Mac for 8 of 95 branches on 2026-11-27 16-20Z.
+        self.assertFalse(self.plan("cmux-tui/Cargo.lock")["run"])
+        self.assertFalse(fv.affects(["cmux-tui/Cargo.lock"]))
+        self.assertTrue(self.plan("cmux-next-ios/rust/Cargo.lock")["run"])
 
     def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
         import ios_link_ffi_key

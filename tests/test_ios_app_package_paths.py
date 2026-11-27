@@ -95,7 +95,9 @@ class RepoTests(unittest.TestCase):
         packages, roots = paths.ffi_closure(ROOT)
         want = paths.rust_inputs(packages, roots)
         self.assertIn("cmux-tui/crates/cmux-wg/**", want)  # cmux#55399's crate
-        self.assertIn("cmux-tui/Cargo.lock", want)
+        self.assertIn("cmux-tui/Cargo.toml", want)
+        # Cargo reads only the building workspace's lock (ios_link_ffi_key): cmux-tui's lock builds nothing new.
+        self.assertNotIn("cmux-tui/Cargo.lock", want)
         self.assertFalse([w for w in want if w.startswith("cmux-next-ios/")], "cmux-next-ios/** covers those")
 
     def test_a_new_shared_crate_is_a_drift(self) -> None:
