@@ -144,10 +144,16 @@ fn asks_for_log(rest: &str) -> bool {
 
 /// What one `gh run view` call asks for, when it is one the cache can answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Whose log an [`Ask`] reads: a job (one attempt's already) wins over its run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LogOf {
+    Run(u64),
+    Job(u64),
+}
+
 pub(crate) struct Ask {
     pub repo: String,
-    pub run: Option<u64>,
-    pub job: Option<u64>,
+    pub of: LogOf,
     pub attempt: Option<u64>,
     pub failed_only: bool,
 }
@@ -186,32 +192,32 @@ pub(crate) fn ask_of(args: &[String], gh_repo: Option<&str>) -> Option<Ask> {
     if !plain(owner) || !plain(name) || name.contains('/') {
         return None;
     }
-    if run.is_none() && job.is_none() {
-        return None;
-    }
-    Some(Ask { repo, run, job, attempt, failed_only: log? })
+    let of = match (job, run) {
+        (Some(job), _) => LogOf::Job(job),
+        (None, Some(run)) => LogOf::Run(run),
+        (None, None) => return None,
+    };
+    Some(Ask { repo, of, attempt, failed_only: log? })
 }
 
 impl Ask {
     /// The GitHub read that says whether its log is final, and which attempt it is.
     fn status_path(&self) -> String {
-        match (self.job, self.run) {
-            (Some(job), _) => format!("repos/{}/actions/jobs/{job}", self.repo),
-            (None, Some(run)) => format!("repos/{}/actions/runs/{run}", self.repo),
-            (None, None) => unreachable!("an ask names a run or a job"),
+        match self.of {
+            LogOf::Job(job) => format!("repos/{}/actions/jobs/{job}", self.repo),
+            LogOf::Run(run) => format!("repos/{}/actions/runs/{run}", self.repo),
         }
     }
 
     /// The cache key, given the attempt GitHub reported (a job is one attempt's already).
     pub(crate) fn key(&self, attempt: Option<u64>) -> String {
         let kind = if self.failed_only { "log-failed" } else { "log" };
-        match (self.job, self.run) {
-            (Some(job), _) => format!("{}|job={job}|{kind}", self.repo),
-            (None, Some(run)) => {
+        match self.of {
+            LogOf::Job(job) => format!("{}|job={job}|{kind}", self.repo),
+            LogOf::Run(run) => {
                 let attempt = self.attempt.or(attempt).unwrap_or(0);
                 format!("{}|run={run}|attempt={attempt}|{kind}", self.repo)
             }
-            (None, None) => unreachable!("an ask names a run or a job"),
         }
     }
 }
@@ -302,7 +308,13 @@ fn fill(gh: &str, args: &[String], dir: &Path, path: &Path) -> i32 {
         let _ = std::fs::remove_file(&tmp);
         return 127;
     };
-    let mut out = child.stdout.take().expect("piped");
+    let Some(mut out) = child.stdout.take() else {
+        let _ = std::fs::remove_file(&tmp);
+        return match child.wait() {
+            Ok(status) => status.code().unwrap_or(1),
+            Err(_) => 1,
+        };
+    };
     let mut stdout = std::io::stdout().lock();
     let mut reader_gone = false;
     let mut stored = true;
