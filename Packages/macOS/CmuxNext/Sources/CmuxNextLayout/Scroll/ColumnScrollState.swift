@@ -124,8 +124,7 @@ public nonisolated final class ColumnScrollState {
                                             pane_count: UInt32(panes.count - start)))
         }
         let sync = CmuxScrollSync(focused: range(focused?.rawValue), anchor: range(anchor?.rawValue), source: code(source),
-                                  animated: animated ? 1 : 0, reveals: reveals ? 1 : 0, keeps_view: keepsView ? 1 : 0,
-                                  reserved: (0, 0, 0, 0))
+                                  animated: animated ? 1 : 0, reveals: reveals ? 1 : 0, reserved: (keepsView ? 1 : 0, 0, 0, 0, 0))  // reserved[0] is keeps_view
         return bytes.withUnsafeBufferPointer { bytes in
             columns.withUnsafeBufferPointer { columns in
                 panes.withUnsafeBufferPointer { panes in

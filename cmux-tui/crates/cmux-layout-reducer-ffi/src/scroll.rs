@@ -103,10 +103,10 @@ pub struct CmuxScrollSync {
     pub source: u8,
     pub animated: u8,
     pub reveals: u8,
-    /// A keyboard resize press's trade (Swift `keptColumn`): the camera keeps the anchor and
-    /// reveals nothing.
-    pub keeps_view: u8,
-    pub reserved: [u8; 4],
+    /// `reserved[0]` is `keeps_view`: a keyboard resize press's trade (Swift `keptColumn`), the
+    /// camera keeps the anchor and reveals nothing. Kept inside `reserved` so the header the app
+    /// pin ships and this one agree.
+    pub reserved: [u8; 5],
 }
 
 #[repr(C)]
@@ -374,7 +374,7 @@ impl Scroll {
             source,
             animated: sync.animated != 0,
             reveals: sync.reveals != 0,
-            keeps_view: sync.keeps_view != 0,
+            keeps_view: sync.reserved[0] != 0,
             anchor: if matches!(self.inner, Inner::Columns(_)) { anchor } else { None },
         };
         let effects = self.reduce(spring, event);

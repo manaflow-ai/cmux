@@ -79,8 +79,7 @@ mod scroll {
             source,
             animated: u8::from(animated),
             reveals: 1,
-            keeps_view: 0,
-            reserved: [0; 4],
+            reserved: [0; 5],
         }
     }
 
