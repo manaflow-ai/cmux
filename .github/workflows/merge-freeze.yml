@@ -43,7 +43,7 @@ jobs:
     concurrency:
       group: merge-freeze-${{ github.event.pull_request.number }}${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' || (github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1')) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: pull_request_target with a read token
     timeout-minutes: 20
     permissions:
       contents: read
@@ -220,7 +220,7 @@ jobs:
     concurrency:
       group: merge-freeze-expire
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted issue-write token
     timeout-minutes: 5
     permissions:
       contents: read

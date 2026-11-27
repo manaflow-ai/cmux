@@ -190,6 +190,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      # GitHub rejects a workflow whose mapping repeats a key: zero jobs, no log.
+      - name: Validate no workflow repeats a key in one mapping
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_duplicate_keys.py
+
       - name: Validate every compile job declares its warm source
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_sources.py
@@ -225,6 +230,10 @@ jobs:
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
+
+      - name: Validate every artifact download fails a stalled download
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_download_artifact_stall.py
 
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
@@ -770,6 +779,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cron_concurrency.py
 
+      # namespace-autofix lists a PR's files again once after a refused budget's reset, bounded, never skipping.
+      - name: Check namespace autofix waits out a refused file listing once
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_namespace_autofix_rate_limit_wait.py
+
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
       - name: Warn about workflows that can flood the queue
@@ -838,6 +852,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 -I tests/test_ci_red_fix_mine.py
 
+      - name: Validate the classic NIGHTLY release compile on the PR path
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_nightly_pr_build.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
@@ -845,6 +863,10 @@ jobs:
       - name: Validate Ghostty Zig workflow pinning
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py
+
+      - name: Validate Ghostty builds fetch their Zig packages first (cached, retried)
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_ghostty_zig_packages_fetched.py
 
       - name: Validate Release helper architecture handoff
         if: ${{ matrix.group == 'release-tooling' }}
@@ -905,6 +927,10 @@ jobs:
       - name: Validate scheduled workflows dispatch on the cmux bot App token
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cron_dispatch_token_lint.py
+
+      - name: Validate the Debug and Labs keys dispatch skips a ref without the report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_debug_labs_keys_dispatch.py
 
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
@@ -1164,6 +1190,10 @@ jobs:
       - name: Validate the nightly-next train runs only feat-cmux-next code with the release App
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_train_drive_pin.py
+
+      - name: Validate the fast-checks warm checkout stays a repository
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
 
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
@@ -1685,9 +1715,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
+
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
+
+      - name: Validate the token-spread action reads on the quota-goblin pool before minting the routing App
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_spread_pool.py
 
       - name: Validate every continuation job waits through a GitHub API rate limit
         if: ${{ matrix.group == 'release-notary' }}
@@ -1724,6 +1762,10 @@ jobs:
       - name: Validate the nightly signing-input download fails fast and resumes
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact.py
+
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
 
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
@@ -1823,6 +1865,10 @@ jobs:
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_write_token_jit_label.py
+
+      - name: Validate secret-bearing jobs lead with the secret JIT label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_secret_jobs_secret_jit.py
 
       - name: Validate the CEF publish checksum check
         if: ${{ matrix.group == 'ci' }}

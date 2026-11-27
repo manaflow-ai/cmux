@@ -42,7 +42,13 @@ concurrency:
   # workflow on main. GitHub keeps one pending run per group, so a burst of
   # main runs can skip one; each report re-derives the state from main's runs
   # and the tracking issue, and a green run it missed resets what the issue knows.
-  group: ci-guard-attribution-${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}-{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) || format('main-{0}', github.event.workflow_run.path) }}
+  # Only main's push and dispatch runs share the main group. Every other
+  # completion (a merge_group run on gh-readonly-queue/*, a push to
+  # feat-cmux-next, a scheduled CI repository variables run) skips in `analyze`,
+  # and in the main group it replaced main's pending report (GitHub keeps one
+  # pending run per group): during merge-queue traffic a red main lost its
+  # attribution. Those get a group of their own event and branch.
+  group: ci-guard-attribution-${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}-{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && format('main-{0}', github.event.workflow_run.path) || format('{0}-{1}-{2}', github.event.workflow_run.event, github.event.workflow_run.head_branch, github.event.workflow_run.path) }}
   cancel-in-progress: ${{ github.event.workflow_run.event == 'pull_request' }}
 
 jobs:
@@ -55,7 +61,7 @@ jobs:
     # Analysis only reads trusted main history and the Actions/PR APIs, but it
     # mints App tokens to read on their budget, so it runs on a literal
     # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 20
     permissions:
       actions: read
@@ -233,7 +239,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted report writer
     timeout-minutes: 10
     permissions:
       contents: read
