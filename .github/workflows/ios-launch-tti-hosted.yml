@@ -40,10 +40,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || '38721c8c1e53ad0e06ceee1abe4c26a4f9434e0e' }}
-          - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '9b3a8cad3aa27cdeaf015c4b92295206d054429b' }}
+          # Bisect: 504d95d0 passed LaunchTTIUITests, 38721c8c hangs at chat open (main thread busy
+          # 30 s, no chat_composer_ready). Each suspect beside its first parent.
+          - leg: 5645d3ad-parent
+            ref: 61384a976d6b8f873ae4ff2f3f3bec82c667531a
+          - leg: 5645d3ad
+            ref: 5645d3adaa685e322e5139631468b17387e63f5e
+          - leg: c180b906-parent
+            ref: d877dc36e386926367cee9a6b01396686688396e
+          - leg: c180b906
+            ref: c180b906df7aa5ab787d98d2c8b7a294e945c633
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
