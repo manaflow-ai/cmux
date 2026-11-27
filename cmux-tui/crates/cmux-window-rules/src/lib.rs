@@ -73,6 +73,7 @@ pub mod editors;
 pub mod empty_workspace;
 pub mod files;
 pub mod handlers_agentmisc;
+pub mod handlers_verbs;
 pub mod history;
 pub mod launch;
 pub mod notification_policy;
