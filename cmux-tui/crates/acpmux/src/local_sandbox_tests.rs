@@ -203,12 +203,31 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
 }
 
 #[test]
-fn claude_sandbox_setting_precedence_is_managed_then_flag_then_files() {
-    assert!(super::choose_sandbox_setting(Some(true), Ok(Some(false)), [Some(false)]));
-    assert!(!super::choose_sandbox_setting(Some(false), Ok(Some(true)), [Some(true)]));
-    assert!(super::choose_sandbox_setting(None, Ok(Some(true)), [Some(false)]));
-    assert!(super::choose_sandbox_setting(None, Ok(None), [Some(true)]));
-    assert!(!super::choose_sandbox_setting(None, Err(()), [Some(true)]));
+fn claude_settings_fail_closed_and_managed_policy_cannot_be_filtered_out() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let on = r#"{"sandbox":{"enabled":true}}"#;
+    std::fs::write(config.join("settings.json"), on).unwrap();
+    for invalid in ["{", "[]", r#"{"sandbox":{"enabled":"true"}}"#] {
+        std::fs::write(cwd.join(".claude/settings.local.json"), invalid).unwrap();
+        assert!(!claude_sandbox_on(&[], &cwd, &env), "invalid source: {invalid}");
+    }
+    std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
+    // A directory at the settings path is unreadable as a file, even when CI runs as root.
+    std::fs::create_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    std::fs::remove_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(claude_sandbox_on(&s(&["--settings", "{}"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--settings", "{"]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
+        .unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
 }
 
 #[test]

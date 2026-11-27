@@ -20,7 +20,7 @@
 //! - `sessions.sandbox` is false in the cmux settings file. A file that cannot be
 //!   read keeps it on (fail closed). The managed-preference source (MDM on macOS)
 //!   can force it on; `_acpmux/chat_settings` reports that state but is
-//!   not trusted as an enforcement input, never off.
+//!   not trusted as an enforcement input.
 //! - `/usr/bin/sandbox-exec` is missing: the agent runs as before, logged once.
 //! - Claude Code's own Bash sandbox is on (its settings' `sandbox.enabled`):
 //!   macOS refuses a nested `sandbox_apply`, so every Bash call would fail; the
@@ -222,33 +222,54 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
 /// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
 /// precedence setting for this key. Managed settings, the last `--settings` value, project-local
 /// settings, project settings, then user settings are checked in that order. `--setting-sources`
-/// removes file sources in the same way Claude Code does.
+/// removes user/project/local sources, never managed policy. Conflicting managed providers or
+/// any unreadable/invalid source retain the outer sandbox rather than guessing Claude's result.
 pub(crate) fn claude_sandbox_on(
     args: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
 ) -> bool {
-    let sandbox_value = |value: &Value| value.pointer("/sandbox/enabled").and_then(Value::as_bool);
+    let sandbox_value = |value: &Value| -> Result<Option<bool>, ()> {
+        if !value.is_object() {
+            return Err(());
+        }
+        match value.get("sandbox") {
+            None => Ok(None),
+            Some(sandbox) if sandbox.is_object() => match sandbox.get("enabled") {
+                None => Ok(None),
+                Some(Value::Bool(enabled)) => Ok(Some(*enabled)),
+                Some(_) => Err(()),
+            },
+            Some(_) => Err(()),
+        }
+    };
     let from_bytes = |bytes: &[u8]| {
         if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
             return sandbox_value(&value);
         }
         let Ok(value) = plist::Value::from_reader(std::io::Cursor::new(bytes)) else {
-            return None;
+            return Err(());
         };
-        value
-            .as_dictionary()
-            .and_then(|dict| dict.get("sandbox.enabled").or_else(|| dict.get("sandbox")))
-            .and_then(|value| {
-                value.as_boolean().or_else(|| {
-                    value
-                        .as_dictionary()
-                        .and_then(|dict| dict.get("enabled"))
-                        .and_then(plist::Value::as_boolean)
-                })
-            })
+        let dict = value.as_dictionary().ok_or(())?;
+        match dict.get("sandbox.enabled").or_else(|| dict.get("sandbox")) {
+            None => Ok(None),
+            Some(value) => {
+                if let Some(value) = value.as_boolean() {
+                    return Ok(Some(value));
+                }
+                let sandbox = value.as_dictionary().ok_or(())?;
+                match sandbox.get("enabled") {
+                    None => Ok(None),
+                    Some(value) => value.as_boolean().map(Some).ok_or(()),
+                }
+            }
+        }
     };
-    let file = |path: &Path| std::fs::read(path).ok().and_then(|bytes| from_bytes(&bytes));
+    let file = |path: &Path| match std::fs::read(path) {
+        Ok(bytes) => from_bytes(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(()),
+    };
     let has_settings_flag = args
         .iter()
         .take_while(|arg| arg.as_str() != "--")
@@ -269,13 +290,41 @@ pub(crate) fn claude_sandbox_on(
             .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
     };
 
-    let claude = crate::agent_tools::project_mcp::Claude::of(env, cwd);
-    let managed = source_enabled("enterprise")
-        .then(|| claude.managed.iter().find_map(|path| file(path)))
-        .flatten();
+    // Inspect the config home the child actually uses, not both the daemon's and child's homes.
+    let mut config_env = env.clone();
+    let config_home = env
+        .get("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)
+        })
+        .or_else(|| {
+            env.get("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| Path::new(home).join(".claude"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
+    if let Some(home) = config_home {
+        config_env
+            .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
+    }
+    let claude = crate::agent_tools::project_mcp::Claude::of(&config_env, cwd);
+    // Managed policy cannot be removed by --setting-sources. These paths aggregate independent
+    // policy providers; on conflicting values or unreadable policy retain the outer boundary.
+    let managed_values: Result<Vec<_>, _> = claude.managed.iter().map(|path| file(path)).collect();
+    let managed = managed_values.map(|values| {
+        if values.contains(&Some(false)) {
+            Some(false)
+        } else if values.contains(&Some(true)) {
+            Some(true)
+        } else {
+            None
+        }
+    });
     let flag = if has_settings_flag {
         match crate::claude_cloud_auth::flag_settings(args, cwd) {
-            Ok(Some(settings)) => Ok(sandbox_value(&Value::Object(settings))),
+            Ok(Some(settings)) => sandbox_value(&Value::Object(settings)),
             Ok(None) => Ok(None),
             Err(_) => Err(()),
         }
@@ -301,7 +350,9 @@ pub(crate) fn claude_sandbox_on(
                         && *path != &project
                         && *path != &local
                 })
-                .find_map(|path| file(path)),
+                .map(|path| file(path))
+                .find(|value| !matches!(value, Ok(None)))
+                .unwrap_or(Ok(None)),
         );
     }
     choose_sandbox_setting(managed, flag, files)
@@ -310,19 +361,15 @@ pub(crate) fn claude_sandbox_on(
 /// Claude applies the managed value over the launch's last `--settings`, then over file sources.
 /// An unreadable explicit settings value keeps the outer sandbox on (fail closed).
 fn choose_sandbox_setting(
-    managed: Option<bool>,
+    managed: Result<Option<bool>, ()>,
     flag: Result<Option<bool>, ()>,
-    files: impl IntoIterator<Item = Option<bool>>,
+    files: impl IntoIterator<Item = Result<Option<bool>, ()>>,
 ) -> bool {
-    if let Some(value) = managed {
-        return value;
-    }
-    match flag {
-        Ok(Some(value)) => return value,
-        Err(()) => return false,
-        Ok(None) => {}
-    }
-    files.into_iter().flatten().next().unwrap_or(false)
+    // Invalid sources are not evidence that Claude will sandbox the launch. Do not fall through
+    // to another source's true value, even if the invalid source contains no recognizable key.
+    let values: Result<Vec<_>, _> =
+        std::iter::once(managed).chain(std::iter::once(flag)).chain(files).collect();
+    values.ok().and_then(|values| values.into_iter().flatten().next()).unwrap_or(false)
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
@@ -368,7 +415,7 @@ pub(crate) fn prefix(
     let Some(bound) = bound(args, cwd, env) else {
         if !BOUND_SKIPPED_LOGGED.swap(true, Ordering::Relaxed) {
             tracing::warn!(
-                "local agent sandbox skipped: the chat folder contains the home directory"
+                "local agent sandbox skipped: home/config paths unavailable or chat folder contains a home directory"
             );
         }
         return None;
@@ -427,7 +474,8 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .join(config_dir)
         .join(cmux_config::location::LEGACY_DIR)
         .join(cmux_config::location::NEXT_FILE_NAME);
-    let cmux_config = absolute(&cwd, crate::user_settings::resolved_path());
+    // The daemon reads this override relative to its own cwd, unlike child GH/Claude paths.
+    let cmux_config = std::path::absolute(crate::user_settings::resolved_path()).ok()?;
     let cmux_config_real = canonical(&cmux_config);
     let gh_config_dir = env
         .get("GH_CONFIG_DIR")
