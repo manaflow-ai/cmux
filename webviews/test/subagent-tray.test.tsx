@@ -873,9 +873,10 @@ describe("the tray", () => {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent · 1 session · 1 command");
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
+        // Agents first (the chats it started with them), then commands (Leo, 2026-11-27, hat restore).
         "Watcher",
-        "cargo watch",
         "Port the history page",
+        "cargo watch",
       ]);
       // Agent rows open directly; commands and started sessions retain their detail controls.
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
@@ -884,8 +885,8 @@ describe("the tray", () => {
         await act(async () =>
           line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
         );
-      expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
+      expect(opened).toEqual(["agent:Watcher", "chat:c1", "command:s/1"]);
+      await act(async () => lines[2]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
@@ -1208,17 +1209,17 @@ describe("the tray tells the truth", () => {
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       // The chat waiting on the person leads (trayAttention.ts), so the list's height cap never
-      // clips it; the rest keep the tray's order.
+      // clips it; then agents and the chats it started, newest first, then commands (Leo, 2026-11-27).
       expect(names(lines)).toEqual([
         "Draft the notes",
         "Tester",
         "Reviewer",
-        "Start the dev server",
         "Port the history page",
+        "Start the dev server",
       ]);
       // A chat says what it does now in its tooltip, never as a subtitle; one waiting on the person says so.
-      expect(lines[4]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
-      expect(lines[4]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
+      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      expect(lines[3]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
       expect(lines[0]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
       // Finished work is visible as lines without changing the running count, every one of them in the
       // list that scrolls: no View all (Leo, 2026-11-01: "why is there even a view all 5 button it's
@@ -1932,7 +1933,9 @@ test("many live and finished commands share one terminal header mark without hid
     const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
     expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
     expect(stack.querySelectorAll(".agent-mark")).toHaveLength(1);
-    expect(shown.root.querySelectorAll(".acpmux-agent-line")).toHaveLength(9);
+    // The seven identical `sleep 300` lines are one ×7 line (Leo, 2026-11-27, hat restore).
+    expect(shown.root.querySelectorAll(".acpmux-agent-line")).toHaveLength(3);
+    expect(shown.root.querySelector('.acpmux-agent-line__count[data-count="7"]')).not.toBeNull();
     await shown.show(
       createElement(SubagentTray, {
         items: trayItems([], commands, NONE, true),
