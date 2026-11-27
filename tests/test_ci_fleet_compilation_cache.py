@@ -113,6 +113,8 @@ class FleetCacheTests(unittest.TestCase):
                         scripts / "nightly-steps/release-build-summary.sh")
         # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
         shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
+        # Sourced before the preflight (#58915); with no proxy in git config its probe does nothing.
+        shutil.copyfile(ROOT / "scripts/ci/github-egress-direct.sh", scripts / "github-egress-direct.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -165,6 +167,8 @@ class FleetCacheTests(unittest.TestCase):
                         scripts / "nightly-steps/release-build-summary.sh")
         # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
         shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
+        # Sourced before the preflight (#58915); with no proxy in git config its probe does nothing.
+        shutil.copyfile(ROOT / "scripts/ci/github-egress-direct.sh", scripts / "github-egress-direct.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -246,6 +250,20 @@ class FleetCacheTests(unittest.TestCase):
         result, count, _ = self._run_nightly_release_stub("", DECIDE_COLD_CACHE_DISABLE="1", STUB_BUILD_STATUS="124",
                                                           STUB_FAIL_EVERY_BUILD="1")
         self.assertEqual(result.returncode, 124)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_crashed_build_service_retries_once_without_the_fleet_cache_too(self):
+        """Xcode's build service crashing mid-build ends with status 65 and "Build again to continue"
+        (nightly-next run 46020152626, no compile error in its tree). That build gets one more try, also on
+        a cold-cache run; a crash on the retry too ends red, and there is no third build."""
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count.read_text().strip(), "2")
+        self.assertIn("build service crashed", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "2")
 
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
