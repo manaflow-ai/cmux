@@ -87,16 +87,36 @@ fn rustc_and_llvm_use_their_published_minimums() {
     );
     assert_eq!(precheck("./x test tidy", &default_vm(), &nowhere()), None, "only a build");
 
-    let w = precheck("cmake -S llvm -B build -G Ninja", &default_vm(), &nowhere()).unwrap();
-    assert_eq!(w.project, Some(Project::Llvm));
-    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 20 GB free.");
-    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
     let small = Shape { disk_free: 10 * GB, ..default_vm() };
+    let w = precheck("cmake -S llvm -B build -G Ninja", &small, &nowhere()).unwrap();
+    assert_eq!(w.project, Some(Project::Llvm));
+    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 10 GB free.");
+    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
     let in_llvm = Place { cwd: Some("/home/me/llvm-project/build"), checkout_bytes: None };
     assert_eq!(precheck("ninja", &small, &in_llvm).unwrap().project, Some(Project::Llvm));
     let w = precheck("cmake -G Ninja ../llvm", &small, &nowhere()).unwrap();
     assert_eq!(w.project, Some(Project::Llvm));
     assert_eq!(w.needs_memory, None);
+}
+
+#[test]
+fn published_disk_minimums_warn_only_below_the_boundary() {
+    for (project, command) in [
+        (Project::Chromium, "fetch chromium"),
+        (Project::Llvm, "cmake -S llvm -B build"),
+        (Project::Rustc, "./x.py build"),
+    ] {
+        let (disk, _) = project.minimums();
+        for disk_free in [disk - 1, disk, disk + 1] {
+            let shape = Shape { disk_free, ..big_vm() };
+            let warning = precheck(command, &shape, &nowhere());
+            assert_eq!(warning.is_some(), disk_free < disk, "{command}: {disk_free}");
+            if let Some(warning) = warning {
+                assert_eq!(warning.short, vec![Short::Disk]);
+                assert_eq!(warning.project, Some(project));
+            }
+        }
+    }
 }
 
 #[test]
@@ -110,6 +130,8 @@ fn a_big_build_warns_only_in_a_checkout_past_eight_times_free_memory() {
         "make -j8",
         "make --jobs=4",
         "bazel build //...",
+        "bazelisk build //...",
+        "bazel build //foo:bar //...",
     ] {
         let w = precheck(script, &shape, &big).unwrap_or_else(|| panic!("{script} warns"));
         assert_eq!(w.project, None);
@@ -132,6 +154,10 @@ fn what_is_not_a_known_heavy_job_never_warns() {
         "cargo test",
         "make",
         "bazel build //foo:bar",
+        "bazelisk build //foo:bar",
+        "bazel build //foo/...",
+        "bazel build //foo:all",
+        "bazel query //...",
         "echo 'fetch chromium'",
         "git log -- autoninja",
         "ninja -C build",

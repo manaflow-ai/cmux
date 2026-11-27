@@ -283,6 +283,7 @@ async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
 /// A keeper's copy of the web listener keeps admitting after this daemon closes its own
 /// (2026-11-25: the shutdown stopped the shared socket, the next daemon's accept failed EINVAL
 /// and the web port moved). An unkept close still stops admission on Linux.
+#[cfg(unix)]
 #[tokio::test]
 async fn closing_a_kept_listener_leaves_the_keepers_copy_listening() {
     use std::os::fd::AsFd as _;
