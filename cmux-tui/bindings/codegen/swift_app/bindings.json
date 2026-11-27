@@ -573,6 +573,30 @@
           ],
           "response": "hand-written"
         },
+        "float-pane": {
+          "name": "FloatPaneRequest",
+          "doc": [
+            "Floats `pane` above the tiled layout of its screen, puts it back, or gives a floating pane a frame.",
+            "The frame is `x`, `y`, `w` and `h`, all four or none; with a frame and `mode` `on` a floating pane",
+            "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
+            "`init(pane:mode:frame:transaction:)`."
+          ],
+          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "fields": {
+            "mode": { "type": "Mode" }
+          },
+          "response": "hand-written"
+        },
+        "set-divider-visible": {
+          "name": "SetDividerVisibleRequest",
+          "doc": [
+            "A split's divider drawn or not: a hidden divider draws no line and still drags. The daemon keeps it",
+            "on the split node, so it persists with the layout. `DaemonConnection.setDividerVisible` refuses a",
+            "daemon without `split-divider-visibility-v1` before it sends."
+          ],
+          "order": ["split", "visible", "transaction"],
+          "response": "EmptyResponse"
+        },
         "zoom-pane": {
           "name": "ZoomPaneRequest",
           "order": [
