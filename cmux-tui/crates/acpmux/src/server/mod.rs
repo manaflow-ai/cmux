@@ -91,6 +91,7 @@ mod fanout;
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
 // Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+pub(crate) mod cell_record;
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;

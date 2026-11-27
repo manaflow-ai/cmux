@@ -189,6 +189,32 @@ pub(crate) fn mine(
     (hosts, sessions)
 }
 
+/// The cell record each of [`mine`]'s machines published on its heartbeat (`BookDaemon::health`),
+/// with when the hub took it: `(host, record, at)`. A daemon with none, or with no time, gives
+/// none; of a host's several daemons, the newest record.
+pub(crate) fn published(
+    book: &AddressBook,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> Vec<(String, Value, u64)> {
+    let mut newest: BTreeMap<&str, (&Value, u64)> = BTreeMap::new();
+    for d in book.daemons.iter().filter(|d| is_mine(d, own_user, own_daemon, skip)) {
+        let (Some(record), Some(at)) = (d.health.as_ref().filter(|h| h.is_object()), d.health_at)
+        else {
+            continue;
+        };
+        if newest.get(d.host.as_str()).is_none_or(|(_, held)| at > *held) {
+            newest.insert(&d.host, (record, at));
+        }
+    }
+    newest
+        .into_iter()
+        .take(MAX_BOOK_ROWS)
+        .map(|(h, (r, at))| (h.to_owned(), r.clone(), at))
+        .collect()
+}
+
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
@@ -266,8 +292,18 @@ impl Hub {
         // (2026-11-22). Only the session rows below leave ssh peers out, so none is listed twice.
         #[cfg(feature = "hub-carrier")]
         self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &|_| false));
+        let records = published(&book, own_user, own_daemon, &skip);
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
+        // Each machine's cell record is its health reading: a placement asks it nothing
+        // (`hub_health.rs`, RFD 0181 B1). Taken after the book's lock is let go.
+        if !records.is_empty() {
+            let now = crate::store::now_ms();
+            let mut health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
+            for (host, record, at) in records {
+                health.published(&host, record, at, now);
+            }
+        }
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay

@@ -167,6 +167,13 @@ pub struct BookDaemon {
     pub user: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The cell record its last heartbeat carried (`Heartbeat::health`, cmux-platform
+    /// `MeshHostHealth`), or none: placement weighs it without asking the machine (RFD 0181 B1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<serde_json::Value>,
+    /// When the hub took that record (ms since the epoch, the hub's clock).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_at: Option<u64>,
 }
 
 /// One live session in the address book, as its daemon's heartbeat listed it.
@@ -221,6 +228,11 @@ pub struct Heartbeat {
     /// a message sent before the restarted daemon polls again is not leased to the dead one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leaving: bool,
+    /// This daemon's cell record (`server/cell_record.rs`): the numbers placement weighs, which
+    /// the hub returns on its address book row, so a placer reads a replica instead of asking
+    /// each machine (RFD 0181 B1). A heartbeat without one clears the last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<serde_json::Value>,
 }
 
 /// The most sessions one heartbeat lists.

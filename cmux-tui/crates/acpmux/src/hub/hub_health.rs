@@ -10,6 +10,12 @@
 //! [`EVERY`] old, so an idle daemon sends the hub nothing. At most one ask per machine is out at
 //! a time, [`IN_FLIGHT`] at once, and none more often than [`EVERY`]: with N machines that is N
 //! small reads a minute while placing, each answer at most `HEALTH_BYTES`.
+//!
+//! A machine that publishes its cell record on its heartbeat (`server/cell_record.rs`, RFD 0181
+//! B1) is asked nothing: each book read keeps the record the hub returns as that machine's
+//! reading ([`HubHealth::published`]), and a machine with a reading under [`EVERY_MS`] old is
+//! not due. A placement then reads this replica and waits on no machine; only a build that
+//! publishes none is still asked.
 
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -45,7 +51,8 @@ impl HubHealth {
     }
 
     /// Of `hosts`, the ones to ask now at `now`, marked asked: none asked within [`EVERY_MS`],
-    /// none whose ask is out, and no more than [`IN_FLIGHT`] out in all.
+    /// none with a reading under [`EVERY_MS`] old (a published record, `published`), none whose
+    /// ask is out, and no more than [`IN_FLIGHT`] out in all.
     pub(crate) fn due(&mut self, hosts: &[String], now: u64) -> Vec<String> {
         let mut due = Vec::new();
         for host in hosts {
@@ -53,7 +60,9 @@ impl HubHealth {
                 break;
             }
             let recent = self.asked.get(host).is_some_and(|at| now.saturating_sub(*at) < EVERY_MS);
-            if recent || self.out.contains(host) {
+            let fresh =
+                self.readings.get(host).is_some_and(|(at, _)| now.saturating_sub(*at) < EVERY_MS);
+            if recent || fresh || self.out.contains(host) {
                 continue;
             }
             self.asked.insert(host.clone(), now);
@@ -70,6 +79,32 @@ impl HubHealth {
             && (self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS)
         {
             self.readings.insert(host.to_owned(), (now, v));
+        }
+    }
+
+    /// `host` published `record` on its heartbeat, which the hub took at `at` (its clock; one
+    /// ahead of `now` counts as `now`). Kept as its reading unless the one held is newer: over
+    /// an asked reading, the record's keys replace that reading's and the rest stay (an asked
+    /// reading names more than placement weighs: `os`, `autoCloud`).
+    pub(crate) fn published(&mut self, host: &str, record: Value, at: u64, now: u64) {
+        let at = at.min(now);
+        let Value::Object(record) = record else { return };
+        let room = self.readings.len() < MAX_HOSTS;
+        match self.readings.get_mut(host) {
+            Some((held, _)) if *held >= at => {}
+            Some((held, reading)) => {
+                *held = at;
+                if let Value::Object(fields) = reading {
+                    fields.remove("unsupported");
+                    fields.extend(record);
+                } else {
+                    *reading = Value::Object(record);
+                }
+            }
+            None if room => {
+                self.readings.insert(host.to_owned(), (at, Value::Object(record)));
+            }
+            None => {}
         }
     }
 
@@ -119,7 +154,9 @@ mod tests {
         assert!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS).is_empty());
         h.answered("a", Some(json!({"cpus": 4})), 2_000);
         assert!(h.due(&hosts(&["a"]), 2_000).is_empty(), "asked within the minute");
-        assert_eq!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS), hosts(&["a"]));
+        // A reading under a minute old is not asked again either: due a minute after it came.
+        assert!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS).is_empty(), "its reading is fresh");
+        assert_eq!(h.due(&hosts(&["a"]), 2_000 + EVERY_MS), hosts(&["a"]));
         assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
         // No answer keeps the last reading.
         h.answered("a", None, 3_000);
@@ -144,6 +181,40 @@ mod tests {
         assert!(h.wanted(INTEREST_MS - 1));
         assert!(h.interested(10), "the loop still runs");
         assert!(!h.wanted(10 + INTEREST_MS));
+    }
+
+    #[test]
+    fn a_machine_that_publishes_its_record_is_never_asked() {
+        let mut h = HubHealth::default();
+        h.published("a", json!({"cpus": 8, "liveSessions": 1}), 1_000, 1_000);
+        assert_eq!(h.due(&hosts(&["a", "b"]), 1_500), hosts(&["b"]), "only b publishes none");
+        assert_eq!(h.reading("a"), Some((1_000, json!({"cpus": 8, "liveSessions": 1}))));
+        // Its next record keeps it fresh; a reading a minute old is asked for again.
+        h.published("a", json!({"cpus": 8, "liveSessions": 2}), 31_000, 31_000);
+        assert!(h.due(&hosts(&["a"]), 61_000).is_empty());
+        assert_eq!(h.due(&hosts(&["a"]), 31_000 + EVERY_MS), hosts(&["a"]));
+    }
+
+    #[test]
+    fn a_record_updates_an_asked_reading_and_never_goes_back_in_time() {
+        let mut h = HubHealth::default();
+        h.due(&hosts(&["a"]), 0);
+        h.answered("a", Some(json!({"os": "linux", "cpus": 4, "liveSessions": 1})), 10);
+        h.published("a", json!({"cpus": 4, "liveSessions": 3}), 20, 20);
+        assert_eq!(
+            h.reading("a"),
+            Some((20, json!({"os": "linux", "cpus": 4, "liveSessions": 3})))
+        );
+        // An older record (the hub's book read before the ask came back) is not taken.
+        h.published("a", json!({"liveSessions": 9}), 15, 30);
+        assert_eq!(h.reading("a").unwrap().1["liveSessions"], 3);
+        // A hub clock ahead of this one counts as now.
+        h.published("a", json!({"liveSessions": 4}), 999_999, 40);
+        assert_eq!(h.reading("a").map(|r| r.0), Some(40));
+        // A build that answered `unsupported` and now publishes is weighed.
+        h.answered("b", Some(json!({"unsupported": true})), 50);
+        h.published("b", json!({"cpus": 2}), 60, 60);
+        assert_eq!(h.reading("b"), Some((60, json!({"cpus": 2}))));
     }
 
     #[test]

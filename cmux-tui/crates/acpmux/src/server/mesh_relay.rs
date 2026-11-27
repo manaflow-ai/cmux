@@ -379,12 +379,15 @@ async fn heartbeats(
         }
         let began = tokio::time::Instant::now();
         let covered = beat.covers();
-        let sessions = match hub.upgrade() {
-            Some(_) if refusals.inbox.load(Ordering::SeqCst) => Vec::new(),
-            Some(hub) => hub.mesh_rows().await,
+        let (sessions, health) = match hub.upgrade() {
+            Some(hub) if refusals.inbox.load(Ordering::SeqCst) => {
+                (Vec::new(), super::cell_record::own(&hub).await)
+            }
+            Some(hub) => (hub.mesh_rows().await, super::cell_record::own(&hub).await),
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        // The cell record rides every heartbeat: one without it clears the hub's (RFD 0181 B1).
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -476,7 +479,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
