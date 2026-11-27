@@ -874,6 +874,9 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
+    /// bench only, `available: false` in every other build.
+    pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and

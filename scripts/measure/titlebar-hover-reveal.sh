@@ -29,7 +29,7 @@ xcrun swiftc -O scripts/cmux-next/pointer-probe.swift -o "$out/pointer-probe" 2>
   || { echo "TRH-FAIL pointer-probe did not compile: $(head -c 300 "$out/probe.err")"; exit 1; }
 
 status=0
-for arm in "${arms[@]}"; do
+for arm in ${arms[@]+"${arms[@]}"}; do
   name="${arm%%@*}" sha="${arm#*@}"
   app="$(measure_app_at_commit "$sha" "trh-$name" "$out/at-$name")" || { echo "TRH-FAIL $name build at $sha"; status=1; continue; }
   echo "TRH-BUILT $name $sha $app"

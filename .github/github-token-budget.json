@@ -35,7 +35,6 @@
     "backend-migrations.yml: Consume the apply label": "baseline 2026-11-04",
     "build-ghosttykit.yml: Check if xcframework release already exists": "baseline 2026-11-04",
     "chief-evals.yml: Model cases": "baseline 2026-11-04",
-    "ci-artifact-canary.yml: Measure cold import then warm read on Linux": "baseline 2026-11-04",
     "ci-cloud-overflow-probe.yml: End this run's stuck probe": "baseline 2026-11-04",
     "ci-cloud-overflow-probe.yml: Probe and switch": "polls (tests/test_ci_no_github_token_polling.py): every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token",
     "ci-compile-attribution.yml: Check that main's head is the analyzed commit and nothing is open for it": "baseline 2026-11-04",

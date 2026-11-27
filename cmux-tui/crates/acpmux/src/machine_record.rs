@@ -135,8 +135,11 @@ pub struct Consent {
     /// [`Self::control_granted_by`] for [`Self::screen`].
     #[serde(rename = "screenGrantedBy", default, skip_serializing_if = "Option::is_none")]
     pub screen_granted_by: Option<GrantedBy>,
-    /// The person's own setting of [`Self::control`] on this machine (`machine_consent_set`):
-    /// it wins over anything signed elsewhere. None: no local setting, the signed grants decide.
+    /// The person's own setting of [`Self::control`] on this machine (`machine_consent_set`,
+    /// `acpmux host consent grant|revoke --control`, Settings > Devices): it wins over anything
+    /// signed elsewhere. None: never set, the signed grants decide. Only `Some(false)`, the switch
+    /// turned off, refuses the person's own machines ([`joined_consent_allows`]); never set, they
+    /// are let in, since joining is the consent.
     #[serde(rename = "controlLocal", default, skip_serializing_if = "Option::is_none")]
     pub control_local: Option<bool>,
     /// [`Self::control_local`] for [`Self::screen`].
@@ -424,6 +427,51 @@ pub fn require_consent(surface: &str) -> Result<()> {
 
 pub fn require_joined_consent(surface: &str) -> Result<()> {
     if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
+}
+
+/// Who a request gated on this machine's consent came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requester {
+    /// The person's own machine: their own acpmux daemon over a peer link (`ConnAuth::
+    /// peer_daemon`), or the hand they paired on this machine. Joining is the consent (Leo,
+    /// 2026-11-22: "who's gonna walk over and click allow on a headless mac mini"): it is let in
+    /// unless the person turned the surface off here.
+    OwnMachine,
+    /// Anyone else (a paired client credential, another person's device, a shared link): it needs
+    /// the surface granted here, as before.
+    Other,
+}
+
+/// Whether `status` (a [`consent_status`]) lets `requester` use `surface`. No join here: no
+/// requirement. Granted here: yes. The person's own machine: yes unless the person turned the
+/// surface off here (`controlLocal` or `screenLocal` false); never set reads as on. Anyone else:
+/// only a grant.
+pub fn joined_consent_allows(status: &Value, surface: &str, requester: Requester) -> bool {
+    if status["consentRequired"] == false {
+        return true;
+    }
+    if !matches!(surface, "screen" | "control") {
+        return false;
+    }
+    let consent = &status["consent"];
+    if consent[surface] == "granted" {
+        return true;
+    }
+    requester == Requester::OwnMachine && consent[format!("{surface}Local")] != false
+}
+
+/// [`require_joined_consent`] for `requester`: the person's own machine needs no grant here,
+/// only the switch not turned off ([`joined_consent_allows`]). A refusal of the person's own
+/// machine is the person's own Off, so it records no ask (no sheet asks them to undo it).
+pub fn require_joined_consent_from(surface: &str, requester: Requester) -> Result<()> {
+    let status = consent_status();
+    if joined_consent_allows(&status, surface, requester) {
+        return Ok(());
+    }
+    if requester == Requester::Other {
+        let _ = record_consent_refusal(surface);
+    }
+    Err(anyhow!(CONSENT_REQUIRED))
 }
 
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {

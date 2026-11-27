@@ -1132,7 +1132,7 @@ fn a_remote_grant_keeps_this_macs_own_computer_use() {
 }
 
 #[test]
-fn an_older_builds_consent_file_is_the_persons_own_record() {
+fn an_older_builds_consent_file_grants_are_the_persons_own_record() {
     let (_dir, authority) = fixture();
     crate::config::write_atomic(
         &authority.root().join("consent.json"),
@@ -1143,7 +1143,9 @@ fn an_older_builds_consent_file_is_the_persons_own_record() {
     pin(&authority, &k, ACCOUNT_ID);
     apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
     let now = status(&authority, Some(ACCOUNT_ID));
-    assert_eq!((consent_of(&now, "control"), source(&now, "control")), ("none", "local"));
+    // Its granted is the person's own On; its none is never set (joining is the consent for the
+    // person's own machines, `machine_record::joined_consent_allows`), so the account decides.
+    assert_eq!((consent_of(&now, "control"), source(&now, "control")), ("granted", "account"));
     assert_eq!((consent_of(&now, "screen"), source(&now, "screen")), ("granted", "local"));
     // No file at all is no record: the account decides.
     let (_dir2, fresh) = fixture();

@@ -776,7 +776,8 @@ struct MachineGrants {
 }
 
 /// The person's own setting of `surface` here. A file an older build wrote (no source) holds it
-/// as the value itself: granted there was the person's own On, none their Off.
+/// as the value itself: granted there was the person's own On. Its none is never set, not an
+/// Off, so the person's own machines are still let in (`machine_record::joined_consent_allows`).
 pub(crate) fn local_of(consent: &super::cloud_join::Consent, surface: &str) -> Option<bool> {
     let (local, source, state, by) = if surface == "control" {
         (
@@ -791,12 +792,13 @@ pub(crate) fn local_of(consent: &super::cloud_join::Consent, surface: &str) -> O
     if local.is_some() || source.is_some() {
         return local;
     }
-    // A file an older build wrote is the person's own record: its granted is a local On, its
-    // none a local Off. No file at all is no setting.
+    // A file an older build wrote is the person's own record: its granted is a local On; its
+    // none is never set (joining is the consent for the person's own machines). No file at all
+    // is no setting.
     if !consent.on_disk || by.is_some() {
         return None;
     }
-    Some(matches!(state, ConsentState::Granted))
+    matches!(state, ConsentState::Granted).then_some(true)
 }
 
 /// The account policy kept here and when it was applied, parsed.
