@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "minimap.filterAll" : {
-      "comment" : "Agent pane: thread minimap's right-click menu, shows every prompt's tick on the rail",
+      "comment" : "Agent pane: thread minimap's right-click menu, shows the person's prompts' ticks on the rail (other agents' messages and notices hidden)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -32,7 +32,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show All Messages"
+            "value" : "Show Messages"
           }
         },
         "es" : {

@@ -83,6 +83,7 @@ import {
   turnScrollTop,
   visibleTurns,
   foldIncoming,
+  personEntries,
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
@@ -471,7 +472,13 @@ function ThreadMinimapView({
       const ticks = sameEntries(lastEntries.current?.ticks, kept.ticks);
       return { turns, ticks, earlier: keptIndexed, later: keptNewer, filtered: true };
     }
-    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
+    // The default rail (`prompts`) draws the person's prompts only: a prompt that is not a person's
+    // (model.ts `isPersonPrompt`: another agent's message, a notice, bookkeeping) has no tick (Leo,
+    // 2026-11-27: "non-user messages shouldnt appear in the scroll rail anymore"). `received` still
+    // lists them. A chat with no prompt of a person's keeps them all, so its rail and menu stay.
+    // The pending and indexed prompts stay: they are counted and named before a sender is known.
+    const people = show === "prompts" && !full ? personEntries(read.turns, read.ticks) : read;
+    const folded = incomingLook.fold ? foldIncoming(people.turns, people.ticks, 0) : people;
     return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false };
   }, [show, full, incomingLook.fold, read]);
   useLayoutEffect(() => {

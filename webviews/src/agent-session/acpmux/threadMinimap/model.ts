@@ -42,6 +42,11 @@ export type MinimapTurn = {
   /// Who sent it, when it is another session's message and not the person's (promptSender): its
   /// tick draws apart from the person's and its card names the sender.
   from?: string;
+  /// The prompt is not a person's (`isPersonPrompt`): another agent's message, acpmux's inbox or a
+  /// notice, harness bookkeeping, a task's result, a background turn's. The rail's default list
+  /// (`prompts`) draws none of these (Leo, 2026-11-27: "non-user messages shouldnt appear in the
+  /// scroll rail anymore"); `received` keeps them.
+  agent?: true;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
@@ -678,7 +683,17 @@ function forgetLeftCards(prompt: AcpmuxRow, read: number): void {
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members" | "side">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "agent" | "members" | "side">;
+
+/// Whether a turn's prompt is the person's own: one they typed, or a guest person's message. Not
+/// another agent's message, acpmux's inbox or a notice, harness bookkeeping (`incoming`), a task
+/// result acpmux sent (`received`) or a prompt a background turn made (conversation/turns.ts
+/// `answeringPerson` reads a person's prompt the same way).
+export function isPersonPrompt(row: AcpmuxRow): boolean {
+  if (row.kind !== "user" || row.received || row.inBackground !== undefined) return false;
+  const incoming = row.incoming;
+  return !incoming || (incoming.kind === "message" && incoming.message.fromPerson === true);
+}
 
 /// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
 /// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
@@ -815,6 +830,7 @@ export function minimapTurns(
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
         prompt: promptText(user),
         ...withSender(user),
+        ...(!isPersonPrompt(user) && { agent: true as const }),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
         ...(reply && { replyAt: { index: replyIndex, id: reply.id } }),
@@ -869,7 +885,8 @@ export function minimapTurns(
       (tick?.key !== turn.key && tick?.key !== repeatKey(turn)) ||
       tick.prompt !== turn.prompt ||
       tick.id !== turn.id ||
-      tick.from !== turn.from
+      tick.from !== turn.from ||
+      tick.agent !== turn.agent
     )
       sameTicks = false;
   }
@@ -990,9 +1007,20 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       taken.add(key);
     }
     const tick = previous[index];
-    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id && tick.from === turn.from
+    return tick &&
+      tick.key === key &&
+      tick.prompt === turn.prompt &&
+      tick.id === turn.id &&
+      tick.from === turn.from &&
+      tick.agent === turn.agent
       ? tick
-      : { key, id: turn.id, prompt: turn.prompt, ...(turn.from !== undefined ? { from: turn.from } : {}) };
+      : {
+          key,
+          id: turn.id,
+          prompt: turn.prompt,
+          ...(turn.from !== undefined ? { from: turn.from } : {}),
+          ...(turn.agent ? { agent: true as const } : {}),
+        };
   });
 }
 
@@ -1169,8 +1197,16 @@ export function foldIncoming(
 /// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
 /// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
 /// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
-/// own, or only other agents' messages (a tick with a sender, promptSender).
-export type RailFilter = "all" | "mine" | "agents";
+/// own, or only other agents' messages (a tick with a sender, promptSender, or one not a person's).
+/// `people` is the default rail's: every person's prompt, a guest's too (`agent` absent).
+export type RailFilter = "all" | "mine" | "agents" | "people";
+
+/// Whether a filter keeps `tick`.
+function filterKeeps(tick: MinimapTick, filter: RailFilter): boolean {
+  if (filter === "people") return !tick.agent;
+  const theirs = tick.from !== undefined || tick.agent === true;
+  return theirs === (filter === "agents");
+}
 
 /// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
 /// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
@@ -1186,12 +1222,36 @@ export function filterTurns(
   const keptTicks: MinimapTick[] = [];
   let start = 0;
   for (let at = 0; at < ticks.length; at += 1) {
-    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (!filterKeeps(ticks[at]!, filter)) continue;
     if (at < loadedStart) start += 1;
     keptTurns.push(turns[at]!);
     keptTicks.push(ticks[at]!);
   }
   return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
+}
+
+/// The person's turns and ticks of a rail's lists (filter `people`), for the default rail. Each kept
+/// list is the same object while the list it was read from is, so a token streaming into a reply,
+/// which leaves `ticks` alone, renders no tick. Both lists unchanged when every prompt is a person's,
+/// or when none is (the rail and its menu stay).
+const peopleTurns = new WeakMap<readonly MinimapTurn[], readonly MinimapTurn[]>();
+const peopleTicks = new WeakMap<readonly MinimapTick[], readonly MinimapTick[]>();
+export function personEntries(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[] } {
+  if (!ticks.some((tick) => tick.agent) || ticks.every((tick) => tick.agent)) return { turns, ticks };
+  let keptTicks = peopleTicks.get(ticks);
+  if (!keptTicks) {
+    keptTicks = ticks.filter((tick) => !tick.agent);
+    peopleTicks.set(ticks, keptTicks);
+  }
+  let keptTurns = peopleTurns.get(turns);
+  if (!keptTurns) {
+    keptTurns = turns.filter((turn) => !turn.agent);
+    peopleTurns.set(turns, keptTurns);
+  }
+  return { turns: keptTurns, ticks: keptTicks };
 }
 
 /// Whether a turn has what a kind's choice keeps (`errors` and on).
@@ -1218,6 +1278,7 @@ export function replyEntry(turn: MinimapTurn): MinimapTurn | undefined {
     key: `${turn.key}#reply`,
     side: "reply",
     turn,
+    agent: undefined,
     members: undefined,
   };
   replyEntries.set(turn, entry);
@@ -1236,6 +1297,7 @@ function replyTick(tick: MinimapTick, at: { id: string }): MinimapTick {
     key: `${tick.key}#reply`,
     side: "reply",
     from: undefined,
+    agent: undefined,
     members: undefined,
   };
   replyTicks.set(tick, entry);

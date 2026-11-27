@@ -70,7 +70,7 @@ export default agentPaneEntry({
       play: railAt(200),
     },
     menu: {
-      note: "Right-click: Show All Messages (checked), Show Only My Messages, Show Only Agent Messages, then Move to Right Edge.",
+      note: "Right-click: Show Messages (checked), Show Only My Messages, Show Only Agent Messages, then Move to Right Edge.",
       snapshot: chat(rows, { title: "Rail: menu" }),
       play: async (ctx) => ctx.contextMenu({ selector: ".acpmux-minimap__list" }),
     },

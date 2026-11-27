@@ -108,7 +108,7 @@ async function pick(label: string) {
   });
   const items = filterItems();
   expect(items.map((item) => item.textContent?.replace("✓", ""))).toEqual([
-    "Show All Messages",
+    "Show Messages",
     "Show Only My Messages",
     "Show Only Agent Messages",
     "Show Agent Replies",
@@ -136,8 +136,9 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
       ),
     );
     await railFrame();
-    // Unfiltered, the received messages each keep a tick (no two sit next to each other to fold).
-    expect(ticks()).toHaveLength(12);
+    // The default rail draws the person's prompts only: another agent's message has no tick (Leo,
+    // 2026-11-27: "non-user messages shouldnt appear in the scroll rail anymore").
+    expect(ticks()).toHaveLength(8);
     await pick("Show Only My Messages");
     expect(ticks()).toHaveLength(8);
     await pick("Show Only Agent Messages");
@@ -153,8 +154,8 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
       ...Array(6).fill("false"),
     ]);
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
-    await pick("Show All Messages");
-    expect(ticks()).toHaveLength(12);
+    await pick("Show Messages");
+    expect(ticks()).toHaveLength(8);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});
@@ -238,6 +239,42 @@ test("a filter keeps its prompts in order and counts the earlier ones it keeps",
   });
   expect(filterTurns(all, all, 2, "agents").loadedStart).toBe(1);
   expect(filterTurns(all, all, 2, "all").turns).toBe(all);
+});
+
+test("the default rail keeps only the person's prompts, and every prompt when none is", async () => {
+  const { personEntries } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  const turn = (id: string, agent?: boolean) => ({
+    index: 0,
+    id,
+    key: id,
+    prompt: id,
+    reply: [],
+    ...(agent ? { agent: true as const } : {}),
+  });
+  const all = [turn("a"), turn("notice", true), turn("b"), turn("peer", true)];
+  const kept = personEntries(all, all);
+  expect(kept.ticks.map((tick) => tick.id)).toEqual(["a", "b"]);
+  expect(kept.turns.map((entry) => entry.id)).toEqual(["a", "b"]);
+  // The same lists while the lists they are read from are: a streamed token renders no tick.
+  expect(personEntries(all, all).ticks).toBe(kept.ticks);
+  const people = [turn("a"), turn("b")];
+  expect(personEntries(people, people).ticks).toBe(people);
+  const agents = [turn("x", true), turn("y", true)];
+  expect(personEntries(agents, agents).ticks).toBe(agents);
+});
+
+test("a prompt is the person's unless an agent, a notice, bookkeeping or a task result sent it", async () => {
+  const { isPersonPrompt } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  const prompt = (extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ ...row("user-1", "user", "hi"), ...extra });
+  const message = (fromPerson?: true) =>
+    ({ kind: "message", message: { name: "guest", text: "hi", raw: "hi", ...(fromPerson && { fromPerson }) } }) as AcpmuxRow["incoming"];
+  expect(isPersonPrompt(prompt())).toBe(true);
+  expect(isPersonPrompt(prompt({ incoming: message(true) }))).toBe(true);
+  expect(isPersonPrompt(prompt({ incoming: message() }))).toBe(false);
+  expect(isPersonPrompt(prompt({ incoming: { kind: "notice", text: "Background build finished" } }))).toBe(false);
+  expect(isPersonPrompt(prompt({ incoming: { kind: "hidden" } }))).toBe(false);
+  expect(isPersonPrompt(prompt({ inBackground: "bg-1" }))).toBe(false);
+  expect(isPersonPrompt(prompt({ received: {} as AcpmuxRow["received"] }))).toBe(false);
 });
 
 test("each rail edge fades from nothing at its end to full a few rows on, like a wheel", async () => {
@@ -363,7 +400,7 @@ test("the rail shows the agent's replies, prompts and replies together, and only
       ),
     );
     await railFrame();
-    expect(ticks()).toHaveLength(12);
+    expect(ticks()).toHaveLength(8);
     await pick("Show Agent Replies");
     expect(ticks()).toHaveLength(12);
     expect(ticks().every((tick) => tick.dataset.reply !== undefined)).toBe(true);
@@ -382,8 +419,8 @@ test("the rail shows the agent's replies, prompts and replies together, and only
     const edits = filterItems().find((item) => item.textContent?.endsWith("Show Turns with Edits"))!;
     expect(edits.hasAttribute("disabled") || edits.getAttribute("aria-disabled") === "true").toBe(true);
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
-    await pick("Show All Messages");
-    expect(ticks()).toHaveLength(12);
+    await pick("Show Messages");
+    expect(ticks()).toHaveLength(8);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});
