@@ -110,6 +110,8 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -185,6 +187,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -297,6 +301,8 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -372,6 +378,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
