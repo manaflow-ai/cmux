@@ -498,6 +498,7 @@ jobs:
             # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
+            /tests/guard_delta.py
             /tests/test_classic_cloud_routes.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
