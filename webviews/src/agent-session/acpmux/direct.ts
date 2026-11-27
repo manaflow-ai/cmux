@@ -76,6 +76,7 @@ import { withoutFrames } from "./composer/videoPrompt";
 import { isBehindSend, sendBehind, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
+  peerCloudRegistriesFromStatus,
   peerAgentLoginFromStatus,
   peerConnectedFromStatus,
   peerKindsFromStatus,
@@ -84,6 +85,7 @@ import {
   peerStatesFromStatus,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
+import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
@@ -2135,6 +2137,7 @@ export class AcpmuxDirectClient {
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
+  private peerCloudRegistries: Record<string, string> = {};
   private peerConnected: Record<string, boolean> = {};
   /// Each peer's `agentLogin` (environments.ts peerAgentLoginFromStatus): a chat there gets the
   /// sign-in card only when that peer runs the login (cloudAgentLogin.ts agentLoginSupported).
@@ -6240,7 +6243,10 @@ export class AcpmuxDirectClient {
       !!(
         this.browserIdentity &&
         browserDeviceIsCurrent(this.browserIdentity) &&
-        (this.browserDeviceReady || method === "_acpmux/device_enroll" || method === "_acpmux/device_hello")
+        (this.browserDeviceReady ||
+          method === "_acpmux/device_enroll" ||
+          method === "_acpmux/device_challenge" ||
+          method === "_acpmux/device_hello")
       )
     );
   }
@@ -7548,7 +7554,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.retryOwedLagRead();
-      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
+      // Session changes are complete summaries. Keep the projection in sync even when an older
+      // daemon omits composerStatus: omission means there are no status items to publish.
+      this.summary = {
+        ...this.summary,
+        ...session,
+        composerStatus: readComposerStatus(session.composerStatus),
+        loopEpisode: session.loopEpisode ?? null,
+      };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
@@ -12069,6 +12082,7 @@ export class AcpmuxDirectClient {
           machine: text(summary.machine),
           peer: text(summary.peer),
           hostKind: hostKind(summary.hostKind),
+          composerStatus: readComposerStatus(summary.composerStatus),
           // Auto (autoSession/autoSession.ts): the same object while acpmux's row says the same.
           ...((this.publishedAuto = autoSessionOf(summary.autoSession, this.publishedAuto)) && {
             autoSession: this.publishedAuto,
@@ -12301,6 +12315,7 @@ export class AcpmuxDirectClient {
       browserWorkspaces: this.browserWorkspaces,
       peers: this.peers,
       peerKinds: this.peerKinds,
+      peerCloudRegistries: this.peerCloudRegistries,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
       peerLinks: this.peerLinks,
@@ -14918,13 +14933,14 @@ export class AcpmuxDirectClient {
     });
     // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!fork?.ticket || !fork.fork || typeof fork.forkMs !== "number") throw new Error("the fork named no copy");
-    await this.typed("_acpmux/permission_respond", {
+    const response = {
       sessionId,
       permissionId,
       optionId,
       forkCheckpoint: { machine: offer.machine, fork: fork.fork, forkMs: fork.forkMs },
       ...gestureMeta(fork.ticket),
-    });
+    };
+    await this.typed("_acpmux/permission_respond", response);
   }
   /// Builds a plan the chat's plan approval asks about (`_acpmux/plan/build`): `here` approves it
   /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
@@ -15379,6 +15395,7 @@ export class AcpmuxDirectClient {
     model: string | undefined = this.host.model,
     waitForTrust = false,
     forSend = false,
+    cloudRegistryId?: string,
   ): Promise<string | undefined> {
     this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
@@ -15414,8 +15431,16 @@ export class AcpmuxDirectClient {
                 if (this.closed || generation !== this.selectionGeneration) return cancel();
                 if (settled || running) return;
                 running = true;
-                void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                  finish(undefined, startCancelled()),
+                void this.startSession(
+                  harness,
+                  cwd,
+                  peer,
+                  run,
+                  noProject,
+                  model,
+                  () => finish(undefined, startCancelled()),
+                  false,
+                  cloudRegistryId,
                 ).then(
                   (id) => finish(id),
                   (error: unknown) => {
@@ -15430,9 +15455,15 @@ export class AcpmuxDirectClient {
               harness,
               cwd,
               peer,
-              () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+              () =>
+                void this.create(harness, cwd, peer, noProject, model, false, false, cloudRegistryId).catch(
+                  () => undefined,
+                ),
               noProject,
               model,
+              undefined,
+              false,
+              cloudRegistryId,
             );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) {
@@ -15495,6 +15526,7 @@ export class AcpmuxDirectClient {
     model?: string,
     declined?: () => void,
     restricted = false,
+    cloudRegistryId?: string,
   ): Promise<string | undefined> {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
@@ -15515,6 +15547,7 @@ export class AcpmuxDirectClient {
         model,
         extraFoldersParam(onMachine, startHost.cwd),
         restricted,
+        cloudRegistryId,
         autoPlace,
       ),
       again,
@@ -17081,6 +17114,9 @@ export class AcpmuxDirectClient {
   peerHarnesses(peer: string): Promise<unknown> {
     return this.request("_acpmux/harnesses", { _meta: { acpmux: { peer } } });
   }
+  cloudPeerRegistry(peer: string): string | undefined {
+    return Object.hasOwn(this.peerCloudRegistries, peer) ? this.peerCloudRegistries[peer] : undefined;
+  }
   /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
   /// machine that connected or dropped since shows as it is now. Local/app peer events keep the
   /// closed control current when the daemon advertises them; older daemons keep their last snapshot.
@@ -17157,6 +17193,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);
