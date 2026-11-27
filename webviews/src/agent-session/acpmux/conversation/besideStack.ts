@@ -118,6 +118,19 @@ export function besideMask(surfaces: readonly StackSurface[], width: number, ban
 /// question's card), in the scroller's own coordinates, with its corner radius.
 export type BandHole = { left: number; top: number; right: number; bottom: number; radius: number };
 
+type RectEdges = Pick<DOMRect, "left" | "top" | "right" | "bottom">;
+
+/// The portion of `rect` that remains visible inside `clip`, or nothing when the clip removes it.
+/// Pending asks use this while their section folds and clips a card whose layout rect still has its
+/// old height (useBesideStack.ts).
+export function clippedRect(rect: RectEdges, clip: RectEdges): RectEdges | undefined {
+  const left = Math.max(rect.left, clip.left);
+  const top = Math.max(rect.top, clip.top);
+  const right = Math.min(rect.right, clip.right);
+  const bottom = Math.min(rect.bottom, clip.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : undefined;
+}
+
 /// A part of the stack with no surface of its own (the asks stack: a quiet label line over a card),
 /// from `top` to `bottom` across the pane, and the boxes it draws.
 export type StackBand = { top: number; bottom: number; holes: readonly BandHole[] };
