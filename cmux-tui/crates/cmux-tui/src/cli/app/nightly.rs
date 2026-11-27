@@ -318,7 +318,7 @@ fn installed_build(global: &GlobalArgs) -> Result<String, i32> {
     }
 }
 
-fn block_on<F: std::future::Future>(future: F) -> Result<F::Output, String> {
+fn block_on<F: Future>(future: F) -> Result<F::Output, String> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -208,7 +208,7 @@ fn feed(dir: &std::path::Path) -> Feed {
     Feed::dir(dir.to_path_buf(), encode(key_pair().public_key().as_ref()))
 }
 
-fn block_on<F: std::future::Future>(future: F) -> F::Output {
+fn block_on<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(future)
 }
 

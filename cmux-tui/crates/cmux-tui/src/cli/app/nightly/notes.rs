@@ -116,7 +116,7 @@ pub(super) fn pr_number(word: &str) -> Option<u64> {
     };
     let end = digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len());
     if word.contains("/pull/") || end == digits.len() {
-        digits[..end].parse::<u64>().ok().filter(|number| *number > 0)
+        digits.get(..end)?.parse::<u64>().ok().filter(|number| *number > 0)
     } else {
         None
     }
