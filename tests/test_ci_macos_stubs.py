@@ -170,6 +170,23 @@ class WeakenTests(unittest.TestCase):
             weaken.weaken(data)
 
 
+class CommittedStubs(unittest.TestCase):
+    """The stubs under scripts/ci/macos-stubs as the Linux link reads them."""
+
+    def test_every_version_fits_the_packed_mach_o_form(self) -> None:
+        # A dylib version packs as X.Y.Z in 16.8.8 bits: ld64.lld refuses the whole stub
+        # ("malformed file") when Y or Z is over 255, and every symbol in it goes undefined.
+        for path in sorted((ROOT / "scripts/ci/macos-stubs").glob("*.tbd")):
+            text = path.read_text()
+            for key in ("current-version", "compatibility-version"):
+                with self.subTest(stub=path.name, key=key):
+                    value = re.search(rf"^{key}:\s*(\S+)$", text, re.M).group(1)
+                    parts = [int(part) for part in value.split(".")]
+                    self.assertLessEqual(len(parts), 3, value)
+                    self.assertLessEqual(parts[0], 0xFFFF, value)
+                    self.assertTrue(all(part <= 0xFF for part in parts[1:]), value)
+
+
 # Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
 # The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
 # link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.
@@ -233,6 +250,20 @@ class SourceExternTests(unittest.TestCase):
                 missing += [f"{path.relative_to(ROOT)}: {framework}.tbd lacks _{name}"
                             for name in names if f"_{name}" not in held]
         self.assertEqual(missing, [])
+
+
+class MergeStubs(unittest.TestCase):
+    def test_merge_adds_the_newer_symbols_and_stubs(self) -> None:
+        with tempfile.TemporaryDirectory() as old_dir, tempfile.TemporaryDirectory() as new_dir:
+            old, new = Path(old_dir), Path(new_dir)
+            lib = {"current": "61901.120.67", "compat": "1.0.0"}
+            (old / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA"}}))
+            (new / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA", "_kSecGuestAttributePid"}}))
+            (new / "IOKit.tbd").write_text(stubs.render("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", {**lib, "symbols": {"_IOA"}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(stubs.cmd_merge(old, new), 0)
+            self.assertEqual(stubs.read_stub(old / "Security.tbd")[1], {"_SecA", "_kSecGuestAttributePid"})
+            self.assertEqual(stubs.read_stub(old / "IOKit.tbd")[1], {"_IOA"})
 
 
 if __name__ == "__main__":

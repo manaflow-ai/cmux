@@ -41,6 +41,7 @@ enum HomePlusMenu {
     /// The menu for `model`; `thumbnail` gives a picture row's image (nil: a picture glyph), and
     /// `perform` runs the chosen row after the menu closes.
     static func make(_ model: HomePlusMenuModel, thumbnail: (HomeClipboardEntry) -> NSImage?,
+                     row: ((HomePlusMenuItem, Int, Int, String) -> NSMenuItem?)? = nil,
                      perform: @escaping (HomePlusMenuItem) -> Void) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -49,7 +50,9 @@ enum HomePlusMenu {
             if section.contains(where: { if case .clipboard = $0 { true } else { false } }) {
                 menu.addItem(.sectionHeader(title: HomeStrings.plusMenuClipboard))
             }
-            for item in section { menu.addItem(row(item, thumbnail: thumbnail, perform: perform)) }
+            for (rowIndex, item) in section.enumerated() {
+                menu.addItem(Self.row(item, section: index, rowIndex: rowIndex, thumbnail: thumbnail, makeRow: row, perform: perform))
+            }
         }
         return menu
     }
@@ -64,27 +67,32 @@ enum HomePlusMenu {
         menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: y), in: anchor)
     }
 
-    private static func row(_ item: HomePlusMenuItem, thumbnail: (HomeClipboardEntry) -> NSImage?,
+    private static func row(_ item: HomePlusMenuItem, section: Int, rowIndex: Int,
+                            thumbnail: (HomeClipboardEntry) -> NSImage?,
+                            makeRow: ((HomePlusMenuItem, Int, Int, String) -> NSMenuItem?)?,
                             perform: @escaping (HomePlusMenuItem) -> Void) -> NSMenuItem {
-        let row = NSMenuItem(title: "", action: #selector(HomePlusMenuTarget.run), keyEquivalent: "")
-        let target = HomePlusMenuTarget { perform(item) }
-        row.target = target
-        row.representedObject = target // the item holds its target (`target` is weak)
+        let title: String
+        let image: NSImage?
+        var toolTip: String?
         switch item {
         case .attachFiles:
-            row.title = HomeStrings.plusMenuAttachFiles
-            row.image = symbol("paperclip", HomeStrings.plusMenuAttachFiles)
+            title = HomeStrings.plusMenuAttachFiles
+            image = symbol("paperclip", title)
         case .clipboard(let entry):
             switch entry.content {
             case .text(let text):
-                row.title = HomePlusMenuModel.snippet(text)
-                row.toolTip = String(text.prefix(400))
-                row.image = symbol("text.alignleft", row.title)
+                title = HomePlusMenuModel.snippet(text)
+                toolTip = String(text.prefix(400))
+                image = symbol("text.alignleft", title)
             case .image(_, let type):
-                row.title = UTType(type)?.localizedDescription ?? HomeStrings.plusMenuImage
-                row.image = thumbnail(entry) ?? symbol("photo", row.title)
+                title = UTType(type)?.localizedDescription ?? HomeStrings.plusMenuImage
+                image = thumbnail(entry) ?? symbol("photo", title)
             }
         }
+        let row = makeRow?(item, section, rowIndex, title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        row.title = title
+        row.image = image
+        row.toolTip = toolTip
         row.setAccessibilityLabel(row.title)
         return row
     }
@@ -92,14 +100,6 @@ enum HomePlusMenu {
     private static func symbol(_ name: String, _ label: String) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: label)
     }
-}
-
-/// A menu row's action as a closure.
-@MainActor
-final class HomePlusMenuTarget: NSObject {
-    private let action: () -> Void
-    init(_ action: @escaping () -> Void) { self.action = action }
-    @objc func run() { action() }
 }
 
 extension HomeStrings {

@@ -135,6 +135,7 @@ describe("liquid glass draws one edge", () => {
     const all = [...elements.values()].flat();
     for (const name of [
       "acpmux-add-project-dialog",
+      "acpmux-add-project-palette",
       "icon-bar-pill",
       "acpmux-composer-box",
       "acpmux-session-hover-card",

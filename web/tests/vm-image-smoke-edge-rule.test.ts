@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { EDGE_RULE_DOMAIN, edgeRuleCreateRules, edgeRuleFacts, edgeRuleGuestCommand, edgeRuleResolveProblems } from "../scripts/cmux-vm-image/smoke";
+import { EDGE_RULE_CHECKS, EDGE_RULE_DOMAIN, edgeRuleCreateRules, edgeRuleFacts, edgeRuleGuestCommand, edgeRuleResolveProblems, excuseLiveFailing } from "../scripts/cmux-vm-image/smoke";
 import { freestyleEdgeRules } from "../services/vms/drivers/freestyle";
 
 describe("smoke edge-rule clone", () => {
@@ -30,5 +30,40 @@ describe("smoke edge-rule clone", () => {
     const facts = edgeRuleFacts("resolve-public: FAILED rc=2 ; \nresolve-api: 104.21.1.1 cmux-api-development.debussy.workers.dev ; ");
     expect(edgeRuleResolveProblems(facts)).toEqual(["resolve-public: FAILED rc=2 ;"]);
     expect(edgeRuleResolveProblems({})).toEqual(["resolve-public: no answer", "resolve-api: no answer"]);
+  });
+
+  describe("live-image control", () => {
+    const failing = () => ({
+      checks: {
+        "edge-rule-resolve": { ok: false, detail: "resolve-public: FAILED rc=2 ;" },
+        "edge-rule-bind-probe": { ok: false, detail: "FAIL bind-file-consumed" },
+        "daemon-listening": { ok: true, detail: "ok" },
+      },
+      pending: [],
+    });
+
+    test("a failure the live image shares warns and no longer fails the smoke", () => {
+      const report = failing();
+      const warnings = excuseLiveFailing(report, { "edge-rule-resolve": { ok: false, detail: "live FAILED" }, "edge-rule-bind-probe": { ok: false, detail: "live FAIL" } });
+      expect(warnings.map((w) => w.check)).toEqual([...EDGE_RULE_CHECKS]);
+      expect(Object.values(report.checks).every((c) => c.ok)).toBe(true);
+      expect(report.checks["edge-rule-resolve"].detail).toContain("already failing on the live image");
+    });
+
+    test("a failure the live image does not have still fails, as a regression", () => {
+      const report = failing();
+      const warnings = excuseLiveFailing(report, { "edge-rule-resolve": { ok: true, detail: "140.82.112.3 github.com" }, "edge-rule-bind-probe": { ok: false, detail: "live FAIL" } });
+      expect(warnings.map((w) => w.check)).toEqual(["edge-rule-bind-probe"]);
+      expect(report.checks["edge-rule-resolve"].ok).toBe(false);
+      expect(report.checks["edge-rule-resolve"].detail).toContain("a regression");
+    });
+
+    test("no live result blocks, and other checks are never excused", () => {
+      const report = failing();
+      report.checks["daemon-listening"] = { ok: false, detail: "down" };
+      expect(excuseLiveFailing(report, null)).toEqual([]);
+      expect(report.checks["edge-rule-resolve"].ok).toBe(false);
+      expect(report.checks["daemon-listening"].ok).toBe(false);
+    });
   });
 });

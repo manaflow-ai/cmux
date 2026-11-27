@@ -225,4 +225,75 @@ FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
 expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate core: the tests do not build"
 if grep -q "^FAST-TIER PASS" <<<"$out"; then echo "FAIL: entries ran after a failed build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 
+# Swift reports a compiler diagnostic before it finishes compiling the remaining
+# files. The build process and its children must stop at that first error.
+mkdir -p "$tmp/errorbin"
+cat > "$tmp/errorbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "Sources/Fail.swift:1:1: error: cannot find 'PaneMoreShotsTests' in scope"
+  sleep 30
+  exit 1
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/errorbin/swift"
+registry '{"entries": [{"name": "swift compile", "kind": "swift", "package": "Pkg", "filter": "Matches", "owner": "op-test"}]}'
+started=$SECONDS
+PATH="$tmp/errorbin:$PATH" run
+elapsed=$(( SECONDS - started ))
+expect "a Swift compiler error fails the tier" 1 "^FAST-TIER FAIL build:Pkg: the tests do not build"
+expect "the first Swift diagnostic remains visible" 1 "cannot find 'PaneMoreShotsTests' in scope"
+if [ "$elapsed" -ge 8 ]; then
+  echo "FAIL: Swift compile error waited for the build (${elapsed}s, want under 8s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+
+# A warning's source excerpt can hold the word `error:` (` 446 |  func f(_ error: Error)`). Only a
+# diagnostic's own head stops the build: that excerpt stopped a clean CmuxNext seed build (run 45854893499).
+mkdir -p "$tmp/excerptbin"
+cat > "$tmp/excerptbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "Sources/Repair.swift:446:62: warning: use of protocol 'Error' as a type must be written 'any Error'"
+  echo "444 |     }"
+  echo "446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {"
+  echo "    |                                                              \`- warning: use of protocol 'Error'"
+  echo "build finished after the excerpt"
+  exit 0
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/excerptbin/swift"
+PATH="$tmp/excerptbin:$PATH" run
+expect "a warning excerpt naming error: does not stop the Swift build" 0 "^\[Pkg\] build finished after the excerpt$"
+if grep -q "^FAST-TIER FAIL build:Pkg" <<<"$out"; then echo "FAIL: a warning excerpt failed the build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+
+# --changed-files (a pull request's diff) runs only the entries, and builds only the packages, the change
+# reaches; the post-merge batch runs the rest (note-559). These read the repository's own registry and graphs.
+scoped() {
+  printf '%s\n' "$@" > "$tmp/changed.txt"
+  set +e
+  out="$(cd "$ROOT_DIR" && python3 -I "$RUNNER" --dry-run --kind cargo --kind script --changed-files "$tmp/changed.txt" 2>&1)"
+  status=$?
+  set -e
+}
+scoped README.md
+expect "a change that reaches no entry skips them all" 0 "^FAST-TIER SKIP matrix core .*post-merge batch runs it"
+if grep -q "^BUILD\|^RUN" <<<"$out"; then echo "FAIL: a change that reaches no entry built or ran one" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+scoped scripts/cmux-next/tests/test_perf_completeness.py
+expect "a script change runs its script entry" 0 "^RUN perf completeness: "
+if grep -q "^BUILD cargo" <<<"$out"; then echo "FAIL: a script-only change built the cargo tests" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+scoped cmux-tui/crates/cmux-layout-reducer/src/lib.rs
+expect "a crate change runs the entries that compile it" 0 "^RUN sidebar layout reducer: cargo test"
+expect "a crate change builds the cargo tests" 0 "^BUILD cargo test --locked --no-run -p cmux-layout-reducer"
+scoped scripts/cmux-next/fast-tier.json
+expect "a registry change runs every entry" 0 "^RUN matrix core: cargo test"
+expect "a registry change runs every script entry" 0 "^RUN perf completeness: "
+set +e
+out="$(cd "$ROOT_DIR" && python3 -I "$RUNNER" --dry-run --kind cargo --changed-files "$tmp/missing-list" 2>&1)"; status=$?
+set -e
+expect "an unreadable change list runs every entry" 0 "^RUN matrix core: cargo test"
+
 echo "fast-tier.test: ok"

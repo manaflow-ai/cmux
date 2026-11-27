@@ -43,8 +43,6 @@ extension SidebarTransientItem {
             if row.title.isEmpty { row.accessibilityTitle = ChiefToolStrings.subagent }
             row.activity = activity(of: lane.state)
             row.indent = 1
-            // Its task count, as a chat row shows it (`SidebarLaneStatus.applying`).
-            row.taskProgress = SidebarTunables.taskProgress.value ? SidebarLaneStatus.taskProgress([lane]) : nil
             // Each row draws right after the one before it, so the list keeps its order under the Chief.
             let item = SidebarTransientItem(id: LayoutItemID(chiefSubagentPrefix + lane.id), info: row, after: anchors, anchoredOnly: true)
             anchors = [item.item.ref]

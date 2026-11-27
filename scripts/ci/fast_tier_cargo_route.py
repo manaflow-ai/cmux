@@ -9,7 +9,8 @@ request runs it when a changed path is
   toolchain pin, .cargo/) or the ghostty-next gitlink the core links;
 - in a script entry's folder;
 - a file the job's steps or the script entries run (JOB_INPUTS, SCRIPT_INPUTS);
-- or the pull request carries the full-ci label.
+- or the pull request carries the full-ci label and changes more than CI and tooling files (a tooling-only change,
+  scripts/ci/tooling_only.py, routes by the paths above under full-ci too).
 A change to another crate the entries depend on, or to another cmux-tui tree input (webviews/, schemas/, ...),
 no longer runs it on the pull request: 111 of the workspace's 161 crates and every tree input reached it, so
 59% of pull request heads ran it (12.6 min each, 43,295 runner-min on 2026-11-22T21..11-23T21, the largest
@@ -35,6 +36,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tooling_only  # noqa: E402
+
 REGISTRY = "scripts/cmux-next/fast-tier.json"
 # Files of a cargo workspace root that reach every crate in it, and what the core links outside cmux-tui/.
 WORKSPACE_ROOT_INPUTS = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rust-toolchain", ".cargo/")
@@ -51,6 +55,10 @@ JOB_INPUTS = (
     "scripts/ci/init-submodule.sh",
     "scripts/install-zig-ci.sh",
     "scripts/ci/fast_tier_cargo_route.py",
+    "scripts/ci/tooling_only.py",
+    "scripts/ci/pool-warm-target.sh",
+    "scripts/ci/tests/pool-warm-target.test.sh",
+    "scripts/blacksmith-testbox-source-mtimes.py",
 )
 # What the script entries import or read outside their own folder (test_perf_completeness.py: the perf gate).
 SCRIPT_INPUTS = ("scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json", "scripts/perf-bench/")
@@ -95,7 +103,7 @@ def inputs(root: Path) -> list[str] | None:
 
 
 def reaches(changed: list[str], labels: set[str], root: Path) -> tuple[bool, str]:
-    if labels & FORCE_LABELS:
+    if labels & FORCE_LABELS and not tooling_only.tooling_only(changed):
         return True, "full-ci label"
     prefixes = inputs(root)
     if prefixes is None:

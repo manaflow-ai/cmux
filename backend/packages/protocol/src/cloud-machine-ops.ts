@@ -346,8 +346,8 @@ export const CloudMachineCreate = cloudMutation(
     ttl_seconds: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 604800 })))
   }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...VM_LIMIT, ...PROVIDER, ...LIMITED, ...APPROVAL],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine)." + KEY + APPROVAL_DOC,
+  ["cloud.machine.not_found", "cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...VM_LIMIT, ...PROVIDER, ...LIMITED, ...APPROVAL],
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine)." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
@@ -421,6 +421,107 @@ export const CloudRetentionSet = cloudMutation(
   [],
   "Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`.",
   "cloud retention set"
+)
+
+const AllotmentMicros = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
+const AllotmentCount = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
+const AllotmentTier = Schema.Literals(["standard", "plus", "max"])
+const AllotmentPosition = Schema.Literals(["down", "hold", "up"])
+/** What a team's admin set for its allotment; null in the view while nobody has answered a proposal. */
+const CloudAllotmentSetting = Schema.Struct({
+  commit_micros: AllotmentMicros,
+  mode: Schema.Literals(["ask", "auto"]),
+  auto_max_micros: Schema.NullOr(AllotmentMicros),
+  tiers: Schema.Record(Schema.String, AllotmentTier),
+  snoozed_until: Schema.NullOr(Schema.Int),
+  changed_at: Schema.Int,
+  changed_by: Schema.String
+}).annotate({ identifier: "CloudAllotmentSetting" })
+/** One member's metered use: this month, and over the last 14 days. */
+const CloudAllotmentMember = Schema.Struct({
+  member: Schema.String,
+  tier: AllotmentTier,
+  month_micros: AllotmentMicros,
+  usd14_micros: AllotmentMicros,
+  active_days14: Schema.Int,
+  share_micros: AllotmentMicros,
+  rank: AllotmentCount,
+  over_share14: Schema.Int,
+  plan_limit_ms14: AllotmentCount,
+  spare_micros: AllotmentMicros
+}).annotate({ identifier: "CloudAllotmentMember" })
+const CloudAllotmentReason = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unused"), members: Schema.Array(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("over"), member: Schema.String, count: Schema.Int }),
+  Schema.Struct({ kind: Schema.Literal("runaway"), member: Schema.String, rate_micros_h: AllotmentMicros }),
+  Schema.Struct({ kind: Schema.Literal("tier"), member: Schema.String, to: AllotmentTier, costs_micros: AllotmentMicros })
+]).annotate({ identifier: "CloudAllotmentReason" })
+const CloudAllotmentAdviceMember = Schema.Struct({
+  member: Schema.String,
+  minutes: AllotmentCount,
+  seat_percent: AllotmentCount,
+  active_hours: Schema.Int,
+  floor: Schema.Int,
+  burst: Schema.Int
+}).annotate({ identifier: "CloudAllotmentAdviceMember" })
+/**
+ * The same use counted in machines and machine-minutes: scale the team's pooled machines up, down or hold. A
+ * member's `floor` is the machines they ran at once in the median hour, their `burst` what they reached in 99% of
+ * hours; `lendable` machines are held by no floor.
+ */
+const CloudAllotmentAdvice = Schema.Struct({
+  position: AllotmentPosition,
+  seats: Schema.Int,
+  to_seats: Schema.Int,
+  window_hours: Schema.Int,
+  floor: Schema.Int,
+  burst: Schema.Int,
+  peak: Schema.Int,
+  lendable: Schema.Int,
+  ceiling_hours7: Schema.Int,
+  used_minutes: AllotmentCount,
+  seat_minutes: AllotmentCount,
+  reason: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("ceiling"), hours: Schema.Int, hours7: Schema.Int, peak: Schema.Int, add: Schema.Int }),
+    Schema.Struct({ kind: Schema.Literal("spare"), release: Schema.Int, members: Schema.Array(CloudAllotmentAdviceMember) }),
+    Schema.Struct({ kind: Schema.Literal("fits") })
+  ]),
+  summary: Schema.String,
+  members: Schema.Array(CloudAllotmentAdviceMember)
+}).annotate({ identifier: "CloudAllotmentAdvice" })
+/**
+ * A team's allotment and what the scheduler proposes for it from metered use (cmux-platform domain/Allotment.ts):
+ * scale the pooled monthly commit down, hold it or scale it up, with each member's use. `names` maps the member
+ * ids the team directory listed to display names (empty when the directory could not be read).
+ */
+export const CloudAllotmentView = Schema.Struct({
+  allotment: Schema.NullOr(CloudAllotmentSetting),
+  decision: Schema.Struct({
+    allot_micros: AllotmentMicros,
+    forecast_micros: AllotmentMicros,
+    position: AllotmentPosition,
+    to_commit_micros: AllotmentMicros,
+    reasons: Schema.Array(CloudAllotmentReason),
+    members: Schema.Array(CloudAllotmentMember),
+    order: Schema.Array(Schema.String),
+    apply: Schema.Boolean
+  }),
+  advice: CloudAllotmentAdvice,
+  hard_cap_micros: Schema.NullOr(AllotmentMicros),
+  as_of: Schema.Int,
+  names: Schema.Record(Schema.String, Schema.String)
+}).annotate({ identifier: "CloudAllotmentView" })
+/**
+ * cloud.allotment.get: the caller's team's allotment and the scheduler's proposal, for the app's Settings Compute
+ * card. Any team member may read it. A deployment with allotments off answers cloud.allotment.off.
+ */
+export const CloudAllotmentGet = cloudRead(
+  "cloud.allotment.get",
+  Schema.Struct({}),
+  CloudAllotmentView,
+  ["cloud.allotment.off"],
+  "This team's Cloud allotment and the scheduler's proposal from metered use: scale the pooled monthly commit down, hold it or scale it up, with each member's use this month and over 14 days, and the reasons (unused seats, starts past the allotment, a runaway). A read.",
+  "cloud allotment get"
 )
 
 export const CloudMachineConnectInfo = cloudRead(
@@ -519,13 +620,48 @@ export const CloudSnapshotDelete = cloudMutation(
 )
 
 export const CloudPlanGet = cloudRead("cloud.plan.get", Schema.Struct({}), CloudPlan, [], "The team's plan: limits and usage this period. Read from the billing owner, never from a request.", "cloud plan get")
+/**
+ * The team's Cloud usage so far this calendar month (UTC) and what it costs (cmux-platform metering): awake
+ * vCPU-seconds and memory GiB-seconds of the machine's size, and GiB-seconds of disk held while paused. `usd` is the
+ * billing owner's own price of each meter; a client shows it and computes no price. `gaps`: spans the meter has not
+ * counted yet (a VM whose usage is still arriving); empty when every second is in. Spare machines are never usage.
+ * `payment_method`: whether the team has a card on file (brand and last four only; no card data enters cmux).
+ * `stripe_mode`: "test" while payments run in the processor's test mode.
+ */
+export const CloudUsageCurrent = Schema.Struct({
+  /** The billing month, "YYYY-MM" (UTC). */
+  period: Schema.String.check(isPattern(/^\d{4}-\d{2}$/)),
+  /** When the meter was last read. */
+  as_of: Millis,
+  /** When metering began for this team in this period (later than the month's start for a team new this month); null before the first metered second. */
+  metered_since: Schema.NullOr(Millis),
+  vcpu_seconds: Schema.Number,
+  memory_gib_seconds: Schema.Number,
+  stored_gib_seconds: Schema.Number,
+  usd: Schema.Struct({ vcpu: Schema.Number, memory: Schema.Number, stored: Schema.Number, total: Schema.Number }),
+  gaps: Schema.Array(Schema.String),
+  payment_method: Schema.Struct({
+    attached: Schema.Boolean,
+    brand: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    last4: Schema.optionalKey(Schema.NullOr(Schema.String.check(isPattern(/^\d{4}$/))))
+  }),
+  stripe_mode: Schema.Literals(["test", "live"])
+}).annotate({ identifier: "CloudUsageCurrent" })
+export const CloudUsageCurrentGet = cloudRead(
+  "cloud.usage.current",
+  Schema.Struct({}),
+  CloudUsageCurrent,
+  [],
+  "The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file.",
+  "cloud usage current"
+)
 export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
-  Schema.Struct({ plan: PlanId }),
+  Schema.Struct({ plan: Schema.optionalKey(PlanId) }),
   Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
-  [],
-  "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
+  ["cloud.billing.off"],
+  "Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment.",
   "cloud billing checkout",
   true
 )
@@ -563,7 +699,7 @@ export const CloudMigrationStart = cloudMutation(
  * cmux-platform because they are in this catalog (platform-forward.ts). Same shapes as cmux-platform
  * src/server/cloud/domain/SurgeOps.ts.
  */
-export const SURGE_CAP = 8
+export const SURGE_CAP = 100
 // The operation catalog reads input fields from the top-level schema, so leave this struct inline.
 export const SurgeRequest = Schema.Struct({
   count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_CAP })),
@@ -628,6 +764,7 @@ export const cloudMachineOps = [
   CloudMachineKeep,
   CloudMachineArchiveDelete,
   CloudRetentionSet,
+  CloudAllotmentGet,
   CloudMachineConnectInfo,
   CloudMachineLinkToken,
   CloudMachineUpgrade,
@@ -636,6 +773,7 @@ export const cloudMachineOps = [
   CloudSnapshotRestore,
   CloudSnapshotDelete,
   CloudPlanGet,
+  CloudUsageCurrentGet,
   CloudBillingCheckout,
   CloudShellOpen,
   CloudMigrationStatus,

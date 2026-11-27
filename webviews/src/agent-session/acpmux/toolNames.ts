@@ -195,7 +195,10 @@ function readCall(tool: Tool): CanonicalCall | undefined {
   if (tool.kind === "execute") return named === "shell" || input.command ? { tool: "shell", input } : undefined;
   if (named) {
     const rest = title.slice(title.indexOf(head) + head.length).replace(/^:?\s*/, "");
-    return { tool: disambiguate(named, tool.kind), input: withTitleSubject(named, input, rest, tool.kind) };
+    return {
+      tool: disambiguate(named, tool.kind),
+      input: withTitleSubject(named, input, head === "Search" ? rest.replace(/^for /, "") : rest, tool.kind),
+    };
   }
   // Gemini CLI's descriptions.
   let match: RegExpMatchArray | null;
