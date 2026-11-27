@@ -597,6 +597,10 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_suite.py"
 lane = "linux-guard"
 
@@ -814,6 +818,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_coalesce_record_dir.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_coalesce_record_dir.py"
 
 [[test]]
 path = "tests/test_ci_reusable_workflow_permissions.py"

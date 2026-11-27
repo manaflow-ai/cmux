@@ -140,13 +140,14 @@ impl Bound {
 /// The `--add-dir` folders of a Claude Code command line.
 pub(crate) fn added_dirs(args: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    for (i, word) in args.iter().enumerate() {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
         if word == "--" {
             break;
         }
         if word == "--add-dir" {
             // `--add-dir A B …`: every word up to the next flag.
-            let rest = args[i + 1..].iter().take_while(|w| !w.starts_with('-'));
+            let rest = words.clone().take_while(|w| !w.starts_with('-'));
             out.extend(rest.map(PathBuf::from));
         } else if let Some(v) = word.strip_prefix("--add-dir=") {
             out.push(PathBuf::from(v));
@@ -239,7 +240,7 @@ pub(crate) fn prefix(
     args: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
-) -> Option<Vec<String>> {
+) -> Option<(&'static str, Vec<String>)> {
     if !cfg!(target_os = "macos") || !enabled() {
         return None;
     }
@@ -259,9 +260,7 @@ pub(crate) fn prefix(
         }
         return None;
     }
-    let mut out = vec![SANDBOX_EXEC.to_owned()];
-    out.extend(bound.sandbox_args());
-    Some(out)
+    Some((SANDBOX_EXEC, bound.sandbox_args()))
 }
 
 /// The profile's folders for a launch. `None` when the folder is the home or above it: the

@@ -224,9 +224,9 @@ fn build_harness_command(
         .then(|| crate::local_sandbox::prefix(args, cwd, &env))
         .flatten();
     let mut cmd = match sandbox {
-        Some(prefix) => {
-            let mut cmd = Command::new(&prefix[0]);
-            cmd.args(&prefix[1..]).arg(program);
+        Some((sandbox_program, sandbox_args)) => {
+            let mut cmd = Command::new(sandbox_program);
+            cmd.args(sandbox_args).arg(program);
             cmd
         }
         None => crate::session_scope::command(

@@ -96,6 +96,17 @@ fn added_dirs_are_read_from_the_command_line() {
 }
 
 #[test]
+fn added_dirs_stop_at_flags_and_handle_missing_values() {
+    assert!(added_dirs(&[]).is_empty());
+    assert!(added_dirs(&s(&["--add-dir"])).is_empty());
+    assert!(added_dirs(&s(&["--add-dir", "--", "/not-a-folder-argument"])).is_empty());
+    assert_eq!(
+        added_dirs(&s(&["--add-dir", "--add-dir", "/a", "/b", "--add-dir"])),
+        vec![PathBuf::from("/a"), PathBuf::from("/b")]
+    );
+}
+
+#[test]
 fn a_worktree_gets_its_git_folders() {
     let t = tempfile::tempdir().unwrap();
     let main = t.path().join("main");
