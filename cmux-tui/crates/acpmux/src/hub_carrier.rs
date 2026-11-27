@@ -2952,7 +2952,7 @@ pub async fn start_configured(
     hub.hub_carrier.set(carrier.clone());
     carrier.keep_reopening();
     // Off unless `ACPMUX_HUB_HOLD_CIRCUITS` names machines (`hub_carrier_hold.rs`).
-    carrier.hold_configured();
+    carrier.hold_configured(hub);
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -3067,7 +3067,7 @@ mod rehome;
 
 #[path = "hub_carrier_hold.rs"]
 mod hold;
-pub use hold::{HOLD_CIRCUITS_ENV, held_machines};
+pub use hold::{HOLD_BOOK_WAIT, HOLD_CIRCUITS_ENV, held_machines, is_daemon_id, resolve_held};
 
 #[path = "hub_carrier_placed.rs"]
 pub mod placed;
