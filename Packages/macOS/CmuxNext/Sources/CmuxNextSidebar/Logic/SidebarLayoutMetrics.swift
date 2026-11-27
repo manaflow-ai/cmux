@@ -188,9 +188,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
     /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
     public var settled: Set<WorkspaceID> = []
-    /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; `SidebarAutomaticPlanner`): these rows fold
-    /// into an "Automatic (N)" row at the end of their list, before the Settled row. Empty draws every row in place.
-    public var automatic: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
@@ -259,8 +256,6 @@ nonisolated extension SidebarLayoutOptions {
         if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
-        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 

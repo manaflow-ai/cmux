@@ -276,7 +276,37 @@ def copy_app_from_dmg(dmg: Path, root: Path) -> Path:
             raise CannotRun(f"no app in {dmg}")
         return copy_app(apps[0], root)
     finally:
+        forget_apps(mount)  # the mounted app's record, too, before the image goes
         detach(mount)
+
+
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+
+def forget_apps(root: Path) -> list[str]:
+    """Unregister every app bundle under ROOT (nested apps too) from LaunchServices, by path; never raises.
+
+    LaunchServices keeps the record of a copy the run launched after the run deletes it, and a later
+    `open -a "cmux NIGHTLY"` or bundle-id lookup on the Mac could pick the dead copy ("The application
+    can't be opened": cmux12s, 2026-11-16, 22 dead cmux-fresh-* NIGHTLY records). Returns the paths
+    lsregister accepted."""
+    if not os.path.exists(LSREGISTER) or not root.is_dir():
+        return []
+    forgotten = []
+    for dirpath, dirnames, _ in os.walk(root, followlinks=False):
+        for name in dirnames:
+            if not name.endswith(".app"):
+                continue
+            bundle = os.path.join(dirpath, name)
+            if os.path.islink(bundle):  # never take back, through a link, an app the run did not make
+                continue
+            try:
+                if subprocess.run([LSREGISTER, "-u", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=60).returncode == 0:
+                    forgotten.append(bundle)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return forgotten
 
 
 def detach(mount: Path) -> None:
@@ -666,6 +696,52 @@ def read_marks(path: Path) -> dict[str, float]:
     return marks
 
 
+def read_launch_time(path: Path, wait: float = 5.0) -> dict | None:
+    """Read this launch's app-owned Home mark from ``launch-times.jsonl``.
+
+    The recorder writes on a files lane after the awaited marks arrive, so a short bounded
+    wait is necessary after the socket watch observes Home.  The fresh smoke HOME has no older
+    records; the newest valid line is therefore this process's launch.  Malformed or partial
+    lines are ignored while the recorder's atomic rewrite completes.
+    """
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        records: list[dict] = []
+        try:
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    value = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(value, dict):
+                    records.append(value)
+        except OSError:
+            pass
+        if records:
+            record = records[-1]
+            ms = record.get("reveal_home_ms")
+            if not isinstance(ms, (int, float)) or isinstance(ms, bool):
+                # Records written before reveal_home_ms was added still have the page mark.
+                ms = record.get("home_first_page_ms") if record.get("home_revealed_by") == "mark" else None
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                return {"ms": round(float(ms), 1), "revealed_by": record.get("home_revealed_by"),
+                        "record": record}
+            if "home_revealed_by" in record:
+                return {"ms": None, "revealed_by": record.get("home_revealed_by"), "record": record}
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def app_launch_reading(home: Path, bundle_id: str, rendered_at: float | None, wait: float = 5.0) -> dict | None:
+    """Return the persisted app mark and the old wall-clock reading for one launch."""
+    record = read_launch_time(home / "Library" / "Application Support" / bundle_id / "launch-times.jsonl", wait)
+    if record is None:
+        return None
+    return {"ms": record["ms"], "source": "launch-times.jsonl", "revealed_by": record["revealed_by"],
+            "harness_ms": None if rendered_at is None else round(rendered_at * 1000), "record": record["record"]}
+
+
 def crash_reports(directory: Path, executable: str, since: float) -> list[Path]:
     if not directory.is_dir():
         return []
@@ -883,10 +959,44 @@ def terminal_host_pids(root: Path) -> list[int]:
     return pids
 
 
+def executable_path(pid: int) -> str | None:
+    """The executable a process of this Mac runs (libproc's proc_pidpath), or None when it cannot be read."""
+    try:
+        import ctypes
+        import ctypes.util
+        libproc = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib", use_errno=True)
+        buf = ctypes.create_string_buffer(4096)
+        size = libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(len(buf)))
+    except (OSError, AttributeError):
+        return None
+    return buf.value.decode(errors="replace") if size > 0 else None
+
+
+def holder_pids(root: Path) -> list[int]:
+    """The terminal holders this run's app started: this user's `cmux-holder` processes whose executable sits under
+    ROOT (the daemon copies it to <home>/Library/Application Support/cmux-tui/host-exe/<hash>/cmux-holder). A holder's
+    command line is `cmux-holder --socket /tmp/cmux-hd-<uid>/... --owner ...`, which never names the root, so
+    pids_under and terminal_host_pids miss it, and a NIGHTLY holder keeps its terminals for a week once its daemon is
+    gone (cmux_holder::ABANDONED_GRACE). On a CI Mac, 2026-11-26, five holders left by earlier runs held 510 shells and
+    every PTY of the Mac (kern.tty.ptmx_max 511), so the next launch's workspace.create failed "Device not configured
+    (os error 6)" and launch-tti measured nothing. Matched by the executable's real path, so /tmp vs /private/tmp
+    cannot hide one (cmux#59530)."""
+    real = os.path.realpath(root) + os.sep
+    pids = []
+    for pid, args in user_processes():
+        if os.path.basename(args.split(None, 1)[0] if args else "") != "cmux-holder":
+            continue
+        path = executable_path(pid)
+        if path and os.path.realpath(path).startswith(real):
+            pids.append(pid)
+    return pids
+
+
 def own_pids(root: Path) -> list[int]:
-    """Everything this run started that may still run: processes naming its root, and its terminal hosts (those
-    of the seeded arm too, whose home is under ROOT/SEEDED)."""
-    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
+    """Everything this run started that may still run: processes naming its root, its terminal hosts (those of the
+    seeded arm too, whose home is under ROOT/SEEDED) and its terminal holders (the seeded arm's are under ROOT too)."""
+    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED))
+                  | set(holder_pids(root)))
 
 
 LOCK_NOTE = "smoke.lock"  # under a run's root: the lock path the run held, so a later run reaps only its own kind
@@ -1441,6 +1551,12 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             os.close(marks_read)
         report.update(seen)
         report["marks"] = read_marks(marks_path)
+        app_launch = app_launch_reading(
+            Path(env["HOME"]), bundle_id, seen["rendered_at"],
+            wait=float(os.environ.get("CMUX_FRESH_SMOKE_LAUNCH_TIMES_WAIT", "1.0")))
+        if app_launch is not None:
+            report["app_launch"] = app_launch
+            report["harness_launch_ms"] = app_launch["harness_ms"]
         report["home_tab"] = home_tab(seen["snapshot"])
         if out is not None and seen["exit"] is None:
             report["screenshot"] = screenshot(out)
@@ -1581,6 +1697,7 @@ def main(argv: list[str] | None = None) -> int:
         left = own_pids(root)
         if left:
             log(f"warning: processes still under {root}: {left}")
+        forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
     return status
 
