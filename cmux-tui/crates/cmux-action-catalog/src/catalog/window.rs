@@ -331,21 +331,6 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
-    // Ends the process even with app.backgroundReady on, where Cmd-Q leaves a hidden ready copy
-    // (cmux-background-ready's on_quit). No main_menu row: the app adds it to the app menu itself,
-    // only while the setting is on.
-    Action {
-        id: "quitCompletely",
-        group: GROUP,
-        title: t("ActionCatalog", "action.quitCompletely", "Quit Completely"),
-        keywords: &["exit", "close", "background", "stay ready", "hidden"],
-        category: "window",
-        symbol: "power",
-        surfaces: PALETTE | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("endsApp"), ..SurfacePlan::DEFAULT },
-        cli_name: "app quit-completely",
-        ..Action::DEFAULT
-    },
     Action {
         id: "showHideAllWindows",
         group: GROUP,

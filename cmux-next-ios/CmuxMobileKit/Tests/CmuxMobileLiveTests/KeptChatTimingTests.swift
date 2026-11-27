@@ -31,14 +31,7 @@ import Testing
             let source = AgentKeptTranscriptTests.hub(cache).source(sessionID: "s1", summary: AgentKeptTranscriptTests.summary)
             if source.replayCount > 0 { sameTurn += 1 }
             let store = AgentChatStore(source: source)
-            // Bounded and named: a bare `while ... { await Task.yield() }` never checks cancellation, so the
-            // suite's time limit could not stop it and the simulator step ran to its 30 min timeout silent.
-            var deadline = AwakeDeadline(.seconds(30))
-            while store.turns.last?.id != "t119", !Task.isCancelled, deadline.hasTimeLeft() { await Task.yield() }
-            guard store.turns.last?.id == "t119" else {
-                Issue.record("kept chat never reached its newest turn t119 (last: \(store.turns.last?.id ?? "none"), turns: \(store.turns.count))")
-                return
-            }
+            while store.turns.last?.id != "t119" { await Task.yield() } // test: the suite's time limit bounds it
             let elapsed = ContinuousClock.now - start
             samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
         }

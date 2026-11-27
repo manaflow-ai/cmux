@@ -173,7 +173,8 @@ final class AppHealthPageFeed: PageHealthFeed {
         case .restartRenderer:
             // A renderer can be shared (Chromium keeps one per site): ending it reloads every page in it.
             guard !PageRegistry.pages().contains(where: \.holdsEdits) else { return false }
-            return page.restartRenderer()
+            page.restartRenderer()
+            return true
         default:
             return false
         }

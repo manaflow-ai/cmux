@@ -1658,9 +1658,7 @@ class Wiring(unittest.TestCase):
                                      ref="refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge")
             context["github"]["event"]["pull_request"]["labels"] = [{"name": label} for label in labels]
             context["vars"]["CI_FAST_LANE_RUNNER"] = fast_lane
-            # The tiers read the PR's live labels from path_route (#57329), not the event's.
-            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native,
-                                                          "labels": "," + ",".join(labels) + ","}}
+            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native}}
             return set(evaluate(expression, context).split())
 
         # A pull request's fast tier and Swift canary are pr-pipeline.yml's `mac` job (ci/steps.toml, note-556):
@@ -1792,10 +1790,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
         # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
-        # Even run ids mint on cmux-bot's installation first (#56395), so per-PR reads split two budgets.
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"],
-                         "${{ (steps.snapshot-read-token-bot.outputs.token || steps.snapshot-read-token.outputs.token)"
-                         " || github.token }}")
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         self.assertFalse({"hosted_jobs", "hosted_runner"} & set(job["outputs"]))
@@ -2950,13 +2945,6 @@ class BlacksmithPrRescue(unittest.TestCase):
         for event in ("push", "schedule", "workflow_dispatch", "workflow_run", "merge_group"):
             with self.subTest(event=event):
                 self.assertFalse(cascade.pr_rescue(rescue_env(GITHUB_EVENT_NAME=event)))
-        # A dispatch gating a pull request (PULL_DISPATCH) is read as its pull request's run; no other event is.
-        self.assertTrue(cascade.pr_rescue(rescue_env(GITHUB_EVENT_NAME="workflow_dispatch",
-                                                     **{cascade.PULL_DISPATCH: "true"})))
-        for event in ("push", "schedule", "workflow_run"):
-            with self.subTest(event=event, pull_dispatch=True):
-                self.assertFalse(cascade.pr_rescue(rescue_env(GITHUB_EVENT_NAME=event,
-                                                              **{cascade.PULL_DISPATCH: "true"})))
         for name in RESCUE_IGNORED:
             with self.subTest(workflow=name):
                 ref = f"manaflow-ai/cmux/.github/workflows/{name}@refs/heads/feat-cmux-next"
@@ -2985,28 +2973,6 @@ class BlacksmithPrRescue(unittest.TestCase):
                                        saturated=True, route_wait=150.0)
                 self.assertEqual(result.jobs, none_placed())
                 self.assertEqual((result.retry_runner, result.retry_jobs), ("", ()))
-
-    def test_a_pull_requests_same_tree_dispatch_is_placed_like_its_pull_request(self):
-        """cmux#44529's scheme compile (run 43879624016) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16.
-        cmux#44673 sent such a dispatch's bot re-run off the side lane; cmux#45176 moved every re-run to the
-        placement's retry label, and placement honored pull_request runs only, so the dispatch was stuck again."""
-        jobs = " fast-tier swift-canary cmux-scheme-compile release-compile "
-        full, busy, seen = DeadEndRoute.FULL, DeadEndRoute.BUSY_SMALL, DeadEndRoute.INCIDENT
-        dispatch = rescue_env(CASCADE_RUNS=jobs, GITHUB_EVENT_NAME="workflow_dispatch", **{cascade.PULL_DISPATCH: "true"})
-        starved = cascade.place(dispatch, (), full, busy, seen, saturated=True, route_wait=150.0)
-        self.assertEqual(len(starved.jobs[SMALL]), cascade.MAX_PER_RUN)
-        plain = rescue_env(CASCADE_RUNS=jobs, GITHUB_EVENT_NAME="workflow_dispatch")
-        self.assertEqual(cascade.place(plain, (), full, busy, seen, saturated=True, route_wait=150.0).jobs,
-                         none_placed())
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["macos-placement"]["steps"]
-                    if step.get("id") == "place")
-        expression = step["env"][cascade.PULL_DISPATCH]
-        for clause in ("github.event_name == 'workflow_dispatch'", "inputs.same_tree_origin == ''",
-                       "inputs.same_tree_origin == 'pull_request'", "inputs.dev_daily != true",
-                       "inputs.tip_swift_suite != true", "inputs.tip_daemon_suite != true",
-                       "inputs.base_tier != true", "inputs.no_reuse != true"):
-            with self.subTest(clause=clause):
-                self.assertIn(clause, expression)
 
     def test_nightly_promote_signing_and_release_workflows_read_it_as_off(self):
         for name in RESCUE_IGNORED:

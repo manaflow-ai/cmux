@@ -56,8 +56,7 @@ test("Home and the App Store are never listed", async () => {
   store.stop();
 });
 
-test("the store has Discover, Features and Installed: a features link opens the Features tab", () => {
-  expect(parseRoute("#/features?category=newTab").tab).toBe("features");
-  expect(parseRoute("#/elsewhere").tab).toBe("discover");
+test("the store has Discover and Installed only: an old features link opens Discover", () => {
+  expect(parseRoute("#/features?category=newTab").tab).toBe("discover");
   expect(parseRoute("#/installed").tab).toBe("installed");
 });

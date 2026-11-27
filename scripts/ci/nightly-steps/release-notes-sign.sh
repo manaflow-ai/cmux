@@ -10,9 +10,10 @@ if [ -z "$since" ]; then
   since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
 fi
 if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
-mkdir -p notes
-# Extend the published index only when its signature verifies. It is read before the build so the
-# notes' `since` can name the build whose head the span starts at.
+python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
+  --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
+  --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
+# Extend the published index only when its signature verifies.
 previous=""
 # The retired cmux NEXT-identity feed's notes are the fallback history.
 for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_RETIRED_FEED_BASE}"; do
@@ -23,36 +24,11 @@ for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_RETIRED_FEED_BASE}"; do
     break
   fi
 done
-python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-  --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-  --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ${previous:+--previous-index "$previous"} \
-  --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
 python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
   ${previous:+--previous "$previous"} --out notes/index.json
+rm -f notes/previous-index.json notes/previous-index.json.sig
 # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
 signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
-# notes/pr-index.json: each PR number to the first build that shipped it, merged into the
-# published (verified) copy. A first publish (404) seeds it from the notes the index lists; any
-# other failure to read or verify it skips it, so a bad fetch never overwrites the history.
-pr_status="$(curl -sSL -A "cmux-release-notes/1" -o notes/previous-pr-index.json -w '%{http_code}' \
-  "$NIGHTLY_NEXT_FEED_BASE/notes/pr-index.json" || true)"
-pr_args=()
-if [ "$pr_status" = 200 ] \
-   && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-pr-index.json.sig "$NIGHTLY_NEXT_FEED_BASE/notes/pr-index.json.sig" \
-   && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-pr-index.json; then
-  pr_args=(--previous notes/previous-pr-index.json)
-elif [ "$pr_status" = 404 ]; then
-  pr_args=(--seed-index notes/index.json --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_RETIRED_FEED_BASE"
-    --public-key "$CONTENT_PUBLIC_KEY")
-else
-  echo "::warning::notes/pr-index.json did not read or verify (HTTP $pr_status); this build publishes without it"
-fi
-if [ "${#pr_args[@]}" -gt 0 ]; then
-  python3 scripts/cmux-next/release-notes.py pr-index --notes "notes/$NIGHTLY_BUILD.json" \
-    "${pr_args[@]}" --out notes/pr-index.json
-  signed+=(notes/pr-index.json)
-fi
-rm -f notes/previous-index.json notes/previous-index.json.sig notes/previous-pr-index.json notes/previous-pr-index.json.sig
 # Older published notes without summary lines or structured items get them (cx-urd.61.6):
 # fetched from either feed, verified, filled from their commit subjects, re-signed below and
 # uploaded with this build's notes. Builds already carrying both are left alone.

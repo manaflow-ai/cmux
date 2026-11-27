@@ -411,9 +411,8 @@ mod apps {
 
     #[test]
     fn settings_and_strings_reach_the_app() {
-        // `main`'s top level reads them too (`init` runs before it), not only a render.
         let mut h = Harness::with(
-            "globalThis.atLoad = [cmux.app.settings().login, cmux.app.locale]",
+            "",
             json!({ "settings": { "login": "octo" }, "locale": "ja", "strings": { "greeting": "こんにちは {name}" } }),
             Limits::default(),
         );
@@ -421,7 +420,6 @@ mod apps {
             h.eval(r#"[cmux.t("greeting", { name: "Ada" }), cmux.app.locale]"#),
             json!(["こんにちは Ada", "ja"])
         );
-        assert_eq!(h.eval("globalThis.atLoad"), json!(["octo", "ja"]));
         h.vm.set_settings(&json!({ "login": "hubot" })).expect("settings");
         h.pump().expect("pump");
         assert_eq!(h.eval("cmux.app.settings().login"), json!("hubot"));

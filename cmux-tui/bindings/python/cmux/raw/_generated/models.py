@@ -1658,17 +1658,6 @@ class ServerStatsDisk:
     segments: Union[ServerStatsDiskSegments, None]
     shm_bytes: int
     wal_bytes: int
-    checkpoints: Union[ServerStatsDiskCheckpoints, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class ServerStatsDiskCheckpoints:
-    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskCheckpoints'
-    budget_bytes: int
-    bytes_data: int = field(metadata={'wire_name': 'bytes'})
-    checkpoints: int
-    largest_bytes: int
-    over_budget: bool
 
 
 @dataclass(frozen=True)
@@ -7005,7 +6994,6 @@ __all__ = [
     'ServerStatsCommands',
     'ServerStatsConnections',
     'ServerStatsDisk',
-    'ServerStatsDiskCheckpoints',
     'ServerStatsDiskFile',
     'ServerStatsDiskJournal',
     'ServerStatsDiskJournalKind',

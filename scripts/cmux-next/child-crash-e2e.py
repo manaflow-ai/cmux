@@ -185,8 +185,8 @@ def main():
             fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
             check("agent: app still runs", alive(pid))
             check("agent: the page reloads in a new WebContent process", bool(fresh), fresh)
-            # A page that keeps crashing (3 retries in 60 s) shows the notice, a line with no Reload
-            # button, and still loads again by itself every 30 s (AgentPageCrashBudget.noticeRetryDelay).
+            # A page that keeps crashing stops reloading (PageCrashReloads: 3 reloads in 10 minutes)
+            # and offers Reload instead; Reload starts it again.
             notice, current = None, fresh
             for crash in range(2, 6):
                 if not current:
@@ -199,12 +199,13 @@ def main():
                 current = wait(lambda: (lambda p: p if p and p != previous else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
             safe_print(f"agent: notice after crash {crash}", flush=True)
             texts = (notice or {}).get("texts") or []
-            check("agent: a page that keeps crashing shows the crash notice with no button", len(texts) == 1 and all(texts), texts)
+            check("agent: a page that keeps crashing shows the crashed page with Reload", len(texts) == 2 and all(texts), texts)
             check("agent: app still runs after repeated crashes", alive(pid))
             if notice:
-                back = wait(lambda: (lambda p: p if p and p != current else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 45)
-                gone = back and wait(lambda: not (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}).get("shown"), 15)
-                check("agent: a crash loop still loads the page again by itself", bool(back) and bool(gone), f"pid={back}")
+                pressed = (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane, "press": "reload"}) or {}).get("pressed")
+                back = pressed and wait(lambda: (lambda p: p if p and p != current else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+                gone = not (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}).get("shown")
+                check("agent: Reload starts the page again", bool(back) and gone, f"pressed={pressed} pid={back}")
 
     cef_tab = None
     if only & {"renderer", "gpu"}:

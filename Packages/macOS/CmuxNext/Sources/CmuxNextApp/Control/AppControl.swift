@@ -61,7 +61,7 @@ final class AppControl {
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board.
     init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork; DebugTimings.markLaunch("main.control.fields") // after the watchdog's and the probes' initial values
+        self.mainWork = mainWork
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
     }
 
@@ -83,7 +83,7 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog, sessionConsent: .forNightly(launch: launch, auth: services.cloud.auth) { await CmuxDialogCenter.shared.askConsent(title: $0, lines: $1, allow: $2, deny: $3, identifier: "session-consent") })
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,

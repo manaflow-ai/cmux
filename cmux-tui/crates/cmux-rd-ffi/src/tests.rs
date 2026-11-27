@@ -403,7 +403,6 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("bulk_ffi.rs"),
         include_str!("clipboard_ffi.rs"),
         include_str!("record_ffi.rs"),
-        include_str!("ui/mod.rs"),
         include_str!("view_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header

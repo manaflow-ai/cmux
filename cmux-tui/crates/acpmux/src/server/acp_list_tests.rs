@@ -362,7 +362,6 @@ async fn a_chat_added_or_removed_between_pages_breaks_no_page() {
 /// whole cost and its pages. Every row comes once. The cost is this thread's CPU time, not wall
 /// time: the caller runs on a current-thread runtime, so the connection, the hub and the list's
 /// row building all run on this thread, and a loaded runner that deschedules it adds nothing.
-#[cfg(unix)]
 async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize) {
     let (input, incoming) = mpsc::channel(8);
     let (output, mut outgoing) = mpsc::channel(8);
@@ -411,7 +410,6 @@ async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize)
 }
 
 /// CPU time this thread has used.
-#[cfg(unix)]
 fn thread_cpu() -> Duration {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `ts` is a valid timespec for the call to write.
@@ -425,7 +423,6 @@ fn thread_cpu() -> Duration {
 /// aws-m4pro-2, 2026-11-12). The cost is this thread's CPU time, so a loaded host does not move
 /// it; the bound is loose, the growth it guards is 10x.
 #[tokio::test(flavor = "current_thread")]
-#[cfg(unix)]
 async fn a_paged_acp_list_costs_about_one_list_quiet_or_busy() {
     let hub = fleet_hub(20, 500).await;
     let quiet = timed_read(&hub, false).await;

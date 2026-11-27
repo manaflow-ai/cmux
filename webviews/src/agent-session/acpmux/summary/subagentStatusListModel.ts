@@ -4,7 +4,7 @@ import { type StringKey, type Translate } from "../i18n";
 import { running, STATE_LABEL } from "../subagents/subagentGroupModel";
 import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
-import { retrying, retryWords, subagentRetryKey, type RetryQuiet } from "../subagents/retryState";
+import { retrying, retryLabel } from "../subagents/retryState";
 import { type SubsessionState } from "../subagents/subsessions";
 
 /// What a row says of its subagent: a subagent that asks the user for a permission or an answer
@@ -51,20 +51,11 @@ export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
 }
 
-/// What a subagent's line says of its state: acpmux's retry once it has waited the shared bound
-/// ("Retrying (2/4) after a capacity error", ``retryWords``), else its status's word.
-/// `connectionQuiet`: the drawing component's `useConnectionQuietKeys`.
-export function subagentStateText(
-  t: Translate,
-  agent: Subagent,
-  waiting: ReadonlySet<string>,
-  connectionQuiet: RetryQuiet,
-  now?: number,
-): string {
-  return (
-    retryWords(t, retrying(agent), subagentRetryKey(agent), connectionQuiet) ??
-    t(subagentStatusLabel(agent, waiting, now))
-  );
+/// What a subagent's line says of its state: acpmux's retry while one waits ("Retrying (2/4) after a
+/// capacity error"), else its status's word.
+export function subagentStateText(t: Translate, agent: Subagent, waiting: ReadonlySet<string>, now?: number): string {
+  const retry = retrying(agent);
+  return retry ? retryLabel(t, retry) : t(subagentStatusLabel(agent, waiting, now));
 }
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),

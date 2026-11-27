@@ -77,7 +77,6 @@ enum AgentPaneHarnessCard {
 
     /// The agent service is still older than the app (it lacks the method) after the app's own restart.
     static var oldServiceMessage: String {
-        // retry-prompt-ok: updating the agent service replaces binaries and restarts it
         String(localized: "agentPane.harness.oldService",
                defaultValue: "cmux couldn't update its agent service. Quit and reopen cmux, then try again.", bundle: .localizedModule)
     }
@@ -90,7 +89,6 @@ enum AgentPaneHarnessCard {
 
     /// The update or restart could not reach this Mac's agent service.
     static var unavailableMessage: String {
-        // retry-prompt-ok: updating or restarting the agent service replaces binaries and restarts it
         String(localized: "agentPane.harness.unavailable", defaultValue: "The agent service is not running. Try again in a moment.", bundle: .localizedModule)
     }
 }

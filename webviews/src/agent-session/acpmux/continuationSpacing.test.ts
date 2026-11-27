@@ -1,5 +1,4 @@
 // l10n-allow-file: transcript geometry fixtures.
-import { ROW_METRIC } from "./rowMetric";
 import { expect, test } from "bun:test";
 import { setExperimentSwitches } from "../../experiments/switches";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
@@ -317,14 +316,13 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     const layout = layoutConversation(rows, 720);
     // The one-line activity row (TRANSCRIPT_LINE_ROW), 4 to its rule, then 8 to the next row, with no stack gap after it
     // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
-    expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow);
+    expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW + 12);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3)
-      expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + 12);
     const placed = placeRows(layout, () => TRANSCRIPT_LINE_ROW);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - TRANSCRIPT_LINE_ROW).toBe(replyGap);
   }

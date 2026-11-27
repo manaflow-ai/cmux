@@ -90,8 +90,8 @@ import Testing
         list.convert(NSPoint(x: value, y: 0), from: view).x
     }
 
-    /// Home's glyph sits in the one icon slot that starts where a text-only row's title starts (Leo 2026-10-28: "the
-    /// alignment"). A pinned row draws no pin there (Leo 2026-11-23, ask c-b5d3e0efb6).
+    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts (Leo
+    /// 2026-10-28: "the alignment").
     @Test(arguments: cases, DensityPreset.allCases)
     func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
@@ -107,9 +107,8 @@ import Testing
             let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide + spill)
             // The glyph's frame snaps its origin and its size to whole pixels (a crisp bitmap): up to half a 1x pixel each.
             let snapped = Self.tolerance + 0.5
-            #expect(pin.pinInkFrame == nil, "\(c.testDescription): the pinned row draws a pin")
-            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph")
-            for (name, ink, row) in [("Home's glyph", homeInk, home)] {
+            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph"), pinInk = try #require(pin.pinInkFrame, "the pinned row drew no pin")
+            for (name, ink, row) in [("Home's glyph", homeInk, home), ("the pin", pinInk, pin)] {
                 let minX = Self.x(list, ink.minX, in: row), maxX = Self.x(list, ink.maxX, in: row)
                 #expect(minX >= slot.lowerBound - snapped && maxX <= slot.upperBound + snapped,
                         "\(c.testDescription): \(name) spans \(minX)...\(maxX), the icon slot \(slot)")
@@ -120,16 +119,20 @@ import Testing
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
     /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
     /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
-    /// aligned with 'Fix…'"), at every density, minimal mode, width and text size.
+    /// aligned with 'Fix…'"); the narrow pin centers in Home's glyph square (#42431), at every density, minimal mode, width and text size.
     @Test(arguments: cases, DensityPreset.allCases)
-    func homesGlyphStartsOnTheTextOnlyTitlesEdge(_ c: Case, preset: DensityPreset) throws {
+    func homesGlyphAndThePinStartOnOneEdge(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
-            let home = try Self.item(list, Self.home.id)
+            let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let homeColumn = list.convert(home.leadingColumnFrame, from: home)
-            try #require(homeColumn.width > 0, "\(c.testDescription): Home has no icon column")
+            let pinColumn = list.convert(pin.leadingColumnFrame, from: pin)
+            try #require(homeColumn.width > 0 && pinColumn.width > 0, "\(c.testDescription): a row has no icon column")
+            #expect(abs(homeColumn.minX - pinColumn.minX) <= Self.tolerance && abs(homeColumn.width - pinColumn.width) <= Self.tolerance,
+                    "\(c.testDescription): Home's icon column \(homeColumn.minX) + \(homeColumn.width), the pinned row's \(pinColumn.minX) + \(pinColumn.width)")
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
             let loose = try Self.row(list, Self.loose)
             let titleX = Self.x(list, loose.title.frame.minX, in: loose)
             // Each glyph snaps to the window's pixel grid on its own, so on a 1x screen an edge or a center can land one
@@ -143,11 +146,14 @@ import Testing
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
             #expect(abs(homeInk.minX - titleX) <= pixel,
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
+            // The pin is a narrow mark: it centers in the glyph square Home's house starts (https://github.com/manaflow-ai/cmux/issues/42431).
+            let centerLine = homeInk.minX + SidebarStyle.rowGlyphOpticalSide / 2
+            #expect(abs(pinInk.midX - centerLine) <= pixel,
+                    "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph square at \(centerLine)")
         }
     }
 
-    /// Home's label and the title of a workspace row with an icon start at one text column; a text-only pinned row's
-    /// title starts where a text-only workspace row's does, as it has no pin before it (Leo 2026-11-23, ask c-b5d3e0efb6).
+    /// Home's label, a pinned row's title and the title of a workspace row with an icon start at one text column.
     @Test(arguments: cases, DensityPreset.allCases)
     func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
@@ -158,10 +164,7 @@ import Testing
             let homeTitle = Self.x(list, home.titleFrame.minX, in: home)
             let pinTitle = Self.x(list, pin.titleFrame.minX, in: pin)
             let iconTitle = Self.x(list, iconRow.title.frame.minX, in: iconRow)
-            let loose = try Self.row(list, Self.loose)
-            let looseTitle = Self.x(list, loose.title.frame.minX, in: loose)
-            #expect(abs(looseTitle - pinTitle) <= Self.tolerance,
-                    "\(c.testDescription): a text-only workspace row's title at \(looseTitle), the pinned title at \(pinTitle)")
+            #expect(abs(homeTitle - pinTitle) <= Self.tolerance, "\(c.testDescription): Home's label at \(homeTitle), the pinned title at \(pinTitle)")
             #expect(abs(homeTitle - iconTitle) <= Self.tolerance,
                     "\(c.testDescription): Home's label at \(homeTitle), an icon row's title at \(iconTitle)")
         }

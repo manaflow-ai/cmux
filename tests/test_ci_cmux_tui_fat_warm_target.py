@@ -47,8 +47,6 @@ MACOS_CROSS = ROOT / "scripts" / "ci" / "macos-cross.sh"
 STICKY = "useblacksmith/stickydisk@"
 SHIPPED = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin")
 NEXT_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'"
-# The pool darwin leg runs on the trees cmux-next dispatches, not only pushes (which skip it).
-NEXT_TREE = "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next'"
 
 
 def steps() -> list[dict]:
@@ -441,7 +439,7 @@ class PoolRunnerWarmTarget(ToolchainStamp):
     def test_workflow_routes_the_pool_darwin_leg_to_its_own_tree(self) -> None:
         locate = step("Locate the pool warm target (feat-cmux-next, fat, aarch64 macOS on Linux)")
         cond = str(locate["if"])
-        for part in ("startsWith(runner.name, 'cmux-runner-pool-')", "matrix.target == 'aarch64-apple-darwin'", NEXT_TREE, "inputs.lto != 'thin'"):
+        for part in ("startsWith(runner.name, 'cmux-runner-pool-')", "matrix.target == 'aarch64-apple-darwin'", NEXT_PUSH, "inputs.lto != 'thin'"):
             self.assertIn(part, cond)
         self.assertIn("pool-dir", str(locate["run"]))
         self.assertIn("probe", str(locate["run"]))

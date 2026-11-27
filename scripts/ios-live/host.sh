@@ -176,10 +176,13 @@ ensure_xcodegen() {
   local d="$tools_root/xcodegen-$xcodegen_version"
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
-  # Fetched beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
+  # Unzipped beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
   local tmp; tmp="$(mktemp -d "$tools_root/.xcodegen.XXXXXX")"
-  bash "$src/scripts/ci/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$tmp" >/dev/null \
-    || { rm -rf "$tmp"; die "xcodegen fetch failed"; }
+  curl -fsSL --retry 3 --retry-all-errors -o "$tmp/xcodegen.zip" \
+    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" \
+    || { rm -rf "$tmp"; die "could not download xcodegen $xcodegen_version from GitHub releases"; }
+  [[ "$(shasum -a 256 "$tmp/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || { rm -rf "$tmp"; die "xcodegen checksum mismatch"; }
+  unzip -q "$tmp/xcodegen.zip" -d "$tmp"
   mv "$tmp" "$d" 2>/dev/null || rm -rf "$tmp"
   [[ -x "$xcodegen" ]] || die "no xcodegen binary at $xcodegen"
 }
@@ -218,7 +221,6 @@ checkout() {
 # (a laptop) gets it copied in with `ios-live ffi-sync`.
 ffi_stamp() { git -C "$src" ls-files -s cmux-next-ios/rust | git hash-object --stdin; git -C "$src" diff HEAD -- cmux-next-ios/rust | git hash-object --stdin; }
 build_ffi() {
-  [[ -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]] && PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   local stamp xcf="$src/cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
   stamp="$(ffi_stamp | tr '\n' '-')"
   if [[ -f "$xcf/Info.plist" && "$(cat "$root/ffi.stamp" 2>/dev/null)" == "$stamp" ]]; then ffi_how=unchanged; return 0; fi
@@ -232,26 +234,12 @@ build_ffi() {
   if [[ "$key" =~ ^[0-9a-f]{64}$ ]] && (cd "$src" && python3 -I scripts/ci/ios_ffi_cache.py restore "$src" "$key") >"$root/logs/ffi-cache.log" 2>&1 \
     && [[ -f "$xcf/Info.plist" ]]; then
     ffi_how="cache hit"
-  elif command -v rustup >/dev/null 2>&1; then
-    # A miss builds as the simulator CI step does (scripts/ci/cmux-next-ios-sim.sh):
-    # build-xcframework.sh adds the iOS targets the workspace's pinned toolchain lacks, the build
-    # runs in a warm per-worker cargo target dir when CMUX_CI_CACHE_DIR names one, and the result
-    # is stored under its key so the next run on this host restores it.
-    local rc_file="$root/logs/ffi-build.rc" rc=0
-    rm -f "$rc_file"
-    (cd "$src" && JOBS="$jobs" python3 -I scripts/ci/ios_ffi_cache.py build "$src" "$rc_file" \
-      bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$root/logs/ffi.log" 2>&1 || rc=$?
-    [[ -f "$rc_file" ]] && rc="$(cat "$rc_file")"
-    [[ "$rc" == 0 ]] || { tail -40 "$root/logs/ffi.log"; die "FFI build failed (log $root/logs/ffi.log)"; }
+  elif rustup target list --installed 2>/dev/null | grep -q aarch64-apple-ios-sim; then
+    (cd "$src" && JOBS="$jobs" bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$root/logs/ffi.log" 2>&1 \
+      || { tail -40 "$root/logs/ffi.log"; die "FFI build failed (log $root/logs/ffi.log)"; }
     ffi_how=built
-    if [[ "$key" =~ ^[0-9a-f]{64}$ ]]; then
-      (cd "$src" && python3 -I scripts/ci/ios_ffi_cache.py probe "$root/logs/ffi-inputs.json" "$root/logs/ffi-tip.json" \
-        && python3 -I scripts/ci/ios_ffi_cache.py store "$src" "$root/logs/ffi-inputs.json" "$root/logs/ffi-tip.json") \
-        >>"$root/logs/ffi-cache.log" 2>&1 && ffi_how="built, stored ${key:0:12}" \
-        || echo "ios-live: storing the FFI build in the cache failed (log $root/logs/ffi-cache.log); built anyway" >&2
-    fi
   else
-    die "the Rust FFI changed, the FFI cache has no build of it and this host has no rustup: ios-live ffi-sync FROM_HOST (a fleet host that built it)"
+    die "the Rust FFI changed and this host has no Rust iOS targets: ios-live ffi-sync FROM_HOST (a fleet host that built it)"
   fi
   echo "$stamp" >"$root/ffi.stamp"
 }

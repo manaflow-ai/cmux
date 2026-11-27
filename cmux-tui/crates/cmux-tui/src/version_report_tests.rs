@@ -53,8 +53,6 @@ fn only_package_installs_name_an_update_command() {
     assert_eq!(InstallChannel::Other.update_command(), None);
 }
 
-// App bundles (Info.plist, `plist` is a unix-only dependency) are unix only.
-#[cfg(unix)]
 fn app_with_info(dir: &Path, info: &[(&str, &str)]) -> std::path::PathBuf {
     let bundle = dir.join("cmux NEXT.app");
     let bin = bundle.join("Contents/Resources/bin");
@@ -65,7 +63,6 @@ fn app_with_info(dir: &Path, info: &[(&str, &str)]) -> std::path::PathBuf {
     bin.join("cmux")
 }
 
-#[cfg(unix)]
 #[test]
 fn a_cli_inside_an_app_names_the_apps_commit() {
     let dir = tempfile::tempdir().unwrap();
@@ -92,7 +89,6 @@ fn a_cli_inside_an_app_names_the_apps_commit() {
     assert_eq!(report["build_identity"], "a343967d");
 }
 
-#[cfg(unix)]
 #[test]
 fn a_cli_outside_an_app_or_without_a_commit_prints_one_line() {
     let dir = tempfile::tempdir().unwrap();

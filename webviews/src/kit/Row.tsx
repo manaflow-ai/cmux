@@ -2,25 +2,15 @@
 // and a trailing column (a pill, a count, a hover action). With `onSelect` the whole row is the one
 // open target (the sidebar spec: no separate Open button); without it the row is static text.
 // Hover and selection fill the row from the theme's roles; nothing in the row changes weight.
-// A host that draws its own rows (a customize scene's) can hold the row element (`ref`), hand it any
-// other attribute or handler (drag and reorder), set the second line in the detail size, and give the
-// selection its own fill with `--kit-row-selected-fill` on the row. Left out, the row is as before.
-import { forwardRef, type HTMLAttributes, type ReactNode, type Ref } from "react";
+import type { ReactNode } from "react";
 import { cx } from "../ui/cx";
 
 export type RowDensity = "compact" | "comfortable";
-/** The second line's type step: `caption` (the default) or `detail`. */
-export type RowSubtitleSize = "caption" | "detail";
 
-/** Every other attribute and handler goes onto the row element (the button, or the static div). */
-type RowElementProps = Omit<HTMLAttributes<HTMLElement>, "title" | "onSelect" | "className" | "children">;
-
-export interface RowProps extends RowElementProps {
+export interface RowProps {
   title: ReactNode;
   /** A second line in the secondary color. Leave it out when it would only repeat the title. */
   subtitle?: ReactNode;
-  /** The second line's type step; `detail` is the customize scene's. Default `caption`. */
-  subtitleSize?: RowSubtitleSize;
   /** The leading column: an `Icon`, a `StatusGlyph`, a spinner or an `Avatar`. */
   leading?: ReactNode;
   /** The trailing column: a `Pill`, a count or a small `Button`. */
@@ -35,22 +25,17 @@ export interface RowProps extends RowElementProps {
   className?: string;
 }
 
-export const Row = forwardRef<HTMLElement, RowProps>(function Row(
-  {
-    title,
-    subtitle,
-    subtitleSize,
-    leading,
-    trailing,
-    selected = false,
-    density = "compact",
-    label,
-    onSelect,
-    className,
-    ...rest
-  },
-  ref,
-) {
+export function Row({
+  title,
+  subtitle,
+  leading,
+  trailing,
+  selected = false,
+  density = "compact",
+  label,
+  onSelect,
+  className,
+}: RowProps) {
   const body = (
     <>
       {leading !== undefined && <span className="kit-row-lead">{leading}</span>}
@@ -62,10 +47,8 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
     </>
   );
   const shared = {
-    ...rest,
     className: cx("kit-row", className),
     "data-density": density,
-    "data-subtitle-size": subtitleSize === "detail" ? subtitleSize : undefined,
     "data-selected": selected ? "" : undefined,
     "aria-current": selected ? ("true" as const) : undefined,
   };
@@ -74,17 +57,11 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
   return (
     <li className="kit-row-item">
       {onSelect ? (
-        <button
-          type="button"
-          ref={ref as Ref<HTMLButtonElement>}
-          {...shared}
-          aria-label={label ?? rest["aria-label"]}
-          onClick={onSelect}
-        >
+        <button type="button" {...shared} aria-label={label} onClick={onSelect}>
           {body}
         </button>
       ) : (
-        <div ref={ref as Ref<HTMLDivElement>} {...shared}>
+        <div {...shared}>
           {label !== undefined && <span className="ui-sr-only">{label}</span>}
           {label !== undefined ? (
             <span className="kit-row-body" aria-hidden="true">
@@ -97,4 +74,4 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
       )}
     </li>
   );
-});
+}

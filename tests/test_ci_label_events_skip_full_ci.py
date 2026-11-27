@@ -48,16 +48,15 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
     # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
     # Routes only the land handoff (scripts/ci/head_tier.py land rule): a ready-to-land head runs the full tier.
-    # Adding full-ci routes too (the router hands the full tier its head).
-    "pr-router.yml": ("full-ci", "ready-to-land"),
+    "pr-router.yml": ("ready-to-land",),
     "backend-migrations.yml": ("backend:apply-migrations", "full-ci", "ready-to-land"),
     # The land tier (tests/test_head_tier.py LAND_GATED): each runs its jobs only at the head handed to land, so
     # adding ready-to-land (or full-ci) re-runs it there; no other label starts a run.
     **{name: ("full-ci", "ready-to-land") for name in (
-        "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+        "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
         "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
         "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-car-guards.yml",
-        "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
+        "cmux-next-fast-gates.yml", "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
         "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml",
         "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
         "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
@@ -89,29 +88,15 @@ REACTS: dict[str, str] = {
 }
 
 
-# Labels that only add coverage: removing one asks for less than the run already at the head did, so its
-# `unlabeled` event starts nothing (a label sweep of 309 idle pull requests would have bought 309 runs of every
-# land-tier workflow). Removing any other label a workflow reads (an override such as freeze-ok) still re-runs it.
-COVERAGE: tuple[str, ...] = ("full-ci", "dev-build", "ready-to-land")
-
-
-def _other(labels: tuple[str, ...]) -> str:
-    if len(labels) == 1:
-        return f"github.event.label.name != '{labels[0]}'"
-    return f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
-
-
 def guard(labels: tuple[str, ...], event: str = "pull_request") -> str:
-    """The job-level condition: false for a label event of a label not in `labels`, and for removing a COVERAGE
-    label."""
-    kept = tuple(label for label in labels if label not in COVERAGE)
-    if kept == labels:  # no coverage label: removing one it reads re-runs, as adding does
-        return (f"!(github.event_name == '{event}' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
-                "(github.event.action == 'labeled' || "
-                f"github.event.action == 'unlabeled') && {_other(labels)})")
-    unlabeled = "github.event.action == 'unlabeled'" + (f" && {_other(kept)}" if kept else "")
+    """The job-level condition: false only for a label event of a label not in `labels`."""
+    if len(labels) == 1:
+        other = f"github.event.label.name != '{labels[0]}'"
+    else:
+        other = f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
     return (f"!(github.event_name == '{event}' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
-            f"(github.event.action == 'labeled' && {_other(labels)} || {unlabeled}))")
+            "(github.event.action == 'labeled' || "
+            f"github.event.action == 'unlabeled') && {other})")
 
 
 def evaluate(expr: str, event: dict) -> bool:
@@ -146,50 +131,6 @@ def top_level_or(condition: str) -> bool:
     return False
 
 
-def _unwrap(term: str) -> str:
-    """TERM without parentheses that wrap all of it."""
-    while term.startswith("(") and term.endswith(")"):
-        depth = 0
-        for index, char in enumerate(term):
-            depth += char == "("
-            depth -= char == ")"
-            if depth == 0 and index < len(term) - 1:
-                return term
-        term = term[1:-1].strip()
-    return term
-
-
-def top_level_and_terms(condition: str) -> list[str]:
-    """CONDITION's && terms outside parentheses, unwrapped (none when it has a top-level ||). A term that is
-    itself a parenthesized && chain gates all of CONDITION too, so its terms are listed as well: #58306 appended
-    `&& (github.event_name != 'pull_request' || needs.R.result == 'success' || ...)` after the label guard and
-    wrapped what came before, `(A && <guard>) && (<router>)`; the guard still gates every label event."""
-    if top_level_or(condition):
-        return []
-    terms, depth, start = [], 0, 0
-    for index, char in enumerate(condition):
-        depth += char == "("
-        depth -= char == ")"
-        if depth == 0 and condition.startswith("&&", index):
-            terms.append(condition[start:index])
-            start = index + 2
-    terms.append(condition[start:])
-    if len(terms) == 1 and _unwrap(condition.strip()) == condition.strip():
-        return [condition.strip()]
-    found = []
-    for term in terms:
-        term = _unwrap(term.strip())
-        found.append(term)
-        if not term.startswith("!"):
-            found.extend(inner for inner in top_level_and_terms(term) if inner != term)
-    return found
-
-
-PUSH_OR_DISPATCH_ONLY = re.compile(r"github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'")
-# `needs.X.result == 'failure'` or `needs.X.outputs.Y == 'value'`: false while X skipped.
-NEEDS_RESULT = re.compile(r"^needs\.([A-Za-z0-9_-]+)\.(result == '(failure|success)'|outputs\.[A-Za-z0-9_-]+ == '[^']+')$")
-
-
 def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
     status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
@@ -201,17 +142,6 @@ def reachable_by_label_event(body: dict, condition: str, event: str = "pull_requ
             and not top_level_or(condition):
         return False
     if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
-        return False
-    terms = top_level_and_terms(" ".join(condition.split()))
-    # A term that holds only on push or dispatch (`... && (github.event_name == 'push' || ... 'workflow_dispatch')`).
-    if any(PUSH_OR_DISPATCH_ONLY.fullmatch(term) or any(PUSH_OR_DISPATCH_ONLY.fullmatch(inner)
-                                                       for inner in top_level_and_terms(term)) for term in terms):
-        return False
-    # A job that runs only when a needed job ended failure or success (a fail-fast reporter) runs only when that
-    # job ran, and that job carries the guard itself.
-    needs = body.get("needs") or []
-    needs = [needs] if isinstance(needs, str) else list(needs)
-    if any((m := NEEDS_RESULT.match(term)) and m.group(1) in needs for term in terms):
         return False
     return not body.get("needs") or bool(STATUS_FUNCTION.search(condition))
 
@@ -263,8 +193,7 @@ def main() -> int:
                 continue
             if not reachable_by_label_event(body or {}, text, event_name):
                 continue
-            if not (text == expected or text.endswith(f") && {expected}")
-                    or expected in top_level_and_terms(" ".join(text.split()))):
+            if not (text == expected or text.endswith(f") && {expected}")):
                 failures.append(f"{name} job {job}: its if does not end with the label guard {expected}")
             job_group = str(((body or {}).get("concurrency") or {}).get("group") or "")
             if job_group and isolated not in job_group:
@@ -283,12 +212,8 @@ def main() -> int:
             ({"event_name": event_name, "action": "labeled", "label": "ready-to-land"}, "ready-to-land" in labels),
             # Other bases keep re-running: main's required checks must not be superseded by a skip.
             ({"event_name": event_name, "action": "labeled", "label": "risk:high", "base": "main"}, True),
-        ] + [({"event_name": event_name, "action": "labeled", "label": label}, True) for label in labels] + [
-            # Removing a coverage label (full-ci after a full run, land stop clearing ready-to-land) runs nothing.
-            ({"event_name": event_name, "action": "unlabeled", "label": label}, label not in COVERAGE)
-            for label in labels]
-        if "full-ci" in labels:
-            cases.append(({"event_name": event_name, "action": "unlabeled", "label": "full-ci", "base": "main"}, True))
+        ] + [({"event_name": event_name, "action": action, "label": label}, True)
+             for label in labels for action in ("labeled", "unlabeled")]
         for event, want in cases:
             if evaluate(expected, event) is not want:
                 failures.append(f"{name}: guard gives {not want} for {event}, want {want}")

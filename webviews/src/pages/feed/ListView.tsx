@@ -3,9 +3,9 @@
 // first. The owner orders both; this view never sorts.
 import type { KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
-import { answerState, isPending, plain, rowActions, type FeedProps } from "./context";
+import { isPending, plain, type FeedProps } from "./context";
 import { FeedIcon } from "./icons";
-import { groupEntries, isHydrated, moveSelection, relativeTime, restLines } from "./model";
+import { groupEntries, isHydrated, moveSelection, restLines } from "./model";
 import { EmptyState, FeedLines, RequestCard } from "./parts";
 
 export function ListView({ store, snap, strings }: FeedProps) {
@@ -48,14 +48,7 @@ export function ListView({ store, snap, strings }: FeedProps) {
       ) : (
         <div className="feed-list-scroll">
           {requests.map((entry) => (
-            <RequestCard
-              key={entry.id}
-              item={entry.item}
-              store={store}
-              strings={strings}
-              time={relativeTime(entry.item.created_at, snap.now, strings.language)}
-              {...answerState(snap, entry.item)}
-            />
+            <RequestCard key={entry.id} item={entry.item} store={store} snap={snap} strings={strings} />
           ))}
           <FeedLines
             lines={lines}
@@ -63,8 +56,8 @@ export function ListView({ store, snap, strings }: FeedProps) {
             now={snap.now}
             label={t("feed.title")}
             scrollParent=".feed-list-scroll"
-            onSelect={rowActions(store).select}
-            onOpen={rowActions(store).open}
+            onSelect={(id) => store.select(id)}
+            onOpen={(id) => store.open(id)}
             onKeyDown={keys}
           />
         </div>

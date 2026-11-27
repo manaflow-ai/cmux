@@ -453,22 +453,10 @@ describe("auto-roll settle", () => {
   });
 
   test("a cancelled, timed out or failed deploy rolls back while the image is still first at the tip", () => {
-    for (const deploy of ["cancelled", "failure", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
-    expect(settle(roll({ deploy: "skipped", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    for (const deploy of ["cancelled", "failure", "skipped", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
     expect(settle(roll({ product: "failure" })).outcome).toBe("rollback");
     // A green create that booted some other image proves nothing about this one.
     expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
-  });
-
-  test("a roll whose production deploy never ran (check red first) is deployed again, at most ROLLBACK_DEPLOYS deploys", () => {
-    // 6fde033d-45743286480-3, 2026-11-26: the check job's checkout hung, deploy-production was skipped, and the image
-    // was rolled back with production never having booted it.
-    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++) {
-      expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", deployedFirst: image, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
-    }
-    expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
-    // Gone from both lists already: nothing to deploy again.
-    expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -567,8 +555,6 @@ describe("auto-roll workflows", () => {
     expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
-    expect(retry.run).toContain('-f image_roll_redeploy="$redeploy"');
-    expect(read).toContain('if [ "$IN_REDEPLOY" = true ]; then kind=roll; fi');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
   });
 

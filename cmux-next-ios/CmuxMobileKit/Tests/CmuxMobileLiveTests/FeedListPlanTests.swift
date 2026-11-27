@@ -86,7 +86,6 @@ import Testing
         #expect(plan.reconfigure.isEmpty)
     }
 
-    #if os(iOS)
     // MARK: Snapshot edits
 
     @Test func aLiveInsertIsAnEditNotARebuild() {
@@ -107,8 +106,6 @@ import Testing
     @Test func aReSortRebuilds() {
         #expect(FeedSnapshotEdit(old: ["a", "b", "c"], new: ["b", "a", "c"]) == nil)
     }
-
-    #endif
 
     // MARK: The pinned group (open asks first)
 
@@ -137,8 +134,6 @@ import Testing
         #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 0)
     }
 
-    // The edit rules are in Rust (feed_list_edit.rs); its tests run there too, and these on iOS.
-    #if os(iOS)
     /// An answered ask leaves the pinned group as one row move (the table animates it), not a rebuild.
     @Test func anAnsweredAskIsARowMove() {
         let old = ["ask-new", "ask-old", "new", "mid", "last"]
@@ -179,8 +174,6 @@ import Testing
         #expect(FeedMoveEdit(old: asks + ["a"], new: ["a"] + asks, movers: Set(asks), limit: 4) == nil)
         #expect(FeedMoveEdit(old: asks + ["a"], new: ["a"] + asks, movers: Set(asks), limit: 5)?.applied(to: asks + ["a"]) == ["a"] + asks)
     }
-
-    #endif
 
     /// Only events never shown before count for the "N new" pill (an undone Done does not).
     @Test func onlyNeverSeenEventsAreNew() {

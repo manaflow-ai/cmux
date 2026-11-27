@@ -1,27 +1,17 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// Shown over the content when a load fails. An untrusted certificate
 /// shows the full-page interstitial instead: Back to Safety is the default
 /// (prominent, and Return on the page), and Proceed for that host shows
 /// only after Show Details (Chrome, Safari).
-///
-/// A network failure (``BrowserLoadError/isTransientNetworkFailure``) has no Try Again: the page reloads by itself
-/// while in sight (`PageStatusViews`' ``AutoRetry``, Chrome's `NetErrorAutoReloader`), and the toolbar's Reload stays.
-/// Leo, 2026-11-22: "vacuous decisions like that should be just done". Try Again shows only when loading again would
-/// send a form (``BrowserLoadError/sentForm``), which the person chooses.
 final class LoadErrorView: NSView {
     var onRetry: (() -> Void)?
-    /// The page came into sight or left it: shown (not hidden), in a window not covered or minimized.
-    var onSightChanged: ((Bool) -> Void)?
     var onBack: (() -> Void)?
     var onProceed: (() -> Void)?
     private let titleLabel = ChromeLabel(labelWithString: Strings.loadFailedTitle)
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     // Targets are set in init (no IUOs).
-    // retry-prompt-ok: shown only when loading again would send a form (BrowserLoadError.sentForm, BR-R1)
     let retryButton = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(LoadErrorView.retry), target: nil)
     let backButton = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(LoadErrorView.goBack), target: nil)
     let proceedButton = ChromeTextButton(title: "", prominent: false, action: #selector(LoadErrorView.proceed), target: nil)
@@ -30,8 +20,6 @@ final class LoadErrorView: NSView {
     private(set) var showsDetails = false
     private(set) var isCertificateInterstitial = false
     private let density = DensityBinding()
-    private weak var followedWindow: NSWindow?
-    private var reportedSight: Bool?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -78,41 +66,12 @@ final class LoadErrorView: NSView {
             titleLabel.stringValue = Strings.loadFailedTitle
             messageLabel.stringValue = error.message
         }
-        // retry-prompt-ok: loading again would send a form or reload a form's result (BR-R1); every other failure
-        // reloads by itself (a network failure) or is the toolbar Reload's.
-        retryButton.isHidden = isCertificateInterstitial || !error.sentForm
+        retryButton.isHidden = isCertificateInterstitial
         backButton.isHidden = !isCertificateInterstitial
         showsDetails = false
         applyDetails()
         isHidden = false
         updateColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let followedWindow { FrameScheduler.unfollowSight(of: followedWindow, owner: self) }
-        followedWindow = window
-        // The app's one occlusion observer tells this view (minimizing changes occlusion too).
-        if let window { FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.reportSight() } }
-        reportSight()
-    }
-
-    override func viewDidHide() {
-        super.viewDidHide()
-        reportSight()
-    }
-
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        reportSight()
-    }
-
-    /// Tells `onSightChanged` when the page's sight changed.
-    private func reportSight() {
-        let inSight = !isHiddenOrHasHiddenAncestor && window.map { !FrameScheduler.windowIsOutOfSight($0) } == true
-        guard inSight != reportedSight else { return }
-        reportedSight = inSight
-        onSightChanged?(inSight)
     }
 
     override func viewDidChangeEffectiveAppearance() {

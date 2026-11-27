@@ -1,8 +1,6 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
-import { flushSync } from "react-dom";
-import { focusRoute } from "../../../ui/focusRoute";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
-import { VirtualList } from "../../../ui/VirtualList";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
@@ -92,103 +90,6 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-/// A row's height before it is measured: the 28 px option and the 4 px gap under it
-/// (sessionInfo.css). A long name wraps to a second line, as it did when every row was drawn, and
-/// the list measures each drawn row (VirtualList `measureRows`).
-const ROW_HEIGHT = 32;
-const rowHeight = () => ROW_HEIGHT;
-
-/// One repository: its name and a quiet source (or "Attaching") label. Memoized on plain values
-/// and the list's stable row style and measure ref, so a scroll, a focus move or a keystroke in the search field
-/// does not draw the rows already in view again.
-const CloudRepositoryOption = memo(function CloudRepositoryOption({
-  fullName,
-  detail,
-  disabled,
-  index,
-  setSize,
-  style,
-  measure,
-  onAttach,
-  onFocusIndex,
-  onTabFrom,
-  onWidth,
-}: {
-  fullName: string;
-  detail: string;
-  disabled: boolean;
-  index: number;
-  setSize: number;
-  style: CSSProperties;
-  measure?: (element: Element | null) => void;
-  onAttach: (fullName: string) => void;
-  onFocusIndex: (index: number | undefined) => void;
-  /// Tab or Shift+Tab from this row to the next one, which may not be drawn yet.
-  onTabFrom: (index: number, setSize: number, back: boolean) => boolean;
-  /// The row's natural width (its name and label unclipped), measured when it mounts or its text changes.
-  onWidth: (width: number) => void;
-}) {
-  const option = useRef<HTMLButtonElement>(null);
-  useLayoutEffect(() => {
-    const button = option.current;
-    if (button) onWidth(naturalWidth(button));
-  }, [fullName, detail, onWidth]);
-  return (
-    <div
-      ref={measure}
-      data-index={index}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
-      role="listitem"
-      className="acpmux-cloud-repository-row"
-      style={style}
-      aria-posinset={index + 1}
-      aria-setsize={setSize}
-    >
-      <button
-        ref={option}
-        type="button"
-        className="acpmux-cloud-repository-option"
-        data-action="repository-option"
-        disabled={disabled}
-        onClick={() => onAttach(fullName)}
-        onFocus={() => onFocusIndex(index)}
-        onBlur={() => onFocusIndex(undefined)}
-        onKeyDown={(event) => {
-          if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
-          if (onTabFrom(index, setSize, event.shiftKey)) event.preventDefault();
-        }}
-      >
-        <span className="acpmux-cloud-repository-name">{fullName}</span>
-        <span className="acpmux-cloud-repository-source">{detail}</span>
-      </button>
-    </div>
-  );
-});
-
-/// An option's width with its name on one line: its name's and label's text as wide as their fonts
-/// draw it, the gap between them and the option's padding (the width the option asked for when every
-/// row was drawn). The text is measured, not the laid-out spans: a long name is wrapped there.
-let textMeasure: CanvasRenderingContext2D | null | undefined;
-function textWidth(element: Element | null): number {
-  if (!element?.textContent) return 0;
-  textMeasure ??= document.createElement("canvas").getContext("2d");
-  if (!textMeasure) return element.scrollWidth;
-  textMeasure.font = getComputedStyle(element).font;
-  return textMeasure.measureText(element.textContent).width;
-}
-
-function naturalWidth(button: HTMLElement): number {
-  const style = getComputedStyle(button);
-  const name = button.firstElementChild;
-  const label = button.lastElementChild;
-  return Math.ceil(
-    textWidth(name) +
-      (label && label !== name && label.textContent ? textWidth(label) + (parseFloat(style.columnGap) || 0) : 0) +
-      (parseFloat(style.paddingLeft) || 0) +
-      (parseFloat(style.paddingRight) || 0),
-  );
-}
-
 export function CloudRepositoryPicker({
   session,
   anchor,
@@ -210,29 +111,7 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
-  /// The row holding focus stays mounted when it scrolls out of view (VirtualList's active row).
-  const [focusedIndex, setFocusedIndex] = useState<number>();
-  const listId = useId();
-  /// The list's width: the widest row drawn since the popover opened (the popover's CSS clamps it
-  /// between its least and greatest width). Only the drawn rows are measured, never every name, and
-  /// it only grows while the popover stays open, so a scroll never makes the popover narrower.
-  const [rowWidth, setRowWidth] = useState(0);
-  const [widthOpen, setWidthOpen] = useState(open);
-  if (widthOpen !== open) {
-    setWidthOpen(open);
-    setRowWidth(0);
-  }
-  const onRowWidth = (width: number) => setRowWidth((widest) => Math.max(widest, width));
-  /// Tab walks every repository as it did when all were drawn: the next row is made the list's
-  /// active row (drawn and scrolled to) before it takes focus, so a held Tab does not run past the
-  /// drawn rows. From the first or last row the browser moves focus out of the list.
-  const tabFrom = (index: number, setSize: number, back: boolean) => {
-    const next = index + (back ? -1 : 1);
-    if (next < 0 || next >= setSize) return false;
-    flushSync(() => setFocusedIndex(next));
-    const row = document.getElementById(listId)?.querySelector<HTMLElement>(`[aria-posinset="${next + 1}"] button`);
-    return focusRoute(row, "person", "Tab to the next repository");
-  };
+  const listEdges = useScrollEdges();
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -286,12 +165,12 @@ export function CloudRepositoryPicker({
     return () => window.clearTimeout(timer);
   }, [open, query, request, session, t]);
 
-  const attach = (fullName: string) => {
+  const attach = (repo: CloudRepo) => {
     if (attaching) return;
-    setAttaching(fullName);
+    setAttaching(repo.fullName);
     setError(undefined);
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-      .then(() => request<AddReply>("cloud.repo.add", { repo: fullName }))
+      .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
       .then((reply) => {
         if (reply?.state === "done" && !(reply as { code?: unknown }).code && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
@@ -324,10 +203,7 @@ export function CloudRepositoryPicker({
       popupSettle="results"
       initialFocus={search}
     >
-      <div
-        className="acpmux-cloud-repository-picker"
-        style={rowWidth > 0 ? ({ "--acpmux-cloud-repository-width": `${rowWidth}px` } as CSSProperties) : undefined}
-      >
+      <div className="acpmux-cloud-repository-picker">
         <input
           ref={search}
           className="acpmux-cloud-repository-search"
@@ -341,43 +217,31 @@ export function CloudRepositoryPicker({
               const first = repos[0];
               if (first) {
                 event.preventDefault();
-                attach(first.fullName);
+                attach(first);
               }
             }
           }}
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <VirtualList
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the windowed list renders its rows as divs.
-            role="list"
-            id={listId}
-            className="acpmux-cloud-repository-list"
-            fade
-            count={repos.length}
-            estimateSize={rowHeight}
-            measureRows
-            activeIndex={focusedIndex}
-            renderRow={(index, style, measure) => {
-              const repo = repos[index]!;
-              return (
-                <CloudRepositoryOption
-                  key={repo.fullName}
-                  fullName={repo.fullName}
-                  detail={attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
+          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
+            {repos.map((repo) => (
+              <li key={repo.fullName}>
+                <button
+                  type="button"
+                  className="acpmux-cloud-repository-option"
+                  data-action="repository-option"
                   disabled={Boolean(attaching)}
-                  index={index}
-                  setSize={repos.length}
-                  style={style}
-                  measure={measure}
-                  onAttach={attach}
-                  onFocusIndex={setFocusedIndex}
-                  onTabFrom={tabFrom}
-                  onWidth={onRowWidth}
-                />
-              );
-            }}
-          />
+                  onClick={() => attach(repo)}
+                >
+                  <span className="acpmux-cloud-repository-name">{repo.fullName}</span>
+                  <span className="acpmux-cloud-repository-source">
+                    {attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
         {!loading && repos.length === 0 && !error && (
           <div className="acpmux-cloud-repository-empty">{t("cloudRepository.empty")}</div>

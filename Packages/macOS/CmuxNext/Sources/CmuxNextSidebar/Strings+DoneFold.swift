@@ -5,6 +5,11 @@ extension Strings {
     static func doneFold(_ count: Int) -> String {
         String(localized: "sidebar.doneFold.title", defaultValue: "Done (\(count))", bundle: .localizedModule)
     }
+    /// Sessions no person started (`sidebar.showAutomaticSessions` off).
+    static func automaticFold(_ count: Int) -> String {
+        String(localized: "sidebar.automaticFold.title", defaultValue: "Automatic (\(count))", bundle: .localizedModule)
+    }
+
     /// Seen, finished agent chats (`sidebar.settleFinished`).
     static func settledFold(_ count: Int) -> String {
         String(localized: "sidebar.settledFold.title", defaultValue: "Settled (\(count))", bundle: .localizedModule)

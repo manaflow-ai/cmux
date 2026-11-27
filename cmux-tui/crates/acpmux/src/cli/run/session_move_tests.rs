@@ -930,7 +930,6 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
 /// it says why instead of waiting on. F3: the chats of one move are waited on together, one
 /// request for all still waited on, not one bounded wait per chat.
 #[tokio::test(start_paused = true)]
-#[cfg(unix)]
 async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -1019,7 +1018,6 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
 /// it, and the wait cost every such move the whole 5 s (the published move bench's floor).
 /// A chat on a local key or a peer on its way back is still waited on.
 #[tokio::test(start_paused = true)]
-#[cfg(unix)]
 async fn a_move_to_an_offline_peer_does_not_wait_out_the_arrival_bound() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

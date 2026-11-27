@@ -247,7 +247,7 @@ import SwiftUI
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        await yieldUntil { !(chat.turns.isEmpty) }
+        while chat.turns.isEmpty { await Task.yield() }
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns

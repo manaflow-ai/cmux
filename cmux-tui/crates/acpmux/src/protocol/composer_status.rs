@@ -370,7 +370,7 @@ pub fn machine_link_item(
     use MachineLink::*;
     let kind = StatusKind::MachineLink;
     let (level, words, action) = match link {
-        Connected | Paused | Idle => return None,
+        Connected | Paused => return None,
         _ if removed => (StatusLevel::Attention, "removed".to_owned(), None),
         Connecting | Reconnecting | Degraded | Restarting => return None,
         Offline => {

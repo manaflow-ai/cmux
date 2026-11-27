@@ -425,7 +425,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         wait_start: false,
         throwaway: false,
         create_key: None,
-        placed_by: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
         close: None,

@@ -74,7 +74,7 @@ jobs:
     name: Record on a fleet simulator
     needs: plan
     if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 240
     permissions:
       contents: read

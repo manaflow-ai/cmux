@@ -6,7 +6,7 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{RemoteName, names_remote, remote_closed, remote_match, remote_segment};
+pub(super) use resolve::{names_remote, remote_closed, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
@@ -17,7 +17,6 @@ pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
         }
-        crate::peer_link::PeerState::Idle => OriginState::Stale,
         _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
             || peer.link().down_since.is_some_and(|at| {
                 crate::store::now_ms().saturating_sub(at)
@@ -122,8 +121,7 @@ impl Hub {
         for (name, pc) in peers {
             // A gate released during shutdown cannot start a new tunnel after the existing
             // peers were stopped. Registration and the shutdown fence share this lock.
-            let start = || crate::peer::lazily(|| self.start_peer(&name, &pc));
-            if self.before_shutdown(start).is_none() {
+            if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
                 started_all = false;
                 break;
             }
@@ -164,8 +162,7 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
-        // A saved peer closes its link once unused and waits for demand before dialing.
-        crate::peer::saved(|| self.spawn_peer(name, pc, true, false)).1
+        self.spawn_peer(name, pc, true, false).1
     }
 
     /// Run a peer under `name`, replacing any peer of that name; with
@@ -209,16 +206,10 @@ impl Hub {
         peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
-        peer.set_group_override(pc.group.clone());
         peer.set_wake_hook(self.peer_wake.clone());
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
         peer.set_mirror(self.link_v2.clone());
-        // A quiet link an open chat or a pending delivery still needs stays (`peer_idle.rs`).
-        let hub = self.hub_ref.get().cloned();
-        peer.set_keeper(Box::new(move |peer| {
-            hub.as_ref().and_then(std::sync::Weak::upgrade).is_some_and(|hub| hub.keeps_peer(peer))
-        }));
         let settled = peer.settled();
         // Register under the peer lock and the rows writer lock (lock order: `peers`, then
         // `remote_sessions`): a purge or notice of the instance this replaces, checked current
@@ -321,7 +312,6 @@ impl Hub {
                 peer_token,
                 vm_boundary,
                 github_broker,
-                group: same.and_then(|old| old.group.clone()),
             };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
@@ -420,14 +410,12 @@ impl Hub {
             let same = next.get(name).filter(|n| n.url == pc.url);
             pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
             pc.github_broker = same.is_some_and(|n| n.github_broker);
-            pc.group = same.and_then(|n| n.group.clone());
             if !leases.contains_key(name)
                 && let Some(peer) = peers.get(name)
                 && peer.url == pc.url
             {
                 peer.set_vm_boundary(pc.vm_boundary);
                 peer.set_github_broker(pc.github_broker);
-                peer.set_group_override(pc.group.clone());
             }
         }
     }
@@ -592,57 +580,19 @@ impl Hub {
         }
     }
 
-    /// The refusal for a second parent-less start on a provisioned VM (`agent_vm::one_parent_refusal`).
-    pub fn one_parent_check(
-        &self,
-        peer: &crate::peer::Peer,
-        asks_parent: bool,
-    ) -> Option<RpcError> {
-        if asks_parent {
-            return None;
-        }
-        let leased =
-            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&peer.name);
-        let group = super::agent_vm::refused_group(leased, peer.group_override().as_deref());
-        if group != "agent" {
-            return None;
-        }
-        let rows: Vec<Value> = self
-            .remote_sessions
-            .read()
-            .live_of_peer(&peer.name)
-            .map(|r| r.summary.value())
-            .collect();
-        super::agent_vm::one_parent_refusal(&peer.name, group, asks_parent, rows)
-    }
-
     pub fn peers(&self) -> Vec<Value> {
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
-        let registry = super::agent_vm::registry_now();
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
             let peers = self.peers.load();
             let listed = peers
                 .values()
                 .map(|p| {
-                    let mut s = p.summary();
+                    let mut summary = p.summary();
                     if p.leased {
-                        s.set("leased", Value::Bool(true));
+                        summary.set("leased", Value::Bool(true));
                     }
-                    // Which of the person's pickers lists it (`agent_vm::group_of`).
-                    let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {
-                        set: p.group_override(),
-                        vm_boundary: p.vm_boundary(),
-                        leased: p.leased,
-                        registry_agent_vm: registry
-                            .as_ref()
-                            .is_some_and(|r| super::agent_vm::agent_vm_in(r, &p.name, &p.url)),
-                    });
-                    s.set("group", json!(group));
-                    if let Some(n) = s.pointer("/health/liveSessions").and_then(Value::as_u64) {
-                        s.set("liveSessions", json!(n));
-                    }
-                    (p.name.clone(), s)
+                    (p.name.clone(), summary)
                 })
                 .collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
@@ -672,16 +622,6 @@ impl Hub {
             if let Some(hub) = crate::share_host::device_hub_of(&host) {
                 row.set("deviceHub", hub);
             }
-            // Reached only through the hub: no config, no link of ours; the registry alone says.
-            let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {
-                set: None,
-                vm_boundary: false,
-                leased: false,
-                registry_agent_vm: registry.as_ref().is_some_and(|r| {
-                    super::agent_vm::agent_vm_in(r, &host, &format!("ssh://{host}"))
-                }),
-            });
-            row.set("group", json!(group));
             row
         }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
@@ -962,7 +902,6 @@ impl Hub {
                     self.peer_snapshots.flush(Some(&peer));
                     tracing::info!(peer = %peer, "peer restarting");
                 }
-                PeerNotice::Idle => self.peer_went_idle(&peer, generation),
                 PeerNotice::Disconnected(e) => {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);

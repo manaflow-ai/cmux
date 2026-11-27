@@ -14,9 +14,7 @@
 #   installer still checks each tarball against scripts/ci/zig-tarballs.sha256, so a bad copy is
 #   discarded, never used.
 # seed: when the bucket has no copy, download through install-zig-ci.sh (a job-local install, a
-#   longer budget) into DIR and save DIR with the bucket's write credentials (r2-cache.sh save). It also
-#   saves the installed, std-fixed tree under install-zig-ci.sh's zig_tree_key, which that script restores
-#   before it downloads (no .tar.xz unpack, no std fix on the reader).
+#   longer budget) into DIR and save DIR with the bucket's write credentials (r2-cache.sh save).
 #
 # The key is the hash of zig-tarballs.sha256: a new reviewed Zig version moves it, as it moves the
 # actions/cache key. ZIG_TARBALL_R2_URL is the bucket's public URL (default
@@ -68,42 +66,20 @@ if [[ "$mode" == restore ]]; then
   exit 0
 fi
 
-key_held() { # KEY
-  local extension
-  for extension in tar.zst tar.gz; do
-    curl --fail --silent --head --location --connect-timeout 15 --max-time 60 \
-      "${url%/}/v1/$namespace/objects/$1.$extension" >/dev/null && return 0
-  done
-  return 1
-}
-# The unpacked, std-fixed tree install-zig-ci.sh restores before it downloads (its zig_tree_key); empty when
-# the version has no pinned tarball (no key, nothing to seed).
-tree_key="$(ZIG_PRINT_TREE_KEY=1 ZIG_FORCE_LOCAL_INSTALL=1 bash "$root/scripts/install-zig-ci.sh" 2>/dev/null || true)"
-tarball_held=0 tree_held=1
-key_held "$key" && tarball_held=1 && echo "zig-tarball-r2: the cache already holds $key"
-if [[ -n "$tree_key" ]]; then
-  tree_held=0
-  key_held "$tree_key" && tree_held=1 && echo "zig-tarball-r2: the cache already holds $tree_key"
-fi
-[[ "$tarball_held" == 1 && "$tree_held" == 1 ]] && exit 0
+for extension in tar.zst tar.gz; do
+  if curl --fail --silent --head --location --connect-timeout 15 --max-time 60 \
+      "${url%/}/v1/$namespace/objects/$key.$extension" >/dev/null; then
+    echo "zig-tarball-r2: the cache already holds $key.$extension"
+    exit 0
+  fi
+done
 for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET; do
   [[ -n "${!var:-}" ]] || { echo "zig-tarball-r2: seed needs $var (the bucket's write credentials)" >&2; exit 2; }
 done
 mkdir -p "$dir"
-# A held tarball comes from the bucket, so seeding the tree alone downloads nothing from the Zig mirrors.
-[[ "$tarball_held" == 0 ]] || bash "$0" restore "$dir"
-tree_root="$(mktemp -d)"
-trap 'rm -rf "$tree_root"' EXIT
-ZIG_FORCE_LOCAL_INSTALL=1 ZIG_TARBALL_CACHE_DIR="$dir" ZIG_INSTALL_ROOT="$tree_root" ZIG_TREE_R2_URL='' \
+ZIG_FORCE_LOCAL_INSTALL=1 ZIG_TARBALL_CACHE_DIR="$dir" \
   ZIG_DOWNLOAD_BUDGET_SECONDS="${ZIG_DOWNLOAD_BUDGET_SECONDS:-600}" ZIG_DOWNLOAD_ATTEMPTS="${ZIG_DOWNLOAD_ATTEMPTS:-4}" \
   bash "$root/scripts/install-zig-ci.sh"
-if [[ "$tarball_held" == 0 ]]; then
-  has_tarball || { echo "::error::install-zig-ci.sh left no tarball in $dir; nothing saved" >&2; exit 1; }
-  CI_CACHE_R2_PUBLIC_URL="$url" CI_CACHE_R2_NAMESPACE="$namespace" GITHUB_OUTPUT='' \
-    bash "$r2_cache" save "$dir" "$key"
-fi
-if [[ "$tree_held" == 0 ]]; then
-  compgen -G "$tree_root/zig-*/zig" >/dev/null || { echo "::error::install-zig-ci.sh left no zig tree in $tree_root; nothing saved" >&2; exit 1; }
-  CI_CACHE_R2_PUBLIC_URL="$url" CI_CACHE_R2_NAMESPACE="$namespace" GITHUB_OUTPUT='' \
-    bash "$r2_cache" save "$tree_root" "$tree_key"
-fi
+has_tarball || { echo "::error::install-zig-ci.sh left no tarball in $dir; nothing saved" >&2; exit 1; }
+CI_CACHE_R2_PUBLIC_URL="$url" CI_CACHE_R2_NAMESPACE="$namespace" GITHUB_OUTPUT='' \
+  bash "$r2_cache" save "$dir" "$key"

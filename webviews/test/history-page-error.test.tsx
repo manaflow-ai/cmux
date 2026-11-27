@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { CONNECTION_QUIET_MS } from "../src/ui/lasting";
+import { LASTING_MS } from "../src/ui/lasting";
 import { settleReact } from "./support/domTeardown";
 import { historySizes, installVirtualSizes } from "./support/virtualSizes";
 
@@ -148,22 +148,17 @@ test("a lost host says so once, in the page's words, not again in a banner above
   await act(async () => store.start());
 
   expect(store.getSnapshot().connection).toBe("disconnected");
-  // Within the connection bound (a launch, a daemon restart) the page is blank: no words, no mark
-  // (ui/lasting.ts useConnectionQuiet; Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD")...
-  expect(host.querySelector(".history-empty")?.textContent).toBe("");
-  expect(host.querySelector("[data-connection-chip]")).toBeNull();
+  // Within the grace (a launch, a daemon restart) the page shows nothing (ui/lasting.ts; Leo,
+  // 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD")...
+  expect(host.querySelector(".history-empty")).toBeNull();
   expect(host.querySelector(".history-error")).toBeNull();
-  // ...and once the link stays down past it, a corner mark says so, never a row that moves the page
-  // (#49353, Leo, 2026-11-21: "stop layout shifting"). The test moves the bound's clock.
-  await act(async () => void jest.advanceTimersByTime(CONNECTION_QUIET_MS));
-  const chip = host.querySelector("[data-connection-chip]");
-  expect(chip?.getAttribute("title")).toBe(strings.t("page.disconnected"));
-  expect(host.querySelector(".history-empty")?.textContent).toBe("");
+  // ...and once the link stays down past it, says so. The test moves the grace's clock.
+  await act(async () => void jest.advanceTimersByTime(LASTING_MS));
+  expect(host.querySelector(".history-empty")?.textContent).toBe(strings.t("page.disconnected"));
   expect(host.querySelector(".history-error")).toBeNull();
   // The page's own words are announced in place of the banner's alert: `output` is the status
   // region, which is the tag the role belongs to (jsx-a11y prefer-tag-over-role).
-  expect(chip?.tagName).toBe("OUTPUT");
-  expect(chip?.textContent).toBe(strings.t("page.disconnected"));
+  expect(host.querySelector(".history-empty")?.tagName).toBe("OUTPUT");
   // Clear has nothing to reach while the host is gone, like the search field.
   const clear = [...host.querySelectorAll<HTMLButtonElement>(".history-menu-button")].find(
     (button) => button.textContent === strings.t("page.clear"),

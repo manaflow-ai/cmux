@@ -380,7 +380,6 @@ fn gone_already(e: &anyhow::Error) -> bool {
         || text.contains("no move")
 }
 
-// The fake daemon listens on a unix socket.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 #[path = "move_end_tests.rs"]
 mod tests;

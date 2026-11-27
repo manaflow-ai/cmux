@@ -1160,20 +1160,7 @@
 }
 /* The chosen run location's one sentence, under its two segments; it wraps rather than truncates. */
 .onb-make-run-in-detail {
-  display: grid;
   margin: var(--ds-space-1) 0 0;
-}
-/* The unchosen sentences size the cell (the tallest wins) and stay out of textContent and the name. */
-.onb-make-run-in-detail > span {
-  grid-area: 1 / 1;
-}
-.onb-make-run-in-detail__size {
-  visibility: hidden;
-  user-select: none;
-  pointer-events: none;
-}
-.onb-make-run-in-detail__size::after {
-  content: attr(data-label);
 }
 /* A quiet tag, not a second button: the accent's ink on a faint wash of it. */
 .onb-make-badge {
@@ -1676,7 +1663,7 @@ img.onb-make-tile-image {
   align-self: flex-end;
   width: 55%;
   height: calc(4 * var(--w-u));
-  border-radius: var(--ds-radius-sm);
+  border-radius: 4px;
   background: color-mix(in srgb, var(--ds-color-fg) 14%, transparent);
 }
 .onb-make-composer {
@@ -1684,7 +1671,7 @@ img.onb-make-tile-image {
   height: calc(5 * var(--w-u));
   margin-top: auto;
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
-  border-radius: var(--ds-radius-sm);
+  border-radius: 4px;
 }
 .onb-make-block {
   flex: none;

@@ -2827,7 +2827,6 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
             : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
-            // retry-prompt-ok: runs the harness's install (and its sign-in) again, a command with side effects.
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
             ...(docsUrl
               ? [

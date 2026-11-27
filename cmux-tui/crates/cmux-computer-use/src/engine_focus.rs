@@ -211,7 +211,7 @@ impl Engine {
             // rule says they are (errs toward leaving focus alone).
             _ => !self.takeover.wait_idle(Duration::ZERO),
         };
-        if person && !self.self_activation_while_typing(g, &now) {
+        if person {
             lock(&self.agent_front).remove(&g.session);
             return FocusReport::PersonMoved { to: now.app_id };
         }
@@ -238,31 +238,6 @@ impl Engine {
             },
             Err(e) => FocusReport::NotRestored { to: now.app_id, reason: e.to_string() },
         }
-    }
-
-    /// Whether a focus change during the person's input is still the call's
-    /// own: the app that took the front is one this call acted on (or this
-    /// process), and the person cannot have brought it there with the
-    /// pointer: their pointer is known, has not moved since the call began
-    /// (no Dock click, no click on another window) and is over none of that
-    /// app's windows. Then their input was typing into their own app while
-    /// the agent's target activated itself, the case that sent the person's
-    /// keys into the agent's app (Leo, 2026-11-22: agents kept interrupting
-    /// his input and foregrounding apps). A person who switches to the very
-    /// app the call acts on by keyboard alone (Command-Tab) inside the call's
-    /// own short window is put back too: the result reports it, and the
-    /// next switch holds.
-    fn self_activation_while_typing(&self, g: &FocusGuard, now: &FocusSnapshot) -> bool {
-        let own = std::process::id();
-        if !(g.targets.contains(&now.pid) || now.pid == own) {
-            return false;
-        }
-        let (Some(before), Some(after)) = (g.before.pointer, now.pointer) else { return false };
-        if before != after {
-            return false;
-        }
-        let Ok(windows) = self.desktop.list_windows() else { return false };
-        !windows.iter().any(|w| w.pid == now.pid && contains(&w.frame, after))
     }
 
     /// Before a call that raises its window on purpose (foreground): what

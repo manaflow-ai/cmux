@@ -541,13 +541,10 @@ fn plan_with_calls(
                     request.plan_max.as_deref(),
                 ),
             };
-            // The platform's machine route takes a cmux access token with a team claim (the install
-            // token), never the session's: the session's answered 401 to every environment ensure.
-            let ensure_with = ensure_credential(credential);
-            let answer = if ensure_with.is_empty() {
+            let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
             } else {
-                ensure(&ask, ensure_with)
+                ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
@@ -679,15 +676,6 @@ fn reservation_destination(
 /// Whether `size` asks for more than the platform's chat size (`sm`, also what no size means).
 fn larger_than_chat(size: Option<&str>) -> bool {
     size.is_some_and(|size| size != "sm")
-}
-
-/// The credential a workspace machine's ensure sends: the install token (a cmux access token with a
-/// team claim, what the platform's machine route verifies), else the session's for an App that sent none.
-fn ensure_credential<'a>((session, install): (&'a str, &'a str)) -> &'a str {
-    match install.trim() {
-        "" => session,
-        token => token,
-    }
 }
 
 /// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),

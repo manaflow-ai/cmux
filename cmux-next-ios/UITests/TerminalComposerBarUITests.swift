@@ -26,11 +26,6 @@ final class TerminalComposerBarUITests: XCTestCase {
         try walk(look: "light", appearance: .light)
     }
 
-    /// The filled field's draft. Plain words: a draft with a path
-    /// (`ls -la ~/Development`) stalled the app's main thread for 30 s and more
-    /// on a fleet simulator (cmux#56712).
-    static let draft = ProcessInfo.processInfo.environment["CMUX_UITEST_DRAFT"] ?? "echo hello from the composer bar"
-
     /// The keys the row's scroller must show, by accessibility identifier
     /// (`KeyBarKey.identifier`), every one of the default layout.
     private static let scrollerKeys = [
@@ -51,96 +46,70 @@ final class TerminalComposerBarUITests: XCTestCase {
 
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field\n\(app.debugDescription)")
+        let keyboardKey = app.buttons["terminal.key.keyboard"]
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key")
         Thread.sleep(forTimeInterval: 1.5)
 
-        // Keyboard down: the key row is away (#53325, it rides the keyboard).
-        shoot(app, "\(look)-kbd-down-empty")
-
-        // Keyboard up, empty: the row at its start, middle and end.
-        field.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
-        let keyboardKey = app.buttons["terminal.key.keyboard"]
-        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key over the keyboard")
-        Thread.sleep(forTimeInterval: 1)
+        // Keyboard down, empty field: the row at its start, middle and end.
         var seen = Set<String>()
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-empty", seen: &seen)
+        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-empty", seen: &seen)
         let missing = Self.scrollerKeys.filter { !seen.contains($0) }
         XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
-        // Keyboard up, filled, in a fresh launch. Typing into the field can
-        // stall the app's main thread for 30 s on feat-cmux-next (seen on the
-        // fleet and on a local simulator, with or without the row's scroll
-        // edge effect, mostly in the second look of a run; cmux#56712): a
-        // known, non-strict failure, so the shots come when the app answers.
-        XCTExpectFailure("the composer's main-thread stall after typing (cmux#56712)", options: .nonStrict()) {
-            app.terminate()
-            app.launch()
-            XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field after relaunch")
-            Thread.sleep(forTimeInterval: 1.5)
-            field.tap()
-            XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row after relaunch")
-            field.typeText(Self.draft)
-            Thread.sleep(forTimeInterval: 0.8)
-            shoot(app, "\(look)-kbd-up-filled")
+        // Keyboard up, empty.
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        Thread.sleep(forTimeInterval: 1)
+        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-empty", seen: &seen)
 
-            // Keyboard down, filled: the key row's keyboard key hides it.
-            keyboardKey.tap()
-            Thread.sleep(forTimeInterval: 1.2)
-            shoot(app, "\(look)-kbd-down-filled")
+        // Keyboard up, filled.
+        field.typeText("git status --short && ls -la ~/Development")
+        Thread.sleep(forTimeInterval: 0.8)
+        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-filled", seen: &seen)
 
-            // Leave no draft behind: drafts persist (#48958), and the next suite
-            // (TerminalComposerLookUITests) measures the empty field.
-            field.tap()
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
-            Thread.sleep(forTimeInterval: 0.5)
-        }
+        // Keyboard down, filled: the key row's keyboard key hides it.
+        keyboardKey.tap()
+        Thread.sleep(forTimeInterval: 1.2)
+        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-filled", seen: &seen)
     }
 
-    /// Walks the key row from its start to its end in short, slow drags,
-    /// recording every key whose center comes on screen; shoots the start,
-    /// the middle and the end, and checks Paste draws where it is whole.
+    /// Scrolls the key row back to its start, then shoots start, middle and
+    /// end; checks Paste draws at the start and records every key seen.
     @MainActor
     private func rowStates(_ app: XCUIApplication, keyRowY: CGFloat, name: String, seen: inout Set<String>) throws {
         let window = app.windows.firstMatch.frame
-        let origin = app.coordinate(withNormalizedOffset: .zero)
-        func drag(_ dx: CGFloat) {
-            let from = dx < 0 ? window.width * 0.85 : window.width * 0.55
-            origin.withOffset(CGVector(dx: from, dy: keyRowY))
-                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: from + dx, dy: keyRowY)),
-                       withVelocity: .slow, thenHoldForDuration: 0.3)
-            Thread.sleep(forTimeInterval: 0.5)
+        func drag(_ fromX: CGFloat, _ toX: CGFloat) {
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: fromX, dy: keyRowY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: toX, dy: keyRowY)),
+                       withVelocity: .default, thenHoldForDuration: 0.3)
         }
-        var pasteChecked = false
-        func record() throws {
+        func record() {
             for key in Self.scrollerKeys {
                 let element = app.descendants(matching: .any)["terminal.key.\(key)"]
-                // Keys under the pinned keys are hidden from accessibility
-                // (`KeyBarClippedKeys`); one that exists with its center on
-                // screen is shown.
-                if element.exists, element.frame.width > 0,
-                   window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
+                if element.exists, element.isHittable, window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
                     seen.insert(key)
                 }
             }
-            let paste = app.descendants(matching: .any)["terminal.key.paste"]
-            if !pasteChecked, paste.exists, paste.frame.minX >= window.width * 0.3, paste.frame.maxX <= window.maxX {
-                pasteChecked = true
-                try checkPasteDraws(app, name: name)
-            }
         }
-        for _ in 0..<6 { drag(window.width * 0.6) }
-        try record()
+        for _ in 0..<4 { drag(window.width * 0.35, window.width * 0.95) }
+        Thread.sleep(forTimeInterval: 0.6)
+        record()
         shoot(app, "\(name)-start")
-        var steps = 0
-        while steps < 24, !seen.contains("hide-chrome") {
-            drag(-window.width * 0.3)
-            try record()
-            steps += 1
-            if steps == 4 { shoot(app, "\(name)-middle") }
-        }
+        try checkPasteDraws(app, name: "\(name)-start")
+
+        drag(window.width * 0.9, window.width * 0.45)
+        Thread.sleep(forTimeInterval: 0.6)
+        record()
+        shoot(app, "\(name)-middle")
+
+        for _ in 0..<5 { drag(window.width * 0.95, window.width * 0.3) }
+        Thread.sleep(forTimeInterval: 0.6)
+        record()
         shoot(app, "\(name)-end")
-        if !pasteChecked { XCTFail("\(name): Paste never came whole on screen") }
-        for _ in 0..<8 { drag(window.width * 0.6) }
+        // Back to the start for the next state.
+        for _ in 0..<5 { drag(window.width * 0.35, window.width * 0.95) }
+        Thread.sleep(forTimeInterval: 0.4)
     }
 
     /// Paste draws its glyph: its cap is not one flat color (a blank

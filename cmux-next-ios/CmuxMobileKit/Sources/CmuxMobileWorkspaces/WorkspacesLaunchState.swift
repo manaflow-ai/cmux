@@ -18,8 +18,7 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
     case content(refreshFailed: Bool)
     /// The team loaded and has no Mac: the connect-a-Mac page.
     case noMacs
-    /// The first load failed with nothing to show: retried on its own (placeholders, then
-    /// the error page past the quiet bound; no Retry).
+    /// The first load failed with nothing to show: the error page with Retry.
     case failed(offline: Bool)
 
     public static func resolve(team: AppStore.LoadState, hasMacs: Bool, hasWorkspaces: Bool,

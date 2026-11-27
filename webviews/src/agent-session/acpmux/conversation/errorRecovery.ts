@@ -43,7 +43,6 @@ export function errorRecovery(
     return {
       label: "retry",
       // A send that did not go says so (cmux#34369), never Retrying… over nothing sent.
-      // retry-prompt-ok: sends the prompt again, a paid model request.
       run: async () => ((await retry(retryRowId, prompt)) === false ? "retry.failed" : undefined),
     };
   }

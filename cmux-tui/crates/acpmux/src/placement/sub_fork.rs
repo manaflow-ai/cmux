@@ -285,8 +285,6 @@ pub const FORK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 pub const WARM_TTL: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// The one warm fork of this daemon's Cloud backend.
-// test-hook-allow: not a test hook; the `fn() -> M` is WarmSlot's PhantomData variance marker,
-// and no test sets this daemon-wide slot
 #[cfg(unix)]
 static CLOUD_WARM: std::sync::OnceLock<Arc<WarmSlot<CloudMachines>>> = std::sync::OnceLock::new();
 
@@ -631,7 +629,7 @@ fn scratch_index(checkout: &Path, base: Option<&str>) -> Result<tempfile::TempPa
         .map_err(|e| format!("scratch index: {e}"))?
         .into_temp_path();
     // git refuses an empty file as an index; it creates one where none exists.
-    crate::home_fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
+    std::fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
     match base {
         Some(tree) => {
             git(checkout, Some(&file), &["read-tree", tree], None)?;
@@ -696,7 +694,6 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
-// Forks are git checkouts whose executable bits the tests compare: unix only.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;

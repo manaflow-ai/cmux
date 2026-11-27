@@ -46,7 +46,6 @@ mod app_reply;
 #[cfg(test)]
 mod attach_latency_bench;
 mod auto_gate;
-mod autocloud_enroll;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -112,7 +111,6 @@ mod in_flight;
 mod inbox_gate_tests;
 pub(crate) mod interest;
 mod inventory_watch;
-pub(crate) mod joined_capacity;
 #[cfg(test)]
 mod key_route_tests;
 mod keys_relay;
@@ -168,10 +166,8 @@ pub(crate) mod outbox;
 mod pairing;
 mod paused_files;
 pub mod peer_auth;
-mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
-mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
@@ -1043,7 +1039,7 @@ impl Conn {
 
     fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row, in_order: bool) {
         self.raise_gate();
-        let redacted = if self.origin == Origin::Peer && message_has_hosts(msg) {
+        let redacted = if self.origin == Origin::Peer {
             let mut copy = msg.clone();
             let changed = match &mut copy {
                 Message::Notification { params: Some(params), .. } => {
@@ -3231,7 +3227,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
             return;
         }
-        let _held_row = held_rows::flush_sharing(hub, conn, Some(&ev));
+        held_rows::flush(hub, conn);
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -3268,14 +3264,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        held_rows::row_notice(
-                            &ev.session_id,
-                            &summary,
-                            kind,
-                            &rec.kind,
-                            rec.seq,
-                            ev.list_seq,
-                        ),
+                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
                     ),
                     row,
                 );
@@ -3318,13 +3307,3 @@ use requests::handle_notification;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 pub(crate) use vault::reply as vault_reply;
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
-
-/// Whether a message sent down a peer link has a sender host to redact
-/// (`pending::redact_message_hosts`); only those are copied before sending.
-fn message_has_hosts(msg: &Message) -> bool {
-    match msg {
-        Message::Notification { params: Some(params), .. } => pending::has_message_hosts(params),
-        Message::Response { result: Some(result), .. } => pending::has_message_hosts(result),
-        _ => false,
-    }
-}

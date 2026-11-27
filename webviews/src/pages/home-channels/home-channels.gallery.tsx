@@ -17,7 +17,6 @@ import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./moc
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import type { SendLaterStyle } from "./SendLater";
-import { resetDetails } from "./presentation";
 import { HomeChannelsStore } from "./store";
 import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
@@ -148,8 +147,6 @@ function HomeChannelsGallery({
   scheduled = false,
 }: Props) {
   const [store] = useState(() => {
-    // Every variant starts at the ladder's default: a level another variant picked stays in its own.
-    resetDetails();
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
@@ -937,26 +934,6 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
-    ...Object.fromEntries(
-      (
-        [
-          ["normal", "Normal", "the run's steps sit above the reply, each tool group folded."],
-          ["thinking", "Thinking", "the steps above the reply with the thought opened, tool groups folded."],
-          ["verbose", "Verbose", "the steps above the reply with the thought and every tool group opened."],
-        ] as const
-      ).map(([level, label, shows]) => [
-        `detail-${level}`,
-        {
-          note: `The header's detail ladder (Messages, Normal, Thinking, Verbose; the agent chat menu's four levels) at ${label}: ${shows}`,
-          props: { select: "c-chief", runs: "done" },
-          play: async (ctx: PlayContext) => {
-            await ctx.waitFor(() => ctx.document.querySelector(".lg-presentation"));
-            await ctx.click({ role: "button", name: label });
-            await ctx.waitFor(() => ctx.document.querySelector(".lg-run-transcript"));
-          },
-        },
-      ]),
-    ),
     "run-phone": {
       note: "The Chief conversation on a phone, including its Work control.",
       props: { width: 390, pane: "conversation", select: "c-chief", runs: "done" },

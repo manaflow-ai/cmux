@@ -5,193 +5,6 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmParams {
-    pub host: HostId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub proof: ServerNetworkProof,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmResult {
-    pub host: HostId,
-    pub network: ServerNetworkBinding,
-}
-
-wire_errors! {
-    /// The error codes server.network.confirm declares.
-    ServerNetworkConfirmError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.
-    ServerPairApproveOp {
-        name: "server.pair.approve",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:PairingDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: ServerPairApproveParams,
-        result: ServerPairApproveResult,
-        error: ServerPairApproveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveParams {
-    pub code: PairingCode,
-    pub team: TeamId,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<NativeMeshId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveResult {
-    pub host: HostId,
-    pub team: TeamId,
-    pub user: UserId,
-    pub install: InstallId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<ServerNetworkReservation>,
-}
-
-wire_errors! {
-    /// The error codes server.pair.approve declares.
-    ServerPairApproveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only.
-    ServerPairInviteOp {
-        name: "server.pair.invite",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:PairingDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: ServerPairInviteParams,
-        result: PairingInvite,
-        error: ServerPairInviteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairInviteParams {
-    pub team: TeamId,
-}
-
-wire_errors! {
-    /// The error codes server.pair.invite declares.
-    ServerPairInviteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Show what a pending pairing code would add: the server's name, platform, key thumbprint and location.
-    ServerPairPreviewOp {
-        name: "server.pair.preview",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:PairingDO",
-        risk: "read",
-        principals: [Session],
-        params: ServerPairPreviewParams,
-        result: PairingPreview,
-        error: ServerPairPreviewError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairPreviewParams {
-    pub code: PairingCode,
-}
-
-wire_errors! {
-    /// The error codes server.pair.preview declares.
-    ServerPairPreviewError {
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory).
-    ServerRevokeOp {
-        name: "server.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ServerRevokeParams,
-        result: ServerRevokeResult,
-        error: ServerRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeParams {
-    pub host: HostId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeResult {
-    pub host: HostId,
-    pub install_revoked: bool,
-}
-
-wire_errors! {
-    /// The error codes server.revoke declares.
-    ServerRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Post a message to a Slack channel as the cmux bot.
-    SlackPostAsBotOp {
-        name: "slack.post_as_bot",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: SlackPostAsBotParams,
-        result: Value,
-        error: SlackPostAsBotError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SlackPostAsBotParams {
     pub connection: ConnectionId,
     pub channel: String,
@@ -891,4 +704,196 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
+}
+
+wire_op! {
+    /// Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it.
+    TeamCloudSessionRemoveOp {
+        name: "team.cloud.session.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamCloudSessionRemoveParams,
+        result: TeamCloudSessionRemoveResult,
+        error: TeamCloudSessionRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionRemoveParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionRemoveResult {
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.remove declares.
+    TeamCloudSessionRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionNotYours = "cloud_session.not_yours",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows.
+    TeamCloudSessionViewingOp {
+        name: "team.cloud.session.viewing",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamCloudSessionViewingParams,
+        result: TeamCloudSessionViewingResult,
+        error: TeamCloudSessionViewingError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionViewingParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub viewing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionViewingResult {
+    pub viewing: bool,
+    pub viewers: Vec<UserId>,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.viewing declares.
+    TeamCloudSessionViewingError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionNotFound = "cloud_session.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.
+    TeamDeviceComplianceOp {
+        name: "team.device.compliance",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamDeviceComplianceParams,
+        result: TeamDeviceComplianceResult,
+        error: TeamDeviceComplianceError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceResultDevicesItem {
+    pub device: ManagedDevice,
+    pub status: Option<DeviceStatus>,
+    pub compliant: bool,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceResult {
+    pub team: TeamId,
+    pub policy_version: i64,
+    pub devices: Vec<TeamDeviceComplianceResultDevicesItem>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.device.compliance declares.
+    TeamDeviceComplianceError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
+    TeamDeviceEnrollOp {
+        name: "team.device.enroll",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamDeviceEnrollParams,
+        result: ManagedDevice,
+        error: TeamDeviceEnrollError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceEnrollParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_hash: Option<EnrollmentTokenHash>,
+}
+
+wire_errors! {
+    /// The error codes team.device.enroll declares.
+    TeamDeviceEnrollError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The device-scoped policy for the calling install: values only when this team manages it (decision E3).
+    TeamDevicePolicyOp {
+        name: "team.device.policy",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Install],
+        params: TeamDevicePolicyParams,
+        result: TeamDevicePolicyResult,
+        error: TeamDevicePolicyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultDefaults {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultEnforced {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultFeatures {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResult {
+    pub team: TeamId,
+    pub managed: bool,
+    pub team_name: String,
+    pub version: i64,
+    pub defaults: TeamDevicePolicyResultDefaults,
+    pub enforced: TeamDevicePolicyResultEnforced,
+    pub features: TeamDevicePolicyResultFeatures,
+    pub revision: String,
 }

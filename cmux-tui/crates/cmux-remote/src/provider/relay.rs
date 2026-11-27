@@ -36,8 +36,6 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
-#[path = "relay_carrier.rs"]
-mod carrier;
 #[path = "relay_credential_read.rs"]
 mod credential_read;
 #[path = "relay_liveness.rs"]
@@ -2005,19 +2003,7 @@ async fn connect_relay_socket(
         .map_err(RelaySocketConnectError::into_provider_error)
 }
 
-/// One relay WebSocket, opened through the relay's braid carrier ([`carrier::RelaySocketRung`]).
 async fn connect_relay_socket_once(
-    endpoint: &Url,
-    authorization: Option<&RelayCredential>,
-    maximum_message_bytes: usize,
-    tls: &RelayTls,
-) -> Result<RelaySocket, RelaySocketConnectError> {
-    carrier::RelaySocketRung { endpoint, authorization, maximum_message_bytes, tls }.join().await
-}
-
-/// The relay carrier's open: the hedged TCP connect, TLS and the upgrade, bounded by
-/// [`RELAY_CONNECT_TIMEOUT`].
-async fn open_relay_socket(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
     maximum_message_bytes: usize,

@@ -1,7 +1,7 @@
 // Agent board: a kanban of four columns, Working, Needs you, Ready to land and Landed today. The
 // first two hold agents; the last two hold pull requests with the agents on them.
 import { memo, useMemo } from "react";
-import { boardColumns, branchPRs, landingLanes, sameRowProps, shownReply, type PRCard } from "../model";
+import { boardColumns, branchPRs, landingLanes, sameRowProps, type PRCard } from "../model";
 import { AgentRow, agentsOf, Ago, CIChip, Loaded, OwnerChips, PRChip } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { ChiefAgent } from "../types";
@@ -11,9 +11,8 @@ type Column = { id: string; title: string; agents?: ChiefAgent[]; prs?: PRCard[]
 
 export function AgentBoardView({ data, strings, today, placement, onOpenAgent, onOpenURL }: ChiefViewProps) {
   const agents = agentsOf(data);
-  // While a Refresh reads again, the last reply stays shown: the cards neither empty nor redraw.
-  const fleetPRs = shownReply(data.fleet)?.prs;
-  const landing = shownReply(data.landing);
+  const fleetPRs = data.fleet.status === "ready" ? data.fleet.reply.prs : undefined;
+  const landing = data.landing.status === "ready" ? data.landing.reply : undefined;
   const columns = useMemo(
     () => boardColumns(agents, landingLanes(landing, agents, fleetPRs, today)),
     [agents, landing, fleetPRs, today],

@@ -5,10 +5,8 @@
 //! Leo, 2026-11-24: each feature measured "before and after on real lanes (tokens per merged PR,
 //! steering rate, time to the first useful result)".
 //!
-//! Every feature has one switch, `agents.harnessMagic.<feature>.enabled` in the settings file
-//! (`turnRules` is on unless `false`: it does nothing with no rules; context surgery and dedupe
-//! are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet situation"), and a
-//! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
+//! Every feature is on by default and has one off switch, `agents.harnessMagic.<feature>.enabled`
+//! in the settings file, and a kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
 //! and asks [`enabled`] before it acts.
 //!
@@ -23,7 +21,7 @@ use serde_json::{Map, Value, json};
 
 /// The features this build carries, by the name their setting and counters use. A builder adds
 /// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm"];
+pub(crate) const FEATURES: &[&str] = &["turnRules"];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {

@@ -169,7 +169,6 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .check: UpdaterStrings.settingsCheckNow
         case .update: UpdaterStrings.update
         case .cancelDownload: UpdaterStrings.cancel
-        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .install: UpdaterStrings.restartToUpdate
         }

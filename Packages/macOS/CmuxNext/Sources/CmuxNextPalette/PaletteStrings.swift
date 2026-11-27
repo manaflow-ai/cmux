@@ -100,7 +100,6 @@ nonisolated enum PaletteStrings {
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .localizedModule) }
     static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .localizedModule) }
     static var customValue: String { String(localized: "palette.setting.customValue", defaultValue: "Custom Value…", bundle: .localizedModule) }
-    static var showInSettings: String { String(localized: "palette.command.showInSettings", defaultValue: "Show in Settings", bundle: .localizedModule) }
     static var turnOn: String { String(localized: "palette.command.turnOn", defaultValue: "Turn On", bundle: .localizedModule) }
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .localizedModule) }
     static var workspaceKeyword: String { String(localized: "palette.keyword.workspace", defaultValue: "workspace", bundle: .localizedModule) }

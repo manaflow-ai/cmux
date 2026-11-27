@@ -31,7 +31,6 @@ import { experimentArm } from "../../../experiments/experiment";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
 import { SUBAGENT_DONE } from "../subagents/subagentRows";
-import { trayFoldHeadLook } from "../subagents/trayFoldHead.experiment";
 import type { Folds } from "./viewFolds";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
 
@@ -86,36 +85,10 @@ const ownedBy = (row: AcpmuxRow, lines: ReadonlySet<string>) =>
 /// A reply between members that draws nothing goes with the run without counting.
 const bareReply = (row: AcpmuxRow) => row.kind === "assistant" && !row.streaming && isVisiblyEmptyMessage(row);
 
-/// A background subagent's or shell's end that the composer hat says instead (its `line` header, the
-/// default: "2 background commands finished", trayHeadKinds.ts `trayHeadLine`). Leo, 2026-11-25, on
-/// a background task's end folding into a turn's "Worked for": "what if we simply put it into the
-/// composer hat and iddnt put it into the transcript?" So with that header the transcript draws no
-/// such row, folded or not, and nothing says the same end in two places. One that failed stays: it
-/// waits on a Retry. With the earlier headers (the Settings switch off), the ends fold here as before
-/// (#53168).
-function hatSaysEnd(row: AcpmuxRow): boolean {
-  if (row.kind === SUBAGENT_DONE) {
-    const agent = row.subagents?.[0];
-    return agent?.background === true && agent.state !== "failed";
-  }
-  if (row.kind === "backgroundTask") {
-    const state = row.backgroundTask?.state;
-    return state === "completed" || state === "stopped";
-  }
-  return false;
-}
-
-/// `rows` less the ends the hat says (`hatSaysEnd`), or `rows` itself when there are none.
-function withoutHatEnds(rows: AcpmuxRow[]): AcpmuxRow[] {
-  if (!rows.some(hatSaysEnd) || experimentArm(trayFoldHeadLook) !== "line") return rows;
-  return rows.filter((row) => !hatSaysEnd(row));
-}
-
 /// `rows` with each run of two or more background-task notifications folded under one line: the
 /// line alone while closed, the line and the run's rows while open (`expanded` holds the line's
 /// id). Without such a run, `rows` itself.
-export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
-  const rows = withoutHatEnds(all);
+export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   // Inline, a background turn's calls draw as they came, as a tool call's row does
   // (backgroundTurnLook.experiment.ts); a run of shell ends still folds.
   const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));

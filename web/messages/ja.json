@@ -7272,9 +7272,7 @@
     "errorInvalidTotp": "この 2 要素認証コードは無効です。",
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
-    "errorGeneric": "問題が発生しました。もう一度お試しください。",
-    "errorRedirectNotAllowed": "このビルドのサインインアドレスは {backend} で許可されていません。",
-    "backendDevelopment": "開発用バックエンド"
+    "errorGeneric": "問題が発生しました。もう一度お試しください。"
   },
   "opsCloudVmHealth": {
     "eyebrow": "スタッフ · 運用",
@@ -7569,55 +7567,6 @@
           "a": "含まれるクレジットは毎月リセットされます。購入したクレジットは 12 か月有効です。"
         }
       ]
-    }
-  },
-  "nextCloudPlans": {
-    "metaTitle": "cmux Cloud のプラン",
-    "metaDescription": "cmux Cloud のプラン: 毎月あなたのマシンを使える時間と、超えた分の 1 時間あたりの料金。",
-    "previewBadge": "プレビュー",
-    "previewNote": "このページはまだサイトからリンクされていません。",
-    "title": "cmux Cloud のプラン",
-    "headline": "ノートパソコンを閉じても、エージェントは動き続けます。",
-    "subhead": "いま使っている Claude や ChatGPT のプランのままで。",
-    "lede": "どのプランにも、毎月あなたのマシンを使える時間が含まれます。マシンは {vcpus} vCPU・メモリ {memory} GB で、起きている間だけ時間を数えます。",
-    "perMonth": "/月",
-    "hours": "あなたのマシンを月 {hours} 時間",
-    "machine": "{vcpus} vCPU・メモリ {memory} GB",
-    "after": "超えた分は 1 時間 {price}",
-    "metering": "秒単位で課金し、分単位で表示",
-    "paused": "一時停止中のマシンは時間を使いません",
-    "models": "モデルの利用料は含まれません。",
-    "cta": "cmux をダウンロード",
-    "table": {
-      "title": "動かし続けられるエージェントと時間",
-      "note": "各プランは、含まれる時間の範囲でこの数のエージェントを同時に動かし続けます。超えた分は 1 時間 {price} です。",
-      "plan": "プラン",
-      "price": "料金",
-      "keptRunning": "同時に動かし続けられるエージェント",
-      "hours": "あなたのマシンを使える時間 (月)"
-    },
-    "compare": {
-      "title": "比べてみると",
-      "note": "ここには、測定で確かめた項目だけを載せています。",
-      "columns": {
-        "server": "自分のサーバー",
-        "planTab": "プランのクラウド機能",
-        "cmux": "cmux Cloud"
-      },
-      "rows": {
-        "agentsAtOnce": {
-          "label": "同時に動かせるエージェント",
-          "server": "2 コア・4 GB のサーバーで 4 つほど",
-          "planTab": "上限は公開されていません",
-          "cmux": "{machines} 台を同時に起動し、{seconds} 秒以内に全台が準備完了"
-        },
-        "unusedMonth": {
-          "label": "使わなかった月の費用",
-          "server": "電源を切っていても満額",
-          "planTab": "支払っているプランに含まれる",
-          "cmux": "プランの料金だけ。一時停止中のエージェントは時間を使いません"
-        }
-      }
     }
   },
   "connected": {

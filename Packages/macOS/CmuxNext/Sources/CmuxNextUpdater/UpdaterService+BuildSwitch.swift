@@ -204,7 +204,6 @@ nonisolated extension UpdaterStrings {
         text("updater.channels.switchGone", "That build is no longer offered for download.")
     }
     static var channelsSwitchFailed: String {
-        // retry-prompt-ok: switching builds downloads and replaces binaries
         text("updater.channels.switchFailedPlain", "Couldn't switch: that build didn't download or didn't pass its checks. Try again.")
     }
 }

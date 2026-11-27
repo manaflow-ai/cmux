@@ -1547,9 +1547,7 @@ pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64>
          )",
         )?
         .query_row([], |row| row.get::<_, i64>(0))?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
-    Ok(head_sequence.max(output_cleanup::pruned_head(connection)?))
+    u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
 pub(crate) fn query_session_journal_sequences(

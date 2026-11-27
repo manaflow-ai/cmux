@@ -55,7 +55,6 @@ if [[ "${1:-}" == --one ]]; then
   # URLS is one URL or several joined by |, tried in order (a mirror after its origin).
   # SHA256, when given (a copy from our mirror), must match the downloaded bytes.
   cache="$2" hash="$3" urls="$4" want="${5:-}"
-  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   final="$cache/p/$hash.tar.gz"
   [[ -e "$final" ]] && exit 0
   part="$cache/p/.seed-$hash-$$"
@@ -65,13 +64,9 @@ if [[ "${1:-}" == --one ]]; then
   for url in "${candidates[@]}"; do
     rm -f "$part" "$part.raw"
     # --retry-max-time caps a server's Retry-After too (it can ask for an hour).
-    # Our mirror is a github.com release: the NIGHTLY Macs get 403 from GitHub on an anonymous
-    # download ("Seeded 0 of 40", run 45776501690), so with a token (GH_TOKEN) a release download
-    # goes through the API's asset URL with it (github-release-download.sh), else as before.
-    "$here/github-release-download.sh" "$url" "$part.raw" --proto '=http,https' \
-      --retry 3 --retry-delay 3 --retry-all-errors --retry-max-time 60 \
+    curl -fsSL --proto '=http,https' --retry 3 --retry-delay 3 --retry-all-errors --retry-max-time 60 \
       --connect-timeout 20 --speed-limit 51200 --speed-time 20 --max-time 120 \
-      2>/dev/null || { echo "seed: could not download $url" >&2; continue; }
+      -o "$part.raw" "$url" 2>/dev/null || { echo "seed: could not download $url" >&2; continue; }
     case "$url" in
       *.tar.gz|*.tgz) mv "$part.raw" "$part" ;;
       *.tar.xz) xz -dc "$part.raw" | gzip -n > "$part" || continue ;;
@@ -286,21 +281,7 @@ if [[ -f "$lock" ]]; then
     mirror_wanted=$((mirror_wanted + 1))
   done < "$lock"
 fi
-# One read of the mirror release's asset list before the parallel downloads, so they share it
-# (github_release_asset.py caches it per job) instead of each asking the API.
-if (( mirror_wanted > 0 )) && [[ "$mirror" == https://github.com/* ]] && command -v python3 >/dev/null 2>&1; then
-  python3 -I "$(cd "$(dirname "$0")" && pwd)/github_release_asset.py" "$(awk 'NR == 1 { print $2 }' <<<"$todo")" >/dev/null 2>&1 || true
-fi
 (( mirror_wanted > 0 )) && run_round
-# A mirror round GitHub refused (403s or a spent rate limit: nightly run 45776501690, job 139764481921)
-# leaves packages missing; the CI cache bucket holds the same sha256-checked archives (zig-packages-r2.sh).
-mirror_missing=0
-while read -r hash _url _sha; do
-  [[ -n "$hash" && ! -e "$cache/p/$hash.tar.gz" ]] && mirror_missing=$((mirror_missing + 1))
-done <<<"$todo"
-if (( mirror_missing > 0 )); then
-  CMUX_ZIG_LOCK="$lock" bash "$(dirname "${BASH_SOURCE[0]}")/zig-packages-r2.sh" restore "$cache" || true
-fi
 while read -r hash _url _sha; do
   [[ -n "$hash" && -e "$cache/p/$hash.tar.gz" ]] && mirror_seeded=$((mirror_seeded + 1))
 done <<<"$todo"

@@ -2,9 +2,9 @@
 // customize app (local/customize), so this joins the two feature looks it is built from.
 // - codex/sidebar: the Chats section, the thread hover card and the row decorations.
 // - codex/send-parity: the builder New Tab page.
-// Each part is that look's main.js in its own scope; the Chats section adds Active work and Recents.
-// codex/threads' Activity section is not here: an app implements cmux.section/1 once, so the Chats
-// section draws the reference app's Active work itself (the chats working or waiting on you).
+// Each part is that look's main.js, unchanged, in its own scope.
+// codex/threads' Activity section is not here: an app implements cmux.section/1 once, so the profile
+// keeps the Chats section and turns on cmux's own priority view for Activity (see README.md, Gaps).
 const __sidebar = (() => {
 // A chat sidebar after a desktop coding agent app. Public surfaces only: cmux.section/1 (the list),
 // cmux.hovercard/1 (the thread card) and cmux.sidebar.rows/1 (row decorations).
@@ -103,16 +103,10 @@ function age(ms) {
 const visible = computed(() => chats().filter((c) => !isArchived(c)).sort((a, b) => stamp(b) - stamp(a)))
 const pinned = computed(() => visible().filter(isPinned))
 const unpinned = computed(() => visible().filter((c) => !isPinned(c)))
-// Active work, as the reference app heads it: the chats working or waiting on you, newest first.
-const isActive = (c) => c.state === "working" || c.state === "input"
-const active = computed(() => unpinned().filter(isActive))
-// Recents: the chats with no project folder (the reference app's list under Projects).
-const recents = computed(() => unpinned().filter((c) => !c.project))
 const projects = computed(() => {
   const groups = new Map()
   for (const c of unpinned()) {
-    if (!c.project) continue
-    const name = c.project
+    const name = c.project || "No project"
     if (!groups.has(name)) groups.set(name, { name, threads: [] })
     groups.get(name).threads.push(c)
   }
@@ -209,9 +203,8 @@ function limited(key, items) {
   ])
 }
 
-// The sort and grouping, as a quiet "…" at the end of the Projects (or Chats) heading.
 const organizeMenu = () =>
-  Menu("…", () => [
+  Menu("Organize", () => [
     Button("By project", () => savePrefs({ organize: "project" })).withProps({ symbol: prefs().organize === "project" ? "checkmark" : null }),
     Button("In one list", () => savePrefs({ organize: "list" })).withProps({ symbol: prefs().organize === "list" ? "checkmark" : null }),
     Divider(),
@@ -225,7 +218,9 @@ function renderChats() {
     HStack({ spacing: 8 }, [
       Icon("square.and.pencil").size(TEXT),
       Text("New chat").font(TEXT),
-      Spacer()
+      Spacer(),
+      Button(Icon("magnifyingglass"), () => run("agentPane.searchChats")),
+      organizeMenu()
     ])
       .paddingHorizontal(ROW_PAD)
       .frame({ height: ROW_HEIGHT })
@@ -237,12 +232,11 @@ function renderChats() {
       pinned().length
         ? VStack({ spacing: 0 }, [heading("Pinned"), ForEach({ items: pinned, key: chatKey }, thread)])
         : null,
-    () => (active().length ? VStack({ spacing: 0 }, [heading("Active work"), limited("active", active)]) : null),
     () =>
       prefs().organize === "list"
-        ? VStack({ spacing: 0 }, [heading("Chats", [organizeMenu()]), limited("list", unpinned)])
+        ? VStack({ spacing: 0 }, [heading("Chats"), limited("list", unpinned)])
         : VStack({ spacing: 0 }, [
-            heading("Projects", [organizeMenu()]),
+            heading("Projects"),
             ForEach({ items: projects, key: (p) => p.name }, (p) =>
               VStack({ spacing: 0 }, [
                 HStack({ spacing: 8 }, [
@@ -258,8 +252,7 @@ function renderChats() {
                   .onTap(() => savePrefs({ collapsed: { ...prefs().collapsed, [p().name]: !prefs().collapsed[p().name] } })),
                 () => (prefs().collapsed[p().name] ? null : limited(`project:${p().name}`, () => p().threads))
               ])
-            ),
-            () => (recents().length ? VStack({ spacing: 0 }, [heading("Recents"), limited("recents", recents)]) : null)
+            )
           ]),
     () => (source() && source().error() ? Text(source().error().message).font(TEXT).color(cmux.theme.warning).paddingHorizontal(ROW_PAD) : null),
     () => (visible().length || (source() && source().error()) ? null : Text("No chats").font(TEXT).color(cmux.theme.text.secondary).paddingHorizontal(ROW_PAD).frame({ height: ROW_HEIGHT }))

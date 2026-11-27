@@ -46,12 +46,9 @@ public struct TurnFailureCopy: Hashable, Sendable {
             (parts.message ?? raw).range(of: "this team", options: .caseInsensitive) != nil
                 ? "cmux's model service isn't available for this team."
                 : "cmux's model service isn't available here."
-        // retry-prompt-ok: the person must act on the Mac first, then choose to re-send the turn.
         case .modelServiceNotConnected: "cmux's model service isn't connected on the Mac. Open cmux on the Mac, then try again."
         case .modelServiceExpired: "cmux's model service sign-in expired on the Mac. Open cmux on the Mac to renew it."
-        // retry-prompt-ok: re-sending a failed turn spends the person's tokens and repeats its side effects; theirs to choose.
         case .modelServiceUnreachable: "Can't reach cmux's model service right now. Try again in a moment."
-        // retry-prompt-ok: same: re-sending the turn (or switching model) is the person's choice.
         case .rateLimited: "\(name) is rate limited or out of capacity. Try again in a moment, or switch model."
         case .unreachable: via.map { "\(name) could not reach \($0)." } ?? "\(name) could not reach its server."
         case .invalidKey: "\(name) has no valid API key. Check the key its profile uses."

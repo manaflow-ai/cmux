@@ -294,17 +294,6 @@ public final class DeviceHubService {
         logger.info("device hub started")
     }
 
-    /// `hub` runs a device this Mac should no longer use (the acpmux daemon came online as another, ShareHostDevice.swift):
-    /// the hub starts again for the same account and address, so ``makeRemoteHub`` picks the device again. The old one only
-    /// stops: no sign-out, so its sharing bit stays as the person set it and its sessions end as the hub ends an offline
-    /// device's. Nothing when `hub` no longer runs.
-    func restartHub(replacing hub: DeviceHub) {
-        guard self.hub === hub, let running else { return }
-        logger.info("device hub restarting: this Mac's device changed")
-        stopHub(endingSessions: false)
-        startHub(url: running.url, user: running.user)
-    }
-
     /// A sign-out starts (the account's tokens still work): the hub hears
     /// `signed_out` now, not after the rest of the sign-out.
     public func willSignOut() {

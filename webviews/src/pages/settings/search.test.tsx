@@ -43,18 +43,6 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   ).not.toBeNull();
 });
 
-// Findings G6 (six pages): a result's header says where it lives, its page then its category; a
-// page's own category is just its name.
-test("a result's header is its page then its category", async () => {
-  page = await renderPage({ path: "/settings/general" });
-  await changeValue(search(page), "font");
-  const title = (id: string) =>
-    page!.container.querySelector(`[data-search-results] [data-section="${id}"] .result-section-title`)?.textContent;
-  expect(title("terminal")).toBe("Advanced › Terminal");
-  await changeValue(search(page), "transparency");
-  expect(title("appearance")).toBe("Appearance");
-});
-
 test("search finds Keep Mac Awake under the words people use for it", async () => {
   page = await renderPage();
   for (const query of ["keep awake", "sleep", "prevent sleep", "caffeinate", "stay awake"]) {

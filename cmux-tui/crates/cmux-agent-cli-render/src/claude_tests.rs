@@ -41,37 +41,3 @@ fn a_tall_transcript_shows_its_bottom_rows() {
     let grid = render(&records, &chrome(), 30, 10);
     assert_eq!(grid.row_text(4), "❯ p19");
 }
-
-fn fullscreen_chrome() -> Chrome {
-    Chrome { version: Some("2.1.332".into()), ..chrome() }
-}
-
-#[test]
-fn a_fullscreen_empty_draft_shows_the_placeholder() {
-    let chrome = Chrome { placeholder: Some("Try \"fix lint\"".into()), ..fullscreen_chrome() };
-    let grid = render(&[], &chrome, 40, 12);
-    let text: Vec<String> = (0..12).map(|y| grid.row_text(y)).collect();
-    assert!(text.iter().any(|t| t.contains("Try \"fix lint\"")), "{text:?}");
-}
-
-#[test]
-fn a_fullscreen_box_taller_than_the_screen_keeps_its_footer() {
-    let draft = (0..20).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
-    let chrome = Chrome { draft, ..fullscreen_chrome() };
-    let grid = render(&[], &chrome, 40, 8);
-    let text: Vec<String> = (0..8).map(|y| grid.row_text(y)).collect();
-    assert!(text.last().is_some_and(|t| t.contains("manual mode on")), "{text:?}");
-    assert!(text.iter().any(|t| t.contains("line19")), "{text:?}");
-}
-
-#[test]
-fn a_fullscreen_dot_in_the_text_is_not_a_gutter_dot() {
-    let update = |u: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "s", "update": u}});
-    let records = vec![
-        json!({"kind": "user_message", "msg": {"text": "hi"}}),
-        json!({"kind": "agent_message_chunk", "msg": update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "a ● b"}}))}),
-    ];
-    let grid = render(&records, &fullscreen_chrome(), 40, 12);
-    let text: Vec<String> = (0..12).map(|y| grid.row_text(y)).collect();
-    assert!(text.iter().any(|t| t == "⏺ a ● b"), "{text:?}");
-}

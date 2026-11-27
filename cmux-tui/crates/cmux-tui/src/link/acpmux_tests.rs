@@ -489,7 +489,6 @@ fn acpmux_connect_baseline() {
                     peer_token: None,
                     vm_boundary: false,
                     github_broker: false,
-                    group: None,
                 },
             )]);
             config

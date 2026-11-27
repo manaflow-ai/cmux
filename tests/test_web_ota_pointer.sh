@@ -215,14 +215,8 @@ refuses "a version that is not the commit time" "$TMP/badversion.json" "${LR[@]}
 signed resigned published_at=1794209999 expires_at=1796809999
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/resigned.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   || fail "a re-sign of the same build was not the same build"
-# The .deb and .rpm carry the signing run's version, so a re-sign that built others is the same build.
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/extra.json" --keys "$TMP/keys-a.json" 2>/dev/null \
-  || fail "a file that only adds packages was not the same build"
-signed otherbin 'targets.x86_64-unknown-linux-gnu.cmux-tui.sha256="'"$(printf 'e%.0s' {1..64})"'"'
-python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/otherbin.json" --keys "$TMP/keys-a.json" 2>/dev/null \
-  && fail "a file with another binary was the same build"
-signed notdeb 'targets.x86_64-unknown-linux-gnu.deb={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-gnu","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":9}'
-refuses "a deb entry that is not a .deb" "$TMP/notdeb.json" "${LR[@]}"
+  && fail "a file with other targets was the same build"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/machine.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   && fail "a Cloud machine file was the same build as a Linux release file"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/tampered.json" --keys "$TMP/keys-a.json" 2>/dev/null \

@@ -18,11 +18,9 @@ type Props = {
   look?: IMessageLook;
   error?: string;
   sends?: boolean;
-  /// A read that kept failing past the deadline while it is asked again on its own.
-  stillTrying?: boolean;
 };
 
-function GalleryIMessage({ status, look, error, sends = true, stillTrying = false }: Props) {
+function GalleryIMessage({ status, look, error, sends = true }: Props) {
   const t = useT();
   const [sectionOpen, setSectionOpen] = useState(true);
   const [data, setData] = useState<IMessageData>({
@@ -49,7 +47,6 @@ function GalleryIMessage({ status, look, error, sends = true, stillTrying = fals
                 data,
                 expanded,
                 busy: false,
-                stillTrying,
                 toggle: () => setExpanded((was) => !was),
                 perform: async (action) => {
                   const next =
@@ -117,16 +114,11 @@ export default componentEntry<Props>({
     },
     "database-missing": {
       props: { status: "connected", error: "missing" },
-      note: "Messages has not created chat.db: a concrete recovery, and the list is read again on its own (no Retry), with Disconnect still available.",
-    },
-    "still-trying": {
-      props: { status: "connected", stillTrying: true },
-      note: "Reading the threads kept failing past the deadline: they are read again on its own, and one quiet line says so, with no Try again button.",
+      note: "Messages has not created chat.db: a concrete recovery and Retry, with Disconnect still available.",
     },
     unavailable: {
       props: { status: "not_connected", error: "unavailable" },
-      // retry-prompt-ok: describes Connect, the person's own step, offered again after it failed.
-      note: "Connect could not reach the native reader: the row stays visible and Connect can be taken again.",
+      note: "The native reader could not load: the row stays visible and Connect can be tried again.",
     },
   },
 });

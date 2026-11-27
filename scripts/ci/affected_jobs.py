@@ -22,8 +22,7 @@ head's tree by scripts/ci/cargo_test_verdict.py's crate_inputs (the same graph t
 It never trades a test for speed. Every job runs when:
 
   - the event is not a pull request (a push to feat-cmux-next is the safety net: it runs everything), or the pull
-    request carries the full-ci label (with --full-ci-follows-graph, the label runs every job the change can affect,
-    the pull_request_skip ones too, and no job whose inputs it leaves as they are at the base);
+    request carries the full-ci label;
   - there is no usable base, or git cannot list the change, or the graph cannot be read;
   - the change touches this router, its map, or what it reads the graph with (SELF);
   - a changed path under cmux-tui/ is in no Cargo package, is no job's input, and is not a Markdown file: a path
@@ -224,13 +223,9 @@ def unplaced(path: str, packages, entries) -> bool:
 
 def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: str = "pull_request",
           labels: list[str] | None = None, map_text: str | None = None, workflow: str | None = None,
-          base_tree: git_tree.GitTree | None = None, base_ref: str = SKIP_BASE,
-          full_ci_follows_graph: bool = False) -> Route:
+          base_tree: git_tree.GitTree | None = None, base_ref: str = SKIP_BASE) -> Route:
     """The jobs to run for CHANGED (None: git could not list the change), with the graph read from TREE (the head);
-    BASE_TREE, when given, places the files of packages the change deletes. FULL_CI_FOLLOWS_GRAPH: the full-ci label
-    still lifts pull_request_skip, but a job runs only when the change touches its inputs (or the graph cannot say):
-    a job whose every input matches the base reruns the base's result (cmux-tui-spec.yml, 2026-11-26: about 33,000
-    of its 96,000 runner-minutes a day were full-ci heads that touched none of the job's inputs)."""
+    BASE_TREE, when given, places the files of packages the change deletes."""
     if map_text is None:
         map_text = (ROOT / MAP).read_text(encoding="utf-8")
     workspace_inputs, jobs = load_map(map_text)
@@ -254,7 +249,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
 
     if event != "pull_request":
         return everything(f"a {event} runs every job (the safety net)")
-    if FULL_LABEL in (labels or []) and not full_ci_follows_graph:
+    if FULL_LABEL in (labels or []):
         return everything(f"the {FULL_LABEL} label")
     if changed is None or tree is None:
         return everything("no usable base: the change cannot be listed")
@@ -354,14 +349,13 @@ def gate_globs(root: Path, workflow: str, map_text: str) -> list[str] | None:
 
 
 def gate(root: Path, changed: list[str] | None, workflow: str, *, event: str = "pull_request",
-         labels: list[str] | None = None, map_text: str | None = None,
-         full_ci_follows_graph: bool = False) -> tuple[bool, str]:
+         labels: list[str] | None = None, map_text: str | None = None) -> tuple[bool, str]:
     """Whether the change needs the crate graph at all (`route` and `check` on a full checkout), and why. A pull
     request whose every changed path is outside gate_globs needs neither: every routed job of WORKFLOW is false and
     `check` reads the same files as at the base (the feat-cmux-next push still runs both). Everything else (a push, the full-ci label, an unlistable change) needs it."""
     if event != "pull_request":
         return True, f"a {event} reads the graph"
-    if FULL_LABEL in (labels or []) and not full_ci_follows_graph:
+    if FULL_LABEL in (labels or []):
         return True, f"the {FULL_LABEL} label"
     if changed is None:
         return True, "no usable base: the change cannot be listed"
@@ -893,8 +887,6 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--labels", default="[]", help="the pull request's label names, as a JSON list")
     one.add_argument("--base-ref", default=SKIP_BASE, help="the pull request's base branch")
     one.add_argument("--workflow", help="only this workflow's jobs (and their $GITHUB_OUTPUT keys)")
-    one.add_argument("--full-ci-follows-graph", action="store_true", help="the full-ci label runs the jobs the change "
-                     "can affect, not every job (unreadable labels still run every job)")
     inputs = sub.add_parser("inputs")
     inputs.add_argument("--workflow", required=True)
     inputs.add_argument("--job", required=True)
@@ -905,8 +897,6 @@ def main(argv: list[str] | None = None) -> int:
     gated.add_argument("--labels", default="[]", help="the pull request's label names, as a JSON list")
     gated.add_argument("--workflow", required=True, help="the routed workflow; its job outputs read `false` when the "
                        "graph is not needed")
-    gated.add_argument("--full-ci-follows-graph", action="store_true", help="as route's: the full-ci label alone "
-                       "does not need the graph")
     sub.add_parser("check")
     sub.add_parser("fix", help="add every input a routed job's workflow paths miss to them, and every pull_request "
                    "path its post-merge batch suite misses to the suite, then print what it added")
@@ -930,10 +920,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             labels = json.loads(args.labels or "[]")
         except json.JSONDecodeError:
-            labels, args.full_ci_follows_graph = [FULL_LABEL], False  # unreadable: every job, never fewer
+            labels = [FULL_LABEL]
         changed = changed_paths(root, args.base, args.head) if args.event == "pull_request" else None
-        needed, why = gate(root, changed, args.workflow, event=args.event, labels=labels,
-                           full_ci_follows_graph=args.full_ci_follows_graph)
+        needed, why = gate(root, changed, args.workflow, event=args.event, labels=labels)
         print(f"graph={'needed' if needed else 'not needed'}  {why}")
         if "GITHUB_OUTPUT" in os.environ:
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
@@ -964,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         labels = json.loads(args.labels or "[]")
     except json.JSONDecodeError:
-        labels, args.full_ci_follows_graph = [FULL_LABEL], False  # unreadable labels: as if full-ci, never fewer jobs
+        labels = [FULL_LABEL]  # unreadable labels: as if full-ci, never fewer jobs
     changed = changed_paths(root, args.base, args.head) if args.event == "pull_request" else None
     try:
         tree = git_tree.GitTree(root, args.head)
@@ -973,7 +962,7 @@ def main(argv: list[str] | None = None) -> int:
     base_tree = git_tree.GitTree(root, args.base) if changed is not None else None
     try:
         result = route(tree, changed, event=args.event, labels=labels, workflow=args.workflow, base_tree=base_tree,
-                       base_ref=args.base_ref, full_ci_follows_graph=args.full_ci_follows_graph)
+                       base_ref=args.base_ref)
         keys = result_keys(tree, args.workflow) if tree is not None else {}
     finally:
         for opened in (tree, base_tree):

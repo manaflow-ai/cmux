@@ -1,5 +1,3 @@
-/** @jsxImportSource ../../kit/closed */
-// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // `chat.receiveTransition` / `default`: what MessageRow.tsx drew around a reply before slots, unchanged:
 // the reply as it is, or in the prompt glass under the Messages presentation (AssistantPresentation).
 // The words' own reveal stays RevealedMarkdown's.

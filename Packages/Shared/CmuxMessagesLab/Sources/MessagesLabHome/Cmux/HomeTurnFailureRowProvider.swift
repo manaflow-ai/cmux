@@ -57,7 +57,6 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
 
     static func titles(_ p: Payload) -> [(Action, String)] {
         var titles: [(Action, String)] = []
-        // retry-prompt-ok: re-runs a failed model turn (a paid request)
         if p.local.retry { titles.append((.retry, CmuxStrings.turnFailureRetry)) }
         titles.append((.copy, p.local.copied ? CmuxStrings.turnFailureCopied : CmuxStrings.turnFailureCopy))
         titles.append((.details, p.local.open ? CmuxStrings.turnFailureHideDetails : CmuxStrings.turnFailureDetails))

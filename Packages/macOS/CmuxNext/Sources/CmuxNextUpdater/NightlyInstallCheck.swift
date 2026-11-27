@@ -73,7 +73,7 @@ public struct NightlyInstallCheck {
     /// Shows the held rollback notice once, as `cmux __install-check show` decides for `build`.
     func showHeld(build: String, notify: @MainActor (_ title: String, _ body: String) -> Void) async {
         guard let output = await runCLI(["show", "--record", recordFile.path, "--build", build], input: nil),
-              let shown = await Self.decoded(InstallCheckShow.self, from: output) else { return }
+              let shown = try? JSONDecoder().decode(InstallCheckShow.self, from: output) else { return }
         updater.log.append("install check: showing \(shown.kind.rawValue) for \(shown.notice.build)")
         let notice = NightlyInstallCheckNotice(shown)
         notify(notice.title, notice.body)
@@ -89,8 +89,7 @@ public struct NightlyInstallCheck {
     /// Whether the record holds no result for `build` yet.
     func due(build: String) async -> Bool {
         let output = await runCLI(["due", "--record", recordFile.path, "--build", build, "--nightly"], input: nil)
-        guard let output else { return false }
-        return await Self.decoded([String: Bool].self, from: output)?["due"] == true
+        return output.flatMap { try? JSONDecoder().decode([String: Bool].self, from: $0) }?["due"] == true
     }
 
     /// The kept builds and whether each reads the stores now (the existing rollback check), read only
@@ -109,19 +108,9 @@ public struct NightlyInstallCheck {
     }
 
     func decide(_ request: InstallCheckRequest) async -> InstallCheckDecision? {
-        guard let input = await Self.encoded(request),
+        guard let input = try? JSONEncoder().encode(request),
               let output = await runCLI(["decide", "--record", recordFile.path], input: input) else { return nil }
-        return await Self.decoded(InstallCheckDecision.self, from: output)
-    }
-
-    /// The CLI's output (a process's, unbounded) decoded off the main actor.
-    @concurrent nonisolated private static func decoded<Value: Decodable & Sendable>(_ type: Value.Type, from output: Data) async -> Value? {
-        try? JSONDecoder().decode(type, from: output)
-    }
-
-    /// The request (every kept build) encoded off the main actor.
-    @concurrent nonisolated private static func encoded(_ request: InstallCheckRequest) async -> Data? {
-        try? JSONEncoder().encode(request)
+        return try? JSONDecoder().decode(InstallCheckDecision.self, from: output)
     }
 
     /// `cmux __install-check arguments`; nil on a launch failure, a non-zero exit or a timeout (logged).
@@ -136,13 +125,13 @@ public struct NightlyInstallCheck {
 }
 
 /// The request `cmux __install-check decide` reads (cmux-install-check `Request`).
-nonisolated struct InstallCheckRequest: Encodable, Equatable, Sendable {
+nonisolated struct InstallCheckRequest: Encodable, Equatable {
     var nightly = true
     var build: String
     var canary: Canary
     var kept: [InstallCheckKept]
 
-    nonisolated struct Canary: Encodable, Equatable, Sendable {
+    struct Canary: Encodable, Equatable {
         var result: String
         var reason: String?
         var retryable: Bool?
@@ -159,21 +148,21 @@ nonisolated struct InstallCheckRequest: Encodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct InstallCheckKept: Codable, Equatable, Sendable {
+nonisolated struct InstallCheckKept: Codable, Equatable {
     var build: String
     var readsStore: Bool
 }
 
 /// The decision `cmux __install-check decide` prints (cmux-install-check `Decision`).
-nonisolated struct InstallCheckDecision: Decodable, Equatable, Sendable {
-    nonisolated struct Action: Decodable, Equatable, Sendable {
-        nonisolated enum Kind: String, Decodable, Sendable { case keep, rollBack, report }
+nonisolated struct InstallCheckDecision: Decodable, Equatable {
+    struct Action: Decodable, Equatable {
+        enum Kind: String, Decodable { case keep, rollBack, report }
         var kind: Kind
         var to: String?
         var why: String?
     }
 
-    nonisolated struct Notice: Decodable, Equatable, Sendable {
+    struct Notice: Decodable, Equatable {
         var build: String
         var target: String?
         var why: String?
@@ -194,8 +183,8 @@ nonisolated struct InstallCheckDecision: Decodable, Equatable, Sendable {
 }
 
 /// The notice a launch shows for a held rollback (cmux-install-check `Show`).
-nonisolated struct InstallCheckShow: Decodable, Equatable, Sendable {
-    nonisolated enum Kind: String, Decodable, Sendable { case rolledBack, rollbackFailed }
+nonisolated struct InstallCheckShow: Decodable, Equatable {
+    enum Kind: String, Decodable { case rolledBack, rollbackFailed }
     var kind: Kind
     var notice: InstallCheckDecision.Notice
     var failure: String?

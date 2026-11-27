@@ -57,17 +57,5 @@ DIR holds an `acpmux-<target>` binary for it.
 Then open a new agent chat: the app starts its bundled acpmux, which adopts the
 running agents. An open chat only says acpmux is not running.
 
-## A candidate from a pull request head
-
-`cmux-next.yml` can also compile an open pull request's head as a DEV Release
-app: a `dev_daily` dispatch at `feat-cmux-next` with `dev_daily_sha`,
-`same_tree_sha` and `same_tree_status_sha` all set to that head. It publishes
-nothing. The run bundles the published `cmux-tui` of the head's tree, so it
-works only when the head leaves every tree input
-(`scripts/cmux-next/cmux-tui-tree-inputs.txt`) as a published
-`feat-cmux-next` commit has them. A head that changes one has no published
-tree, and the compile stops at "Fetch the same-tree cmux-tui". Build that head
-after it merges.
-
 Sparkle is disabled for this channel (`UpdateBuildIdentity.track` is
 `.development`), so there is no in-app update; this script is the update path.

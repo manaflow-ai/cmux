@@ -50,7 +50,7 @@ struct AgentPageCrashRetryTests {
         #expect(budget.ended(at: start + 10) == .notice, "a page that keeps ending retried a fourth time in 60 s")
         #expect(budget.ended(at: start + 61) == .retry(delay: 4), "the window did not slide")
         budget.reset()
-        #expect(budget.ended(at: start + 62) == .retry(delay: 0), "a reload did not start a fresh budget")
+        #expect(budget.ended(at: start + 62) == .retry(delay: 0), "the person's Reload did not start a fresh budget")
     }
 
     /// A chat on screen: no notice, and once its backoff passed it loads again in a new WebKit
@@ -87,8 +87,8 @@ struct AgentPageCrashRetryTests {
         page.close()
     }
 
-    /// The crash-loop guard: three retries in 60 s, then the notice, a line with no Reload button,
-    /// while it keeps retrying every 30 s (Leo, 2026-11-22: a vacuous Reload is just done).
+    /// The crash-loop guard: three retries in 60 s, then the notice with Reload, which starts a
+    /// fresh budget.
     @Test func aChatThatKeepsEndingShowsTheNotice() throws {
         let waits = Waits()
         var now = Date(timeIntervalSince1970: 5_000)
@@ -102,20 +102,12 @@ struct AgentPageCrashRetryTests {
         }
         page.webContentEnded(PageTermination(reason: .crash))
         #expect(chat.showsCrashNotice, "a crash loop never showed the notice")
-        #expect(chat.debugCrashNoticeTexts?.count == 1, "the notice offered a button")
-        #expect(chat.crashRetry.owed && waits.pending.map(\.delay) == [AgentPageCrashBudget.noticeRetryDelay],
-                "a crash loop stopped retrying")
-        waits.runAll()
-        #expect(chat.crashRetry.count == AgentPageCrashBudget.limit + 1, "the slow retry did not load again")
-        #expect(chat.crashReloadCount == 0, "the slow retry counted as a reload that starts over")
-        page.webContentEnded(PageTermination(reason: .crash))
-        #expect(chat.crashRetry.owed && waits.pending.map(\.delay) == [AgentPageCrashBudget.noticeRetryDelay])
-        waits.pending = []
+        #expect(!chat.crashRetry.owed && waits.pending.isEmpty)
 
         #expect(chat.debugPressCrashNoticeReload())
         #expect(!chat.showsCrashNotice && chat.crashReloadCount == 1)
         page.webContentEnded(PageTermination(reason: .crash))
-        #expect(!chat.showsCrashNotice && chat.crashRetry.owed, "the reload left no quick retries")
+        #expect(!chat.showsCrashNotice && chat.crashRetry.owed, "the person's Reload left no retries")
         page.close()
     }
 

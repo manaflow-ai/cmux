@@ -163,35 +163,6 @@ class Tests(unittest.TestCase):
         self.assertIsNone(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=broken))
         self.assertFalse(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=lambda *a: False))
 
-    def test_rate_limited_read_waits_for_the_reset(self):
-        import email.message
-        import urllib.error
-
-        def limited(**headers):
-            h = email.message.Message()
-            for k, v in headers.items():
-                h[k.replace("_", "-")] = v
-            return urllib.error.HTTPError("u", 403, "Forbidden", h, None)
-
-        self.assertEqual(nil.rate_limit_wait(limited(X_RateLimit_Remaining="0", X_RateLimit_Reset="1300"), now=1000),
-                         305.0)
-        self.assertEqual(nil.rate_limit_wait(limited(Retry_After="60")), 61.0)
-        self.assertEqual(nil.rate_limit_wait(limited(X_RateLimit_Remaining="0", X_RateLimit_Reset="99999"), now=0),
-                         float(nil.RATE_LIMIT_WAIT_CAP_S))
-        self.assertIsNone(nil.rate_limit_wait(limited(X_RateLimit_Remaining="12", X_RateLimit_Reset="1300")))
-        self.assertIsNone(nil.rate_limit_wait(OSError("HTTP Error 403: Forbidden")))
-
-        calls, slept = [], []
-
-        def flaky(repo, out_dir, token):
-            calls.append(1)
-            if len(calls) < 2:
-                raise limited(Retry_After="120")
-            return True
-
-        self.assertTrue(nil.fetch_state_retrying("r", "d", "t", sleep=slept.append, fetch=flaky))
-        self.assertEqual(slept, [121.0])
-
     def test_trusted_artifact(self):
         good = {"workflow_run": {"head_branch": "nightly-next", "head_repository_id": 7}}
         self.assertTrue(nil.trusted(good, 7))

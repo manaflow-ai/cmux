@@ -40,7 +40,7 @@ import Testing
                     // What CloudApprovalAnswer answers when the create's own team's item is closed.
                     throw CloudApprovalAnswer.Failure.answered(request: request)
                 }
-                calls.approved.append(request); calls.pending = false; return nil
+                calls.approved.append(request); calls.pending = false
             },
             pause: { _ in })
     }
@@ -87,7 +87,7 @@ import Testing
                 return .object(["machine": Self.machine])
             },
             confirm: { _ in true },
-            approve: { _, _, params in answered.append(params); calls.pending = false; return nil },
+            approve: { _, _, params in answered.append(params); calls.pending = false },
             pause: { _ in })
         create.validateOptions = { checked.append($0) }
         var request = CloudMachineRequest(name: "box", size: "medium", memoryMb: 8192, persistent: true, repo: CloudMachineRepo(owner: "o", name: "r"))
@@ -149,32 +149,5 @@ import Testing
         }
         #expect(calls.ops.isEmpty)
         #expect(calls.approved.isEmpty)
-    }
-
-    /// The one-call approve (cmux-api `integration.approval.approve`) carries the approved run's machine: the create
-    /// returns it with no same-key retry. A nil answer (an older backend, a run still going) retries as before.
-    @Test func anAnswerCarryingTheRunsMachineSkipsTheSameKeyRetry() async throws {
-        for carried in [true, false] {
-            let calls = Calls()
-            let flow = CloudMachineCreateFlow(
-                run: { op, args, _, _ in
-                    await MainActor.run { calls.ops.append(op); calls.sent.append(args) }
-                    if await MainActor.run(body: { calls.pending }) {
-                        throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string("apr_1")]))
-                    }
-                    return .object(["machine": Self.machine])
-                },
-                confirm: { _ in true },
-                approve: { request, _, _ in
-                    calls.approved.append(request)
-                    calls.pending = false
-                    return carried ? .object(["machine": Self.machine]) : nil
-                },
-                pause: { _ in })
-            let machine = try await flow.create(name: "box", startedByPerson: true)
-            #expect(machine == Self.machine)
-            #expect(calls.approved == ["apr_1"])
-            #expect(calls.sent.count == (carried ? 1 : 2), "carried \(carried): \(calls.sent.count) creates")
-        }
     }
 }

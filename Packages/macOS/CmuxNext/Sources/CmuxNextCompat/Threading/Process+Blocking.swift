@@ -11,7 +11,8 @@ extension Process {
     ///   - line: The calling code's `#line`.
     @inlinable
     public func blockingWaitUntilExit(fileID: StaticString = #fileID, line: UInt = #line) {
-        blockingCall(.processWait, fileID: fileID, line: line) { waitUntilExit() } // concurrency-allow: the checked seam; assertBlockingAllowed reports a main-thread call
+        assertBlockingAllowed(.processWait, fileID: fileID, line: line)
+        waitUntilExit() // concurrency-allow: the checked seam; assertBlockingAllowed reports a main-thread call
     }
 
     /// Starts the process, like `run()`, as a checked blocking call
@@ -24,6 +25,7 @@ extension Process {
     /// - Throws: What `run()` throws.
     @inlinable
     public func blockingRun(fileID: StaticString = #fileID, line: UInt = #line) throws {
-        try blockingCall(.processSpawn, fileID: fileID, line: line) { try run() }
+        assertBlockingAllowed(.processSpawn, fileID: fileID, line: line)
+        try run()
     }
 }

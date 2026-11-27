@@ -374,7 +374,6 @@ struct TabsToolbar: View {
             .allowsHitTesting(!collapsed && !chrome.editing && showsReload)
             .accessibilityHidden(collapsed || chrome.editing || !showsReload)
             .frame(maxWidth: .infinity, alignment: .trailing)
-            // retry-prompt-ok: the browser's own Reload control, used on purpose
             .accessibilityLabel(loading ? "Stop" : "Reload")
         }
         .frame(width: r.width, height: r.height)

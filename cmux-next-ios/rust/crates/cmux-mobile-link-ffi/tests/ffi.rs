@@ -426,17 +426,6 @@ fn names(marks: &[cmux_mobile_link_ffi::TimingMark]) -> Vec<&str> {
     marks.iter().map(|m| m.name.as_str()).collect()
 }
 
-// The phone's local-link ads (`local_link_observe`, `local_link_pair`) are one table per process,
-// and a network change (`network_changed`) forgets every ad in it. A test that puts an ad there
-// and dials on it, or that roams, holds this lock for its whole body: otherwise a parallel roam
-// wipes its hub's ad mid-test and the service dial wins a race the hub was to win (run
-// 45786635352, `the_losing_service_dial_leaves_the_pool_sound`).
-static LOCAL_ADS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-async fn local_ads() -> tokio::sync::MutexGuard<'static, ()> {
-    LOCAL_ADS.lock().await
-}
-
 /// `prewarm` opens the signaling socket and fetches the ICE servers, so the
 /// dial that follows does neither; a redial after the link closed reuses
 /// the same socket and servers. Every dial records its steps.
@@ -531,7 +520,6 @@ async fn a_dial_during_prewarm_joins_its_socket() {
 /// stayed subscribed on the dead socket until the next network change.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_socket_carries_every_live_link() {
-    let _ads = local_ads().await;
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let first_mac = uuid::Uuid::new_v4().to_string();
     let second_mac = uuid::Uuid::new_v4().to_string();
@@ -664,61 +652,11 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
     );
 }
 
-/// The class detector for the process's local-link ads: a test of this crate that puts an ad in
-/// the table, dials on one, or roams (which forgets them all) holds `local_ads()` for its body, so
-/// no parallel test changes the ads it reads. Any test file of the crate, any such call.
-#[test]
-fn every_test_touching_local_ads_holds_the_lock() {
-    const CALLS: [&str; 6] = [
-        "local_link_observe(",
-        "local_link_pair(",
-        "local_link_remove(",
-        "local_link_forget_all(",
-        "network_changed(",
-        "nearby_hub(",
-    ];
-    let files = [
-        ("ffi.rs", include_str!("ffi.rs")),
-        ("browser.rs", include_str!("browser.rs")),
-        ("upload.rs", include_str!("upload.rs")),
-        ("prediction_latency.rs", include_str!("prediction_latency.rs")),
-    ];
-    let mut offenders = Vec::new();
-    for (file, source) in files {
-        let starts: Vec<usize> = source
-            .match_indices("#[tokio::test")
-            .chain(source.match_indices("#[test]"))
-            .map(|(at, _)| at)
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        for (n, &start) in starts.iter().enumerate() {
-            let end = starts.get(n + 1).copied().unwrap_or(source.len());
-            let test = &source[start..end];
-            let name = test.split("fn ").nth(1).and_then(|rest| rest.split('(').next()).unwrap_or("?");
-            if name == "every_test_touching_local_ads_holds_the_lock" {
-                continue;
-            }
-            // Only the test's own body: helpers defined after it in the file are not its calls.
-            let body = test.find("\n}\n").map_or(test, |close| &test[..close]);
-            if CALLS.iter().any(|call| body.contains(call)) && !body.contains("local_ads().await") {
-                offenders.push(format!("{file}: {name}"));
-            }
-        }
-    }
-    assert!(
-        offenders.is_empty(),
-        "these tests touch the process's local-link ads, which a parallel roam forgets; hold \
-         `let _ads = local_ads().await;` for the test's body: {offenders:?}"
-    )
-}
-
 /// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then
 /// says nothing, or the WireGuard dial over host candidates stalls) costs the service dial
 /// nothing: the hub races it instead of going first, and the service link wins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stale_local_ad_does_not_delay_the_service_dial() {
-    let _ads = local_ads().await;
     use cmux_mobile_link_ffi::local_link::{
         LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
     };
@@ -784,7 +722,6 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
 /// the hub bound on a dead one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_network_change_forgets_the_local_ads() {
-    let _ads = local_ads().await;
     use cmux_mobile_link_ffi::local_link::{
         LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
     };
@@ -860,7 +797,6 @@ async fn echo_once(handle: &std::sync::Arc<cmux_mobile_link_ffi::LinkHandle>) {
 /// instead of returning that error, and the link carries data. Both transports.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_no_internet_the_hub_is_the_whole_dial() {
-    let _ads = local_ads().await;
     for transport in [Transport::WebRtc, Transport::WireGuard] {
         let mac_id = uuid::Uuid::new_v4().to_string();
         let device = uuid::Uuid::new_v4().to_string();
@@ -897,7 +833,6 @@ async fn with_no_internet_the_hub_is_the_whole_dial() {
 /// dying uplink): the hub wins the race and the dial does not wait on the Worker at all.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_hub_wins_against_a_hung_worker() {
-    let _ads = local_ads().await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let device = uuid::Uuid::new_v4().to_string();
     let (_hub, instance) = nearby_hub(&mac_id, &device, "hung").await;
@@ -935,7 +870,6 @@ async fn the_hub_wins_against_a_hung_worker() {
 /// Mac no longer nearby) reuses the socket it opened, fetches ICE afresh, and comes up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_losing_service_dial_leaves_the_pool_sound() {
-    let _ads = local_ads().await;
     let server = FakeSignaling::start(FakeOptions {
         ice_delay: Duration::from_millis(1500),
         ..FakeOptions::default()

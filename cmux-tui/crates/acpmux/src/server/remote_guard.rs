@@ -1456,7 +1456,11 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
     if !cloud_peer {
         let dir = dir.clone();
         let made = tokio::task::spawn_blocking(move || {
-            crate::home_fs::create_dir_all(&dir, 0o700)?;
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder.create(&dir)?;
             mark_made_by_acpmux(&dir)
         })
         .await;
@@ -1541,7 +1545,7 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
 /// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
 /// is no marker, so the folder is asked about as any other.
 fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
-    match crate::home_fs::OpenOptions::new()
+    match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dir.join(crate::trust::AGENT_HOME_MARKER))

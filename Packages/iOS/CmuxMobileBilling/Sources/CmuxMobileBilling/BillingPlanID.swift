@@ -1,11 +1,5 @@
 import Foundation
 
-/// The product family an app sells through the App Store.
-public enum BillingPlanFamily: String, Codable, Sendable {
-    case classic
-    case next
-}
-
 /// A cmux plan identifier as the server reports it (`planId`).
 ///
 /// A struct over the raw string, not a closed enum, so a plan the server adds
@@ -22,32 +16,19 @@ public struct BillingPlanID: RawRepresentable, Hashable, Sendable, Codable, Comp
 
     /// No paid plan.
     public static let free = BillingPlanID(rawValue: "free")
-    /// The classic Go plan.
+    /// The Go plan.
     public static let go = BillingPlanID(rawValue: "go")
-    /// The classic Pro plan.
+    /// The Pro plan.
     public static let pro = BillingPlanID(rawValue: "pro")
-    /// The classic Max plan.
+    /// The Max plan.
     public static let max = BillingPlanID(rawValue: "max")
-    /// The cmux NEXT Plus plan, sold in the cmux-next apps.
-    public static let nextPlus = BillingPlanID(rawValue: "next_plus")
-    /// The cmux NEXT Pro plan, sold in the cmux-next apps.
-    public static let nextPro = BillingPlanID(rawValue: "next_pro")
-    /// The cmux NEXT Max plan, sold in the cmux-next apps.
-    public static let nextMax = BillingPlanID(rawValue: "next_max")
 
-    /// Whether this is a cmux NEXT plan rather than a classic one.
-    public var isNext: Bool {
-        rawValue.hasPrefix("next_")
-    }
-
-    /// Ordering rank within a plan family: Go < Pro < Max and
-    /// Plus < Pro < Max. An app sells one family, so ranks never need to
-    /// order a classic plan against a NEXT one. Unknown plans sort first.
+    /// Ordering rank: Go < Pro < Max, unknown plans sort before Go.
     public var rank: Int {
         switch rawValue {
-        case Self.go.rawValue, Self.nextPlus.rawValue: 1
-        case Self.pro.rawValue, Self.nextPro.rawValue: 2
-        case Self.max.rawValue, Self.nextMax.rawValue: 3
+        case Self.go.rawValue: 1
+        case Self.pro.rawValue: 2
+        case Self.max.rawValue: 3
         default: 0
         }
     }

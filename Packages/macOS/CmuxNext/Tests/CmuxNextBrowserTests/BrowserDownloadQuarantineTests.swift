@@ -6,16 +6,16 @@ import Testing
 @Suite struct BrowserDownloadQuarantineTests {
     private enum Refusal: Error { case cannotQuarantine }
 
-    @Test func quarantineFailureNeverPublishesOrFinishesTheDownload() async throws {
+    @Test func quarantineFailureNeverPublishesOrFinishesTheDownload() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-quarantine-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let placement = try await BrowserDownloadPolicy.place(
+        let placement = try #require(BrowserDownloadPolicy.place(
             chosen: nil, suggestedFilename: "payload.command", directory: directory,
             reservations: BrowserDownloadReservations()
-        ).get()
+        ))
         try Data("untrusted".utf8).write(to: placement.temporaryURL)
         var quarantineURL: URL?
         let download = BrowserDownload(

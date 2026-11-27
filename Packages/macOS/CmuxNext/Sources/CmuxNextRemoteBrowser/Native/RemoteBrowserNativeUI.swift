@@ -125,7 +125,6 @@ public final class RemoteBrowserNativeUI: NSObject {
             buttons = [.cancel(cancel), .ok(ok)]
         case "beforeunload":
             let leave = dialog.isReload
-                // retry-prompt-ok: the page's beforeunload answer: reloading drops its unsaved changes
                 ? String(localized: "remoteBrowser.dialog.reload", defaultValue: "Reload", bundle: .localizedModule)
                 : String(localized: "remoteBrowser.dialog.leave", defaultValue: "Leave", bundle: .localizedModule)
             buttons = [.cancel(cancel), .ok(leave)]

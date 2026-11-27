@@ -15914,127 +15914,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "They get an email link. You can message them once they join."
+            "value": "They get an email with a link to join. You can message them here as soon as they accept."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "سيتلقون رابطًا عبر البريد الإلكتروني. يمكنك مراسلتهم بمجرد انضمامهم."
+            "state": "translated",
+            "value": "سيتلقون رسالة بريد إلكتروني تحتوي على رابط للانضمام. يمكنك مراسلتهم هنا بمجرد قبولهم."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dobit će vezu e-poštom. Možete im pisati čim se pridruže."
+            "value": "Dobit će e-poruku s vezom za pridruživanje. Možete im pisati ovdje čim prihvate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "De får et link på e-mail. Du kan skrive til dem, når de deltager."
+            "value": "De får en e-mail med et link til at deltage. Du kan skrive til dem her, så snart de accepterer."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sie erhalten einen Link per E-Mail. Sobald sie beitreten, kannst du ihnen schreiben."
+            "state": "translated",
+            "value": "Sie erhalten eine E-Mail mit einem Link zum Beitreten. Sobald sie annehmen, kannst du ihnen hier schreiben."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Recibirán un enlace por correo. Podrás escribirles en cuanto se unan."
+            "state": "translated",
+            "value": "Recibirán un correo con un enlace para unirse. Podrás escribirles aquí en cuanto acepten."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ces personnes reçoivent un lien par e-mail. Vous pourrez leur écrire dès qu’elles rejoignent."
+            "state": "translated",
+            "value": "Ils reçoivent un e-mail avec un lien pour rejoindre. Vous pourrez leur écrire ici dès qu’ils acceptent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Riceveranno un link via email. Potrai scrivere loro appena si uniscono."
+            "value": "Riceveranno un’email con un link per unirsi. Potrai scrivergli qui appena accettano."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "メールでリンクが届きます。参加したらメッセージを送れます。"
+            "state": "translated",
+            "value": "参加用のリンクが記載されたメールが届きます。相手が承諾すると、ここでメッセージを送れます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពួកគេទទួលបានតំណតាមអ៊ីមែល។ អ្នកអាចផ្ញើសារទៅពួកគេនៅពេលពួកគេចូលរួម។"
+            "value": "ពួកគេនឹងទទួលបានអ៊ីមែលដែលមានតំណដើម្បីចូលរួម។ អ្នកអាចផ្ញើសារទៅពួកគេនៅទីនេះ ពេលពួកគេទទួលយក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이메일로 링크를 받습니다. 참여하면 메시지를 보낼 수 있습니다."
+            "state": "translated",
+            "value": "상대방에게 참여 링크가 담긴 이메일이 전송됩니다. 상대방이 수락하면 바로 여기에서 메시지를 보낼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "De får en lenke på e-post. Du kan sende melding når de blir med."
+            "value": "De får en e-post med en lenke for å bli med. Du kan sende meldinger til dem her så snart de godtar."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otrzymają link e-mailem. Możesz do nich pisać, gdy dołączą."
+            "value": "Otrzymają e-mail z linkiem do dołączenia. Możesz do nich pisać tutaj, gdy tylko zaakceptują."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elas recebem um link por e-mail. Você pode mandar mensagens assim que entrarem."
+            "value": "A pessoa recebe um e-mail com um link para entrar. Você pode enviar mensagens aqui assim que ela aceitar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Они получат ссылку по почте. Написать им можно, как только они присоединятся."
+            "value": "Они получат письмо со ссылкой для присоединения. Вы сможете писать им здесь, как только они примут приглашение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เขาจะได้รับลิงก์ทางอีเมล คุณส่งข้อความหาเขาได้เมื่อเขาเข้าร่วม"
+            "value": "พวกเขาจะได้รับอีเมลพร้อมลิงก์เพื่อเข้าร่วม คุณส่งข้อความหาพวกเขาที่นี่ได้ทันทีที่พวกเขายอมรับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "E-postayla bir bağlantı alırlar. Katıldıklarında onlara mesaj gönderebilirsin."
+            "value": "Katılma bağlantısı içeren bir e-posta alırlar. Kabul ettiklerinde onlara buradan mesaj gönderebilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вони отримають посилання поштою. Написати їм можна, щойно вони приєднаються."
+            "value": "Вони отримають лист із посиланням для приєднання. Ви зможете писати їм тут, щойно вони приймуть запрошення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Họ nhận được liên kết qua email. Bạn có thể nhắn tin cho họ khi họ tham gia."
+            "value": "Họ sẽ nhận được email có liên kết để tham gia. Bạn có thể nhắn tin cho họ ở đây ngay khi họ chấp nhận."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "对方会收到邮件链接。对方加入后，你就可以给他们发消息。"
+            "state": "translated",
+            "value": "对方会收到一封含加入链接的邮件。对方接受后，你就能在这里给他们发消息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "對方會收到電子郵件連結。對方加入後，你就可以傳訊息給他們。"
+            "state": "translated",
+            "value": "對方會收到含加入連結的電子郵件。對方接受後，你就能在這裡傳訊息給他們。"
           }
         }
       }
@@ -19583,127 +19583,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds one paid seat when they join (prorated)."
+            "value": "When they join, the Team plan bills one more seat, prorated."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "يضيف مقعدًا مدفوعًا واحدًا عند انضمامهم (بالتناسب)."
+            "state": "translated",
+            "value": "عند انضمامه، تحتسب خطة الفريق مقعدًا إضافيًا بشكل تناسبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaje jedno plaćeno mjesto kad se pridruže (proporcionalno)."
+            "value": "Kad se pridruži, Team plan naplaćuje još jedno mjesto, srazmjerno."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføjer én betalt plads, når de deltager (forholdsmæssigt)."
+            "value": "Når de bliver medlem, opkræver Team-abonnementet én plads mere, forholdsmæssigt."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fügt beim Beitritt einen bezahlten Platz hinzu (anteilig)."
+            "state": "translated",
+            "value": "Tritt die Person bei, berechnet der Team-Tarif einen weiteren Platz, anteilig."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Añade un puesto de pago cuando se unan (prorrateado)."
+            "state": "translated",
+            "value": "Cuando se una, el plan Team cobrará un puesto más, prorrateado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajoute un siège payant quand la personne rejoint (au prorata)."
+            "state": "translated",
+            "value": "À son arrivée, l’offre Team facture une place de plus, au prorata."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiunge un posto a pagamento quando si uniscono (proporzionale)."
+            "value": "Quando si unisce, il piano Team addebita un posto in più, in proporzione."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "参加すると有料シートが1つ追加されます（日割り）。"
+            "state": "translated",
+            "value": "参加すると、Team プランで 1 席分が日割りで追加請求されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមកៅអីបង់ប្រាក់មួយ នៅពេលពួកគេចូលរួម (គិតតាមសមាមាត្រ)។"
+            "value": "ពេលពួកគេចូលរួម គម្រោង Team គិតថ្លៃកៅអីមួយបន្ថែម តាមសមាមាត្រ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "참여하면 유료 좌석이 하나 추가됩니다(일할 계산)."
+            "state": "translated",
+            "value": "참여하면 Team 요금제에 좌석 1개가 일할 계산으로 추가 청구됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legger til én betalt plass når de blir med (forholdsmessig)."
+            "value": "Når de blir med, faktureres Team-abonnementet for én plass til, forholdsmessig."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaje jedno płatne miejsce, gdy dołączą (proporcjonalnie)."
+            "value": "Gdy dołączy, plan Team nalicza jedno miejsce więcej, proporcjonalnie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adiciona um assento pago quando a pessoa entrar (proporcional)."
+            "value": "Quando a pessoa entrar, o plano Team cobra mais um assento, proporcional."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавляет одно платное место, когда человек присоединится (пропорционально)."
+            "value": "Когда человек присоединится, тариф Team добавит одно место с пересчётом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มที่นั่งแบบชำระเงินหนึ่งที่เมื่อเขาเข้าร่วม (คิดตามสัดส่วน)"
+            "value": "เมื่อเข้าร่วม แผน Team จะคิดค่าที่นั่งเพิ่มหนึ่งที่ตามสัดส่วน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Katıldıklarında bir ücretli koltuk ekler (orantılı)."
+            "value": "Katıldığında Team planı bir koltuk daha, kıst olarak faturalandırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додає одне платне місце, коли людина приєднається (пропорційно)."
+            "value": "Коли людина приєднається, тариф Team додасть ще одне місце з перерахунком."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm một chỗ trả phí khi họ tham gia (tính theo tỷ lệ)."
+            "value": "Khi họ tham gia, gói Team tính thêm một chỗ, theo tỷ lệ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "对方加入时增加一个付费席位（按比例计费）。"
+            "state": "translated",
+            "value": "对方加入后，Team 方案将按比例多收一个席位的费用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "對方加入時增加一個付費席位（按比例計費）。"
+            "state": "translated",
+            "value": "對方加入後，Team 方案將按比例多收一個席位的費用。"
           }
         }
       }

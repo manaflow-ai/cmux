@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useAutoRetry } from "./autoRetry";
 import { LINK_DOWN_SAID_MS, RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import type { PeerCopyState } from "./peerCopy";
@@ -54,24 +53,7 @@ function PeerCopyBannerBody({
   onReconnect?(peer: string): Promise<unknown>;
 }) {
   const t = useT();
-  // An offline machine (not one paused or starting, which have their own way back): ask acpmux to
-  // redial it on the shared backoff while the banner shows, with no Reconnect button and no "Couldn't
-  // reconnect. Try again." (Leo, 2026-11-22: "vacuous decisions like that should be just done").
-  const [redialing, setRedialing] = useState(false);
-  const offline = onReconnect !== undefined && machine !== "starting" && !(machine === "paused" && onResume);
-  useAutoRetry(
-    offline,
-    () => {
-      if (!onReconnect) return;
-      setRedialing(true);
-      const settle = () => setRedialing(false);
-      Promise.resolve(onReconnect(copy.peer)).then(settle, (error: unknown) => {
-        console.warn("agent pane: reconnecting the machine failed", error);
-        settle();
-      });
-    },
-    { busy: redialing },
-  );
+  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({ state: "idle" });
   const detail =
     copy.capturedAt !== undefined
       ? t("peerCopy.offline.savedAt", { time: relativeTime(copy.capturedAt, now, currentLanguage()) })
@@ -87,7 +69,7 @@ function PeerCopyBannerBody({
     return (
       <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top" data-machine="starting">
         <output className="acpmux-peer-copy-title">
-          <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />
+          <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
           {t("peerCopy.starting.title", { machine: copy.peer })}
         </output>
         <p className="acpmux-watch-hint">{detail}</p>
@@ -107,12 +89,45 @@ function PeerCopyBannerBody({
       </div>
     );
   }
+  const reconnectButton = onReconnect ? (
+    <button
+      type="button"
+      className="acpmux-peer-copy-resume"
+      disabled={reconnect.state === "reconnecting"}
+      data-state={reconnect.state}
+      onClick={() => {
+        if (reconnect.state === "reconnecting") return;
+        setReconnect({ state: "reconnecting" });
+        Promise.resolve(onReconnect(copy.peer)).then(
+          () => setReconnect({ state: "idle" }),
+          (error: unknown) => {
+            console.warn("agent pane: reconnecting the machine failed", error);
+            setReconnect({ state: "failed" });
+          },
+        );
+      }}
+    >
+      {t(
+        reconnect.state === "reconnecting"
+          ? "sessionInfo.connectors.reconnecting"
+          : reconnect.state === "failed"
+            ? "sessionInfo.connectors.retry"
+            : "sessionInfo.connectors.reconnectAction",
+      )}
+    </button>
+  ) : null;
   return (
     <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top">
       <p className="acpmux-peer-copy-title">
         <span>{t("peerCopy.offline.title", { machine: copy.peer })}</span>
+        {reconnectButton}
       </p>
       <p className="acpmux-watch-hint">{detail}</p>
+      {reconnect.state === "failed" && (
+        <p className="acpmux-watch-hint" role="alert">
+          {t("peerCopy.reconnectFailed")}
+        </p>
+      )}
     </div>
   );
 }

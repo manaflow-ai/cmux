@@ -17,21 +17,19 @@ const BODY_MARGIN: usize = 4096;
 /// answers its last seq, so one is enough unless another writer appends meanwhile.
 const GAP_TRIES: usize = 3;
 
-/// Appends the records through the local high-water mark at entry, starting after `after`.
-/// A running agent may append faster than the network can upload: chasing its moving tail
-/// would keep the snapshot behind this upload from ever being published. Later records go
-/// with the next copy. Answers the store's last seq.
+/// Appends every record the store does not have yet, from the record after `after` (the
+/// store's last seq as far as this machine knows). Answers the store's last seq: every local
+/// record up to it is stored.
 pub(crate) async fn upload<C: AutoCloud>(
     hub: &Arc<Hub>,
     cloud: &C,
     session: &Arc<Session>,
     fence: &Fence,
     after: u64,
-    through: u64,
 ) -> CloudResult<u64> {
     let mut after = after;
     let mut gaps = 0usize;
-    while after < through {
+    loop {
         let (reader, chat) = (hub.clone(), session.clone());
         let from = after;
         let page = tokio::task::spawn_blocking(move || {
@@ -41,7 +39,6 @@ pub(crate) async fn upload<C: AutoCloud>(
                 EVENTS_MAX_PER_APPEND,
                 EVENTS_MAX_BYTES.saturating_sub(BODY_MARGIN),
             )?;
-            page.retain(|(seq, _)| *seq <= through);
             // Masked here, off the turn's path, so a secret's plain text never leaves.
             page.iter_mut().for_each(|(_, record)| super::redact::redact(record));
             anyhow::Ok(page)
@@ -63,5 +60,4 @@ pub(crate) async fn upload<C: AutoCloud>(
             Err(error) => return Err(error),
         }
     }
-    Ok(after)
 }

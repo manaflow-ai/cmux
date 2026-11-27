@@ -2,7 +2,6 @@
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
-import UIKit
 
 /// What a terminal tab's page needs to know from the tabs chrome.
 public struct TerminalTabContext {
@@ -90,20 +89,6 @@ public protocol TerminalTabContent: AnyObject {
     /// Mac; a nil tab: any terminal of that Mac may have, its event stream
     /// started again) while `owner` lives. One handler per owner.
     func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void)
-    /// The person leaves `tab` (for the grid or another tab) or the app goes to the background:
-    /// `keep` hears the tab's card picture as last drawn, once it is ready, and the source keeps
-    /// it as the tab's last-known picture (`TabCardSnapshots`). `fresh`: the page is still on
-    /// screen, so it is copied now and composed off the main thread first. `onlyIfChanged`: a
-    /// page that drew nothing since its card was taken is not copied again, and `keep` hears that
-    /// same picture (which `TabCardSnapshots.put` does not encode again). Nothing for a tab with
-    /// no host, nor one whose page never drew the Mac's output.
-    func captureCard(for tab: WorkspaceTab, fresh: Bool, onlyIfChanged: Bool, keep: @escaping @MainActor (UIImage) -> Void)
-    /// `tab` has a page this launch, so `captureCard` may keep a picture of it (the background's
-    /// capture spends its bounded count only on these).
-    func hostsCard(for tab: WorkspaceTab) -> Bool
-    /// The store the cards read last-known pictures from: the tabs source's own
-    /// (`WorkspaceTabsSource.snapshots`), so what it keeps is what the cards read.
-    func useCardPictures(_ snapshots: TabCardSnapshots)
 }
 
 extension TerminalTabContent {
@@ -120,9 +105,6 @@ extension TerminalTabContent {
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
-    public func captureCard(for tab: WorkspaceTab, fresh: Bool, onlyIfChanged: Bool, keep: @escaping @MainActor (UIImage) -> Void) {}
-    public func hostsCard(for tab: WorkspaceTab) -> Bool { false }
-    public func useCardPictures(_ snapshots: TabCardSnapshots) {}
 }
 
 /// A page menu row a terminal tab adds.
@@ -175,7 +157,6 @@ struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
     let insets: EdgeInsets
     var retry: (@MainActor () async -> Void)? = nil
-    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         ContentUnavailableView {
@@ -183,10 +164,8 @@ struct PlaceholderTerminalPage: View {
         } description: {
             Text("This terminal isn't available.")
         } actions: {
-            // Reloads on its own (AutoRetry); past the quiet bound one quiet line, no button.
-            AutoRetryQuietLine(autoRetry)
+            if let retry { RetryButton(action: retry).accessibilityIdentifier("terminal.placeholder.retry") }
         }
-        .autoRetry(autoRetry, failing: retry != nil) { await retry?() }
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

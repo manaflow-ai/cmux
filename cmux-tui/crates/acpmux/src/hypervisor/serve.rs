@@ -143,10 +143,10 @@ fn present_slots(present: &[(SlotName, SlotState)]) -> Vec<Slot> {
 }
 
 fn write_status(dir: &std::path::Path, tick: &Tick) -> Result<()> {
-    crate::home_fs::create_dirs(dir)?;
+    std::fs::create_dir_all(dir)?;
     let tmp = dir.join("status.json.tmp");
-    crate::home_fs::write(&tmp, serde_json::to_vec_pretty(tick)?)?;
-    crate::home_fs::rename(&tmp, dir.join("status.json"))?;
+    std::fs::write(&tmp, serde_json::to_vec_pretty(tick)?)?;
+    std::fs::rename(&tmp, dir.join("status.json"))?;
     Ok(())
 }
 

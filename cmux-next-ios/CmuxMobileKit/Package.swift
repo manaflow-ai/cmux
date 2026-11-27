@@ -76,9 +76,7 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
-        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups.
-        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",
@@ -112,8 +110,6 @@ let package = Package(
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-            // The Feed list's stacking and edit rules (feed_list_edit.rs).
-            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         .target(
             name: "CmuxMobileAuth",
@@ -314,7 +310,7 @@ let package = Package(
             // terminal_chat_swap: the Rust decision is inside the timed swap.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
-        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileWorkspaces", "CmuxMobileSettings", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
+        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileSettings", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",

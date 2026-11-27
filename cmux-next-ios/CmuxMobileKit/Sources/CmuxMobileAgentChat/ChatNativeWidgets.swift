@@ -381,7 +381,6 @@ struct ChatNativeWidgets {
         for (index, name) in names.enumerated() {
             placeSymbol(&drawn, name, glyphFont, .secondaryLabel, x: x, width: target, midY: target / 2)
             let hit: ChatNativeLayout.Hit = index == 0 ? .copyAnswer(symbol: drawn.symbols.count - 1) : (index == 1 ? .shareAnswer : .retry)
-            // retry-prompt-ok: the answer row's Retry re-runs the turn (spends tokens); the person chooses
             drawn.hits.append(.init(frame: CGRect(x: x, y: 0, width: target, height: target), hit: hit, label: ["Copy", "Share", "Retry"][index]))
             x += target
         }

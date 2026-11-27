@@ -207,9 +207,7 @@ pub fn leaks(secret: &str) -> Vec<String> {
 pub(crate) fn redirect(host: &str) -> Option<SocketAddr> {
     let installed = INSTALLED.get()?;
     match crate::verdict(host) {
-        crate::Verdict::Listed | crate::Verdict::Named | crate::Verdict::Session => {
-            Some(installed.addr)
-        }
+        crate::Verdict::Listed | crate::Verdict::Named => Some(installed.addr),
         crate::Verdict::Local | crate::Verdict::Unlisted => None,
     }
 }

@@ -288,22 +288,6 @@ struct AgentShareTests {
         #expect(AgentShareStrings.failure(AgentShareDeclined()).message == AgentShareStrings.declined)
     }
 
-    /// The Invite People sheet never shows a CLI flag or the daemon's raw text: an unknown `share.*`
-    /// code reads the web Share dialog's generic line, a known one its own sentence.
-    @Test func theSheetSaysAFailureInThePersonsWords() {
-        func code(_ code: String) -> any Error {
-            DaemonError.command(cmd: "agent-session-share-invite-chat", message: "raw daemon text", code: code)
-        }
-        #expect(AgentShareStrings.sheetFailure(code("share.closed")) == AgentShareStrings.sheetGeneric)
-        #expect(AgentShareStrings.sheetFailure(code("share.invited")) == AgentShareStrings.alreadyInvited)
-        for known in ["share.limit", "share.room_unreachable", "share.room_refused"] {
-            let said = AgentShareStrings.sheetFailure(code(known))
-            #expect(said != "raw daemon text" && said != AgentShareStrings.sheetGeneric, "\(known)")
-        }
-        #expect(AgentShareStrings.sheetFailure(AgentShareRefusal(reason: AgentShareStrings.badRole)) == AgentShareStrings.sheetGeneric)
-        #expect(AgentShareStrings.sheetFailure(AgentShareBadAccount()) == AgentShareStrings.badAccount)
-    }
-
     /// The sheet lists every account still invited on a live share of the chat, once (its latest
     /// invite), oldest first, and whether a device of it is in the chat now.
     @Test func theSheetListsWhoIsInvited() {

@@ -425,9 +425,8 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                         && e["msg"]
                             .pointer("/params/update/content/text")
                             .and_then(Value::as_str)
-                            .is_some_and(
-                                |s| s.contains("<restored_transcript") && s.contains("omitted")
-                            ))
+                            .is_some_and(|s| s.contains("<restored_transcript")
+                                && s.contains("earlier characters omitted")))
                     .count(),
                 3
             );

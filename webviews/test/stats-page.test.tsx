@@ -19,7 +19,6 @@ import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
 import { teardownDom } from "./support/domTeardown";
-import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -230,9 +229,8 @@ test("the page shows the summary, switches range and drops a stale reply", async
   expect(host.querySelectorAll(".stats-heat:not(.is-padding)").length).toBe(30);
 });
 
-test("a failed read is read again on its own; past the deadline one quiet line in the page's own words, no button", async () => {
+test("a failed read shows the page's own words, never acpmux's error text", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { LASTING_MS, setLastingGrace } = await import("../src/ui/lasting");
   const { StatsPage } = await import("../src/pages/stats/StatsPage");
   const { StatsStore } = await import("../src/pages/stats/store");
   const { createStrings } = await import("../src/pages/shared/i18n");
@@ -241,42 +239,21 @@ test("a failed read is read again on its own; past the deadline one quiet line i
     pageError("cmux.stats.failed", "No such file or directory (os error 2)", true),
     pageError("cmux.stats.unavailable", "The agent service is not running.", true),
   ];
-  let calls = 0;
   const client: PageClient = {
-    call: () => {
-      calls++;
-      // After the two failures the read stays on its way, so the automatic ask is seen but not answered.
-      return failures.length ? Promise.reject(failures.shift()) : new Promise(() => {});
-    },
+    call: () => Promise.reject(failures.shift()),
     subscribe: async () => () => {},
     handle: () => () => {},
   };
-  const en = createStrings(table, ["en"]);
   const store = new StatsStore(client, () => 0);
   act(() => root?.unmount());
   root = createRoot(host);
-  act(() => root!.render(<StatsPage store={store} strings={en} />));
+  act(() => root!.render(<StatsPage store={store} strings={createStrings(table, ["en"])} />));
   await act(() => store.start());
-  // Nothing about the failure at first: the loading line stays, and there is no Try Again.
   expect(host.textContent).not.toContain("os error");
-  expect(host.textContent).not.toContain(en.t("stats.page.stillLoading"));
-  expect(host.textContent).toContain(en.t("stats.page.loading"));
-  // The gallery's zero grace stands in for the deadline: the quiet line, in the page's own words.
-  setLastingGrace(0);
-  try {
-    act(() => root!.render(<StatsPage store={store} strings={en} key="lasting" />));
-    await act(() => store.refresh());
-    // The app's own unavailable message is already in the person's language.
-    expect(host.textContent).toContain("The agent service is not running.");
-    expect(host.textContent).not.toContain("os error");
-    expect(host.querySelector(".stats-message")?.closest("button")).toBeNull();
-    // The page asks again by itself within the first jittered step (at most 1 s).
-    const before = calls;
-    await until(() => calls > before, actTurn);
-    expect(calls).toBeGreaterThan(before);
-  } finally {
-    setLastingGrace(LASTING_MS);
-  }
+  expect(host.textContent).toContain(createStrings(table, ["en"]).t("stats.page.failed"));
+  // The app's own unavailable message is already in the person's language.
+  await act(() => store.refresh());
+  expect(host.textContent).toContain("The agent service is not running.");
 });
 
 test("picking the range that is already loading starts no second scan", async () => {

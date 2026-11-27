@@ -2,7 +2,7 @@
 // press, as the native sidebar rows and tabs do: a plain press opens the chat at once and the click
 // that follows does not open it again. A keyboard click (Enter, Space) still opens it, and a
 // Cmd- or Shift-click selects on the release without opening (the Finder rule).
-import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -183,7 +183,7 @@ test("a Recently Closed row reopens on the press, once", async () => {
   expect(reopened).toEqual(["closed-1"]);
 });
 
-test("a failed history page asks again on its own, and Enter on a focused control keeps the selection shortcut out of the way", async () => {
+test("Enter on a failed history-page retry keeps the selection shortcut out of the way", async () => {
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
   const pageRows = Array.from({ length: 8 }, (_, index) => ({
@@ -213,26 +213,18 @@ test("a failed history page asks again on its own, and Enter on a focused contro
   await act(async () => requests[0]!.resolve({ chats: pageRows, nextCursor: "page-2", ready: true }));
   await settle();
   expect(requests).toHaveLength(2);
-  const { AUTO_RETRY_FIRST_MS } = await import("../src/agent-session/acpmux/autoRetry");
-  jest.useFakeTimers();
-  try {
-    await act(async () => requests[1]!.reject(new Error("daemon unavailable")));
-    await act(async () => void jest.advanceTimersByTime(0));
+  await act(async () => requests[1]!.reject(new Error("daemon unavailable")));
+  await settle();
 
-    const row = allChatsRow("History 0");
-    await release(row, { metaKey: true });
-    // The failed page holds no button to focus: it is asked again on its own, at the same cursor.
-    expect(host.querySelector(".nt-chats-retry")).toBeNull();
-    const tab = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Projects")!;
-    tab.focus();
-    const enter = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" });
-    tab.dispatchEvent(enter);
-    expect(enter.defaultPrevented).toBe(false);
-    expect(brought).toEqual([]);
-    await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
-  } finally {
-    jest.useRealTimers();
-  }
+  const row = allChatsRow("History 0");
+  await release(row, { metaKey: true });
+  const retry = host.querySelector<HTMLButtonElement>(".nt-chats-retry")!;
+  retry.focus();
+  const enter = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" });
+  retry.dispatchEvent(enter);
+  expect(enter.defaultPrevented).toBe(false);
+  expect(brought).toEqual([]);
+  await act(async () => retry.click());
   expect(requests).toHaveLength(3);
   expect(requests[2]!.cursor).toBe("page-2");
   expect(opened).toEqual([]);

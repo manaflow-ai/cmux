@@ -32,7 +32,6 @@ public struct AgentPaneCheckpointStrings: Sendable {
             "keep": String(localized: "agentPane.checkpoint.keep", defaultValue: "Keep checkpoint", bundle: .localizedModule),
             "release": String(localized: "agentPane.checkpoint.release", defaultValue: "Release pin", bundle: .localizedModule),
             "manualRetention": String(localized: "agentPane.checkpoint.manualRetention", defaultValue: "Use Keep checkpoint before sharing this reference in a manual handoff.", bundle: .localizedModule),
-            // retry-prompt-ok: creating or pinning a checkpoint the person asked for writes git refs (a side effect); drawn by webviews
             "failed": String(localized: "agentPane.checkpoint.failed", defaultValue: "Couldn’t complete this checkpoint request.", bundle: .localizedModule),
             "retry": String(localized: "agentPane.checkpoint.retry", defaultValue: "Retry", bundle: .localizedModule),
             "recovering": String(localized: "agentPane.checkpoint.recovering", defaultValue: "Checking the saved checkpoint…", bundle: .localizedModule),
@@ -42,7 +41,6 @@ public struct AgentPaneCheckpointStrings: Sendable {
             "notSelected": String(localized: "agentPane.checkpoint.notSelected", defaultValue: "Not selected", bundle: .localizedModule),
             "unavailableFile": String(localized: "agentPane.checkpoint.unavailableFile", defaultValue: "Unavailable file", bundle: .localizedModule),
             "bytes": String(localized: "agentPane.checkpoint.bytes", defaultValue: "Bytes", bundle: .localizedModule),
-            // retry-prompt-ok: creating a checkpoint writes git refs; the chat reconnects by itself, the create is the person's
             "retained": String(localized: "agentPane.checkpoint.retained", defaultValue: "Retained", bundle: .localizedModule),
             "offline": String(localized: "agentPane.checkpoint.offline", defaultValue: "Reconnect before creating a checkpoint.", bundle: .localizedModule),
             "changed": String(localized: "agentPane.checkpoint.changed", defaultValue: "The repository changed. Refresh the checkpoint options.", bundle: .localizedModule),

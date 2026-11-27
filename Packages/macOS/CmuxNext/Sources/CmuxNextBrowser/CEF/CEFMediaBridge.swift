@@ -90,7 +90,12 @@ final class CEFMediaBridge {
             notified(payload)
             return true
         }
-        guard let params = Self.bindingParams(of: head, binding: BrowserMediaState.channel) else { return false }
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(BrowserMediaState.channel)\""),
+              let data = head.json.data(using: .utf8),
+              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              message["method"] as? String == "Runtime.bindingCalled",
+              let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
+        else { return false }
         if let payload = params["payload"] as? String { report(payload) }
         return true
     }
@@ -131,17 +136,11 @@ final class CEFMediaBridge {
 
     /// The payload of a `Runtime.bindingCalled` of `binding`, nil for any other message.
     private static func payload(of head: DevToolsMessageHead, binding: String) -> String? {
-        bindingParams(of: head, binding: binding)?["payload"] as? String
-    }
-
-    /// The params of a `Runtime.bindingCalled` of `binding`, nil for any other message. The one
-    /// parse of a binding call's message, shared by every binding this bridge answers.
-    private static func bindingParams(of head: DevToolsMessageHead, binding: String) -> [String: Any]? {
         guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""), let data = head.json.data(using: .utf8),
               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == binding else { return nil }
-        return params
+        return params["payload"] as? String
     }
 }
 

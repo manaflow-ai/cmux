@@ -30,8 +30,8 @@ export function videoShapeStyle(ratio: number | undefined): Record<string, strin
   return { "--acpmux-video-ratio": String(ratio ?? 1) };
 }
 
-/// How long a video's header may take to give its shape (its tile shows after attachmentIntakeModel.ts
-/// SHAPE_WAIT_MS whatever, square until then): past this it stays square.
+/// How long a pasted video's tile is held unseen for its header (as an image's is,
+/// attachmentIntakeModel.ts HEADER_WAIT_MS): past it, the tile shows square.
 // motion-allow: a header read timeout, not a motion
 export const VIDEO_HEADER_WAIT_MS = 120;
 

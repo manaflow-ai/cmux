@@ -89,7 +89,6 @@ fn link_serving(same_key: bool, linked: bool) -> LinkServing {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     LinkServing { home, link_dir: Some(link_dir), _lock: Some(lock), cfg }

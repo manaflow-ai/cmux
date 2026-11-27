@@ -112,7 +112,6 @@ function marked(entry: ChatRowEntry, gap: boolean): ChatRowEntry {
 function lowerBound(ids: readonly number[], id: number): number {
   let lo = 0;
   let hi = ids.length;
-  // ends: binary search: each pass halves hi - lo
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
     if (ids[mid]! < id) lo = mid + 1;
@@ -169,10 +168,8 @@ class SidRows {
     const anchor = this.anchor;
     let at = anchor === "end" ? count - 1 : Math.min(lowerBound(this.ids, anchor.rowId), count - 1);
     if (side === "before") {
-      // ends: `at` falls by one each pass, to 0 at most
       while (at > 0 && !this.entries.get(this.ids[at]!)!.gapBefore) at -= 1;
     } else {
-      // ends: `at` rises by one each pass, to count - 1 at most
       while (at + 1 < count && !this.entries.get(this.ids[at + 1]!)!.gapBefore) at += 1;
     }
     return this.ids[at]!;
@@ -565,7 +562,6 @@ class SidRows {
       anchor === "end" ? this.ids.length - 1 : Math.min(lowerBound(this.ids, anchor.rowId), this.ids.length - 1);
     let lo = 0;
     let hi = this.ids.length - 1;
-    // ends: each pass takes `lo` up or `hi` down by one, until they meet
     while ((rows > STORE_MAX_ROWS || bytes > STORE_MAX_BYTES) && lo < hi) {
       let front = at - lo >= hi - at;
       // Never the anchor's row.

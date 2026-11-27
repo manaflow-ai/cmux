@@ -206,7 +206,7 @@ pub(super) fn candidates(
 
 /// `cmux ARGS --help`'s stdout, by running this binary, or `None` when it fails or prints
 /// nothing.
-pub(super) fn read_help(args: &[&str]) -> Option<String> {
+fn read_help(args: &[&str]) -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     // The name it was run as picks its help (`cmux` or `cmux-tui`), so the help is read under
     // that name, not the file's.

@@ -96,10 +96,6 @@ export default componentEntry<ShareDemoProps>({
       note: "Compared, not shipped: hairline-outlined field, selects and buttons with no fill at rest.",
       props: { viewing, shares: [people, link], open: true, look: "outline" },
     },
-    "dialog-still-reading": {
-      note: 'The daemon does not answer the dialog\'s read: no "Try again", it reads again on its own on the shared backoff (autoRetry.ts) and, once that has lasted (at once here), says only "Still reading who has access…" as the quiet status line. A failed share change (an invite, a role, a link) still says "That didn\'t finish. Try again.": that is a write the person chooses.',
-      props: { viewing: [], shares: [people], open: true, unread: true },
-    },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",
       props: { viewing, shares: [link], toast: "public" },

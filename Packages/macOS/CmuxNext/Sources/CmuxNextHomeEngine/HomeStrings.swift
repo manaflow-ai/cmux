@@ -68,7 +68,6 @@ public nonisolated enum HomeStrings {
                table: "Home", bundle: .localizedModule)
     }
     public static var archiveFailed: String {
-        // retry-prompt-ok: archiving is a side-effecting change the person chose
         String(localized: "home.chief.archive.failed", defaultValue: "The Chief couldn’t be archived. Try again.", table: "Home",
                bundle: .localizedModule)
     }
@@ -77,7 +76,6 @@ public nonisolated enum HomeStrings {
                table: "Home", bundle: .localizedModule)
     }
     public static var deleteFailed: String {
-        // retry-prompt-ok: deleting is a destructive change the person chose
         String(localized: "home.chief.delete.failed", defaultValue: "The Chief couldn’t be deleted. Try again.", table: "Home",
                bundle: .localizedModule)
     }

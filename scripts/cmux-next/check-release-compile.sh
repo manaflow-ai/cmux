@@ -165,7 +165,6 @@ build() {
     xcodebuild -skipPackagePluginValidation -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$derived_data" \
-    ${package_update_args[@]+"${package_update_args[@]}"} \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
@@ -174,24 +173,12 @@ build() {
   return "${PIPESTATUS[0]}"
 }
 SECONDS=0
-# -skipPackageUpdates once the guard resolved every pin from the kept packages
-# (xcode_binary_module_guard_offline): the build then asks github.com for nothing.
-package_update_args=()
-# The job's token for github.com package fetches (CMUX_GITHUB_GIT_TOKEN, the
-# workflow passes github.token): anonymous ones share the office's per-address
-# limit (scripts/ci/swiftpm-binary-module-guard.sh, github_git_auth_env).
-# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
-source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
-github_git_auth_env
 if (( kept_path )); then
   # A binary target's headers changed since the last build there: build cold
   # (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard).
-  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp || {
-    guard_status=$?
-    echo "${0##*/}: the packages did not resolve (exit $guard_status); no build ran" >&2
-    exit "$guard_status"
-  }
-  [[ "${xcode_binary_module_guard_offline:-0}" != 1 ]] || package_update_args=(-skipPackageUpdates)
+  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp
 fi
 status=0
 build || status=$?

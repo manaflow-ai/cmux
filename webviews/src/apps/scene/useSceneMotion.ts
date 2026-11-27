@@ -114,7 +114,6 @@ export class MotionTrack {
       moved.push(property);
     }
     if (moved.length === 0) return;
-    // motion: allow gated upstream: `timing` is null (returned above) unless sceneTiming read full motion.
     const animation = element.animate([from, to], { duration: timing.duration, easing: timing.easing });
     this.running = animation;
     this.runningProps = moved;

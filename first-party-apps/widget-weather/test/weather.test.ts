@@ -17,7 +17,7 @@ const fail = (code: string, message = code) => ({ ok: false, body: { code, messa
 const json = (body: unknown, status = 200) => ok({ status, body: JSON.stringify(body) })
 
 /** The mount context cmux.widget/1 passes (the runtime adds now()). */
-const ctx = (size: "small" | "medium" | "large", place = "newtab", locale?: string) => ({ surface: "widget", place, size, instance: "w1", settings: {}, refresh: { everySeconds: 900 }, ...(locale ? { locale } : {}) })
+const ctx = (size: "small" | "medium" | "large", place = "newtab") => ({ surface: "widget", place, size, instance: "w1", settings: {}, refresh: { everySeconds: 900 } })
 
 interface Options {
   settings?: Record<string, unknown>
@@ -157,8 +157,7 @@ describe("the widget", () => {
     expect(fetched(h)).toEqual(["https://get.geojs.io/v1/ip/geo.json", expect.stringContaining("https://api.open-meteo.com/v1/forecast?latitude=37.323&longitude=-122.032")])
     expect(storage.get("reading")).toMatchObject({ key: "", place: { name: "Cupertino" } })
     // The sky behind it is the clear day's blue.
-    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#235C9B", "#3076B4"], angle: 180 } })
-    expect(drawn(h, "s").find((n) => n.type === "Icon" && n.props.symbol === "sun.max.fill")!.props.symbolRendering).toBe("multicolor")
+    expect(drawn(h, "s")[0]!.props.background).toBe("#3A86D4")
   })
 
   test("medium adds six hours; large adds the days with range bars", async () => {
@@ -184,7 +183,7 @@ describe("the widget", () => {
     expect(texts(h, "s")).toEqual(["Lisbon", "14°", "Rain", "H:16° L:11°"])
     expect(symbols(h, "s")).toEqual(["cloud.rain.fill"])
     expect(fetched(h)[0]).toBe("https://geocoding-api.open-meteo.com/v1/search?count=1&name=Lisbon")
-    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#354D63", "#566F85"], angle: 180 } })
+    expect(drawn(h, "s")[0]!.props.background).toBe("#4F6274")
   })
 
   test("the Units setting overrides; a night sky is navy; 24-hour clocks outside the US", async () => {
@@ -192,7 +191,7 @@ describe("the widget", () => {
     h.mount("m", "renderWeather", ctx("medium"))
     await h.settle(20)
     expect(texts(h, "m").slice(0, 6)).toEqual(["Tokyo", "10°", "Clear", "H:16° L:8°", "23", "9°"])
-    expect(drawn(h, "m")[0]!.props.background).toEqual({ linear: { colors: ["#0B1A3A", "#253B6E", "#3A4E86"], angle: 180 } })
+    expect(drawn(h, "m")[0]!.props.background).toBe("#14203A")
   })
 
   test("the plain look follows the theme instead of painting a sky", async () => {
@@ -201,19 +200,6 @@ describe("the widget", () => {
     await h.settle(20)
     expect(drawn(h, "s")[0]!.props.background ?? null).toBeNull()
     expect(drawn(h, "s").find((n) => n.type === "Text")!.props.color).toBe("primary")
-    expect(drawn(h, "s").filter((n) => n.type === "Icon").every((n) => n.props.symbolRendering == null)).toBe(true)
-  })
-
-  test("the widget locale overrides app units and hourly labels independently per mount", async () => {
-    const { h } = host({ locale: "en-US" })
-    h.mount("s", "renderWeather", ctx("medium", "newtab", "en-GB"))
-    h.mount("us", "renderWeather", ctx("medium", "newtab", "en-US"))
-    await h.settle(20)
-    expect(texts(h, "s").slice(0, 2)).toEqual(["Cupertino", "21°"])
-    expect(texts(h, "s").slice(4, 6)).toEqual(["10", "25°"])
-    expect(texts(h, "us").slice(0, 2)).toEqual(["Cupertino", "70°"])
-    expect(texts(h, "us").slice(4, 6)).toEqual(["10 AM", "77°"])
-    expect(fetched(h)).toHaveLength(2)
   })
 
   test("a kept reading draws before any network read, and a young one is not read again", async () => {

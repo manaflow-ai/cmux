@@ -59,10 +59,6 @@ export interface EditorState {
   look: EditorLookState;
   /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
   failure: string | null;
-  /** The failed read may clear by reading again (a lost link, a machine offline: a retryable refusal); the
-   *  page reads again on its own and says nothing until it lasts. False: the file cannot open (not found,
-   *  too large, not allowed), said at once. */
-  transient: boolean;
   /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
   unavailable: string | null;
 }
@@ -148,7 +144,6 @@ export class EditorStore {
     revision: 0,
     look: EMPTY_LOOK,
     failure: null,
-    transient: false,
     unavailable: null,
   };
   private readonly listeners = new Set<() => void>();
@@ -215,9 +210,7 @@ export class EditorStore {
   async start(): Promise<void> {
     const client = this.client;
     if (!client) return this.set({ phase: "disconnected" });
-    // Reading again after a failure keeps the failed state until the answer, so the page's automatic
-    // asks never flash the loading frame.
-    if (this.state.phase !== "failed" && this.state.phase !== "disconnected") this.set({ phase: "loading" });
+    this.set({ phase: "loading" });
     let value: unknown;
     try {
       value = await client.call<unknown>(EDITOR_CONFIG_OP, {});
@@ -226,7 +219,6 @@ export class EditorStore {
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
         failure: isPageError(error) && error.code === EDITOR_UNAVAILABLE ? error.message : null,
-        transient: isPageError(error) && (error.retryable || error.code.startsWith("cmux.protocol.")),
       });
     }
     if (editorConfigNeedsPick(value)) {
@@ -237,7 +229,7 @@ export class EditorStore {
     }
     if (!isEditorConfig(value)) {
       console.error("cmux editor config is malformed");
-      return this.set({ phase: "failed", failure: null, transient: false });
+      return this.set({ phase: "failed" });
     }
     await this.loadConfig(client, value);
   }

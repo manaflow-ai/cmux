@@ -178,17 +178,3 @@ fn a_drifted_row_is_caught() {
     let case = Case { id: errors_clear.id, argv: &["errors", "clear"], values: vec![] };
     assert_eq!(drift(&errors_clear, &case), None, "the app lane");
 }
-
-/// A room verb given the room's id (the value a room picker answers) is one typed request with
-/// nothing read first, so it can be a request row's verb; given a name, the CLI reads the room
-/// list first and it cannot.
-#[test]
-fn a_room_verb_by_id_is_one_request() {
-    const ROOM: &str = "prof_0000000000000000000000000000000a";
-    const WORKSPACE: &str = "ws_00000000000000000000000000000004";
-    let (lane, operation, params) =
-        sent_by_cli(&["room", ROOM, "pin", "--workspace", WORKSPACE]).expect("one request");
-    assert_eq!((lane, operation.as_str()), (RequestLane::Session, "room.pin"));
-    assert_eq!(params["room"], ROOM);
-    assert!(sent_by_cli(&["room", "Work", "pin", "--workspace", WORKSPACE]).is_err());
-}

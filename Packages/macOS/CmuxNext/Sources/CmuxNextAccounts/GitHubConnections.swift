@@ -56,8 +56,6 @@ public final class GitHubConnections {
     }
 
     public var scopeIsSignedOut: Bool { scope() == nil }
-    /// What the signed-out card's Sign In signs in to ("Signs in to cmux.com"); nil shows no line.
-    public var signInBackend: String?
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     /// `integration.connect`'s params: GitHub, the card's repository, and the app's completion link when one is set

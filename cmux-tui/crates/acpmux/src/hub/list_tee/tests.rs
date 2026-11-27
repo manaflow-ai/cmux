@@ -578,7 +578,6 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -680,7 +679,6 @@ async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliati
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     let store = crate::store::open(&config.store, dir.path()).unwrap();
@@ -722,7 +720,6 @@ async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation()
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();

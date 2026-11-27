@@ -47,8 +47,6 @@ public final class TeamAgentKeys {
     }
 
     public var scopeIsSignedOut: Bool { scope() == nil }
-    /// What the signed-out card's Sign In signs in to ("Signs in to cmux.com"); nil shows no line.
-    public var signInBackend: String?
     /// The personal team has no one to share a key with.
     public var isPersonal: Bool { scope().map { $0.team == nil } ?? false }
     public var busy: Bool { workingScope != nil && workingScope == scope() }

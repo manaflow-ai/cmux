@@ -887,10 +887,6 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
             if t.active_tools == 1 { "" } else { "s" }
         ));
     }
-    if let Some(wait) = t.subagent_wait(now_ms()) {
-        label.push_str(" · ");
-        label.push_str(&wait);
-    }
     let queued = t.queue.len();
     if queued > 0 {
         label.push_str(&format!(" · {} queued", queued));

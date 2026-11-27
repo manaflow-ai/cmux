@@ -29,9 +29,8 @@ extension WorkspaceTabsSource {
 
     /// New Tab in Group: a terminal in the group's pane on the Mac, in the group; the phone opens it.
     func newTabInGroup(_ id: String) async {
-        // Another tab is opening: this one opens right after it (`waitForPendingTab`).
-        guard await waitForPendingTab() else { return }
         guard let workspace, let creator, let member = members(ofGroup: id).first else { return }
+        if let pending = pendingTabTitle { return show("Still opening \(pending). Try again once it's open.") }
         pendingTabTitle = "New Terminal"
         defer { pendingTabTitle = nil }
         do {
@@ -76,9 +75,8 @@ extension WorkspaceTabsSource {
 
     /// New Screen: a screen with a new terminal on the Mac; the phone opens its tab.
     func newScreen() async {
-        // Another tab is opening: this one opens right after it (`waitForPendingTab`).
-        guard await waitForPendingTab() else { return }
         guard let workspace, let creator else { return }
+        if let pending = pendingTabTitle { return show("Still opening \(pending). Try again once it's open.") }
         pendingTabTitle = "New Screen"
         defer { pendingTabTitle = nil }
         do {
@@ -98,9 +96,8 @@ extension WorkspaceTabsSource {
     /// Duplicate Screen: a copy of the screen on the Mac (its name, a terminal in its folder);
     /// the phone opens its tab, as New Screen does.
     func duplicateScreen(_ screen: MacScreen) async {
-        // Another tab is opening: this one opens right after it (`waitForPendingTab`).
-        guard await waitForPendingTab() else { return }
         guard let workspace, let creator else { return }
+        if let pending = pendingTabTitle { return show("Still opening \(pending). Try again once it's open.") }
         pendingTabTitle = "Duplicate Screen"
         defer { pendingTabTitle = nil }
         do {

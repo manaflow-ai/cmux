@@ -1,14 +1,6 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 import { afterEach, expect, test } from "bun:test";
-import {
-  hasCustomizeRunner,
-  idleRun,
-  readRun,
-  runCustomize,
-  runReducer,
-  setCustomizeRunner,
-  shareLine,
-} from "./customizeRun";
+import { hasCustomizeRunner, idleRun, readRun, runCustomize, runReducer, setCustomizeRunner } from "./customizeRun";
 
 afterEach(() => setCustomizeRunner(undefined));
 
@@ -55,22 +47,4 @@ test("runner hook", async () => {
   setCustomizeRunner({ available: () => true, run: async () => ({ ok: true, output: "hi" }) });
   expect(hasCustomizeRunner()).toBe(true);
   expect(await runCustomize({ customize: "keep" })).toEqual({ ok: true, output: "hi" });
-});
-
-test("Share: the tried target's one-line install, code only, kept through Keep", () => {
-  const tryRun = { customize: "try", target: "pr:51234", minutes: 15 } as const;
-  let s = runReducer(runReducer(idleRun, { type: "start" }), { type: "done", run: tryRun, ok: true });
-  expect(s.target).toBe("pr:51234");
-  expect(shareLine(s.target)).toBe("cmux customize try pr:51234");
-  s = runReducer(runReducer(s, { type: "start" }), { type: "done", run: { customize: "keep" }, ok: false });
-  expect(s).toMatchObject({ phase: "tried", failed: true, target: "pr:51234" });
-  s = runReducer(runReducer(s, { type: "start" }), { type: "done", run: { customize: "keep" }, ok: true });
-  expect(s).toMatchObject({ phase: "kept", target: "pr:51234" });
-  expect(shareLine("branch:lane/x")).toBe("cmux customize try branch:lane/x");
-  expect(shareLine("sha:abc1234")).toBe("cmux customize try sha:abc1234");
-  // A folder or a profile name is this Mac's only; a bad target has no line.
-  expect(shareLine("dir:/tmp/x")).toBeUndefined();
-  expect(shareLine("darker")).toBeUndefined();
-  expect(shareLine("pr:x")).toBeUndefined();
-  expect(shareLine(undefined)).toBeUndefined();
 });

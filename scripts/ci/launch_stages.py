@@ -28,7 +28,6 @@ TABLE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("first_page_dom_content_loaded", ("first_page.dom_content_loaded",)),
     ("first_page_contentful_paint", ("first_page.first_contentful_paint",)),
     ("first_chat_paint", ("agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page")),
-    ("first_browser_paint", ("browser_pane.first_paint",)),
     ("first_interaction", ("terminal_echo", "agent_pane.input_echoed", "window_usable")),
 )
 STAGES = tuple(stage for stage, _ in TABLE)

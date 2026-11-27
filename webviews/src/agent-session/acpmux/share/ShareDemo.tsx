@@ -18,14 +18,11 @@ export type ShareDemoProps = {
   toast?: "public" | "invite";
   /** A look the gallery compares with the shipped sheet (Share.gallery.css); none is the shipped one. */
   look?: "two-primaries" | "popover" | "outline" | "row-hover" | "row-filled" | "row-bleed";
-  /** The daemon does not answer the dialog's read: it reads again on its own and says Still reading. */
-  unread?: boolean;
 };
 
-function fixtureHost(shares: ChatShare[], unread = false): ShareCall {
+function fixtureHost(shares: ChatShare[]): ShareCall {
   let next = shares.map((share) => ({ ...share }));
   return async (op, params = {}) => {
-    if (op === "state" && unread) throw new Error("share: 503 Service Unavailable");
     if (op === "state") return { shares: next };
     if (op === "link") {
       const made: ChatShare = { ...LINK, shareId: `demo-${next.length}`, createdAt: Date.now() };
@@ -50,8 +47,8 @@ const LINK: ChatShare = {
   invitees: [],
 };
 
-export function ShareDemo({ viewing, shares, open = false, toast, look, unread }: ShareDemoProps) {
-  const [call] = useState(() => fixtureHost(shares, unread));
+export function ShareDemo({ viewing, shares, open = false, toast, look }: ShareDemoProps) {
+  const [call] = useState(() => fixtureHost(shares));
   const [shown, setShown] = useState(open);
   // The dialog portals out of this tree, so the look is on the root.
   useEffect(() => {

@@ -28,32 +28,6 @@ from github_token_polling import (  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 ALLOWED: dict[str, str] = {
-    'ci-macos.yml: Select package tests':
-        'the scan reads every loop of a script the step runs; fleet-test-products.py loops on the fleet controller, not GitHub, and sleeps only through its 429',
-    'cmux-next.yml: Compile-check CmuxNext on the build fleet':
-        'the scan reads every loop of a script the step runs; fleet_compile_result.py long-polls the fleet controller (30 s gap, at most 120 s), not GitHub',
-    'cmux-next-base-linux.yml: List the paths changed since the last green run':
-        'retry only: one runs read, retried at 0/5/20 s only after a failed read',
-    "cmux-next-media.yml: Plan the What's New clips":
-        'retry only: published() is one HEAD per clip, retried 3 times 2/4 s apart only after a failure',
-    'cmux-next-post-merge.yml: Plan the suites':
-        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
-    'cmux-next-post-merge.yml: Judge the run':
-        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
-    'cmux-next-post-merge.yml: Start the next batch when merges have piled up':
-        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
-    'cmux-next-post-merge.yml: Swap out the piece, or open the revert pull request':
-        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
-    'cmux-tui-artifacts.yml: Point the feat-cmux-next channel at this tree':
-        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
-    'cmux-tui-artifacts.yml: Point the channel at this tree once it is daemon-tested':
-        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
-    'cmux-tui-artifacts.yml: Point the Windows channel at this tree':
-        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
-    'ios-internal-nightly-trigger.yml: Dispatch the build':
-        'retry only: ios_internal_builder.py _gh_api tries 4 times, 10/20/40 s apart, only after a failed call',
-    'cmux-next-pair-e2e-vm.yml: The cmux-tui client for this tree':
-        'pushes to pair-e2e/** and dispatch only: pin-cmux-tui.sh probe waits for an active trusted publisher, two run reads every 10 s for at most 90 s, then re-checks once after 20 s',
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
@@ -147,12 +121,6 @@ ALLOWED: dict[str, str] = {
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
-    'cas-replay.yml: Replay the newest web bundle publishes (W1)':
-        'retry only: web_ota_replay.py gh() sleeps only through a 429 or rate-limit 403 (retry-after or the reset), 8 tries, and raises on any other status',
-    'cmux-next.yml: Jobs red on the base right now':
-        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
-    'pr-pipeline.yml: Tooling tests red on the base right now?':
-        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
 }
 
 

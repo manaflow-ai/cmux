@@ -73,7 +73,22 @@ impl Hub {
     /// name before a rename, read from the rows peers list (`formerNames`). Only for a key no
     /// row names now (`resolve_remote`).
     pub(super) fn former_remote_route(&self, key: &str) -> Option<Result<String, RpcError>> {
-        self.remote_sessions.read().former_route(key)
+        let (host, name) = match key.split_once('/') {
+            Some((host, name)) if !name.is_empty() => (Some(host), name),
+            _ => (None, key),
+        };
+        let map = self.remote_sessions.read();
+        let rows: Vec<(String, String, bool)> = map
+            .iter()
+            .filter(|(_, r)| host.is_none_or(|h| r.peer == h))
+            .filter(|(_, r)| r.summary.has_former_name(name))
+            .map(|(route, r)| {
+                let shown = r.summary.name().unwrap_or_default().to_owned();
+                (route.clone(), shown, r.summary.closed())
+            })
+            .collect();
+        drop(map);
+        pick_former(key, rows)
     }
 
     /// The local route a former name names, for `key_route`: Some(id) for one session here.
@@ -108,25 +123,6 @@ impl Hub {
                 self.save_meta(&other);
             }
         }
-    }
-}
-
-impl super::remote_rows::RemoteRows {
-    /// Resolve former names in this snapshot, so all destinations checked together use the same rows.
-    pub(super) fn former_route(&self, key: &str) -> Option<Result<String, RpcError>> {
-        let (host, name) = match key.split_once('/') {
-            Some((host, name)) if !name.is_empty() => (Some(host), name),
-            _ => (None, key),
-        };
-        let rows: Vec<(String, String, bool)> = self
-            .formerly_named(name)
-            .filter(|(_, r)| host.is_none_or(|h| r.peer == h))
-            .map(|(route, r)| {
-                let shown = r.summary.name().unwrap_or_default().to_owned();
-                (route.clone(), shown, r.summary.closed())
-            })
-            .collect();
-        pick_former(key, rows)
     }
 }
 

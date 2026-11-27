@@ -88,7 +88,7 @@ typedef struct CmuxCuHost {
     // them. Optional: read only when struct_size covers it; absent means -1.
     int64_t (*person_keys_epoch)(void *context);
     // The live preview's window streams (preview.rs): request_json is
-    // {"windows":["<CGWindowID>",...],"long_side":N,"fps":N,"generation":N}, the exact set to stream from now
+    // {"windows":["<CGWindowID>",...],"long_side":N,"fps":N}, the exact set to stream from now
     // on (an empty list stops them all). Each new frame of a window goes to
     // cmux_cu_engine_preview_frame as JPEG at most long_side pixels on its long side, at most
     // fps per second, none while the window does not change; a stream whose window closed
@@ -127,13 +127,6 @@ void cmux_cu_engine_preview_frame(CmuxCuEngine *engine, const uint8_t *window, s
                                   const uint8_t *jpeg, size_t jpeg_len);
 // The stream of a window ended because the window closed. Any thread.
 void cmux_cu_engine_preview_closed(CmuxCuEngine *engine, const uint8_t *window, size_t window_len);
-// Generation-fenced callbacks for the live preview. The generation is the
-// request generation; callbacks from an earlier generation are ignored.
-void cmux_cu_engine_preview_frame_for_generation(CmuxCuEngine *engine, const uint8_t *window,
-                                                 size_t window_len, uint64_t generation,
-                                                 const uint8_t *jpeg, size_t jpeg_len);
-void cmux_cu_engine_preview_closed_for_generation(CmuxCuEngine *engine, const uint8_t *window,
-                                                  size_t window_len, uint64_t generation);
 
 // The person's Stop or Resume of one agent session (action "stop" | "resume").
 // A stopped session's in-flight call ends at its next checkpoint and every

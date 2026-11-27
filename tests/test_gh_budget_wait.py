@@ -9,7 +9,6 @@ gh calls of every job on the publish path, with room in timeout-minutes for the 
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import stat
@@ -133,17 +132,6 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
 
-    def test_a_wait_prints_one_structured_marker_on_stderr_only(self) -> None:
-        # ci-trace classifies waits by `CMUX-WAIT {json}` anywhere in a log line.
-        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
-        result = h.gh("release", "upload", "v1", "a.dmg")
-        markers = [json.loads(m.group(1)) for m in re.finditer(r"CMUX-WAIT (\{.*\})", result.stderr)]
-        self.assertEqual(markers, [{"on": "github-api-budget", "class": "quota", "bound_s": 1, "waited_s": 1}])
-        self.assertNotIn("CMUX-WAIT", result.stdout)
-        # A caller merging stderr into stdout compares it exactly, so it gets no marker.
-        out = subprocess.run(["bash", "-c", f'"{h.shim}" api x 2>&1'], env=h.env, capture_output=True, text=True)
-        self.assertEqual(out.stdout, "ok api x\n")
-
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
@@ -247,17 +235,6 @@ class WrapperTests(unittest.TestCase):
                 self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
                 self.assertIn("did not reach GitHub", result.stderr)
                 self.assertEqual(h.waited(), 1)
-
-    def test_a_dispatch_github_failed_with_a_5xx_is_tried_again(self) -> None:
-        # Run 45776501690: wake-nightly-next-tick moved to the spare pool, then GitHub answered
-        # "could not create workflow dispatch event: HTTP 500" and the job failed. GitHub created
-        # no dispatch, so the same call is tried again after the unsent backoff.
-        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
-                         FAKE_ERROR="could not create workflow dispatch event: HTTP 500: Failed to run workflow dispatch")
-        result = h.gh("workflow", "run", "nightly-next-tick.yml")
-        self.assertEqual(result.returncode, 0, result)
-        self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
-        self.assertEqual(h.waited(), 1)
 
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
@@ -539,8 +516,6 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
     ("published-in", "Comment the build on its PRs"),
-    # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
-    ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
@@ -579,10 +554,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(len(installs), 1, name)
             at = installs[0]
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
-            # A token only git reads (FETCH_TOKEN: the warm builder's checkout) spends no REST budget.
             later_gh = [i for i, s in enumerate(steps)
-                        if "github.token" in str({k: v for k, v in (s.get("env") or {}).items() if k != "FETCH_TOKEN"})
-                        or "release-tag-token" in str(s.get("env", {}))]
+                        if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
             # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
             # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore come first. The restore runs in every nightly-next sign run, so it
@@ -592,27 +565,12 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
-                # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
-                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
-                                (name, steps[i].get("name")))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
         self.assertEqual(new, [], "give each step an App-token path: mint one and pass "
                          "`steps.<mint>.outputs.token || github.token`, or install gh_app_token.sh earlier in its job")
-
-    def test_the_failure_report_waits_through_a_rate_limit(self) -> None:
-        # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
-        # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
-        scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
-        self.assertTrue(scripts)
-        for step in scripts:
-            script = step["with"]["script"]
-            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
-            self.assertIn("x-ratelimit-reset", script, step.get("name"))
-            self.assertIn("deadline", script, step.get("name"))
 
     def test_the_shared_token_detector(self) -> None:
         mint = {"name": "Mint", "id": "mint", "uses": "actions/create-github-app-token@x"}

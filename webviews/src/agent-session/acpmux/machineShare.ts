@@ -37,7 +37,6 @@ export function machineShareOutcome(result: { ok: true } | { ok: false; error: u
     case "timed_out":
     case "transport":
     case "no_backend":
-      // retry-prompt-ok: "Try again in a moment": sharing a machine grants access, a write the person chooses.
       return { kind: "failed", key: "switch.share.unavailable" };
     default: {
       const reason = typeof error?.message === "string" && error.message.trim() ? error.message.trim() : undefined;

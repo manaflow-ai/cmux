@@ -66,16 +66,6 @@ describe("network policy compilation", () => {
     expect(compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", ranges: ["0.0.0.0/0"] })).publicEgress).toBe(true);
   });
 
-  test("none stays locked when a prior allowlist range covers the whole Internet", () => {
-    const stalePolicy = parseNetworkPolicy({ mode: "none", ranges: ["0.0.0.0/0", "::/0"] });
-    expect(compileNetworkPolicy(stalePolicy)).toEqual({
-      publicEgress: false,
-      ranges: [],
-      domains: [...CMUX_REQUIRED_DOMAINS],
-      dns: false,
-    });
-  });
-
   test("none keeps only cmux hosts; allowlist adds presets, domains, ranges, DNS", () => {
     const none = compileNetworkPolicy(parseNetworkPolicy({ mode: "none", domains: ["ignored.com"], ranges: ["1.1.1.1"] }));
     expect(none).toEqual({ publicEgress: false, ranges: [], domains: [...CMUX_REQUIRED_DOMAINS], dns: false });

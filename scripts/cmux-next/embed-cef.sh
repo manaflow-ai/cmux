@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache-gz-credits-no-swiftshader"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache-gz-credits"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -222,15 +222,6 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # first use. It is architecture- and driver-specific, so shipping it costs
   # 0.9 MiB without removing any runtime capability.
   rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
-  # SwiftShader, Chromium's CPU Vulkan driver (libvk_swiftshader.dylib, its ICD
-  # manifest and the Vulkan loader libvulkan.dylib: 16.0 MB). Chromium 157 on
-  # macOS loads it only when a switch asks for it (--enable-unsafe-swiftshader,
-  # --use-angle=swiftshader) or the AllowSwiftShaderFallback feature is on, which
-  # it is not by default (ui/gl/gl_features.cc); cmux sets none of them. Without
-  # them a blocked or crashed GPU falls back to software compositing, as it does
-  # today. Chromium dlopens these files by path; nothing links them.
-  rm -f "$fw/Versions/A/Libraries/libvk_swiftshader.dylib" "$fw/Versions/A/Libraries/vk_swiftshader_icd.json" \
-    "$fw/Versions/A/Libraries/libvulkan.dylib" "$fw/Versions/A/Libraries/libvulkan.1.dylib"
   # Locale paks that download on first use leave the framework before it is
   # signed (its seal covers Resources); the app's own seal covers them until
   # language-packs.py moves them into their packs at signing.
@@ -242,8 +233,9 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
       mv "$locale_dir" "$chromium_locales_dir/"
     done
   fi
-  # CEF's dylibs ship with local symbols and debug stabs. Drop them before
-  # signing; exported symbols stay.
+  # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
+  # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
+  # for the Vulkan loader's dlsym.
   for lib in "$fw/Versions/A/Libraries"/*.dylib; do
     if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
   done

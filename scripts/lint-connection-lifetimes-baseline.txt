@@ -275,8 +275,8 @@ R3 | cmux-tui/crates/acpmux/src/hub/offer_results.rs | a89573bdb26a | tokio::spa
 R3 | cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs | d0ae9c181c20 | tokio::spawn(warm_loop(Arc::downgrade(self)));
 R3 | cmux-tui/crates/acpmux/src/hub/peers.rs | 7b564b2861d6 | tokio::spawn(peer.run());
 R3 | cmux-tui/crates/acpmux/src/hub/permission_groups.rs | a89573bdb26a | tokio::spawn(async move {
-R3 | cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs | a89573bdb26a | tokio::spawn(async move {
-R3 | cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/permissions.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/permissions.rs | a89573bdb26a | tokio::spawn(async move {
 R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 25343b5c5b5b | tokio::spawn(end_pooled(p));
 R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 25343b5c5b5b | tokio::spawn(end_pooled(p));
 R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 46f28cf9f92e | tokio::spawn(async move { hub.pool_after_ready().await });

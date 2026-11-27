@@ -107,24 +107,6 @@ class HeadlessDebugDaemon(unittest.TestCase):
         # Pull request caches stay read-only, like the exact binary's.
         self.assertIs(consumed["save-if"], False)
 
-    def test_journey_staging_reuses_the_headless_build(self) -> None:
-        # backend.yml journey-staging built cmux-tui cold (36-39 min of its 50) and its own rust-cache never
-        # saved (a cancelled job skips the post step), so no promote reached production on 2026-11-26.
-        journey = load("backend.yml")["jobs"]["journey-staging"]
-        key = "Key the headless cmux-tui build"
-        self.assertEqual(step(self.producer, key)["run"], step(journey, key)["run"])
-        restore = step(journey, "Restore the headless cmux-tui build")["with"]
-        save = step(self.producer, "Save the headless cmux-tui build")["with"]
-        self.assertEqual((save["path"], save["key"]), (restore["path"], restore["key"]))
-        produced = step(self.producer, "Cache the cmux-tui target dir")["with"]
-        consumed = step(journey, "Cache the cmux-tui target dir")["with"]
-        for field in ("shared-key", "workspaces", "add-rust-environment-hash-key", "cache-workspace-crates"):
-            self.assertEqual(produced[field], consumed[field], field)
-        self.assertIs(consumed["save-if"], False)
-        build_env = step(journey, "Build Linux cmux-tui for the headless journey")["env"]
-        producer_env = step(self.producer, "Build exact headless cmux-tui")["env"]
-        self.assertEqual(build_env["CMUX_GHOSTTY_VT_ZIG_CPU"], producer_env["CMUX_GHOSTTY_VT_ZIG_CPU"])
-
     def test_only_feat_cmux_next_pushes_and_dispatches_save_it(self) -> None:
         triggers = self.producer_doc[True]  # YAML 1.1 reads `on` as true.
         self.assertEqual(sorted(triggers), ["push", "workflow_dispatch"])

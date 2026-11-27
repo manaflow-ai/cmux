@@ -27,8 +27,8 @@ jobs:
   benches:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # The script's 90-minute bench budget plus setup, plus the state read's rate-limit waits.
-    timeout-minutes: 160
+    # The script's 90-minute bench budget plus setup.
+    timeout-minutes: 115
     permissions:
       actions: read
       contents: read
@@ -50,8 +50,6 @@ jobs:
 
       # An unread state stops the job (after retries): the plan and the state are never written from nothing.
       - name: Read the last state
-        # Room for two waits on GitHub's rate-limit reset (20 min cap each).
-        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/nightly_interaction_latency.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/prev"

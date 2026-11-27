@@ -38,12 +38,6 @@ pub trait FrameSource: Send {
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
-    /// Whether its encoder makes Constrained Baseline whatever profile it was opened for
-    /// ([`cmux_encode::VideoEncoder::constrained_baseline`]): a desktop opened for `high` then
-    /// serves a `h264.baseline` viewer without opening again.
-    fn constrained_baseline(&self) -> bool {
-        false
-    }
     /// The picture the next [`FrameSource::encode`] makes, from the engine's resolution ladder
     /// (design D5): its size (the source scales the stream down to it) and QP ceiling. Set
     /// before each capture; `None` (no ladder): the full stream, no ceiling. The default

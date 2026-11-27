@@ -198,8 +198,6 @@ impl<R: Runner> LibvirtDriver<R> {
 }
 
 impl<R: Runner> HypervisorDriver for LibvirtDriver<R> {
-    // `spec.join` (a hub-minted child join token) is not handed to a KVM guest yet: it has no
-    // channel into the guest's environment here, so it goes unused and expires on the hub.
     fn create(&self, slot: &SlotName, spec: &SlotSpec) -> Result<SlotState> {
         if let Some(state) = self.state(slot)? {
             return Ok(state);

@@ -1711,127 +1711,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No invite sent."
+            "value": "The invite was not sent: the dialog was closed."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُرسل أي دعوة."
+            "state": "translated",
+            "value": "لم تُرسل الدعوة: أُغلقت النافذة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pozivnica nije poslana."
+            "value": "Pozivnica nije poslana: dijalog je zatvoren."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen invitation sendt."
+            "value": "Invitationen blev ikke sendt: dialogen blev lukket."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine Einladung gesendet."
+            "state": "translated",
+            "value": "Die Einladung wurde nicht gesendet: Der Dialog wurde geschlossen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se envió ninguna invitación."
+            "state": "translated",
+            "value": "No se envió la invitación: se cerró el cuadro de diálogo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune invitation envoyée."
+            "state": "translated",
+            "value": "L’invitation n’a pas été envoyée : la fenêtre a été fermée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun invito inviato."
+            "value": "L’invito non è stato inviato: la finestra è stata chiusa."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "招待は送信されていません。"
+            "state": "translated",
+            "value": "ダイアログが閉じられたため、招待は送信されませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានផ្ញើការអញ្ជើញទេ។"
+            "value": "មិនបានផ្ញើការអញ្ជើញទេ៖ ប្រអប់ត្រូវបានបិទ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "초대를 보내지 않았습니다."
+            "state": "translated",
+            "value": "대화상자가 닫혀 초대를 보내지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen invitasjon sendt."
+            "value": "Invitasjonen ble ikke sendt: dialogen ble lukket."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie wysłano zaproszenia."
+            "value": "Zaproszenie nie zostało wysłane: okno zostało zamknięte."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum convite enviado."
+            "value": "O convite não foi enviado: a caixa de diálogo foi fechada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Приглашение не отправлено."
+            "value": "Приглашение не отправлено: окно закрыто."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ส่งคำเชิญ"
+            "value": "ไม่ได้ส่งคำเชิญ: ปิดกล่องโต้ตอบแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Davet gönderilmedi."
+            "value": "Davet gönderilmedi: iletişim kutusu kapatıldı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запрошення не надіслано."
+            "value": "Запрошення не надіслано: вікно закрито."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa gửi lời mời."
+            "value": "Lời mời chưa được gửi: hộp thoại đã đóng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未发送邀请。"
+            "state": "translated",
+            "value": "邀请未发送：对话框已关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未傳送邀請。"
+            "state": "translated",
+            "value": "邀請未傳送：對話框已關閉。"
           }
         }
       }

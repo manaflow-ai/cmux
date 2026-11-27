@@ -34,9 +34,7 @@ final class ConnectionHeartbeat: Sendable {
     private let silentWaits = Mutex<(next: UInt64, ends: [UInt64: @Sendable () -> Void])>((0, [:]))
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        // An ask may go up to 5 s early on a wake that already happened (``WakeCoalescer``): at idle the
-        // heartbeat costs no wake of its own (0.07/s on cmux20-bench, 2026-11-25).
-        timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock, early: .seconds(5))
+        timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
     }
 
     /// False while the daemon left `misses` asks in a row unanswered and its connection stays open

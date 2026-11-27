@@ -93,12 +93,6 @@ for step in kick_steps:
     code, out, tried = run_kick(step, {"bot": (1, limit), "repo": (1, limit)})
     check(code == 0 and tried == ["bot", "repo"] and "::warning title=DEV kick skipped::" in out,
           f"{step['name']}: every token rate-limited is a skipped kick with a warning, not a red ({code}, {out!r})")
-    code, out, tried = run_kick(step, {"bot": (1, "HTTP 500: Failed to run workflow dispatch")})
-    check(code == 0 and tried == ["bot", "repo"] and "::warning" not in out,
-          f"{step['name']}: a GitHub 5xx on the cmux-bot token falls back to github.token")
-    code, out, tried = run_kick(step, {"bot": (1, "HTTP 502: Bad Gateway"), "repo": (1, "HTTP 500: Server Error")})
-    check(code == 0 and "::warning title=DEV kick skipped::" in out,
-          f"{step['name']}: every token answered 5xx is a skipped kick with a warning, not a red ({code}, {out!r})")
     code, out, tried = run_kick(step, {"bot": (1, "HTTP 404: workflow not found")})
     check(code != 0 and tried == ["bot"], f"{step['name']}: any other failure stays red")
     code, out, tried = run_kick(step, {"repo": (1, limit)}, bot="")

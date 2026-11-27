@@ -9,7 +9,7 @@
   cursor: default;
   user-select: none;
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -53,10 +53,10 @@
    chevron, on the frame the pointer arrives, as a tool row's (conversation.css HOVER FOLLOWS THE
    POINTER). Open, or with its menu open, its words, mark and
    chevron stay lit. */
-.cv-message-group__head[data-popup-within],
+.cv-message-group__head:has([data-popup-open]),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
 .cv-message-group__head:hover > .cv-tool__chevron,
-.cv-message-group__head[data-popup-within] > :is(.cv-tool__icon, .cv-tool__chevron),
+.cv-message-group__head:has([data-popup-open]) > :is(.cv-tool__icon, .cv-tool__chevron),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > :is(.cv-tool__icon, .cv-tool__chevron) {
   color: var(--cv-text);
 }

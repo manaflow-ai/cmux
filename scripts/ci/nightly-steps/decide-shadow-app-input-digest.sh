@@ -13,10 +13,7 @@ reuse=unknown
 published_digest=
 if [[ -n "$head_sha" ]]; then
   if [[ -n "$published" ]]; then
-    # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
-    depth=()
-    [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
-    bash scripts/ci/timeout.sh 60 git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$published" >/dev/null 2>&1 || true
+    bash scripts/ci/timeout.sh 60 git fetch --no-tags --quiet --depth=1 --filter=blob:none origin "$published" >/dev/null 2>&1 || true
   fi
   # A blobless fetch lets git read missing blobs on demand; the timeout bounds that.
   digest="$(bash scripts/ci/timeout.sh 120 python3 scripts/ci/app_input_digest.py --ref "$head_sha" 2>/dev/null)" || digest=unknown
@@ -27,13 +24,8 @@ if [[ -n "$head_sha" ]]; then
     if [[ "$digest" == "$published_digest" ]]; then reuse=true; else reuse=false; fi
   fi
 fi
-# app_input_digest_sha: the commit the digest was computed for (empty when there is no digest), so the publish's
-# build manifest compares the published commit with it instead of reading the tip (test_nightly_cmux_tui_resolve.py).
-digest_sha=
-[[ "$digest" != unknown ]] && digest_sha="$head_sha"
 {
   echo "app_input_digest=$digest"
-  echo "app_input_digest_sha=$digest_sha"
   echo "would_reuse=$reuse"
 } >> "${GITHUB_OUTPUT:-/dev/null}"
 {

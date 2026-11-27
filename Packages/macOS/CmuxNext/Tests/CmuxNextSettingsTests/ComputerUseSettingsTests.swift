@@ -28,7 +28,6 @@ import Testing
         #expect(settings.deniedApps == ComputerUseSettings.defaultDeniedApps)
         #expect(settings.allowOwnMachines && settings.pauseOnTakeover && settings.showCursor && settings.livePreview)
         #expect(!settings.allowForeground)
-        #expect(!settings.floatingPreview)
         let row = SettingsSchema.descriptor(for: ComputerUseSettings.modePath)
         #expect(row?.defaultValue == .string("fullAccess"))
     }
@@ -175,7 +174,7 @@ import Testing
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
                                          "computerUse.cursorTag", "computerUse.settle", "computerUse.livePreview",
-                                         "computerUse.floatingPreview", "computerUse.menus"])
+                                         "computerUse.menus"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
@@ -227,16 +226,6 @@ import Testing
         let off = computerUse(.object(["computerUse": .object(["livePreview": .bool(false)])]))
         let object = try #require(try JSONSerialization.jsonObject(with: off.policyConfigJSON()) as? [String: Any])
         #expect(object["livePreview"] as? Bool == false)
-    }
-
-    /// `computerUse.floatingPreview` (prototype) is off by default and reads a boolean; it is the
-    /// App's panel only, so the engine's policy does not carry it.
-    @Test func floatingPreviewIsOffByDefaultAndReadsABool() throws {
-        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.floatingPreviewPath)?.defaultValue == .bool(false))
-        let on = computerUse(.object(["computerUse": .object(["floatingPreview": .bool(true)])]))
-        #expect(on.floatingPreview)
-        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
-        #expect(object["floatingPreview"] == nil)
     }
 
     /// `computerUse.menus` reads `open` or `refuse` (default `open`); another value keeps the default

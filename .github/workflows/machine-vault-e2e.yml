@@ -62,9 +62,8 @@ jobs:
     # An ephemeral Blacksmith macOS VM, made for this one job and destroyed after it: the job adds an
     # OS user, opens ssh to it and holds the stack secrets, so never a persistent owned Mac (the minis'
     # pools) and never a runner variable that could name one. The AWS Macs have no GitHub runners
-    # except the trusted promote runner, which this job must not take. A literal label, since the macos_26 pool
-    # can name an owned mini, where its sudo calls fail (tests/test_ci_owned_mac_jobs_no_sudo.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: adds a macOS user as root
+    # except the trusted promote runner, which this job must not take.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 60
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev

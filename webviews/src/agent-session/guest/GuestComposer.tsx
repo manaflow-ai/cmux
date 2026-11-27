@@ -52,8 +52,6 @@ export function GuestMessages({
               },
             )}
           </span>
-          {/* retry-prompt-ok: the daemon refused this message with a reason (not a dropped connection, which
-              resends by itself as `sending`); sending it again unchanged is the guest's call. */}
           {prompt.state === "refused" && onRetry && (
             <button className="guest-mine__retry" type="button" onClick={() => onRetry(prompt.clientId)}>
               {t("guest.prompt.tryAgain")}

@@ -344,9 +344,8 @@ final class TerminalStatusBanner: NSView {
             case .fellBehind:
                 strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
             }
-            // The view keeps re-attaching by itself while it shows (cx-wwtam); no "click to reconnect" ask.
-            let retrying = strings.text("terminal.link.stall.retryingHint", defaultValue: "Still retrying")
-            return "\(reason) · \(retrying)"
+            let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
+            return "\(reason) · \(hint)"
         }
     }
 

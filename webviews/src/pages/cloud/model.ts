@@ -136,16 +136,6 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
  */
 export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle", "keep"]);
 
-/** A full list's machines, each unchanged one kept as the object already shown (one pass per list). */
-export function keptMachines(previous: readonly CloudMachine[], next: CloudMachine[]): CloudMachine[] {
-  if (previous.length === 0) return next;
-  const byId = new Map(previous.map((machine) => [machine.id, machine]));
-  return next.map((machine) => {
-    const old = byId.get(machine.id);
-    return old && JSON.stringify(old) === JSON.stringify(machine) ? old : machine;
-  });
-}
-
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
   const rows: MachineRow[] = machines.map((machine) => {

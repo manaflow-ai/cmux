@@ -1,15 +1,13 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../experiments/experiment";
 
-/** Toasts v2 (Leo, 2026-11-19: "Promise toasts with Undo. One toast starts as a spinner ('Running
- * tests…') and turns into success or error in place without stacking; closing a tab or workspace,
- * or archiving a session, shows a one-line toast with an inline Undo."). The arms vary how a
- * stack toast (NoticeStack) draws its state and its Undo; the working → result change in place is
- * the same in every arm (NoticeQueue.promise). Compare in the gallery: `agent-pane.toasts`,
- * variants `promise-*` and `undo-*`, view `compare`. For dogfood set `cmux.experiments` to
- * `{"toasts-v2":"mark"}` in the pane's web inspector and reload.
- * @status experimental
- */
+/// Toasts v2 (Leo, 2026-11-19: "Promise toasts with Undo. One toast starts as a spinner ('Running
+/// tests…') and turns into success or error in place without stacking; closing a tab or workspace,
+/// or archiving a session, shows a one-line toast with an inline Undo."). The arms vary how a
+/// stack toast (NoticeStack) draws its state and its Undo; the working → result change in place is
+/// the same in every arm (NoticeQueue.promise). Compare in the gallery: `agent-pane.toasts`,
+/// variants `promise-*` and `undo-*`, view `compare`. For dogfood set `cmux.experiments` to
+/// `{"toasts-v2":"mark"}` in the pane's web inspector and reload.
 export const toastsV2 = defineExperiment({
   id: "toasts-v2",
   title: "Toasts v2: promise and Undo",

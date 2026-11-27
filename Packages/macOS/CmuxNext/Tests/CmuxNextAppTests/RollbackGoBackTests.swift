@@ -104,30 +104,6 @@ import Testing
         #expect(full.value == 1)
     }
 
-    /// The staging keep a quit waits for is the clone only: the full check of every file runs after it,
-    /// in a step nothing waits for (a Restart to Update's quit waited seconds for the check under load,
-    /// ask-ad4a68e740), and seals the copy as the old one-step keep did.
-    @Test func theQuitWaitsForTheCloneNotTheSignatureCheck() throws {
-        let root = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let full = Counter()
-        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" },
-                                     quickTeamID: { _ in "TEAM" }, recordKey: { Self.key })
-        let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
-        try Self.makeBundle(at: app, build: "100")
-        let log = UpdateLogBuffer()
-        #expect(UpdaterService.cloneForRollback(store: store, bundle: app, build: "100", limit: 2,
-                                                record: KeptRecord(build: "100", teamID: "TEAM"), log: log))
-        #expect(full.value == 0, "the quit's step reads no signature")
-        #expect(store.list(teams: false).map(\.build) == ["100"], "the copy is there for Go back")
-        UpdaterService.sealKept(store: store, build: "100", log: log)
-        #expect(full.value == 1)
-        let listed = try #require(store.list(teams: false).first)
-        #expect(listed.teamID == "TEAM" && store.checkedTeam(of: listed) == "TEAM", "sealed: going back is quick")
-        UpdaterService.sealKept(store: store, build: "100", log: log)
-        #expect(full.value == 1, "sealed once")
-    }
-
     /// A kept build's code runs once after the keep (macOS checks a new bundle at its first run, so
     /// going back to it later does not wait on that), and again at launch when a quit cut it short.
     @Test func aKeptBuildRunsOnceSoGoingBackIsNotItsFirstLaunch() async throws {
@@ -229,9 +205,7 @@ import Testing
         let waiterPID = try #require(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
         helper.terminate()
         helper.waitUntilExit()
-        let killResult = kill(waiterPID, 0)
-        let killErrno = errno
-        #expect(killResult == -1 && killErrno == ESRCH)
+        #expect(kill(waiterPID, 0) == -1 && errno == ESRCH)
         #expect(!FileManager.default.fileExists(atPath: opened.path))
     }
 

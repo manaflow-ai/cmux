@@ -25,7 +25,7 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
   height: 420,
   variants: {
     before: {
-      note: "Offline: Reconnecting… with when it was last seen. The pane reads the machines and the chat list again on its own, so there is no Reconnect button (Leo, 2026-11-22).",
+      note: "Before: paused and deleted machines both offered Reconnect.",
       props: { ...base, unavailable: { reason: "offline", machine: "Demo machine" } },
     },
     paused: {

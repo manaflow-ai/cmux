@@ -1,7 +1,7 @@
-/// Asks the first Chromium page this launch whose own document loaded and painted (`CEFTab.onRealDocumentLoaded`)
-/// one script, once per process (startup-tti: the first page's own navigation start, DOMContentLoaded and first
-/// contentful paint, which `CmuxNextControl.LaunchFirstPage` writes and reads). The app owns the one probe and hands it
-/// each page as its document loads; every page after the first costs one Bool read.
+/// Asks the first Chromium page this launch that is ready for keys (loaded and painted) one script, once per
+/// process (startup-tti: the first page's own navigation start, DOMContentLoaded and first contentful paint, which
+/// `CmuxNextControl.LaunchFirstPage` writes and reads). The app owns the one probe and hands it each page as it
+/// becomes ready; every page after the first costs one Bool read.
 @MainActor
 public final class CEFFirstPageProbe {
     private var asked = false

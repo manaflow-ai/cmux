@@ -98,11 +98,3 @@ test("the edited-files aggregate label is a bounded direct-navigation exception"
   expect(findHoverRevealViolations(css.replace("summary-link", "menu-trigger"), file)).toHaveLength(1);
   expect(findHoverRevealViolations(css, "another-card.css")).toHaveLength(1);
 });
-
-test("a row's popup-within mark satisfies the reveal contract", () => {
-  const css = `
-    .acpmux-turnSummary:hover .cv-turn-actions { opacity: 1; }
-    .acpmux-turnSummary[data-popup-within] .cv-turn-actions { opacity: 1; }
-  `;
-  expect(findHoverRevealViolations(css)).toEqual([]);
-});

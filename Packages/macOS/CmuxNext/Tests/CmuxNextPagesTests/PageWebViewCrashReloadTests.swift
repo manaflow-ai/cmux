@@ -123,49 +123,4 @@ struct PageWebViewCrashReloadTests {
         #expect(reports == Array(repeating: true, count: PageCrashReloads.limit) + [false])
         view.close()
     }
-
-    /// hq#27887, class 2 (Leo, 2026-11-22: "we need to make sure any solutions that reloading would help
-    /// with, we never encounter those classes of bugs in the first place"): a page that crashes as it
-    /// loads, under app health's ladder. Each health repair of the crashed page reloaded it under the
-    /// crash notice and reset its crash count, so it loaded again every few minutes forever. Now a
-    /// crashed page its host holds (the notice, the agent chat's own retry, the count run out) is left to
-    /// the host: 30 health repairs load it 0 times (before: 30), and the person's Reload still does.
-    @Test func healthRepairsLeaveACrashedPageItsHostHoldsAlone() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        for reloadsAfterCrash in [false, true] {
-            let (view, page) = try await started(FakeChromiumHosting())
-            view.reloadsAfterCrash = reloadsAfterCrash
-            let crashes = reloadsAfterCrash ? PageCrashReloads.limit + 1 : 1
-            for _ in 0..<crashes { page.onEvent?(.crashed) }
-            #expect(view.holdsCrash, "the host gave up on the crash but the page is not held (reloadsAfterCrash \(reloadsAfterCrash))")
-            let held = page.reloads
-            var ran = 0
-            for attempt in 0..<30 {
-                if attempt.isMultiple(of: 2) {
-                    if await view.reloadKeepingState() { ran += 1 }
-                } else if view.restartRenderer() {
-                    ran += 1
-                }
-            }
-            #expect(ran == 0, "app health repaired a crashed page its host holds (reloadsAfterCrash \(reloadsAfterCrash))")
-            #expect(page.reloads == held, "app health reloaded a held crashed page \(page.reloads - held) times")
-
-            // The person's Reload brings it back and the page is no longer held.
-            view.reloadAfterCrashes()
-            #expect(page.reloads == held + 1)
-            #expect(!view.holdsCrash)
-            view.close()
-        }
-    }
-
-    /// A page that crashed while its host reloads it by itself (inside ``PageCrashReloads``) is not held:
-    /// the host's reload is underway.
-    @Test func aCrashTheHostReloadsIsNotHeld() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (view, page) = try await started(FakeChromiumHosting())
-        page.onEvent?(.crashed)
-        #expect(page.reloads == 1)
-        #expect(!view.holdsCrash)
-        view.close()
-    }
 }

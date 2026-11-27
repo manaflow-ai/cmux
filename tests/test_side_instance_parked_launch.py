@@ -23,7 +23,6 @@ import signal
 import subprocess
 import sys
 import textwrap
-import time
 import unittest
 from pathlib import Path
 
@@ -81,17 +80,11 @@ PS = textwrap.dedent('''\
         elif pid == park and alive(park): print(state["park_cmd"] if "command=" in args else "park-display")
 ''')
 
-# pgrep answers with the park display's pid while it runs, and fails (as pgrep does) when none does.
 PGREP = textwrap.dedent('''\
     #!/usr/bin/env python3
-    import json, os, sys
-    path = os.environ["FAKE_STATE"]
-    pid = (json.load(open(path)) if os.path.exists(path) else {}).get("park_pid")
-    try:
-        os.kill(pid, 0) if pid else sys.exit(1)
-    except OSError:
-        sys.exit(1)
-    print(pid)
+    import json, os
+    state = json.load(open(os.environ["FAKE_STATE"]))
+    if state.get("park_pid"): print(state["park_pid"])
 ''')
 
 
@@ -109,8 +102,7 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.state = self.tmp / "state.json"
         self.open_log = self.tmp / "open.log"
         self.env.update({"FAKE_STATE": str(self.state), "FAKE_OPEN_LOG": str(self.open_log),
-                         "SIDE_INSTANCE_PARK_APP": str(park), "SIDE_INSTANCE_BOOT_ID": "boot-1"})
-        self.env.pop("CMUX_SIDE_PARK_RETRY", None)
+                         "SIDE_INSTANCE_PARK_APP": str(park)})
         self.env.pop("CMUX_SIDE_PLACEMENT", None)
         self.addCleanup(self.end_sleepers)
         subprocess.run(["bash", str(SCRIPT), "make", "probe", "--from",
@@ -191,45 +183,6 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.assertIn("no park display", result.stderr)
         self.assertEqual(self.copy_open()[:2], ["-n", "-g"])
         self.assertNotIn("--env", self.copy_open())
-
-    def park_opens(self) -> int:
-        return sum("--ready-file" in args for args in self.opens()) if self.open_log.exists() else 0
-
-    def test_a_park_display_that_exits_ends_the_wait_and_is_not_tried_again_this_boot(self):
-        # A headless CI Mac (2026-11-26): AppKit never listed the virtual display, park-display.m gave up
-        # after 10 s, and every launch still waited 15 s: a `cmux app try` side phase went from 8 s to 25.9 s.
-        started = time.monotonic()
-        result = self.side("launch", "probe", FAKE_PARK_FAIL="1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertLess(time.monotonic() - started, 8, "the wait outlived the park display")
-        self.assertIn("exited without a screen", result.stderr)
-        self.assertEqual(self.park_opens(), 1)
-        self.side("stop", "probe")
-
-        started = time.monotonic()
-        result = self.side("launch", "probe", FAKE_PARK_FAIL="1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertLess(time.monotonic() - started, 4)
-        self.assertIn("failed on this Mac since it started", result.stderr)
-        self.assertIn("(shown)", result.stdout)
-        self.assertEqual(self.park_opens(), 1, "the park display was tried again in the same boot")
-        self.side("stop", "probe")
-
-        for env in ({"CMUX_SIDE_PARK_RETRY": "1"}, {"SIDE_INSTANCE_BOOT_ID": "boot-2"}):
-            with self.subTest(env=env):
-                before = self.park_opens()
-                self.assertEqual(self.side("launch", "probe", FAKE_PARK_FAIL="1", **env).returncode, 0)
-                self.assertEqual(self.park_opens(), before + 1)
-                self.side("stop", "probe")
-
-    def test_a_park_display_that_works_again_clears_the_failure(self):
-        self.assertEqual(self.side("launch", "probe", FAKE_PARK_FAIL="1").returncode, 0)
-        self.side("stop", "probe")
-        result = self.side("launch", "probe", CMUX_SIDE_PARK_RETRY="1")
-        self.assertIn("(parked, on park display screen 2)", result.stdout)
-        self.side("stop", "probe")
-        result = self.side("launch", "probe")
-        self.assertIn("(parked, on park display screen 2)", result.stdout, result.stderr)
 
     def test_stop_ends_the_park_display_with_the_copy(self):
         self.assertEqual(self.side("launch", "probe").returncode, 0)

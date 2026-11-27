@@ -95,11 +95,11 @@ import {
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
+import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
-import { restartSettled, goneRows, liveTurnLine } from "./restartSettled";
+import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
@@ -151,9 +151,6 @@ const NO_TAIL = process.env.NO_TAIL === "1";
 const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
-/// LINK_ZLIB=1: the link compresses large lines (bench/linkModel.ts `zlibWire`: 16 KiB or more, zlib level 1, both
-/// directions), as the machine link that carries a chat on another machine does once both ends support it.
-const LINK_ZLIB = process.env.LINK_ZLIB === "1";
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
 /// A slow LINK adds its round trips and the attach's bytes on the wire: ten round trips and 6 s more on a
@@ -686,7 +683,6 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
-    rail: FrameRail | null;
   };
   let stopped = false;
   const recording = {
@@ -757,23 +753,6 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
           .map((element) => element.getBoundingClientRect())
           .find((box) => box.height > 0);
-    const railNode = rootHidden ? null : scope.querySelector<HTMLElement>(".acpmux-minimap__rail");
-    const railBox = railNode?.getBoundingClientRect();
-    const rail: FrameRail | null =
-      railNode && railBox && railBox.height > 0
-        ? {
-            top: railBox.top,
-            height: railBox.height,
-            rows: Number(railNode.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0),
-            listTop: railNode.querySelector<HTMLElement>(".acpmux-minimap__list")?.scrollTop ?? 0,
-            lit: Array.from(railNode.querySelectorAll<HTMLElement>("[data-tick][aria-current]"))
-              .map((tick) => tick.dataset.tick)
-              .join(","),
-            animating: railNode
-              .getAnimations({ subtree: true })
-              .filter((animation) => animation.playState === "running").length,
-          }
-        : null;
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
     if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
       recording.liveLatestAt = performance.now();
@@ -785,7 +764,6 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
-      rail,
     };
   };
   window.cmuxAfterPaint(() => {
@@ -919,9 +897,8 @@ type Round = {
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
-  /// Bytes the daemon sent the page over the link this round, as text, and as they crossed the wire (LINK_ZLIB).
+  /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
-  wireDown: number;
   /// ROWS_WINDOW: the row store's batches the page took (0: it drew the chat by v1).
   rowsTaken: number;
 };
@@ -978,7 +955,7 @@ try {
   let downUntil = 0;
   let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, wireDown: 0 };
+  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -1300,15 +1277,13 @@ try {
         if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
         sockets.set(connection, socket);
         // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
-        const down = new LinkPipe(LINK, undefined, LINK_ZLIB);
-        const up = new LinkPipe(LINK, undefined, LINK_ZLIB);
+        const down = new LinkPipe(LINK);
+        const up = new LinkPipe(LINK);
         pipes.set(connection, { up, down });
         socket.addEventListener("message", (event) => {
           const frame = String(event.data);
           load.bytesDown += Buffer.byteLength(frame);
-          const before = down.bytes;
           down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
-          load.wireDown += down.bytes - before;
         });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
@@ -1566,7 +1541,6 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
-        wireDown: 0,
         rowsTaken: 0,
       };
     } finally {
@@ -1597,7 +1571,7 @@ try {
           true,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, wireDown: 0 };
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
@@ -1696,7 +1670,6 @@ try {
         boundMs,
         asks: got.asks.length,
         bytesDown: load.bytesDown,
-        wireDown: load.wireDown,
         rowsTaken: got.rowsTaken,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
@@ -1730,7 +1703,6 @@ try {
   const PICKS = {
     blankAfterContent: (r: Round) => r.metrics.blankAfterContent,
     shiftFrames: (r: Round) => r.metrics.shiftFrames,
-    railFrames: (r: Round) => r.metrics.railFrames,
     finalFirstPaintMs: (r: Round) => r.metrics.finalFirstPaintMs,
     firstContentMs: (r: Round) => r.metrics.firstContentMs,
     layoutShift: (r: Round) => r.layoutShift,
@@ -1744,7 +1716,7 @@ try {
       `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
-      "round | blank after content | shift frames | rail frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
+      "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
     );
     rounds.forEach((r, at) =>
       console.log(
@@ -1752,7 +1724,6 @@ try {
           at + 1,
           r.metrics.blankAfterContent,
           r.metrics.shiftFrames,
-          r.metrics.railFrames,
           ms(r.metrics.finalFirstPaintMs),
           ms(r.metrics.firstContentMs),
           r.layoutShift.toFixed(4),
@@ -1876,8 +1847,6 @@ try {
       goneFrames: median(settled.map((one) => one.goneFrames)),
       goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
-      wireDown: median(rounds.map((r) => r.wireDown)),
-      zlib: LINK_ZLIB,
       rowStore: rounds.every((r) => r.rowsTaken > 0),
       settledEach: settled.map((one) => one.settledMs),
     };
@@ -1908,14 +1877,13 @@ try {
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
-      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames + r.metrics.railFrames;
+      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames;
       const worst = [...rounds].sort(
         (a, b) => score(b) - score(a) || (b.metrics.finalFirstPaintMs ?? 0) - (a.metrics.finalFirstPaintMs ?? 0),
       )[0];
       if (worst) {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
-        const railMoves = new Map(worst.metrics.railAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
         const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
@@ -1932,8 +1900,6 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
-              `rail ${frame.rail ? `${frame.rail.top.toFixed(0)}+${frame.rail.height.toFixed(0)} ${frame.rail.rows} rows list ${frame.rail.listTop.toFixed(0)} lit ${frame.rail.lit || "-"}${frame.rail.animating ? ` anim ${frame.rail.animating}` : ""}` : "-"}`,
-              ...(railMoves.has(at) ? [`R ${railMoves.get(at)!}`] : []),
               ...(gone.length
                 ? [
                     `gone later ${gone.length}: ${gone

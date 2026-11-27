@@ -113,15 +113,10 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         let directory = tab?.downloadsDirectory ?? DownloadDestination.defaultDirectory
         // The chosen file (the save panel already asked before replacing
         // it) stays until the download completes; nil cancels the download.
-        // The name is looked up off the main thread (a protected folder's
-        // first look waits for the access prompt).
-        let placement: BrowserDownloadPlacement
-        switch await BrowserDownloadPolicy.place(chosen: chosen, suggestedFilename: suggestedFilename,
-                                                 directory: directory) {
-        case .success(let placed): placement = placed
-        case .failure(let failure):
-            // No file for it: the download fails (not cancels), as in Chromium.
-            finish(download, status: .failed(failure.reason))
+        guard let placement = BrowserDownloadPolicy.place(chosen: chosen, suggestedFilename: suggestedFilename,
+                                                          directory: directory) else {
+            // No free file name: the download fails (not cancels), as in Chromium.
+            finish(download, status: .failed("no free file name"))
             return nil
         }
         guard let item = items[ObjectIdentifier(download)] else {

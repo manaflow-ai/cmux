@@ -84,12 +84,6 @@ struct MacScreenStripState: Equatable {
         let closeTab = Action(title: L.t("macScreen.card.closeTab", "Close Tab"), run: .closeTab, id: "macScreen.card.closeTab")
         let cancel = Action(title: L.t("macScreen.card.cancel", "Cancel"), run: .disconnect)
         let reason = MacScreenCardView.failedDetail(card, model)
-        // Close Tab, and the button that asks again only when the pane does not retry this failure on its own.
-        let againActions = { (title: String, id: String) -> [Action] in
-            guard !model.retriesOnItsOwn(card) else { return [closeTab] }
-            // retry-prompt-ok: a person's own end, the host's Stop, or an Ask permission: asking again is their choice
-            return [closeTab, Action(title: title, run: .connect, primary: true, returnKey: true, id: id)]
-        }
         switch card {
         case .unsupported:
             return MacScreenStripState(
@@ -106,14 +100,12 @@ struct MacScreenStripState: Equatable {
         case .failed:
             return MacScreenStripState(
                 title: L.t("macScreen.card.failedTitle", "Couldn’t connect"), ink: \.danger, mark: .glyph("exclamationmark.triangle", \.attention),
-                caption: reason,
-                // retry-prompt-ok: againActions drops the button whenever the pane retries on its own; it stays for an Ask permission (asking prompts the host's person)
-                actions: againActions(L.t("macScreen.card.retry", "Try Again"), "macScreen.card.retry"))
+                caption: model.failedDetail,
+                actions: [closeTab, Action(title: L.t("macScreen.card.retry", "Try Again"), run: .connect, primary: true, returnKey: true, id: "macScreen.card.retry")])
         case .ended:
             return MacScreenStripState(
                 title: L.t("macScreen.card.endedTitle", "Disconnected"), mark: .glyph("display", \.secondary),
-                // retry-prompt-ok: againActions drops the button whenever the pane retries on its own; it stays for an Ask permission (asking prompts the host's person)
-                actions: againActions(L.t("macScreen.card.reconnect", "Reconnect"), "macScreen.card.reconnect"))
+                actions: [closeTab, Action(title: L.t("macScreen.card.reconnect", "Reconnect"), run: .connect, primary: true, returnKey: true, id: "macScreen.card.reconnect")])
         case .hubConnect:
             return MacScreenStripState(
                 title: String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), name), mark: .glyph("desktopcomputer", \.secondary),
@@ -133,7 +125,6 @@ struct MacScreenStripState: Equatable {
             return MacScreenStripState(
                 title: L.t("macScreen.hub.declinedTitle", "Declined"), ink: \.attention, mark: .glyph("hand.raised", \.attention),
                 caption: String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), name),
-                // retry-prompt-ok: the host's person declined; asking again prompts them again
                 actions: [closeTab, Action(title: L.t("macScreen.hub.askAgain", "Ask Again"), run: .request(scope), primary: true, id: "macScreen.hub.askAgain")])
         case let .hubRefused(refusal, requested):
             return refused(refusal, requested: requested, model: model, closeTab: closeTab)
@@ -141,10 +132,10 @@ struct MacScreenStripState: Equatable {
             let removed = endReason.removesAccess
             var actions = [closeTab]
             if endReason.canReconnect, case .hubRevoked = card {
-                // retry-prompt-ok: the host revoked or changed this Mac's access; a new session is the person's choice
                 actions.append(Action(title: L.t("macScreen.hub.connectAgain", "Connect Again"), run: .connect, primary: true, id: "macScreen.hub.connectAgain"))
             } else if endReason.canReconnect {
-                actions = againActions(L.t("macScreen.card.reconnect", "Reconnect"), "macScreen.card.reconnect")
+                actions.append(Action(title: L.t("macScreen.card.reconnect", "Reconnect"), run: .connect, primary: true, returnKey: true,
+                                      id: "macScreen.card.reconnect"))
             }
             return MacScreenStripState(
                 title: removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"),
@@ -173,10 +164,9 @@ struct MacScreenStripState: Equatable {
                 actions: [closeTab, Action(title: L.t("macScreen.hub.viewInstead", "View Instead"), run: .request(.view), primary: true, id: "macScreen.hub.viewInstead")])
         case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
             var actions = [closeTab]
-            // Not signed in: the body offers the shared Sign In button, and the pane asks again on its own after it.
-            if refusal.canRetry, !model.retriesOnItsOwn(.hubRefused(refusal, requested: requested)) {
-                // retry-prompt-ok: the host's permission is Ask, so asking again prompts the person at that Mac
-                actions.append(Action(title: L.t("macScreen.card.retry", "Try Again"), run: .request(requested), primary: true,
+            if refusal == .notSignedIn || refusal.canRetry {
+                // Not signed in: Try Again stays plain, the body offers the shared Sign In button.
+                actions.append(Action(title: L.t("macScreen.card.retry", "Try Again"), run: .request(requested), primary: refusal != .notSignedIn,
                                       id: "macScreen.card.retry"))
             }
             return MacScreenStripState(

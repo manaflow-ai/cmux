@@ -131,6 +131,7 @@ export function PlainEnglishView({ files, store, label, codeOptions, onOpenInDif
   // in measure as estimated: TanStack places all N items again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
   const unfoldedRef = useRef(unfolded);
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render -- estimateSize reads it while TanStack measures in this render; an effect would hand it the last render's set.
   unfoldedRef.current = unfolded;
   const estimateSize = useCallback(
     (index: number) => {
@@ -143,6 +144,7 @@ export function PlainEnglishView({ files, store, label, codeOptions, onOpenInDif
     [model],
   );
   const viewport = useRef(0);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns a mutable instance, so the React Compiler skips this component, as in ui/VirtualList.
   const virtualizer = useVirtualizer({
     count: model.items.length,
     getScrollElement: () => scroller.current,
@@ -274,7 +276,6 @@ const FilePath = memo(function FilePath({
       data-size={first ? "path-first" : "path"}
       data-first={first || undefined}
       className="plain-english-path"
-      title={path}
     >
       {path}
     </h3>

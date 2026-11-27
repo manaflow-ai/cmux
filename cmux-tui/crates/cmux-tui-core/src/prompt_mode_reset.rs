@@ -114,24 +114,6 @@ pub(crate) fn write_rewritten_output<'a>(
     data: Cow<'a, [u8]>,
     marks: &mut ShellMarks,
 ) -> Cow<'a, [u8]> {
-    write_rewritten_output_forwarding(term, data, marks, |_| {})
-}
-
-/// [`write_rewritten_output`] that hands each run of the bytes it returns to
-/// `forward` before the terminal parses that run, in order: the runs joined
-/// are exactly the returned bytes. A prompt mark that gets a reset splits the
-/// chunk at the mark, so the reset (which reads the modes as of the mark) is
-/// computed after the run before it parsed and forwarded before it parses
-/// itself. A held partial mark is neither parsed nor forwarded until the
-/// next chunk completes it. A mirror forwards to its viewers this way so
-/// they parse the chunk while it does, not after (goal terminal-throughput,
-/// G3), and see the same bytes as when it broadcast the returned stream.
-pub(crate) fn write_rewritten_output_forwarding<'a, F: FnMut(&[u8])>(
-    term: &mut Terminal,
-    data: Cow<'a, [u8]>,
-    marks: &mut ShellMarks,
-    mut forward: F,
-) -> Cow<'a, [u8]> {
     let data = if marks.held.is_empty() {
         data
     } else {
@@ -144,12 +126,12 @@ pub(crate) fn write_rewritten_output_forwarding<'a, F: FnMut(&[u8])>(
         Cow::Borrowed(data) => {
             let (body, held) = data.split_at_checked(keep).unwrap_or((data, &[]));
             marks.held.extend_from_slice(held);
-            write_marked(term, body, &mut marks.running, &mut forward)
+            write_marked(term, body, &mut marks.running)
         }
         Cow::Owned(data) => {
             let (body, held) = data.split_at_checked(keep).unwrap_or((&data, &[]));
             marks.held.extend_from_slice(held);
-            Cow::Owned(write_marked(term, body, &mut marks.running, &mut forward).into_owned())
+            Cow::Owned(write_marked(term, body, &mut marks.running).into_owned())
         }
     }
 }
@@ -163,12 +145,7 @@ fn partial_mark_len(data: &[u8]) -> usize {
     if MARK.starts_with(candidate) { candidate.len() } else { 0 }
 }
 
-fn write_marked<'a, F: FnMut(&[u8])>(
-    term: &mut Terminal,
-    data: &'a [u8],
-    running: &mut bool,
-    forward: &mut F,
-) -> Cow<'a, [u8]> {
+fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> Cow<'a, [u8]> {
     let mut parsed: Option<Vec<u8>> = None;
     let mut written = 0;
     let mut from = 0;
@@ -180,32 +157,28 @@ fn write_marked<'a, F: FnMut(&[u8])>(
             Some(b'D') if *running => {
                 *running = false;
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
-                parsed.extend_from_slice(
-                    &term.vt_write_forwarding(&data[written..at], &mut *forward),
-                );
+                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
                 written = at;
-                parsed.extend_from_slice(&term.vt_write_forwarding(KEYBOARD_RESET, &mut *forward));
+                parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
             }
             Some(b'D') => {}
             Some(b'A') if !*running => {
                 // The modes as of the mark: what this chunk set before it counts.
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
-                parsed.extend_from_slice(
-                    &term.vt_write_forwarding(&data[written..at], &mut *forward),
-                );
+                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
                 written = at;
                 let reset = leftover_modes(term);
                 if !reset.is_empty() {
-                    parsed.extend_from_slice(&term.vt_write_forwarding(&reset, &mut *forward));
+                    parsed.extend_from_slice(&term.vt_write_with_normalized(&reset));
                 }
             }
             _ => {}
         }
     }
     match parsed {
-        None => term.vt_write_forwarding(data, &mut *forward),
+        None => term.vt_write_with_normalized(data),
         Some(mut parsed) => {
-            parsed.extend_from_slice(&term.vt_write_forwarding(&data[written..], &mut *forward));
+            parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..]));
             Cow::Owned(parsed)
         }
     }

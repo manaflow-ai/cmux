@@ -159,7 +159,6 @@
     "backend/apps/api/src/stack-webhook.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-sso-external.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-vm-journal.ts": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "backend/packages/home-core/src/appkv/domain.ts": {"count": 2, "reason": "safe: per-app synced widget storage (storage:synced), not a message, prompt or attachment; the same 64 KiB value and 4 MiB app bounds as the local app.storage in cmux-tui-core/src/apps/storage.rs, so a sync never refuses what the device already holds"},
     "backend/packages/home-core/src/conversation/attachments.ts": {"count": 1, "reason": "safe: the Worker streaming threshold; a larger original goes by presigned upload, nothing is refused"},
     "backend/packages/home-core/src/conversation/import.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/packages/home-core/src/conversation/types.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
@@ -367,10 +366,6 @@
     "workers/iroh-v2/src/observability.ts": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "workers/iroh-v2/src/relay.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "workers/iroh-v2/src/storage/socket-store.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "workers/iroh-v2/src/team-control.ts": {"count": 4, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "cmux-tui/crates/acpmux/src/claude_token/mod.rs": {"count": 1, "reason": "safe: the rolling 64 KiB window of `claude setup-token` terminal output acpmux searches for the sign-in URL during Claude's one-click connect; older output slides out of the window and nothing is refused, and it is the CLI's own output, never a message, prompt or file the person sends"},
-    "cmux-tui/crates/acpmux/src/hub_carrier_punch.rs": {"count": 1, "reason": "safe: the longest hole-punch offer line (4 KiB: at most 16 candidate addresses) one side reads from the other through the hub; a longer line fails that punch and the machine is dialed over the relay as before, and the offer is machine addresses, never a message, prompt or file the person sends"},
-    "cmux-tui/crates/cmux-transport/src/hop.rs": {"count": 1, "reason": "platform: one hop/1 record rides in one UDP datagram behind a u16 length, so it stays under the 65,507-byte IPv4 UDP payload with the DATA and record headers; hop/1 (RFD 0142 R4/R5) is a per-leg record layer with no caller that sends a person's message whole: a stream over it is split into records, as hub_carrier.rs splits the relay's into 16 KiB records, so a message of any size crosses"},
-    "webviews/src/agent-session/acpmux/direct.ts": {"count": 1, "reason": "safe: the most one zlib frame from acpmux may inflate to (64 MiB), twice acpmux's largest message (31 MiB), so no frame acpmux sends is ever refused; it bounds a decompression bomb on the read side and never touches what the person sends"}
+    "workers/iroh-v2/src/team-control.ts": {"count": 4, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"}
   }
 }

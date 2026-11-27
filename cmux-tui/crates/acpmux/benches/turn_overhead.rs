@@ -46,8 +46,6 @@
 //! `cloud_turn.py` for the relay's); `--daemon` runs another acpmux build (a base, for a before
 //! and after from this same harness).
 
-// Unix only; elsewhere the bench is an empty crate, which `no_main` lets `cargo check --all-targets` pass.
-#![cfg_attr(not(unix), no_main)]
 #![cfg(unix)]
 
 #[path = "../tests/support/daemon_env.rs"]

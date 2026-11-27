@@ -191,15 +191,8 @@ test("a running turn draws as before: nothing folds", () => {
   expect(shaped).toContain("assistant:first");
 });
 
-// Its Worked for line stays, closed over nothing, where its Working for stood (turns.ts `holdsHeader`, #51896);
-// nothing folds under it. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
-test("a turn with only its answer keeps its Worked for line, and nothing folds under it", () => {
-  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual([
-    "user:u",
-    "worked:worked-u",
-    "assistant:only",
-    "turnSummary:end",
-  ]);
+test("a turn with only its answer draws no fold", () => {
+  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual(["user:u", "assistant:only", "turnSummary:end"]);
 });
 
 test("an empty last message never takes the answer's place", () => {

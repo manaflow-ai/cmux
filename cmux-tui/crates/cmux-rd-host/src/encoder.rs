@@ -61,11 +61,6 @@ pub struct EncCfg<'a> {
     /// Cisco's OpenH264 library (`--openh264-lib`), checked against its pinned SHA-256.
     #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
     pub openh264_lib: Option<&'a str>,
-    /// The viewer negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
-    /// Text"): on Linux OpenH264 codes in its default switching screen usage, not camera
-    /// usage (`shipped_openh264_options`). Ignored by every other encoder.
-    #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
-    pub sharp_text: bool,
 }
 
 /// The copy `cmux-rd openh264-install` put in `dir` (the per-user data
@@ -147,34 +142,21 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
 /// The OpenH264 settings this host ships: on Linux camera usage throughout
 /// (cmux-encode `LINUX_HOST_USAGE`; screen usage's motion search coded a 1080p frame up to
 /// 6.3x slower than x264 on the same cores), elsewhere cmux-encode's default.
-/// A viewer that negotiated `video.sharp_text` (`sharp_text`, the Mac's Settings > Customize
-/// "Sharper Linux Screen Text") gets cmux-encode's default on Linux too: switching screen
-/// usage, sharper text at about 4x camera usage's encode time.
-/// `CMUX_RD_OPENH264_USAGE=screen|switch|camera` picks the usage over both; the encoder's
-/// name in the host's log says which one codes.
+/// `CMUX_RD_OPENH264_USAGE=screen|switch|camera` picks the usage; the encoder's name in the
+/// host's log says which one codes.
 #[cfg(any(feature = "openh264", feature = "bench"))]
-fn shipped_openh264_options(sharp_text: bool) -> Res<cmux_encode::openh264::OpenH264Options> {
-    let base = shipped_openh264_base(cfg!(target_os = "linux"), sharp_text);
-    match std::env::var("CMUX_RD_OPENH264_USAGE") {
-        Ok(usage) if !usage.trim().is_empty() => {
-            Ok(cmux_encode::openh264::OpenH264Options::parse_over(
-                base,
-                &format!("usage={}", usage.trim()),
-            )?)
-        }
-        _ => Ok(base),
-    }
-}
-
-/// [`shipped_openh264_options`] before `CMUX_RD_OPENH264_USAGE`: a Linux host's settings
-/// unless the viewer asked for sharp text, else cmux-encode's default.
-#[cfg(any(feature = "openh264", feature = "bench"))]
-fn shipped_openh264_base(linux: bool, sharp_text: bool) -> cmux_encode::openh264::OpenH264Options {
+fn shipped_openh264_options() -> Res<cmux_encode::openh264::OpenH264Options> {
     use cmux_encode::openh264::OpenH264Options;
-    if linux && !sharp_text {
+    let base = if cfg!(target_os = "linux") {
         OpenH264Options::linux_host()
     } else {
         OpenH264Options::default()
+    };
+    match std::env::var("CMUX_RD_OPENH264_USAGE") {
+        Ok(usage) if !usage.trim().is_empty() => {
+            Ok(OpenH264Options::parse_over(base, &format!("usage={}", usage.trim()))?)
+        }
+        _ => Ok(base),
     }
 }
 
@@ -210,7 +192,7 @@ pub fn open_with(cfg: &EncCfg<'_>, openh264_options: Option<&str>) -> Res<Box<dy
             screen_content: cfg.screen_content,
         };
         let options = cmux_encode::openh264::OpenH264Options::parse_over(
-            shipped_openh264_options(cfg.sharp_text)?,
+            shipped_openh264_options()?,
             options,
         )?;
         let api = openh264_api(cfg.openh264_lib)?;
@@ -268,7 +250,7 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
                 threads: cfg.threads,
                 screen_content: cfg.screen_content,
             };
-            let options = shipped_openh264_options(cfg.sharp_text)?;
+            let options = shipped_openh264_options()?;
             Ok(Box::new(OpenH264::with_options(
                 &enc_cfg,
                 openh264_api(cfg.openh264_lib)?,

@@ -6,7 +6,7 @@ import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { GithubRefLook } from "../../../gallery/fixtures/GithubRefLinksPreview";
 
-const PULL_REQUEST = "https://github.com/manaflow-ai/cmux/pull/54";
+const PULL_REQUEST = "https://github.com/manaflow-ai/subrouter-internal/pull/54";
 const host: ChipHostFixture = {
   pullRequests: {
     [PULL_REQUEST]: {
@@ -57,12 +57,12 @@ export default componentEntry<{ look: GithubRefLook }>({
   variants: {
     before: {
       props: { look: "before" },
-      note: "Before: cmux#54 and cmux#37758 were plain text; only owner/repo#N such as acme/widgets#9 linked.",
+      note: "Before: subrouter-internal#54, cmux#37758 and lw#1234 were plain text; only hq#4879 and acme/widgets#9 linked.",
     },
     chip: {
       chipHost: host,
       props: { look: "chip" },
-      note: "Chosen: the reference chip owner/repo#N already draws, its GitHub mark taking the pull request's state colour once read.",
+      note: "Chosen: the reference chip owner/repo#N and hq#N already draw, its GitHub mark taking the pull request's state colour once read.",
     },
     "chip-card": {
       chipHost: host,

@@ -28,7 +28,6 @@ export const AGENT_THEME_VARIABLES: Record<keyof AgentSessionTheme, string | nul
   palette: null,
   borders: null,
   focusRingEnabled: null,
-  agentSignature: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,

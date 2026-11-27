@@ -17,13 +17,12 @@ chat outside the cmux app shows no offers); skip what you do not have.
 A sub-session is a new agent chat the person can open, steer and stop. Use one only for
 work with its own result (a branch, a PR, a separate investigation) that can run while
 you go on, never for a step you need the answer to right now: do that yourself or in your
-harness's own subagent, whose result comes back to you. Fork it by default (Claude Code
-Agent with `subagent_type: "fork"`, Codex with inherited turns).
+harness's own subagent (Claude Code's Task/Agent tool), whose result comes back to you.
 
 - `start_session` (`cmux.subsessions_start_session` in cmux_exec): starts a child now. Use it when the person
   asked for parallel or background work. Pass `worktree: true` when it edits files that
-  yours may also touch. A child normally forks your chat. Give it the assignment and
-  expected result. Include the context it needs for a separate worktree or a fresh session. Read results with `wait_for_sessions` or `get_session`; steer with
+  yours may also touch. Its prompt carries the whole task: it starts with none of your
+  context. Read results with `wait_for_sessions` or `get_session`; steer with
   `send_message`.
 - `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.

@@ -152,24 +152,11 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         return unread.isEmpty && workspace.hasUnread ? surfaces : unread
     }
 
-    /// The personal index `compute` reads from the phone's copy of the Mac's order; when that copy
-    /// has no row for it yet (a workspace made or moved on the Mac since the last read), the order
-    /// is read again once and asked again, rather than refusing a move the person would only repeat.
-    private func freshPersonalIndex(_ arrangement: SidebarArrangement,
-                                    _ compute: (SidebarArrangement) -> Int?) async -> Int? {
-        if let index = compute(arrangement) { return index }
-        sync.invalidateArrangement()
-        _ = try? await sync.listNow()
-        return sync.arrangement.flatMap(compute)
-    }
-
     public func move(_ workspace: Workspace, by offset: Int, among visible: [Workspace]) async throws {
         let client = try daemonClient(workspace.macID)
         if let arrangement = sync.arrangement, arrangement.rows != nil, let registry = sync.tree?.registryID {
-            guard let index = await freshPersonalIndex(arrangement, {
-                $0.personalIndex(moving: workspace, by: offset, among: visible, registryID: registry)
-            }) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace's place.", isForPerson: true)
+            guard let index = arrangement.personalIndex(moving: workspace, by: offset, among: visible, registryID: registry) else {
+                throw WorkspaceCreationError("The Mac doesn't list this workspace's place. Try again in a moment.", isForPerson: true)
             }
             try await run(client, "set-personal-workspace", ["session_id": registry, "workspace_key": workspace.id, "index": index])
         } else {
@@ -192,10 +179,8 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
         let client = try daemonClient(workspace.macID)
         if let arrangement = sync.arrangement, arrangement.rows != nil, let registry = sync.tree?.registryID {
-            guard let index = await freshPersonalIndex(arrangement, {
-                $0.personalIndex(placing: workspace, next: anchor, after: after, registryID: registry)
-            }) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace's place.", isForPerson: true)
+            guard let index = arrangement.personalIndex(placing: workspace, next: anchor, after: after, registryID: registry) else {
+                throw WorkspaceCreationError("The Mac doesn't list this workspace's place. Try again in a moment.", isForPerson: true)
             }
             // The next step of a sort reads the order this move made (the list below reads it again).
             try await run(client, "set-personal-workspace", ["session_id": registry, "workspace_key": workspace.id, "index": index])

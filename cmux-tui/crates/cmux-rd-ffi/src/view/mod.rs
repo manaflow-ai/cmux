@@ -1,23 +1,16 @@
 //! The remote desktop viewer's rules and state, moved out of the Swift
 //! `CmuxNextRemoteView` module: keyboard routing and held keys, the pane's
-//! state reducer, the tab record and policy, the session and tab-list
-//! bookkeeping, and the stream transport's rules (control codec,
-//! handshake, session bookkeeping, frame splitting, cursor feed and popup
-//! surface streams). Every op is pure: the caller passes the state in and
-//! takes the next state back (`cmux_rd_view_call`, `view_ffi.rs`).
+//! state reducer, and the tab record and policy. Every op is pure: the
+//! caller passes the state in and takes the next state back
+//! (`cmux_rd_view_call`, `view_ffi.rs`).
 
-pub mod control;
-pub mod cursor;
-pub mod handshake;
 pub mod keyboard;
 pub mod pane;
 pub mod session;
 mod session_ops;
 pub mod tab;
 pub mod tabs;
-pub mod transport;
 
-use cmux_rd_proto::{base64_decode, control::Control};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -27,7 +20,6 @@ use keyboard::{
 };
 use pane::{LatencyHold, PaneEvent, PaneState};
 use tab::{TabRecord, TabSource, Target};
-use transport::{StreamSplitter, SurfaceChange, SurfaceStreams, Transport};
 
 fn default_true() -> bool {
     true
@@ -207,122 +199,6 @@ pub enum Request {
     TabIsPrivateNetwork { host: String },
     #[serde(rename = "tab.isLoopback")]
     TabIsLoopback { host: String },
-    /// One received control message (the frame payload as text).
-    #[serde(rename = "control.parse")]
-    ControlParse { json: String },
-    #[serde(rename = "control.encode")]
-    ControlEncode { control: Control },
-    #[serde(rename = "hello.cloudDesktop")]
-    HelloCloudDesktop {
-        #[serde(default)]
-        install: Option<String>,
-    },
-    #[serde(rename = "hello.remoteBrowser")]
-    HelloRemoteBrowser {
-        user: String,
-        install: String,
-        #[serde(default)]
-        token: Option<String>,
-    },
-    #[serde(rename = "hello.encode")]
-    HelloEncode { hello: control::Hello },
-    #[serde(rename = "hello.redacted")]
-    HelloRedacted { hello: control::Hello },
-    #[serde(rename = "handshake.new")]
-    HandshakeNew { service: String },
-    #[serde(rename = "handshake.receive")]
-    HandshakeReceive { state: handshake::Handshake, message: Value },
-    #[serde(rename = "handshake.hostEnd")]
-    HandshakeHostEnd { reason: String },
-    /// The viewer sent stop: the host's ended then means "stopped by viewer".
-    #[serde(rename = "handshake.viewerStopped")]
-    HandshakeViewerStopped { state: handshake::Handshake },
-    /// The carrier closed or failed.
-    #[serde(rename = "handshake.closed")]
-    HandshakeClosed { state: handshake::Handshake },
-    #[serde(rename = "transport.new")]
-    TransportNew {
-        hello: control::Hello,
-        start_key: String,
-        #[serde(default)]
-        control: bool,
-        #[serde(default)]
-        clipboard: bool,
-    },
-    #[serde(rename = "transport.connect")]
-    TransportConnect { state: Transport },
-    #[serde(rename = "transport.ready")]
-    TransportReady { state: Transport },
-    #[serde(rename = "transport.progress")]
-    TransportProgress { state: Transport, text: String },
-    #[serde(rename = "transport.closed")]
-    TransportClosed { state: Transport, reason: String },
-    #[serde(rename = "transport.rejected")]
-    TransportRejected { state: Transport, error: String },
-    #[serde(rename = "transport.stop")]
-    TransportStop { state: Transport },
-    #[serde(rename = "transport.control")]
-    TransportControl { state: Transport, json: String },
-    #[serde(rename = "transport.service")]
-    TransportService { state: Transport, body: Value },
-    #[serde(rename = "transport.finish")]
-    TransportFinish { state: Transport },
-    #[serde(rename = "transport.status")]
-    TransportStatus {
-        state: Transport,
-        #[serde(default)]
-        upstream: Option<pane::UpstreamStatus>,
-    },
-    #[serde(rename = "transport.gates")]
-    TransportGates { state: Transport },
-    /// Received bytes, base64.
-    #[serde(rename = "splitter.split")]
-    SplitterSplit {
-        #[serde(default)]
-        state: StreamSplitter,
-        data: String,
-    },
-    #[serde(rename = "cursor.image")]
-    CursorImage { shape: u32, width: u32, height: u32, hot_x: u32, hot_y: u32, rgba: String },
-    #[serde(rename = "cursorFeed.shape")]
-    CursorFeedShape {
-        #[serde(default)]
-        state: cursor::CursorFeed,
-        id: u32,
-    },
-    /// One datagram, base64.
-    #[serde(rename = "cursorFeed.datagram")]
-    CursorFeedDatagram {
-        #[serde(default)]
-        state: cursor::CursorFeed,
-        data: String,
-    },
-    #[serde(rename = "surfaces.parse")]
-    SurfacesParse { body: Value },
-    #[serde(rename = "surfaces.apply")]
-    SurfacesApply {
-        #[serde(default)]
-        state: SurfaceStreams,
-        change: SurfaceChange,
-    },
-    #[serde(rename = "surfaces.start")]
-    SurfacesStart {
-        #[serde(default)]
-        state: SurfaceStreams,
-        stream: u16,
-        surface: u32,
-    },
-    #[serde(rename = "surfaces.end")]
-    SurfacesEnd {
-        #[serde(default)]
-        state: SurfaceStreams,
-        stream: u16,
-    },
-    #[serde(rename = "surfaces.endAll")]
-    SurfacesEndAll {
-        #[serde(default)]
-        state: SurfaceStreams,
-    },
 }
 
 fn view_mode() -> pane::ControlMode {
@@ -439,117 +315,5 @@ pub fn run(request: Request) -> Value {
         }
         R::TabIsPrivateNetwork { host } => json!(tab::is_private_network(&host)),
         R::TabIsLoopback { host } => json!(tab::is_loopback(&host)),
-        R::ControlParse { json } => match control::parse(json.as_bytes()) {
-            Ok(incoming) => json!({"ok": true, "incoming": incoming}),
-            Err(error) => json!({"ok": false, "error": error.to_string()}),
-        },
-        R::ControlEncode { control } => control::encode(&control),
-        R::HelloCloudDesktop { install } => {
-            json!(control::Hello::cloud_desktop(install.as_deref()))
-        }
-        R::HelloRemoteBrowser { user, install, token } => {
-            json!(control::Hello::remote_browser(&user, &install, token.as_deref()))
-        }
-        R::HelloEncode { hello } => control::encode(&hello.control()),
-        R::HelloRedacted { hello } => json!(hello.redacted_description()),
-        R::HandshakeNew { service } => json!(handshake::Handshake::new(&service)),
-        R::HandshakeReceive { mut state, message } => {
-            let parsed = control::parse_value(message);
-            if let Ok(incoming) = &parsed {
-                state.receive(incoming);
-            }
-            json!({"state": state, "parsed": parsed.is_ok(), "session": state.session_state()})
-        }
-        R::HandshakeHostEnd { reason } => json!(handshake::host_end(&reason)),
-        R::HandshakeViewerStopped { mut state } => {
-            state.viewer_stopped();
-            json!({"state": state, "session": state.session_state()})
-        }
-        R::HandshakeClosed { mut state } => {
-            state.connection_closed();
-            json!({"state": state, "session": state.session_state()})
-        }
-        R::TransportNew { hello, start_key, control, clipboard } => {
-            json!(Transport::new(hello, &start_key, control, clipboard))
-        }
-        R::TransportConnect { mut state } => {
-            let start = state.connect();
-            json!({"state": state, "start": start})
-        }
-        R::TransportReady { mut state } => {
-            let send = state.ready();
-            json!({"state": state, "send": send})
-        }
-        R::TransportProgress { mut state, text } => {
-            state.progress(&text);
-            json!({"state": state})
-        }
-        R::TransportClosed { mut state, reason } => {
-            state.closed(&reason);
-            json!({"state": state})
-        }
-        R::TransportRejected { mut state, error } => {
-            state.closed(&Transport::rejected_reason(&error));
-            json!({"state": state})
-        }
-        R::TransportStop { mut state } => {
-            let send = state.stop();
-            json!({"state": state, "revokeUpstream": send.is_some(), "send": send})
-        }
-        R::TransportControl { mut state, json } => {
-            let actions = state.receive_control(json.as_bytes());
-            json!({"state": state, "actions": actions})
-        }
-        R::TransportService { state, body } => json!({"send": state.service_message(body)}),
-        R::TransportFinish { mut state } => {
-            state.finish();
-            json!({"state": state})
-        }
-        R::TransportStatus { state, upstream } => json!(state.status(upstream)),
-        R::TransportGates { state } => json!({
-            "acceptsData": state.accepts_data(),
-            "streaming": state.handshake.is_streaming(),
-            "ended": state.handshake.is_ended(),
-            "serviceInput": state.allows_service_input(),
-            "upstreamRequest": state.allows_upstream_request(),
-        }),
-        R::SplitterSplit { mut state, data } => match base64_decode(&data) {
-            Some(bytes) => {
-                let segments = state.split(&bytes);
-                json!({"state": state, "segments": segments})
-            }
-            None => json!({"state": state, "error": "data is not base64"}),
-        },
-        R::CursorImage { shape, width, height, hot_x, hot_y, rgba } => {
-            json!(cursor::image(shape, width, height, hot_x, hot_y, &rgba))
-        }
-        R::CursorFeedShape { mut state, id } => {
-            let out = state.receive_shape(id);
-            json!({"state": state, "result": out})
-        }
-        R::CursorFeedDatagram { mut state, data } => {
-            let result = match base64_decode(&data) {
-                Some(bytes) => state.receive_datagram(&bytes),
-                None => cursor::DatagramResult::NotCursor,
-            };
-            json!({"state": state, "result": result})
-        }
-        R::SurfacesParse { body } => json!(SurfaceChange::parse(&body)),
-        R::SurfacesApply { mut state, change } => {
-            let plan = state.apply(change);
-            json!({"state": state, "plan": plan})
-        }
-        R::SurfacesStart { mut state, stream, surface } => {
-            state.start(stream, surface);
-            json!({"state": state})
-        }
-        R::SurfacesEnd { mut state, stream } => {
-            state.end(stream);
-            json!({"state": state})
-        }
-        R::SurfacesEndAll { mut state } => {
-            let ended = state.end_all();
-            json!({"state": state, "ended": ended})
-        }
     }
 }

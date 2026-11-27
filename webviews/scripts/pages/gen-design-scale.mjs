@@ -481,8 +481,7 @@ function theme(data, type, motion) {
   for (const control of data.controls)
     out.push(`  --spacing-control-${control.name}: var(--ds-control-${control.name});`);
   for (const icon of data.icons) out.push(`  --spacing-icon-${icon.name}: var(--ds-icon-${icon.name});`);
-  // A radius marked `"tailwind": false` (full) leaves Tailwind's own utility of that name as it is.
-  for (const radius of [...data.radii, ...data.namedRadii].filter((entry) => entry.tailwind !== false))
+  for (const radius of [...data.radii, ...data.namedRadii])
     out.push(`  --radius-${radius.name}: var(--ds-radius-${radius.name});`);
   for (const step of [...type.steps.map((entry) => entry.name), ...TYPE_ALIASES]) {
     out.push(

@@ -24,18 +24,18 @@ struct CursorShapeTests {
     }
 
     static func shape(png: Data, w: Double = 0.02, hx: Double = 0.2) -> ScreenCursorShape {
-        ScreenCursorShape(id: "5a1f", png: png.base64EncodedString(),
+        ScreenCursorShape(id: ScreenCursorShape.id(png: png, hotspot: CGPoint(x: 5, y: 5)), png: png.base64EncodedString(),
                           w: w, h: 0.04, hx: hx, hy: 0.125, pw: 28, ph: 40)
     }
 
     @Test func aViewerAsksForShapesBesideTelepointers() {
         let report = ScreenStreamViewer.drawPointersInput
         #expect(report.t == "caps")
-        #expect(report.s?.contains("telepointers") == true, "an older host still reads telepointers from it")
-        #expect(report.s?.contains("cursor-shape") == true)
-        // Without the rules (cmux-rd-screen `screen_cursor_caps`) a host draws the cursor itself.
-        let draws = ScreenStreamHost.viewerDraws(report, rules: ScreenRules())
-        #expect(!draws.pointers && !draws.shapes)
+        #expect(ScreenStreamHost.viewerDrawsPointers(report), "an older host still reads telepointers from it")
+        #expect(ScreenStreamHost.viewerDrawsCursorShapes(report))
+        #expect(!ScreenStreamHost.viewerDrawsCursorShapes(ScreenInput(t: "caps", s: "telepointers")), "an older viewer")
+        #expect(!ScreenStreamHost.viewerDrawsCursorShapes(ScreenInput(t: "caps", s: "cursor-shape")), "shapes only with telepointers")
+        #expect(!ScreenStreamHost.viewerDrawsCursorShapes(ScreenInput(t: "text", s: "telepointers,cursor-shape")))
     }
 
     @Test func theShapeAndTheTelepointersThatNameItRoundTrip() throws {
@@ -53,6 +53,14 @@ struct CursorShapeTests {
         #expect(!ScreenStreamViewer.isDisplays(decoded) && ScreenStreamViewer.capabilities(in: decoded) == nil)
     }
 
+    @Test func theIdFollowsTheImageAndHotspot() throws {
+        let one = try Self.png()
+        let two = try Self.png(width: 3)
+        #expect(ScreenCursorShape.id(png: one, hotspot: .zero) == ScreenCursorShape.id(png: one, hotspot: .zero))
+        #expect(ScreenCursorShape.id(png: one, hotspot: .zero) != ScreenCursorShape.id(png: two, hotspot: .zero))
+        #expect(ScreenCursorShape.id(png: one, hotspot: .zero) != ScreenCursorShape.id(png: one, hotspot: CGPoint(x: 1, y: 0)))
+    }
+
     @Test func aViewerDrawsOnlyAShapeItCan() throws {
         let png = try Self.png()
         let image = try #require(Self.shape(png: png).image())
@@ -66,6 +74,100 @@ struct CursorShapeTests {
         #expect(Self.shape(png: try Self.png(width: ScreenCursorShape.maxSide + 1)).image() == nil, "too large")
     }
 
+    @Test func theHostSendsAShapeOnceUntilItForgetsIt() {
+        var sent = ScreenStreamHost.SentCursorShapes()
+        func send(_ id: String) -> Bool { sent.needsSend(id) }
+        #expect(send("arrow"))
+        #expect(!send("arrow"), "already sent")
+        for index in 0 ..< ScreenStreamHost.SentCursorShapes.capacity - 1 { #expect(send("s\(index)")) }
+        #expect(!send("arrow"), "used again: newest")
+        #expect(send("one more"))
+        #expect(send("s0"), "the oldest was forgotten and goes again")
+        #expect(sent.ids.count == ScreenStreamHost.SentCursorShapes.capacity)
+        sent.reset()
+        #expect(send("arrow"), "another display: sent again")
+    }
+
+    @Test func aFailedShapeSendRetriesWithoutAnotherCursorRead() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let arrow = Self.shape(png: try Self.png())
+        var writable = false
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow) == nil, "a refused send must not advertise an undelivered shape")
+        #expect(sample(nil) == nil, "an unchanged cursor still retries while the channel refuses it")
+        writable = true
+        #expect(sample(nil) == arrow.id, "the reader need not produce the unchanged shape again")
+        #expect(sample(nil) == arrow.id)
+        #expect(attempts.count == 3, "one attempt per sample until success, none after success")
+        for text in attempts {
+            let message = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(text.utf8))
+            #expect(message.t == ScreenHostMessage.cursorShapeType)
+            #expect(message.cursor == arrow)
+        }
+    }
+
+    @Test func aNewCursorSupersedesTheShapeWaitingToSend() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let arrow = Self.shape(png: try Self.png())
+        let hand = Self.shape(png: try Self.png(width: 3))
+        let latest = Self.shape(png: try Self.png(width: 4))
+        var writable = true
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow) == arrow.id)
+        writable = false
+        #expect(sample(hand) == arrow.id, "keep the last delivered cursor while the replacement waits")
+        writable = true
+        #expect(sample(latest) == latest.id)
+        #expect(sample(nil) == latest.id)
+        let messages = try attempts.map { try JSONDecoder().decode(ScreenHostMessage.self, from: Data($0.utf8)) }
+        #expect(messages.map(\.t) == Array(repeating: ScreenHostMessage.cursorShapeType, count: 3))
+        #expect(messages.compactMap(\.cursor) == [arrow, hand, latest], "the obsolete pending hand is not retried")
+    }
+
+    @Test func anotherDisplayDiscardsPendingShapesAndResendsItsGeometry() throws {
+        var delivery = ScreenStreamHost.CursorShapeDelivery()
+        let originalDisplay = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let otherDisplay = CGRect(x: 1512, y: 0, width: 756, height: 491)
+        let arrow = Self.shape(png: try Self.png())
+        let pending = Self.shape(png: try Self.png(width: 3))
+        var resized = arrow
+        resized.w *= 2
+        resized.h *= 2
+        var writable = true
+        var attempts: [String] = []
+        func sample(_ read: ScreenCursorShape?, on display: CGRect) -> String? {
+            delivery.current(read: read, display: display) { text in
+                attempts.append(text)
+                return writable
+            }
+        }
+        #expect(sample(arrow, on: originalDisplay) == arrow.id)
+        writable = false
+        #expect(sample(pending, on: originalDisplay) == arrow.id)
+        writable = true
+        #expect(sample(nil, on: otherDisplay) == nil, "the new display must not advertise old geometry")
+        #expect(attempts.count == 2, "the previous display's pending shape must not be retried")
+        #expect(sample(resized, on: otherDisplay) == resized.id)
+        #expect(sample(nil, on: otherDisplay) == resized.id)
+        let messages = try attempts.map { try JSONDecoder().decode(ScreenHostMessage.self, from: Data($0.utf8)) }
+        #expect(messages.map(\.t) == Array(repeating: ScreenHostMessage.cursorShapeType, count: 3))
+        #expect(messages.compactMap(\.cursor) == [arrow, pending, resized], "a known image id is resent with this display's dimensions")
+    }
+
     /// macOS's cursor shadow, from the window server's cursor plists.
     @Test func theShadowIsMacOSs() {
         #expect(ScreenCursorShape.shadow.opacity == 0.45)
@@ -75,16 +177,20 @@ struct CursorShapeTests {
 
     #if os(macOS)
     /// A 28x40-point arrow (hotspot 5, 5) drawn at 2x on a 1512x982-point display.
-    @Test func withoutTheRulesTheHostSendsNoShape() throws {
+    @Test func theHostSizesTheShapeAsFractionsOfTheDisplay() throws {
         let context = try #require(CGContext(data: nil, width: 56, height: 80, bitsPerComponent: 8, bytesPerRow: 0,
                                               space: CGColorSpaceCreateDeviceRGB(),
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = try #require(context.makeImage())
         let rendered = ScreenCursorReader.Rendered(image: image, size: CGSize(width: 28, height: 40), hotspot: CGPoint(x: 5, y: 5))
         let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
-        // The id is cmux-rd-screen's (`screen_cursor_shape`): without the rules there is no shape to send.
-        #expect(ScreenCursorReader.shape(rendered, display: display, rules: ScreenRules()) == nil)
-        #expect(ScreenCursorReader.shape(rendered, display: .zero, rules: ScreenRules()) == nil)
+        let shape = try #require(ScreenCursorReader.shape(rendered, display: display))
+        #expect(abs(shape.w - 28.0 / 1512) < 1e-9 && abs(shape.h - 40.0 / 982) < 1e-9)
+        #expect(abs(shape.hx - 5.0 / 28) < 1e-9 && abs(shape.hy - 5.0 / 40) < 1e-9)
+        #expect(shape.pw == 28 && shape.ph == 40)
+        let decoded = try #require(shape.image())
+        #expect(decoded.width == 56 && decoded.height == 80, "the display's pixels, not its points")
+        #expect(ScreenCursorReader.shape(rendered, display: .zero) == nil)
     }
     #endif
 }

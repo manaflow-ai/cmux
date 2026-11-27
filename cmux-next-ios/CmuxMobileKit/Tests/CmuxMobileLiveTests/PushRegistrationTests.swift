@@ -211,7 +211,7 @@ struct PushRegistrationTests {
         await server.waitUntilHeld()
 
         let signOut = Task { await registration.unregister() }
-        await yieldUntil { !(registration.task != nil) }
+        while registration.task != nil { await Task.yield() }
         let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { _ in "unused" })
         registration.attach(api: api, deviceID: "phone")
         // The new account's Settings owner restores these choices explicitly.
@@ -250,7 +250,7 @@ struct PushRegistrationTests {
         await server.waitUntilHeld()
 
         let signOut = Task { await registration.unregister() }
-        await yieldUntil { !(registration.task != nil) }
+        while registration.task != nil { await Task.yield() }
         signOut.cancel()
         server.release()
         await signOut.value

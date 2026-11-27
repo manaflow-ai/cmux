@@ -152,11 +152,11 @@ impl Owners {
             Err(_) => return,
         };
         if let Some(dir) = file.parent() {
-            let _ = crate::home_fs::create_dirs(dir);
+            let _ = std::fs::create_dir_all(dir);
         }
         let tmp = file.with_extension("json.tmp");
-        if crate::home_fs::write(&tmp, body).is_ok() {
-            let _ = crate::home_fs::rename(&tmp, file);
+        if std::fs::write(&tmp, body).is_ok() {
+            let _ = std::fs::rename(&tmp, file);
         }
     }
 }
@@ -182,12 +182,8 @@ pub async fn run(owners: Vec<String>, socket: PathBuf) -> Result<()> {
         socket.display(),
         owners.order().join(", then ")
     );
-    serve(listener, owners, crate::config::socket_path()).await
-}
-
-/// The checks every [`HEALTH_EVERY`] and one task per connection, until the listener fails.
-async fn serve(listener: UnixListener, owners: Arc<Owners>, daemon: PathBuf) -> Result<()> {
-    // The checks and one task per connection, owned by this call: they end when it does.
+    let daemon = crate::config::socket_path();
+    // The checks and one task per connection, owned by this command: they end when it does.
     let tasks = cmux_scope::Scope::new("machine broker-forward");
     {
         let owners = owners.clone();
@@ -209,69 +205,6 @@ async fn serve(listener: UnixListener, owners: Arc<Owners>, daemon: PathBuf) -> 
             }
         });
     }
-}
-
-// RFD 0060 Weft move 3, behind `laneGhCarrier` (off by default): the daemon holds the same forward,
-// so a lane machine's lane-gh calls stop riding the broker's `ssh -R` forward (its deaths: 8 to 24
-// an hour before the own-master change, counted by the broker's `forward_deaths`) and ride the
-// carrier circuit the daemon already keeps. Agent sessions are pointed at it by `LANE_GH_SOCKET`
-// (`agent/command.rs`) only while an owner is healthy, so a forward with no broker behind it never
-// takes a session off the ssh socket that works.
-
-/// The one forward this daemon holds, once `laneGhCarrier` started it.
-static HELD: std::sync::OnceLock<(PathBuf, Arc<Owners>)> = std::sync::OnceLock::new();
-
-/// Where the daemon-held forward listens: `~/.cache/lane-gh/carrier.sock`, beside the `ssh -R`
-/// socket `lane-gh` looks for by default (`broker.sock`).
-pub fn held_socket_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".cache")
-        .join("lane-gh")
-        .join("carrier.sock")
-}
-
-/// Start the daemon-held forward to `owners` at `socket`, once per daemon: a second call (a
-/// re-join) leaves the first. False when one is held already, there are no owners, or the socket
-/// cannot be bound (logged). The forward is one of `scope`'s tasks (the hub's), so it ends with it.
-pub fn hold(scope: &cmux_scope::Scope, owners: &[String], socket: PathBuf) -> bool {
-    if owners.is_empty() || HELD.get().is_some() {
-        return false;
-    }
-    let listener = match bind(&socket) {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::warn!("lane-gh carrier forward off: {e:#}");
-            return false;
-        }
-    };
-    let owners = Arc::new(Owners::new(owners, Some(records_file(&socket))));
-    if HELD.set((socket.clone(), owners.clone())).is_err() {
-        return false;
-    }
-    tracing::info!(
-        "lane-gh carrier forward: {} reaches the broker of {} (laneGhCarrier)",
-        socket.display(),
-        owners.order().join(", then ")
-    );
-    let daemon = crate::config::socket_path();
-    scope.spawn_until_cancelled("lane-gh carrier forward", async move {
-        if let Err(e) = serve(listener, owners, daemon).await {
-            tracing::warn!("lane-gh carrier forward ended: {e:#}");
-        }
-    });
-    true
-}
-
-/// The held forward's socket while an owner's broker answered its last check; None when no
-/// forward is held, or none of its owners is healthy (a new session then keeps lane-gh's default).
-pub fn healthy_held_socket() -> Option<PathBuf> {
-    let (socket, owners) = HELD.get()?;
-    healthy_socket(socket, owners)
-}
-
-fn healthy_socket(socket: &Path, owners: &Owners) -> Option<PathBuf> {
-    owners.records().iter().any(|r| r.healthy == Some(true)).then(|| socket.to_path_buf())
 }
 
 /// One progress check of every owner, at once, then the records written.
@@ -321,14 +254,14 @@ pub async fn check(owner: &str, daemon: &Path) -> Result<Duration, String> {
 fn bind(socket: &Path) -> Result<UnixListener> {
     use std::os::unix::fs::FileTypeExt;
     if let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) {
-        crate::home_fs::create_dirs(dir).with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     match std::fs::symlink_metadata(socket) {
         Ok(meta) if meta.file_type().is_socket() => {
             if std::os::unix::net::UnixStream::connect(socket).is_ok() {
                 return Err(anyhow!("{} is already served", socket.display()));
             }
-            crate::home_fs::remove_file(socket)
+            std::fs::remove_file(socket)
                 .with_context(|| format!("remove stale {}", socket.display()))?;
         }
         Ok(_) => return Err(anyhow!("{} exists and is not a socket", socket.display())),

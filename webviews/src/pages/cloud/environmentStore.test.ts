@@ -93,54 +93,6 @@ describe("cloud environment editing", () => {
     expect(store.getSnapshot().original?.id).toBe("env_personal");
   });
 
-  test("a failed read keeps its failure while read again; only a failed create waits for the person", async () => {
-    let attempts = 0;
-    const { store } = fake({
-      list: async () => {
-        if (++attempts === 1) throw new Error("down");
-        return [environment()];
-      },
-    });
-    await store.open();
-    expect(store.getSnapshot()).toMatchObject({ error: "load", loading: false });
-    // A read: the sheet asks again on its own (EnvironmentSheet, useAutoRetry).
-    expect(store.retryCreates).toBe(false);
-    const again = store.retry();
-    // The failure stays while the re-read is out, so the sheet's quiet stretch does not restart.
-    expect(store.getSnapshot()).toMatchObject({ error: "load", loading: true });
-    await again;
-    expect(store.getSnapshot().error).toBeUndefined();
-    expect(store.getSnapshot().original?.id).toBe("env_personal");
-
-    // Asking again after a failed create makes an environment: that one is the person's to press.
-    const made = fake({
-      create: async () => {
-        throw new Error("down");
-      },
-    });
-    await made.store.open({ create: { name: "Build" } });
-    expect(made.store.getSnapshot().error).toBe("load");
-    expect(made.store.retryCreates).toBe(true);
-  });
-
-  test("a failed suggested script stays failed while it is read again, until one answers", async () => {
-    let attempts = 0;
-    const { store } = fake({
-      derive: async () => {
-        if (++attempts === 1) throw new Error("down");
-        return { setup: { script: "#!/bin/bash\nnpm ci\n" } };
-      },
-    });
-    await store.open({ repo: "example/project" });
-    await settle();
-    expect(store.getSnapshot()).toMatchObject({ deriveFailed: true, deriving: false });
-    const again = store.derive();
-    expect(store.getSnapshot()).toMatchObject({ deriveFailed: true, deriving: true });
-    await again;
-    expect(store.getSnapshot()).toMatchObject({ deriveFailed: false, deriving: false });
-    expect(store.getSnapshot().derivedScript).toBe("#!/bin/bash\nnpm ci\n");
-  });
-
   test("Default name stays out of PATCH; unchanged fields stay out too", () => {
     const original = environment();
     const draft = environmentDraft(original);

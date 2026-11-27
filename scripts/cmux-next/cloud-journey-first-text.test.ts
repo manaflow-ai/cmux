@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FirstTextTiming, firstTextCommand, noReplyError, observeFirstText, tailFacts, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
+import { FirstTextTiming, firstTextCommand, noReplyError, observeFirstText, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
 
 const chunk = (kind = "agent_message_chunk", text = "hello") => ({
   kind,
@@ -81,19 +81,6 @@ describe("create to streamed first text", () => {
     expect(noReplyError(300_000, "", refused, 0)).toBe("no reply within 300 s; last: ; last exec without an acp wait answer: exit 1 the cmux API refused the command: 503 Service Unavailable vm_unavailable; the model stub logged 0 model request(s): the model was never asked");
     expect(noReplyError(300_000, "", undefined, 2)).toBe("no reply within 300 s; last: ; the model stub logged 2 model request(s)");
     expect(noReplyError(300_000, "", undefined, null)).toContain("the stub's request log could not be read");
-  });
-
-  test("the reply timeout names the session's records and why its turn made no text", () => {
-    const tail = [
-      JSON.stringify({ kind: "session_start", msg: {} }),
-      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 1, max_retries: 10, error: "rate_limit" } }),
-      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 2, max_retries: 10, error: "authentication_failed" } }),
-      "not json",
-      JSON.stringify({ kind: "stderr", msg: { text: "401 invalid x-api-key" } }),
-    ].join("\n");
-    expect(tailFacts(tail)).toBe("session records session_start=1 claude.system.api_retry=2 stderr=1; claude.system.api_retry: attempt 2/10 authentication_failed; stderr: 401 invalid x-api-key");
-    expect(tailFacts("")).toBe("the session's records could not be read");
-    expect(noReplyError(300_000, "", undefined, undefined, "session records turn_start=1")).toBe("no reply within 300 s; last: ; session records turn_start=1");
   });
 
   test("the guest's own times ride the marker into guest_ms; the old bare marker still counts", async () => {
@@ -364,22 +351,5 @@ await done;
     expect(stub.ms).toBe(5000);
     expect(stub).toMatchObject({ create_to_first_text_ms: 10000, model: "stub", backend: "prod" });
     expect(probeRow("p", steps.slice(0, 1))).not.toHaveProperty("create_to_first_text_ms");
-  });
-});
-
-describe("every chat start waits for an owner machine before session_start", () => {
-  // Run 45791887919 (prod, claude stub, --home-chat reserved): the reserved start skipped the wait, the machine's
-  // vm-kind still read the image's team, and agent-auth.sh sent the stub's turn to CodeRouter instead of the stub.
-  test("the reserved home start and the acp start both run ownerKindStep, then mark session_start", () => {
-    const src = readFileSync(join(import.meta.dir, "cloud-journey.ts"), "utf8");
-    const reserved = src.indexOf('} else if (homeChat === "reserved") {');
-    const acp = src.indexOf("let promptedWithStart = false;");
-    expect(reserved).toBeGreaterThan(-1);
-    expect(acp).toBeGreaterThan(reserved);
-    for (const branch of [src.slice(reserved, src.indexOf("let reservedChat", reserved)), src.slice(src.lastIndexOf("} else {", acp), acp)]) {
-      const wait = branch.indexOf("await ownerKindStep();");
-      expect(wait).toBeGreaterThan(-1);
-      expect(branch.indexOf('J.firstText.mark("session_start")')).toBeGreaterThan(wait);
-    }
   });
 });

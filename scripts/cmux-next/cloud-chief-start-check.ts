@@ -14,10 +14,10 @@
  *   5. a third call with the same key: the same machine and Chief (resume never makes a second one);
  *   6. the host: cmux-chief.service active with one main pid and no restart 20 s on, and the Chief listed as
  *      placed on the machine's install, and `GET /v1/chief/chiefs` listing it with location kind "machine";
- *   7. a message sent the way the Mac and iPhone send (`message.send` on the Chief's conversation) gets a reply
- *      from the Chief within 4 min, and one sent the way the phone's web page sends (`POST /v1/chief/messages`
- *      with `chiefId`, cmux-platform#1637) does too where this Worker serves that route to a bearer;
- *   8. finally: archive the Chief, revoke the install, delete the machine.
+ *   7. finally: archive the Chief, revoke the install, delete the machine.
+ *
+ * A message and its reply wait on the Chief's model route (the "Claude is not signed in" fix); until then step 6
+ * is the reachability check.
  *
  * Usage: bun scripts/cmux-next/cloud-chief-start-check.ts --call PATH --binary PATH [--target staging] [--out DIR] [--run ID]
  * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional).
@@ -48,7 +48,7 @@ async function must(exec: Exec, cmd: string, timeoutMs = 120_000): Promise<strin
 }
 
 /** One cmux-cloud-api call through `--call`: its answer's body, or the refusal as an error. */
-function call(binary: string, request: Record<string, unknown>, timeoutMs: number, tail = ""): Promise<any> {
+function call(binary: string, request: Record<string, unknown>, timeoutMs: number): Promise<any> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, [], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
@@ -67,9 +67,7 @@ function call(binary: string, request: Record<string, unknown>, timeoutMs: numbe
       if (line.ok === true) resolve(line.body);
       else reject(new Error(`${request.call}: ${JSON.stringify(line.error).slice(0, 800)}`));
     });
-    // The tail after the first newline is the owner's Claude credential, as the Mac app sends it (cmux-cloud-api
-    // chief_turn.rs): never in argv or the request JSON.
-    child.stdin.end(tail ? `${JSON.stringify(request)}\n${tail}` : JSON.stringify(request));
+    child.stdin.end(JSON.stringify(request));
   });
 }
 
@@ -91,49 +89,6 @@ const unitFacts = async (exec: Exec) => {
   return Object.fromEntries(out.split("\n").map((l) => l.split("=", 2) as [string, string]));
 };
 const journal = (exec: Exec) => exec(asRoot("journalctl -u cmux-chief.service --no-pager -o cat -n 60"), 30_000).then((r) => r.stdout.trim().slice(-2500));
-/** What a missing reply leaves on the machine: the Chief's log, the daemon that carries its cloud conversation, its turn traces. */
-const replyEvidence = (exec: Exec) =>
-  exec(
-    asRoot(
-      [
-        "echo '== cmux-chief.service'; journalctl -u cmux-chief.service --no-pager -o short-iso -n 120 | tail -c 6000",
-        "echo '== daemon on the Chief socket'; s=$(head -n 1 /etc/cmux/daemon-socket 2>/dev/null); echo \"socket $s\"; ps -eo pid,etimes,args | grep '[c]mux-tui' | head -5",
-        "echo '== journal since 8 min, cloud and daemon lines'; journalctl --no-pager -o short-iso --since '-8 min' | grep -iE 'cmux-tui|cloud|conversation|websocket|subscri|wake|turn|acpmux|claude|error|warn' | grep -v ' sudo' | tail -n 120 | tail -c 9000",
-        "echo '== traces'; d=/home/cmux/.cmux/mux/optchat/traces; ls -lt $d 2>/dev/null | head -5; f=$(ls -t $d 2>/dev/null | head -n 1); [ -n \"$f\" ] && tail -c 3000 \"$d/$f\"",
-      ].join("; "),
-    ),
-    60_000,
-  ).then((r) => `${r.stdout.trim()}\n${r.stderr.trim().slice(-500)}`, (e) => `(evidence failed: ${String(e).slice(0, 300)})`);
-
-const REPLY_DEADLINE_MS = 240_000;
-const rowText = (m: any): string =>
-  (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
-
-/** The Chief's first message in its conversation not seen before (the snapshot's newest 50), or null by the deadline. */
-async function chiefReply(api: Api, conversation: string, chief: string, seen: Set<string>, deadlineMs: number): Promise<{ text: string } | null> {
-  const until = Date.now() + deadlineMs;
-  for (;;) {
-    const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
-    const rows = (snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r);
-    for (const m of rows) {
-      const who = String(m?.author ?? m?.sender ?? m?.sender_id ?? "");
-      const id = String(m?.id ?? m?.message_id ?? m?.seq ?? "");
-      if (who !== chief || seen.has(id)) continue;
-      const text = rowText(m);
-      if (!text.trim()) continue;
-      seen.add(id);
-      return { text };
-    }
-    if (Date.now() >= until) return null;
-    await sleep(3_000);
-  }
-}
-
-const rowsSeen = (api: Api, conversation: string) =>
-  api.read("conversation.snapshot", { conversation, tail: 8 }).then(
-    (snap) => JSON.stringify((snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r).map((m: any) => `${m?.author ?? m?.sender ?? "?"}: ${rowText(m).slice(0, 60)}`)),
-    (e) => `(snapshot failed: ${String(e).slice(0, 200)})`,
-  );
 
 async function main(): Promise<number> {
   const callPath = arg("--call");
@@ -155,15 +110,11 @@ async function main(): Promise<number> {
   let machine = "";
   let install = "";
   let chief = "";
-  // The owner's Claude login, sent with chief_start the way the Mac app sends the person's Claude connection.
-  const turnEnv = Object.fromEntries(["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((n) => process.env[n]).map((n) => [n, process.env[n]!]).slice(0, 1));
-  const turnTail = Object.keys(turnEnv).length ? JSON.stringify({ env: turnEnv }) : "";
-  for (const v of Object.values(turnEnv)) J.secrets.push(v);
   const start = (until?: string) =>
     call(callPath, {
       call: "machine.chief_start", api: backend.api, auth: "owner", credential: api.bearer, ...(team ? { team } : {}),
       args: { key, name: "Check Chief", machine_name: machineName, ...(until ? { until } : {}) },
-    }, 1_500_000, turnTail);
+    }, 1_500_000);
   try {
     await J.step("sign in", async () => {
       const s = await passwordSignIn(STACK[backend.stack], email, password);
@@ -192,10 +143,7 @@ async function main(): Promise<number> {
     await J.step("Chief host on the machine", async () => {
       const r = await exec("command -v optchat-chief || test -x /home/cmux/.local/bin/optchat-chief && echo local || echo absent");
       const found = r.stdout.trim().split("\n").at(-1) ?? "";
-      // An image baked before cmux#56352 has a unit that never reads the turn credential chief_start writes.
-      const unit = await exec("grep -c turn.env /etc/systemd/system/cmux-chief.service 2>/dev/null || echo 0");
-      const reads = (unit.stdout.trim().split("\n").at(-1) ?? "0") !== "0" ? "reads" : "does not read";
-      if (found !== "absent") return { value: null, detail: `image has ${found}; its unit ${reads} /run/cmux-chief/turn.env; credential sent: ${Object.keys(turnEnv).join(",") || "none"}` };
+      if (found !== "absent") return { value: null, detail: `image has ${found}` };
       await upload(api, machine, exec, readFileSync(binaryPath), "/home/cmux/.local/bin/optchat-chief");
       return { value: null, detail: "absent from the image: this run's build in ~/.local/bin" };
     });
@@ -240,29 +188,6 @@ async function main(): Promise<number> {
       const at = row?.location;
       if (at?.kind !== "machine" || at?.install !== install) throw new Error(`chief ${chief} lists as ${JSON.stringify(at ?? null)}, not on machine install ${install}`);
       return { value: null, detail: `${chief}: location machine, host ${at.host}, install ${at.install}` };
-    });
-    const conversation = String(done.conversation ?? "");
-    const seen = new Set<string>();
-    await J.step("a message from the app gets the Chief's reply (message.send, as the Mac and iPhone send)", async () => {
-      if (!conversation) throw new Error(`chief_start answered no conversation: ${JSON.stringify(done)}`);
-      const word = `pong-${run}`;
-      const sentAt = Date.now();
-      await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
-      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
-      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await replyEvidence(exec)}`);
-      if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
-      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}${reply.text.includes(word) ? "" : " (did not echo the word)"}` };
-    });
-    await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
-      const sentAt = Date.now();
-      const r = await api.raw("POST", "/v1/chief/messages", { chiefId: chief, text: "Reply with only the word again", clientMessageId: `chief-start-${run}-web` }, 30_000);
-      // The platform's /c/ surface (cmux-platform#1637) signs in with its page cookie; where this Worker does not
-      // serve it to a bearer, the step says so and the reply check above stands.
-      if (r.status === 404 || r.status === 401 || r.status === 403) return { value: null, detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
-      if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
-      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
-      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
-      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {

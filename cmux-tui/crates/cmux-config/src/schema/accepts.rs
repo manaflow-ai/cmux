@@ -142,10 +142,6 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
         )
-    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPictures) {
-        Accepted::Shape(
-            "a list of pictures: listed paintings, desktop, system:<absolute path> or file:<absolute path>",
-        )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
         Accepted::Shape(
             "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
@@ -272,11 +268,6 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::BackdropPicture) => {
             return value.as_str().is_some_and(super::backdrop::is_picture);
-        }
-        super::Validation::Domain(DomainKind::BackdropPictures) => {
-            return value.as_array().is_some_and(|items| {
-                items.iter().all(|item| item.as_str().is_some_and(super::backdrop::is_picture))
-            });
         }
         super::Validation::Domain(DomainKind::BackdropSchedule) => {
             return super::backdrop::is_schedule(value);
@@ -596,7 +587,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::BackdropPicture => "backdrop_picture",
-        DomainKind::BackdropPictures => "backdrop_pictures",
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::BackdropMemory => "backdrop_memory",

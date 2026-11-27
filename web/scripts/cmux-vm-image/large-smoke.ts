@@ -16,7 +16,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DEVBOX_WORK_USER } from "../../services/vms/workUser";
+import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { argValue, deleteVm, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { type GuestShape, guestShape, LARGE_IMAGE_SHAPE, shapeProblems } from "./large-image";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";

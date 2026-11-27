@@ -212,6 +212,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkChromiumSync.swift": {
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserHost/AppBrowserHost.swift": {
   "JSON / property-list encode": 1
  },
@@ -353,6 +356,10 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressureService.swift": {
   "JSON / property-list decode": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/HandoffNotices.swift": {
   "JSON / property-list decode": 1,
@@ -510,6 +517,10 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": {
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 3
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift": {
   "JSON / property-list decode": 2,
   "JSON / property-list encode": 2,
@@ -525,6 +536,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {
+  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CatalogRequestHandlers.swift": {
   "JSON / property-list encode": 2
@@ -557,6 +571,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipContentView.swift": {
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPageProvider.swift": {
   "line split of a whole input": 1

@@ -4293,12 +4293,3 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
-
-/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
-[data-card="slack-awake"] .row-value {
-  margin-left: auto;
-  color: var(--text-secondary, inherit);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-

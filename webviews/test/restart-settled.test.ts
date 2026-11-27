@@ -2,8 +2,8 @@
 // update/restart and the connection speed and what is actually displayed"): the simulated link's schedule
 // (bench/linkModel.ts) and the numbers read from a relaunch's painted frames (bench/restartSettled.ts).
 import { describe, expect, test } from "bun:test";
-import { LinkPipe, linkProfile, linkProfiles, schedule, ZLIB_MIN_BYTES, zlibWire } from "../bench/linkModel";
-import { movedPx, restartSettled, goneRows } from "../bench/restartSettled";
+import { LinkPipe, linkProfile, linkProfiles, schedule } from "../bench/linkModel";
+import { goneRows, movedPx, restartSettled } from "../bench/restartSettled";
 import { classifyFrames, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 
 describe("link model", () => {
@@ -42,20 +42,6 @@ describe("link model", () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(got).toEqual(["a", "b"]);
     expect(pipe.bytes).toBe(3);
-  });
-
-  test("with zlib, a large line crosses deflated and arrives whole; a small one crosses as text", () => {
-    const row = JSON.stringify({ kind: "agent_message_chunk", text: "the chat's answer, repeated as chats repeat" });
-    const large = Array.from({ length: 400 }, () => row).join(",");
-    expect(large.length).toBeGreaterThanOrEqual(ZLIB_MIN_BYTES);
-    expect(zlibWire(large).bytes).toBeLessThan(large.length / 4);
-    expect(zlibWire("small")).toEqual({ bytes: 5, deflated: null });
-    const pipe = new LinkPipe({ rttMs: 0, bps: 0 }, undefined, true);
-    const got: string[] = [];
-    pipe.send(large, (m) => got.push(m));
-    pipe.send("small", (m) => got.push(m));
-    expect(got).toEqual([large, "small"]);
-    expect(pipe.bytes).toBe(zlibWire(large).bytes + 5);
   });
 
   test("a local pipe delivers at once", () => {

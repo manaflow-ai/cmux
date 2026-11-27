@@ -1459,7 +1459,7 @@ struct RetryModelChoice {
     }
 
     /// The Mac's title (`turn.retryWith`).
-    static let title = "Retry with another model" // retry-prompt-ok: a choice of model, and a re-run turn spends tokens
+    static let title = "Retry with another model"
     static let systemImage = "arrow.triangle.2.circlepath"
 
     /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
@@ -1530,7 +1530,7 @@ struct AnswerActionRow: View {
                 .accessibilityLabel("Share")
             }
             if isLast {
-                IconAction("arrow.clockwise", label: "Retry", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
+                IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
             if still {
                 IconActionLabel("ellipsis")
@@ -1556,7 +1556,7 @@ struct AnswerActionRow: View {
         Menu {
             Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                 Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                Button("Retry", systemImage: "arrow.clockwise", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 retryWith?.menu
                 polish
             }

@@ -11,9 +11,7 @@ use super::contrast::{TEXT, UI, chat};
 use super::*;
 use crate::schema::Schema;
 
-// affected-reads: Resources/cmux-themes Resources/ghostty/themes examples webviews/src/agent-session webviews/src/pages/shared/desktop.css
 fn repo() -> PathBuf {
-    // affected-reads: Resources/cmux-themes Resources/ghostty/themes examples webviews/src/agent-session/shared/styles.css webviews/src/agent-session/acpmux/conversation/conversation.css webviews/src/pages/shared/desktop.css
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -68,35 +66,13 @@ fn example_theme_files() -> Vec<PathBuf> {
 /// so a muted caption on a selected row of a beige or gray sidebar stays under 4.5:1 whatever the
 /// file says. The app's fix (inks fitted to the surface they sit on) takes these out; a pair here
 /// that passes fails the test, so the list only shrinks.
-const KNOWN: [(&str, &str); 28] = [
-    ("astrolabe-dawn", "sidebar selected row muted text"),
-    ("classic-desktop", "sidebar dim text"),
+const KNOWN: [(&str, &str); 6] = [
     ("classic-desktop", "sidebar muted text"),
+    ("classic-desktop", "sidebar dim text"),
     ("classic-desktop", "sidebar selected row muted text"),
     ("classic-desktop", "tab title (inactive)"),
     ("claude-desktop", "sidebar selected row muted text"),
-    ("halo", "sidebar selected row muted text"),
-    ("hearth", "sidebar selected row muted text"),
-    ("lamina", "sidebar selected row muted text"),
-    ("lamina-light", "sidebar selected row muted text"),
-    ("lamina-mist", "sidebar selected row muted text"),
-    ("lamina-mist-light", "sidebar selected row muted text"),
-    ("lamina-slate", "sidebar selected row muted text"),
-    ("lamina-slate-light", "sidebar selected row muted text"),
-    ("lamina-tide", "sidebar selected row muted text"),
-    ("lamina-tide-light", "sidebar selected row muted text"),
     ("leo-daylight", "sidebar selected row muted text"),
-    ("overdrive-daylight", "sidebar selected row muted text"),
-    ("plush", "sidebar selected row muted text"),
-    ("plush-clay", "sidebar selected row muted text"),
-    ("plush-dusk", "sidebar selected row muted text"),
-    ("tonal", "sidebar selected row muted text"),
-    ("tonal-clay", "sidebar selected row muted text"),
-    ("tonal-clay-dark", "sidebar selected row muted text"),
-    ("tonal-dark", "sidebar selected row muted text"),
-    ("tonal-ink", "sidebar selected row muted text"),
-    ("tonal-ink-dark", "sidebar selected row muted text"),
-    ("workbench-light", "sidebar selected row muted text"),
 ];
 
 /// Every failure of the files `(name, shown, text)`, less the [`KNOWN`] ones; a known pair that

@@ -12,7 +12,7 @@
 // and its status dot together at the top) and claude/live/sidebar-project-groups-status-dots (a
 // dot, words only where there is something to read).
 import { useMemo } from "react";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import { peerCloudMachine } from "./peerCloudMachine";
 import { runCloudMachine, useCloudMachines, type CloudMachine } from "./cloudMachines";
@@ -73,7 +73,7 @@ export function MachineCard({ model }: { model: MachineCardModel }) {
           <span className="acpmux-machine-card-status" data-status={model.status}>
             <span className="acpmux-machine-card-mark" aria-hidden="true">
               {model.status === "starting" ? (
-                <WaitSpinner size={12} loading className="acpmux-machine-card-spinner" />
+                <Spinner size={12} loading className="acpmux-machine-card-spinner" />
               ) : (
                 <span className="acpmux-machine-card-dot" />
               )}

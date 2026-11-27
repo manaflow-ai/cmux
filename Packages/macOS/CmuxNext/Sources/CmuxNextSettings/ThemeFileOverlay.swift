@@ -55,7 +55,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too. Rust answers
     /// (`theme.is_look`, cmux-config's `theme_file::is_look`).
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
-        SettingsRust.answer("theme.is_look", .object(["key": .string(descriptor.id)]))["look"]?.boolValue ?? false
+        SettingsRust().answer("theme.is_look", .object(["key": .string(descriptor.id)]))["look"]?.boolValue ?? false
     }
 
     /// Reads `name`'s file, the user's or else the one cmux ships (`ThemeFileSetting.bundledFolder`): its
@@ -88,7 +88,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         }
         // Rust reads the settings, the colors and the contrast guard (`theme.read`); the density and
         // the font files are read here, as they need the density catalog and file URLs.
-        let reply = SettingsRust.answer("theme.read", .object(request))
+        let reply = SettingsRust().answer("theme.read", .object(request))
         var reader = Reader(file: "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)", folder: folder)
         reader.values = (reply["values"]?.arrayValue ?? []).compactMap { entry in
             guard let path = entry["path"]?.arrayValue?.compactMap(\.stringValue), let value = entry["value"] else { return nil }
@@ -225,10 +225,4 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: message, file: file, value: value?.compactText))
         }
     }
-}
-
-nonisolated extension ThemeFileOverlay {
-    /// A `colors.light` or `colors.dark` half over a theme that is the same in both appearances
-    /// (cmux-config `theme_file::colors::HALF_NEEDS_PAIR`).
-    static let halfNeedsPair = "a light or dark half needs appearance.theme \"light:NAME,dark:NAME\""
 }

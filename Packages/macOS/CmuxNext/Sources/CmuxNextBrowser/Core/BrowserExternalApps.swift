@@ -105,17 +105,9 @@ public final class BrowserExternalApps {
         flowPages.removeAll { ended.contains($0) }
     }
 
-    /// The app macOS opens a URL with (Launch Services), nil when none does.
-    let appFor: @MainActor (URL) -> URL?
-    /// The last "no app opens it" notice (``open``).
-    private var toldNoApp: (scheme: String, at: Date)?
-    var now: () -> Date = Date.init
-
-    init(defaults: UserDefaults = .standard, ownSchemes: Set<String>? = nil,
-         appFor: @escaping @MainActor (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) }) {
+    init(defaults: UserDefaults = .standard, ownSchemes: Set<String>? = nil) {
         self.defaults = defaults
         self.ownSchemes = ownSchemes ?? Self.schemes(in: Bundle.main.infoDictionary)
-        self.appFor = appFor
     }
 
     /// The URL schemes an Info.plist registers, lowercased.
@@ -168,18 +160,7 @@ public final class BrowserExternalApps {
               requestedPage: URL? = nil, close: (() -> Void)? = nil,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
         if openOwn(url, from: page, firstPage: firstPage, requestedPage: requestedPage, userGesture: userGesture, ask: ask, close: close) { return }
-        guard let scheme = url.scheme?.lowercased() else { return }
-        guard let app = appFor(url) else {
-            // No app opens it. A click on such a link does nothing, as in Chrome; a page that sent the tab
-            // there itself (a sign-in's return by redirect or script, ask-2d244f2b2e) is the person's flow
-            // ending, so cmux tells them instead of the flow just stopping.
-            // A page that retries in a loop is told once per scheme every few seconds.
-            if !userGesture, toldNoApp.map({ $0.scheme != scheme || now().timeIntervalSince($0.at) > 5 }) ?? true {
-                toldNoApp = (scheme, now())
-                ask(.noAppForScheme(scheme: scheme), page.flatMap(PageInfoSite.origin(of:)) ?? "") { _ in }
-            }
-            return
-        }
+        guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's
         // remembered permission. The empty origin also hides "Always allow"

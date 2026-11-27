@@ -3,6 +3,7 @@ import {
   isValidElement,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -10,7 +11,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
-  useId,
   useMemo,
 } from "react";
 import { createPortal } from "react-dom";
@@ -24,7 +24,6 @@ import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
-import { markPopupWithin, popupOpener } from "./popupWithin";
 import { trackHeldMenuRelease } from "./pressRelease";
 import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
@@ -50,14 +49,12 @@ export interface ContextMenuItem {
   /** The row's key equivalent, in the trailing column (`⌘D`). */
   shortcut?: ReactNode;
   /** Why a disabled row is disabled, one line under its label ("Needs sign-in"); drawn under the
-   *  menu-row-states experiment.
-   * @status experimental */
+   *  menu-row-states experiment. */
   reason?: string;
   /**
    * Its `onSelect` returns a promise: under the menu-row-states experiment the menu stays open, the
    * row spins in its trailing slot until the promise settles, then the menu closes. Elsewhere it
    * closes at once, as any row.
-   * @status experimental
    */
   async?: boolean;
   /** The rows of a submenu the row opens (to the inline end, flush with the row). The page draws a
@@ -177,10 +174,7 @@ export function ContextMenu({
   const [nativeSide, setNativeSide] = useState<"top" | "bottom">("bottom");
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
-  // The right-clicked thing stays lit while its menu is open, and its row keeps its actions shown
-  // (ui/popupWithin.ts); every close path and unmount clears both.
-  const [popupTarget] = useState(popupOpener);
-  const openMark = useRef<HTMLSpanElement | null>(null);
+  const popupTarget = useRef<HTMLElement | null>(null);
   const nativeRequest = useRef(0);
   // Follows the press a right-click opened the menu on, to its release (pressRelease.ts).
   const heldPress = useRef<(() => void) | null>(null);
@@ -227,9 +221,10 @@ export function ContextMenu({
     () => () => {
       heldPress.current?.();
       nativeRequest.current += 1;
-      popupTarget.close();
+      popupTarget.current?.removeAttribute("data-popup-open");
+      popupTarget.current = null;
     },
-    [popupTarget],
+    [],
   );
   const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
   const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
@@ -282,7 +277,8 @@ export function ContextMenu({
     setInSub(false);
     setPoint(null);
     setNativeOpen(false);
-    popupTarget.close();
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -406,7 +402,8 @@ export function ContextMenu({
     if (native && nativePopup.available && !nativeTarget) return;
     event.preventDefault();
     onOpen?.();
-    popupTarget.close();
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
     setPoint(null);
     const requestId = nativeRequest.current + 1;
     nativeRequest.current = requestId;
@@ -415,7 +412,8 @@ export function ContextMenu({
     setOpenSub(null);
     setInSub(false);
     const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-    if (opener) popupTarget.open(opener);
+    popupTarget.current = opener;
+    opener?.setAttribute("data-popup-open", "");
     returnFocus.current = opener;
     const at = { x: event.clientX, y: event.clientY };
     // A Mac sends contextmenu on the press: while it is held, dragging onto a row of the page-drawn
@@ -471,9 +469,6 @@ export function ContextMenu({
       },
     );
   };
-  // The open menu's mark where this menu sits (the hidden span below), for its row.
-  const menuOpen = point !== null || nativeOpen;
-  useLayoutEffect(() => (menuOpen ? markPopupWithin(openMark.current) : undefined), [menuOpen]);
   const reasonId = useId();
   // The arms on the menu's root (and a submenu's): popupSurface.css styles each. Off draws none.
   const menuArms = {
@@ -538,7 +533,7 @@ export function ContextMenu({
   };
   const rest = (
     <>
-      <span ref={openMark} aria-hidden="true" hidden data-popup-open={menuOpen ? "" : undefined} />
+      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent

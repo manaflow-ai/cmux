@@ -4,15 +4,6 @@
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamIntegrationPolicyGithub {
-    pub scope: TeamIntegrationPolicyGithubScope,
-    pub require_org_admin: bool,
-    pub repo_allowlist: Option<Vec<RepoPattern>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
-}
-
 wire_enum! {
     TeamIntegrationPolicySource {
         Default = "default",

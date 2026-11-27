@@ -74,7 +74,7 @@
   font: inherit;
   font-size: var(--text-title);
   padding: 4px 8px;
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   border: 1px solid var(--page-separator);
   background: transparent;
   color: inherit;
@@ -185,7 +185,7 @@
   align-items: center;
   gap: 4px;
   height: 28px;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
 }
 
 /* A row lights under the pointer and while its menu is open (the row the menu acts on). */
@@ -204,7 +204,7 @@
   height: 100%;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;

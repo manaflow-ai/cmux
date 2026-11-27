@@ -23,10 +23,6 @@ import Testing
         }
     }
 
-    // These two read what the stub saw. swift-corelibs-foundation's URLSession.shared copies the registered
-    // URLProtocol classes once, when it is first made, so a stub registered after another suite touched it
-    // never sees Stack's requests. auth-refresh-tests.yml runs both on a Mac.
-    #if canImport(Darwin)
     @Test func listTeamsThrowsWhenTokenRefreshFails() async {
         // Not a fresh JWT, so Stack refreshes it, and the stub answers 503.
         let client = Self.client(tokenStore: .explicit(accessToken: "access", refreshToken: "refresh"))
@@ -47,7 +43,6 @@ import Testing
         }
         #expect(StackUnavailableURLProtocol.requestedPaths.contains { $0.hasSuffix("/users/me") })
     }
-    #endif
 
     private static func client(tokenStore: TokenStoreInit) -> StackAuthClient {
         StackUnavailableURLProtocol.install()

@@ -765,10 +765,7 @@ def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
         except subprocess.TimeoutExpired:
             import signal  # noqa: PLC0415
 
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass  # the group already exited, or (macOS) its leader is a zombie: EPERM, nothing left to kill
+            os.killpg(proc.pid, signal.SIGKILL)
             proc.wait()
             code = 124
             with log.open("ab") as tail:

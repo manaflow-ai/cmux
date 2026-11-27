@@ -64,7 +64,7 @@ describe("AutoCloud Macs", () => {
   test("an enrolled SSH machine is listed right after This Mac, with its badges", () => {
     const autoCloud = { accepting: true, caps: ["macos", "ios-simulator", "xcode", "future-cap"] };
     const environments: Environment[] = [
-      { id: "my-vm", label: "my-vm", kind: "ssh" },
+      { id: "big-red", label: "big-red", kind: "ssh" },
       { id: "vm", label: "vm", kind: "cloud" },
       { id: "studio", label: "studio", kind: "ssh", autoCloud },
       { id: "local", label: "This Mac", kind: "local" },
@@ -73,7 +73,7 @@ describe("AutoCloud Macs", () => {
     expect(orderEnvironments(environments).map((environment) => environment.id)).toEqual([
       "local",
       "studio",
-      "my-vm",
+      "big-red",
       "vm",
     ]);
     expect(autoCloudCapLabels(environments[2]!)).toEqual(["Xcode", "Simulator"]);

@@ -34,7 +34,7 @@ export default agentPaneEntry({
   title: "One session: Transcript and Messages",
   area: "Agent pane",
   height: 680,
-  covers: ["agent-session/acpmux/conversation/messagesRows.ts", "agent-session/acpmux/header/chatDetailRow.ts"],
+  covers: ["agent-session/acpmux/conversation/messagesRows.ts", "agent-session/acpmux/header/presentationRow.ts"],
   variants: {
     transcript: { note: "The default transcript, with its usual disclosure choices.", snapshot },
     messages: {
@@ -45,7 +45,7 @@ export default agentPaneEntry({
     "messages-default": {
       note: "A chat without an override follows the global Messages default.",
       snapshot,
-      display: { "agentPane.display.detail": "messages" },
+      display: { "agentPane.display.presentation": "messages" },
     },
     "pending-question": {
       note: "The pending question stays actionable above the composer while tools are hidden.",
@@ -62,7 +62,7 @@ export default agentPaneEntry({
         },
         isWorking: true,
       },
-      display: { "agentPane.display.detail": "messages" },
+      display: { "agentPane.display.presentation": "messages" },
     },
     "pending-permission": {
       note: "Permission decisions stay visible while the tool transcript is hidden.",
@@ -81,7 +81,7 @@ export default agentPaneEntry({
           ],
         },
       },
-      display: { "agentPane.display.detail": "messages" },
+      display: { "agentPane.display.presentation": "messages" },
     },
   },
 });

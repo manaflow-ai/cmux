@@ -35,7 +35,6 @@ cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 # The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
-cmux-vnc = { path = "../../cmux-tui/crates/cmux-vnc" }
 # The relay's sealed snapshot and delta envelopes (RFD 0142 R2, R9): the phone opens, the Mac seals.
 cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
@@ -68,8 +67,6 @@ cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
 # Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.
 cmux-cloud-handlers = { path = "../../cmux-tui/crates/cmux-cloud-handlers" }
-# The screen stream's rules (cmux-mobile-link-ffi screen.rs: `screen_json`), the ones the Mac asks.
-cmux-rd-screen = { path = "../../cmux-tui/crates/cmux-rd-screen" }
 # Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
 cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 # The egress gate (docs/privacy.md): every HTTP client and WebSocket connect the phone and the Mac bridge make.

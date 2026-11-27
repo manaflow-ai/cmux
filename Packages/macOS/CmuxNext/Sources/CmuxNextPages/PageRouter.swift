@@ -182,7 +182,7 @@ public final class PageRouter {
 
     /// A call to the provider whose route serves `op`, once the descriptor admits it.
     private func routed(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
-        let (provider, params, _) = try admit(op, params: params)
+        let (provider, params) = try admit(op, params: params)
         let gesture = userGestureEvent?() ?? nil
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
                                                                                      userGesture: gesture != nil, gestureEvent: gesture))
@@ -214,11 +214,10 @@ public final class PageRouter {
             }
             return sub
         }
-        let (provider, filter, view) = try admit(stream, params: filter)
+        let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
         activeStreams.insert(sub)
-        if let view { viewStreams[view, default: []].insert(sub) }
         streamProviders[sub] = (stream, provider)
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
@@ -237,20 +236,13 @@ public final class PageRouter {
         } catch {
             activeStreams.remove(sub)
             streamProviders.removeValue(forKey: sub)
-            if let view { viewStreams[view]?.remove(sub) }
             throw error
         }
         guard !closed else {
             subscription.cancel()
             activeStreams.remove(sub)
             streamProviders.removeValue(forKey: sub)
-            if let view { viewStreams[view]?.remove(sub) }
             throw PageError.closed
-        }
-        // The view went away while its provider subscribed (``removeView(_:)`` ended the stream).
-        guard activeStreams.contains(sub) else {
-            subscription.cancel()
-            throw PageError(code: Self.unknownViewCode, message: "view \(view ?? "") closed")
         }
         activeStreams.remove(sub)
         subscriptions[sub] = subscription
@@ -268,74 +260,16 @@ public final class PageRouter {
         return sub
     }
 
-    /// The provider for `op` and the params it gets. While the page serves views (``addView(_:routes:)``),
-    /// a `view` field names the chat the call or subscription is for: that view's routes serve it first,
-    /// then the page's own, and the field is taken out (the host knows the view by its provider). A page
-    /// with no views passes `view` through untouched, as before views existed.
-    private func admit(_ op: String, params: JSONValue) throws -> (any PageProvider, JSONValue, String?) {
+    private func admit(_ op: String, params: JSONValue) throws -> (any PageProvider, JSONValue) {
         guard !closed else { throw PageError.closed }
-        guard descriptor.admits(op) else { throw PageError.unknownOp(op) }
-        guard case .object(var members) = params else { throw PageError.invalidParams("params must be an object") }
+        guard descriptor.admits(op), let route = routes.first(where: { op.hasPrefix($0.prefix) }) else {
+            throw PageError.unknownOp(op)
+        }
+        guard case .object(let members) = params else { throw PageError.invalidParams("params must be an object") }
         for reserved in ["origin", "confirmed", "confirmation"] where members[reserved] != nil {
             throw PageError.invalidParams("\(reserved) is set by the host")
         }
-        var view: String?
-        if !views.isEmpty, let named = members[Self.viewField], named != .null {
-            guard let id = named.stringValue, let viewRoutes = views[id] else {
-                throw PageError(code: Self.unknownViewCode, message: "no view \(named) serves \(op)")
-            }
-            members[Self.viewField] = nil
-            if let route = viewRoutes.first(where: { op.hasPrefix($0.prefix) }) {
-                return (route.provider, .object(members), id)
-            }
-            view = id
-        }
-        guard let route = routes.first(where: { op.hasPrefix($0.prefix) }) else { throw PageError.unknownOp(op) }
-        return (route.provider, view == nil ? params : .object(members), view)
-    }
-
-    // MARK: Views
-
-    /// The params and filter field that names a view (webviews `paneView.ts` `VIEW_FIELD`).
-    public nonisolated static let viewField = "view"
-    /// The error a call or subscription naming no live view gets (as the page's own view router).
-    public nonisolated static let unknownViewCode = "cmux.agent.view.unknown"
-    /// The views the page serves (goal memory-per-chat: a pane's chats as views of one document),
-    /// each with its own routes, longest prefix first.
-    private var views: [String: [PageRoute]] = [:]
-    /// The subscriptions each view opened, so removing the view ends them.
-    private var viewStreams: [String: Set<UInt64>] = [:]
-
-    /// The views the page serves now, sorted.
-    public var viewIDs: [String] { views.keys.sorted() }
-
-    /// Serves `view` with `routes` (its chat's providers); a view already served gets the new routes
-    /// after its old ones end (``removeView(_:)``).
-    public func addView(_ view: String, routes: [PageRoute]) {
-        if views[view] != nil { removeView(view) }
-        views[view] = routes.sorted { $0.prefix.count > $1.prefix.count }
-    }
-
-    /// Stops serving `view` (its chat closed or left the document): its subscriptions end and its own
-    /// providers drop what they hold for the page (``PageProvider/pageDidClose()``). Later calls naming
-    /// it get ``unknownViewCode``.
-    public func removeView(_ view: String) {
-        guard let removed = views.removeValue(forKey: view) else { return }
-        for sub in (viewStreams.removeValue(forKey: view) ?? []).sorted() { unsubscribe(sub) }
-        let shared = Set(routes.map { ObjectIdentifier($0.provider) })
-        var notified = Set<ObjectIdentifier>()
-        for route in removed {
-            let identity = ObjectIdentifier(route.provider)
-            guard !shared.contains(identity), notified.insert(identity).inserted else { continue }
-            route.provider.pageDidClose()
-        }
-    }
-
-    /// Calls `op` on the page for `view`: the page's view router hands it to that view's handler.
-    public func callPage(_ op: String, params: JSONValue, view: String) async throws -> JSONValue {
-        guard case .object(var members) = params else { throw PageError.invalidParams("params must be an object") }
-        members[Self.viewField] = .string(view)
-        return try await callPage(op, params: .object(members))
+        return (route.provider, params)
     }
 
     func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
@@ -352,7 +286,6 @@ public final class PageRouter {
     }
 
     private func unsubscribe(_ sub: UInt64) {
-        for view in viewStreams.keys { viewStreams[view]?.remove(sub) }
         subscriptions.removeValue(forKey: sub)?.cancel()
         activeStreams.remove(sub)
         streamProviders.removeValue(forKey: sub)
@@ -445,13 +378,11 @@ public final class PageRouter {
         closed = true
         didClose?()
         var notified = Set<ObjectIdentifier>()
-        for route in routes + views.keys.sorted().flatMap({ views[$0] ?? [] }) {
+        for route in routes {
             let provider = route.provider
             let identity = ObjectIdentifier(provider)
             if notified.insert(identity).inserted { provider.pageDidClose() }
         }
-        // The views stay served (the host owns them); a reloaded document mounts them again.
-        viewStreams.removeAll()
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()

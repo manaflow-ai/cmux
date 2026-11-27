@@ -42,12 +42,7 @@ export function SessionStatusLine({
           ) : (
             <Spinner size={12} className="acpmux-session-status-spinner" />
           )}
-          {/* Running is the bare spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
-          {status === "running" ? (
-            <span className="sr-only">{t(STATUS[status].word)}</span>
-          ) : (
-            <span>{t(STATUS[status].word)}</span>
-          )}
+          <span>{t(STATUS[status].word)}</span>
         </span>
       )}
       {pullRequests && (

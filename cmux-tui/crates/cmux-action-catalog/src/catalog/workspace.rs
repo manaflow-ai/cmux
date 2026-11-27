@@ -691,16 +691,14 @@ pub static ACTIONS: &[Action] = &[
     },
     // Open in Editor on a workspace's folder (its focused tab's, else its first tab's that reports one). The
     // editors and the default are the App's (cmux-window-rules `editors`); a remote workspace refuses.
-    // Command-J I ("IDE") opens it from the keyboard: the leader's E is the leader look's Equalize Splits.
     Action {
         id: "workspace.openInEditor",
         group: GROUP,
         title: Text::raw("Open Workspace in Editor"),
         keywords: &["editor", "ide", "code", "vscode", "cursor", "zed", "folder", "directory", "open"],
-        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "i", modifiers: 0 } }),
         category: "workspace",
         symbol: "chevron.left.forwardslash.chevron.right",
-        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
+        surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "reopen", 100).label(Text::raw("Open in Editor"))], ..SurfacePlan::DEFAULT },
         arguments: &[args::EDITOR.optional()],
         targets: &["workspace"],

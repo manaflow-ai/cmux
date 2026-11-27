@@ -5,29 +5,67 @@ import CmuxNextCloudUI
 import Foundation
 import Testing
 
-/// A preview's anonymous share link is the daemon's `cloud.previews.create_link` and `cloud.previews.revoke_link`
-/// (cmux-cloud-api `previews.rs`): the app sends the machine, port and link id, the platform origin and the
-/// person's access and team, and decodes the platform's answer the daemon passes back.
 @Suite(.serialized)
 struct CloudPreviewShareLinkTests {
-    typealias FakeDaemon = CloudAPIClientRunTests.FakeDaemon
+    nonisolated final class PreviewLinksAPI: URLProtocol {
+        nonisolated(unsafe) static var requests: [URLRequest] = []
+        /// URLSession hands a protocol the body as `httpBodyStream`, not `httpBody`, so read it here.
+        nonisolated(unsafe) static var bodies: [Data] = []
 
-    nonisolated static let created = #"{"ok":true,"body":{"link":{"linkId":"link_123","creator":"user_1","team":"team_1","machine":"vm_abc","port":3000,"hostname":"preview.example","ruleId":"rule_1","createdAt":1700000000000,"expiresAt":1700086400000,"maxUses":null,"redemptions":0,"revokedAt":null},"url":"https://preview.example/?cmux_share=secret"}}"#
+        static func body(of request: URLRequest) -> Data {
+            if let body = request.httpBody { return body }
+            guard let stream = request.httpBodyStream else { return Data() }
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+            return data
+        }
 
-    private func daemon() -> FakeDaemon {
-        FakeDaemon { call, _, _ in call == "previews.create_link" ? Self.created : #"{"ok":true,"body":{"revoked":true}}"# }
+        override class func canInit(with _: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                                 headerFields: ["Content-Type": "application/json"]) else { return }
+            Self.requests.append(request)
+            Self.bodies.append(Self.body(of: request))
+            let body: Data
+            if request.httpMethod == "POST" {
+                body = Data(#"{"link":{"linkId":"link_123","creator":"user_1","team":"team_1","machine":"vm_abc","port":3000,"hostname":"preview.example","ruleId":"rule_1","createdAt":1700000000000,"expiresAt":1700086400000,"maxUses":null,"redemptions":0,"revokedAt":null},"url":"https://preview.example/?cmux_share=secret"}"#.utf8)
+            } else {
+                body = Data(#"{"revoked":true}"#.utf8)
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: body)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
     }
 
-    private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
-        var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
-                                                   accessToken: { "access" }, teamID: { "team_1" })
-        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
-        return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
+    private func session() -> URLSession {
+        Self.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PreviewLinksAPI.self]
+        return URLSession(configuration: configuration)
+    }
+
+    private static func reset() {
+        PreviewLinksAPI.requests = []
+        PreviewLinksAPI.bodies = []
     }
 
     @Test func createCopiesThePlatformLinkAndRevokeTargetsItsID() async throws {
-        let daemon = daemon()
-        let api = try api(daemon)
+        let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+                                                accessToken: { "access" }, teamID: { "team_1" }, session: session())
+            .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
 
         let created = try await api.createPreviewShareLink("vm_abc", port: 3000)
         #expect(created.link.linkId == "link_123")
@@ -36,47 +74,29 @@ struct CloudPreviewShareLinkTests {
         let revoked = try await api.revokePreviewShareLink("vm_abc", port: 3000, linkID: created.link.linkId)
         #expect(revoked.revoked)
 
-        let requests = daemon.requests
-        #expect(requests.map { $0["call"] as? String } == ["previews.create_link", "previews.revoke_link"])
+        let requests = PreviewLinksAPI.requests
+        #expect(requests.count == 2)
         let create = try #require(requests.first)
-        #expect(create["api"] as? String == "https://platform.invalid")
-        #expect(create["credential"] as? String == "access")
-        #expect(create["team"] as? String == "team_1")
-        let createArgs = try #require(create["args"] as? [String: Any])
-        #expect(createArgs["machine"] as? String == "vm_abc")
-        #expect(createArgs["port"] as? Int == 3000)
-        #expect(createArgs.count == 2, "no expiry or use cap unless asked")
-        let revokeArgs = try #require(requests.last?["args"] as? [String: Any])
-        #expect(revokeArgs["machine"] as? String == "vm_abc")
-        #expect(revokeArgs["port"] as? Int == 3000)
-        #expect(revokeArgs["linkId"] as? String == "link_123")
-    }
-
-    @Test func aCustomExpiryAndUseCapGoToTheDaemon() async throws {
-        let daemon = daemon()
-        _ = try await api(daemon).createPreviewShareLink("vm_abc", port: 3000, expiresAt: 1_700_000_100_000, maxUses: 3)
-        let args = try #require(daemon.args("previews.create_link").first)
-        #expect(args["expiresAt"] as? Int == 1_700_000_100_000)
-        #expect(args["maxUses"] as? Int == 3)
-    }
-
-    /// A refusal the daemon reads from the platform is the same ``CloudAPIError`` the app showed before.
-    @Test func aPlatformRefusalIsTheSameError() async throws {
-        let daemon = FakeDaemon { _, _, _ in #"{"ok":false,"error":{"kind":"http","status":404,"code":"machine.preview_not_found","message":"no preview"}}"# }
-        await #expect(throws: CloudAPIError.http(status: 404, code: "machine.preview_not_found", message: "no preview")) {
-            _ = try await api(daemon).createPreviewShareLink("vm_abc", port: 3000)
-        }
+        #expect(create.httpMethod == "POST")
+        #expect(create.url?.absoluteString == "https://platform.invalid/v1/cloud/machines/vm_abc/previews/3000/links")
+        #expect(create.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(create.value(forHTTPHeaderField: "x-cmux-team") == "team_1")
+        #expect(String(data: try #require(PreviewLinksAPI.bodies.first), encoding: .utf8) == "{}")
+        let revoke = try #require(requests.last)
+        #expect(revoke.httpMethod == "DELETE")
+        #expect(revoke.url?.absoluteString == "https://platform.invalid/v1/cloud/machines/vm_abc/previews/3000/links/link_123")
     }
 
     /// Copy Link and `cloud machine-link --port` get their URL here: the platform's share link for the
     /// port, https only; with no platform preview origin, no link and no request.
     @MainActor @Test func aPortLinkIsThePlatformsShareLink() async throws {
-        let daemon = daemon()
-        let api = try api(daemon)
+        let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+                                                accessToken: { "access" }, teamID: { "team_1" }, session: session())
+            .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
         let names = CloudPortNames(name: "devbox", id: "vm_abc", port: 3000)
         let created = try await CloudHandlers.previewShareLink(api, machine: "vm_abc", port: 3000, names: names)
         #expect(created.url == "https://preview.example/?cmux_share=secret")
-        #expect(daemon.args("previews.create_link").count == 1)
+        #expect(PreviewLinksAPI.requests.map { $0.url?.absoluteString } == ["https://platform.invalid/v1/cloud/machines/vm_abc/previews/3000/links"])
 
         do {
             _ = try await CloudHandlers.previewShareLink(nil, machine: "vm_abc", port: 3000, names: names)
@@ -84,6 +104,6 @@ struct CloudPreviewShareLinkTests {
         } catch let failure as ActionFailure {
             #expect(failure.message == CloudPortStrings.noLink(names))
         }
-        #expect(daemon.requests.count == 1)
+        #expect(PreviewLinksAPI.requests.count == 1)
     }
 }

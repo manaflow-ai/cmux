@@ -22,7 +22,6 @@ public struct AgentPaneHandoffStrings: Sendable {
             "continueTarget": String(localized: "agentPane.handoff.continueTarget", defaultValue: "Continue in %@", bundle: .localizedModule),
             "returnSource": String(localized: "agentPane.handoff.returnSource", defaultValue: "Back to source chat", bundle: .localizedModule),
             "discard": String(localized: "agentPane.handoff.discard", defaultValue: "Discard continuation", bundle: .localizedModule),
-            // retry-prompt-ok: replaces the review form with the saved review (drops unsaved edits); drawn by webviews
             "saving": String(localized: "agentPane.handoff.saving", defaultValue: "Saving review…", bundle: .localizedModule),
             "reload": String(localized: "agentPane.handoff.reload", defaultValue: "Reload saved review", bundle: .localizedModule),
             "coverage": String(localized: "agentPane.handoff.coverage", defaultValue: "Carried context", bundle: .localizedModule),

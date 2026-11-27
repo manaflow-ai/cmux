@@ -8,7 +8,7 @@ import Foundation
 /// `github`, `origin`, else the first), and the head is the branch on its push remote.
 extension AgentPaneGitPullRequest {
     /// The branch's pull request as GitHub answers it (REST `pulls`): open or not.
-    nonisolated struct BranchPullRequest: Equatable, Sendable {
+    struct BranchPullRequest: Equatable {
         var url: String
         var number: Int
         var open: Bool
@@ -30,7 +30,6 @@ extension AgentPaneGitPullRequest {
         let branch = symbolic.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard symbolic.status == 0, !branch.isEmpty else { return nil }
         let listed = await git(["remote"])
-        // main-actor-ok: `git remote` lists the checkout's remote names, a handful of short lines.
         let remotes = listed.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         var base: String?
         for remote in remotes {
@@ -67,20 +66,15 @@ extension AgentPaneGitPullRequest {
         }
         let head = "\(owner):\(branch)"
         let answer = await github(["op": "get", "repo": place.repository, "path": "pulls?head=\(head)&state=all&per_page=20"])
-        guard answer.ok, let pulls = await branchPullRequests(answer.body) else {
+        guard answer.ok, let list = try? JSONSerialization.jsonObject(with: answer.body) as? [[String: Any]] else {
             return .failure(MergeRefusal(message: answer.refusal))
         }
-        return .success(pulls.first(where: \.open) ?? pulls.first)
-    }
-
-    /// GitHub's `pulls` list body (up to 20 pulls of unbounded size), parsed off the main actor.
-    @concurrent nonisolated private static func branchPullRequests(_ body: Data) async -> [BranchPullRequest]? {
-        guard let list = try? JSONSerialization.jsonObject(with: body) as? [[String: Any]] else { return nil }
-        return list.compactMap { pull -> BranchPullRequest? in
+        let pulls = list.compactMap { pull -> BranchPullRequest? in
             guard let url = pull["html_url"] as? String, isPullRequestURL(url), let number = pull["number"] as? Int else { return nil }
             return BranchPullRequest(url: url, number: number, open: (pull["state"] as? String)?.lowercased() == "open",
                                      head: (pull["head"] as? [String: Any])?["sha"] as? String)
         }
+        return .success(pulls.first(where: \.open) ?? pulls.first)
     }
 
     /// Create PR with no `gh` here: the branch's open pull request, else GitHub's compare form for
@@ -95,7 +89,7 @@ extension AgentPaneGitPullRequest {
         }
         let repo = await github(["op": "get", "repo": place.repository, "path": ""])
         guard let object = repo.object, let url = object["html_url"] as? String, let defaultBranch = object["default_branch"] as? String,
-              let shaped = try? JSONSerialization.data(withJSONObject: ["url": url, "defaultBranchRef": ["name": defaultBranch]]), // main-actor-ok: two keys
+              let shaped = try? JSONSerialization.data(withJSONObject: ["url": url, "defaultBranchRef": ["name": defaultBranch]]),
               let form = await formURL(branch: branch, base: target, repo: String(decoding: shaped, as: UTF8.self), git: git),
               let link = URL(string: form) else {
             return .refused(repo.ok ? mergeChangedMessage : repo.refusal)

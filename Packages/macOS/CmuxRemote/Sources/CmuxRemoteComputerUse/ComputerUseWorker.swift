@@ -58,10 +58,10 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         channel = output
         activity = ComputerUseActivityReporter(write: { line in _ = output.write(line) })
         let owner = PreviewOwner()
-        previews = PreviewStreams(frame: { window, generation, jpeg in
-            owner.services?.currentEngine?.previewFrame(window: window, generation: generation, jpeg: jpeg)
-        }, closed: { window, generation in
-            owner.services?.currentEngine?.previewClosed(window: window, generation: generation)
+        previews = PreviewStreams(frame: { window, jpeg in
+            owner.services?.currentEngine?.previewFrame(window: window, jpeg: jpeg)
+        }, closed: { window in
+            owner.services?.currentEngine?.previewClosed(window: window)
         })
         owner.services = self
     }

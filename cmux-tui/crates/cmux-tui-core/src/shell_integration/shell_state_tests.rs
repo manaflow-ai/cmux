@@ -191,7 +191,7 @@ fn visible(bytes: &[u8]) -> String {
                     }
                 }
                 Some('[') => {
-                    for c in chars.by_ref() {
+                    while let Some(c) = chars.next() {
                         if ('@'..='~').contains(&c) {
                             break;
                         }

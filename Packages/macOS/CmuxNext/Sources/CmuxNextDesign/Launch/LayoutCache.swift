@@ -332,14 +332,12 @@ public struct LayoutCacheStripApplied: Codable, Sendable {
 public struct LayoutCacheFFI {
     public init() {}
     public static func encoder() -> JSONEncoder {
-        // main-actor-ok: the launch layout cache, one file Rust caps at 512 KiB, read once before the first window commits.
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         return encoder
     }
 
     public static func decoder() -> JSONDecoder {
-        // main-actor-ok: the launch layout cache, one file Rust caps at 512 KiB, read once before the first window commits.
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder

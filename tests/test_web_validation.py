@@ -282,77 +282,8 @@ class WebValidationTests(unittest.TestCase):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
                 # Shard 1 only; a same-input receipt hit (#49946, react_shard_receipt.py) may also skip it.
-                # The merge driver suite also waits on the focused-map pick (test below).
                 self.assertRegex(body, r"\n        if: (matrix\.shard == 1|\$\{\{ matrix\.shard == 1 && "
-                                       r"steps\.receipt\.outputs\.hit != 'true'"
-                                       r"( && steps\.hook-suites\.outputs\.merge_driver != 'false')? \}\})\n")
-
-    def test_shard_one_runs_the_git_hook_suites_a_pull_request_change_selects(self):
-        """The git-hook suites ran on every web pull request head, 1.8 of shard 1's 11 min (ci-min-per-pr-30 cut G).
-
-        A pull request runs each when scripts/ci/focused_tests.py selects it, or when webviews' vp moves; a push runs
-        both; an error in the pick runs both."""
-        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
-        start = workflow.index("  react-apps-check-shard:")
-        block = workflow[start : workflow.index("\n  react-apps-base-check:", start)]
-
-        def step(name):
-            body = block[block.index(f"- name: {name}\n"):]
-            return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
-
-        pick = step("Pick shard 1's git-hook suites")
-        self.assertIn("id: hook-suites", pick)
-        self.assertIn("continue-on-error: true", pick)
-        self.assertLess(block.index("id: hook-suites"), block.index("id: merge-driver"))
-        # `!= 'false'`: a pick that failed or never ran leaves no output, and the suite runs.
-        self.assertIn("steps.hook-suites.outputs.merge_driver != 'false'", step("Generated bundle merge driver"))
-        self.assertIn("steps.hook-suites.outputs.post_edit != 'false'", step("Post-edit formatting hook"))
-        script = pick[pick.index("        run: |\n") + len("        run: |\n"):]
-        # The run block's own lines: the next step's leading comments sit at 6 spaces.
-        script = "\n".join(line[10:] for line in script.splitlines() if line.startswith(" " * 10)) + "\n"
-
-        def run(event, files, plan, stub_fails=False):
-            with tempfile.TemporaryDirectory() as tmp:
-                repo = Path(tmp) / "repo"
-                (repo / "scripts/ci").mkdir(parents=True)
-                env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-                env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, HOME=tmp,
-                           GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
-                           GIT_COMMITTER_EMAIL="t@t", EVENT_NAME=event, RUNNER_TEMP=tmp,
-                           GITHUB_OUTPUT=str(Path(tmp) / "out"))
-                git_fixture_env.without_auto_maintenance(env)
-                stub = "import sys; sys.exit(3)" if stub_fails else f"print({json.dumps(json.dumps(plan))})"
-                (repo / "scripts/ci/focused_tests.py").write_text(stub + "\n")
-                git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True,
-                                                   capture_output=True)
-                git("init", "-q")
-                git("add", "-A")
-                git("commit", "-qm", "base")
-                for name in files:
-                    (repo / name).parent.mkdir(parents=True, exist_ok=True)
-                    (repo / name).write_text("x\n")
-                git("add", "-A")
-                git("commit", "-qm", "head")
-                subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=repo, env=env, check=True,
-                               capture_output=True)
-                lines = (Path(tmp) / "out").read_text().split()
-                return dict(line.split("=", 1) for line in lines)
-
-        hooks = {"path": "tests/test_install_git_hooks.py", "lane": "linux-guard"}
-        post_edit = {"path": "tests/test_format_post_edit.py", "lane": "linux-guard"}
-        self.assertEqual(run("pull_request", ["webviews/src/Pane.tsx"], {"python": []}),
-                         {"merge_driver": "false", "post_edit": "false"})
-        self.assertEqual(run("pull_request", ["scripts/install-git-hooks.sh"], {"python": [hooks]}),
-                         {"merge_driver": "true", "post_edit": "false"})
-        self.assertEqual(run("pull_request", ["scripts/format-post-edit.sh"], {"python": [post_edit, hooks]}),
-                         {"merge_driver": "true", "post_edit": "true"})
-        # The real-vp cases read webviews' installed vp.
-        self.assertEqual(run("pull_request", ["webviews/bun.lock"], {"python": []}),
-                         {"merge_driver": "true", "post_edit": "true"})
-        self.assertEqual(run("pull_request", ["webviews/src/Pane.tsx"], None, stub_fails=True),
-                         {"merge_driver": "true", "post_edit": "true"})
-        self.assertEqual(run("push", ["webviews/src/Pane.tsx"], {"python": []}),
-                         {"merge_driver": "true", "post_edit": "true"})
+                                       r"steps\.receipt\.outputs\.hit != 'true' \}\})\n")
 
     def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
         """A failed engine install went on to the whole suite, 15-25 min, and the shard was red

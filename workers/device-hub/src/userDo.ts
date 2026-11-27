@@ -722,7 +722,7 @@ export class UserDO extends DurableObject<Env> {
       const plan = answer === "paid" ? "paid" : "free";
       return json({ userId: c.userId, plan, ...(answer === "error" && c.stackToken ? { planNote: PLAN_UNREAD } : {}), device: publicDevice(me, this.online(me.id)) });
     }
-    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me, c);
+    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
         const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
@@ -767,7 +767,7 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- devices ----
 
-  private async openSocket(request: Request, me: DeviceRow, c: CallContext): Promise<Response> {
+  private async openSocket(request: Request, me: DeviceRow): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new ApiError(426, "bad_request", "expected a WebSocket upgrade");
     this.closeSockets(me.id, 4000, "replaced");
     const pair = new WebSocketPair();
@@ -779,9 +779,6 @@ export class UserDO extends DurableObject<Env> {
     // A request waiting on this host went to a socket it no longer has (it dropped, or this one
     // replaces it): send it again so the prompt reaches the host it waits on.
     await this.resendPendingRequests(me.id);
-    // The same for an approved session's host ticket: pushed into the socket that dropped, it was
-    // lost, and the viewer waits on a host that never heard of the session.
-    await this.resendHostTickets(me.id, c);
     // The silence check: a device that never pings after connecting goes offline at the bound.
     await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -1329,30 +1326,6 @@ export class UserDO extends DurableObject<Env> {
     for (const s of pending) {
       const viewer = this.device(s.viewer_id);
       if (viewer) this.send(hostId, await this.sessionRequest(s.id, viewer, s.scope));
-    }
-  }
-
-  /**
-   * A fresh host ticket for each session approved for this host but not yet live: the hub does
-   * not replay a push, so a ticket sent while the host's socket was dropping (and before the
-   * silence bound marked it offline) never reached it. A host replaces a session process it
-   * already runs for the id, and a host whose link dropped stopped its sessions, so the session
-   * is served once. A session that ends meanwhile gets none (issueTickets checks after each await).
-   */
-  private async resendHostTickets(hostId: string, c: CallContext) {
-    const approved = this.sql
-      .exec("SELECT * FROM sessions WHERE state = 'approved' AND host_id = ? ORDER BY created_at", hostId)
-      .toArray() as unknown as SessionRow[];
-    for (const s of approved) {
-      try {
-        const answer = await this.sessionEntitlement(s, c);
-        const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, TICKET_TTL_S, false);
-        const host = tickets?.find((t) => t.role === "host");
-        if (host) this.send(hostId, { type: "session.ticket", ...host });
-      } catch (err) {
-        // The socket opens regardless; the viewer's own wait ends a session that stays unserved.
-        console.warn(`device-hub: host ticket for session ${s.id} not resent (${err instanceof Error ? err.message : String(err)})`);
-      }
     }
   }
 

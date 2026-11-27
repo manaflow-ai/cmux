@@ -148,9 +148,8 @@ export function WorkflowSummaryRow({
           {state}
         </span>
         <span className="acpmux-summary-text acpmux-workflow__title">{workflow.title}</span>
-        {/* Running is the row's spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
         <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${workflowStateLabel}`}>
-          {workflow.state === "running" ? null : workflowStateLabel}
+          {workflowStateLabel}
         </span>
         {workflow.phase && (
           <span className="acpmux-summary-meta">
@@ -293,7 +292,6 @@ export function WorkflowSummaryRow({
                 )}
                 {resumeRefused && <output>{t("workflow.cannotResume")}</output>}
                 <button type="button" onClick={() => actions.onDraftWorkflow!(false)}>
-                  {/* retry-prompt-ok: drafts the whole workflow again, agents and paid model requests. */}
                   {t("workflow.runAgain")}
                 </button>
               </div>

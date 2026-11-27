@@ -882,9 +882,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
-    // Placed work yields when the owner comes back: only on a machine enrolled in AutoCloud
-    // (off by default); off runs no timer (`hub/owner_return.rs`).
-    hub.start_owner_return().await;
     // `dynamic` sessions yield the CPU only while the Mac is contended (`hub/cpu_pressure.rs`);
     // ACPMUX_CPU_PRESSURE=off keeps every one at normal class.
     hub.start_cpu_pressure();

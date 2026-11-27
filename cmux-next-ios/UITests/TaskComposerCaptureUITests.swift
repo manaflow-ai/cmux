@@ -365,7 +365,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "agents-failed-list", args: Self.list + ["-cmux-mobile-task-catalog", "failed"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openAgents(app) },
-                         { Self.check(!C.any(app, "taskComposer.agents.retry").exists, "a Try Again (the list is read again on its own)") }])
+                         { Self.check(C.any(app, "taskComposer.agents.retry").exists, "no Try Again") }])
             },
             Scene(group: g, id: "agents-empty", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") },

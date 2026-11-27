@@ -1058,61 +1058,6 @@ class LinuxReleaseTree(unittest.TestCase):
             self.assertIn(message, err.getvalue())
 
 
-class CloudMachineRollback(unittest.TestCase):
-    """`rollback` (cloud-machine-channel-journey.yml machine-channel-settle): a regressed build's channel moves back to the
-    last proven build, its commit and URLs, past the regressed build's commit time, so the forward-only channel
-    and the machines' updaters take it; the regressed commit's later (fat) point then finds the channel newer."""
-
-    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
-                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
-                                                 LinuxReleasePoint.assert_ok)
-    CHANNEL = "cmux-tui/channels/cloud-machine.json"
-
-    def build(self, commit, committed_at, key):
-        path = LinuxReleasePoint.payload(self, commit=commit, committed_at=committed_at,
-                                         purpose="cmux-cloud-machine-update")
-        value = json.loads(path.read_bytes()) | {"key": key}
-        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
-        return path
-
-    def rollback(self, proven, over):
-        out = self.tmp / f"rollback-{len(list(self.tmp.iterdir()))}.json"
-        channel.main(["cmux-machine-channel.py", "rollback", "--proven", str(proven), "--over", str(over),
-                      "--keys", str(self.repo / KEYS_PATH), "--out", str(out)])
-        return out
-
-    def test_a_regressed_build_moves_back_to_the_proven_one(self):
-        good, bad = "a" * 40, "b" * 40
-        self.assert_ok(self.point(self.build(good, COMMITTED_AT, "1" * 64)))
-        proven = self.tmp / "proven.json"
-        proven.write_bytes(self.served(self.CHANNEL))
-        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "2" * 64), run_id="2"))
-        over = self.tmp / "over.json"
-        over.write_bytes(self.served(self.CHANNEL))
-        self.assert_ok(self.point(self.rollback(proven, over), run_id="3"))
-        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
-        self.assertEqual((value["commit"], value["key"], value["committed_at"]), (good, "1" * 64, COMMITTED_AT + 61))
-        self.assertEqual(value["targets"], json.loads(base64.b64decode(json.loads(proven.read_bytes())["payload"]))["targets"])
-        # The regressed commit's fat point, later in the same run, keeps the rolled-back channel.
-        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "3" * 64), run_id="4"))
-        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], good)
-        # The next push moves it forward again.
-        self.assert_ok(self.point(self.build("d" * 40, COMMITTED_AT + 120, "4" * 64), run_id="5"))
-        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], "d" * 40)
-
-    def test_rollback_refuses_the_build_it_replaces_and_an_unsigned_file(self):
-        self.assert_ok(self.point(self.build("b" * 40, COMMITTED_AT, "2" * 64)))
-        over = self.tmp / "over.json"
-        over.write_bytes(self.served(self.CHANNEL))
-        unsigned = self.tmp / "unsigned.json"
-        unsigned.write_bytes(self.build("a" * 40, COMMITTED_AT, "1" * 64).read_bytes())
-        for proven, message in ((over, "the build it would replace"), (unsigned, "does not verify")):
-            with self.subTest(message=message), self.assertRaises(SystemExit), \
-                    contextlib.redirect_stderr(io.StringIO()) as err:
-                self.rollback(proven, over)
-            self.assertIn(message, err.getvalue())
-
-
 class LinuxReleaseAliases(unittest.TestCase):
     """scripts/ci/cmux-linux-release-aliases.sh (mark-tree-commits) in a git repo against a fake R2: the
     window's commits that share a signed tree and have no release file get an alias; the rest are left."""

@@ -91,9 +91,8 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 run.worst = max(run.worst, took)
                 run.worstOverBound = max(run.worstOverBound, took - (base + slack))
                 backAt = nil
-                // Backoff: an outage of T seconds costs at most T/15 + 25 dials (the first
-                // ~75 s retry every 5 s or sooner, about 20 dials; then 10, 15, 30 s).
-                if Double(dialsThisOutage) > outage.tickSeconds / 15 + 25 { run.excessDials += 1 }
+                // Backoff: an outage of T seconds costs at most T/15 + 10 dials.
+                if Double(dialsThisOutage) > outage.tickSeconds / 15 + 10 { run.excessDials += 1 }
                 if run.drops < target {
                     clock.schedule(.networkDown, after: random.logDuration(Duration.seconds(1)...(.seconds(600))))
                 }

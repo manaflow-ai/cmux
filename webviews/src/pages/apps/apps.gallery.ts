@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe sample app data), not shipped UI.
 import { appsPageEntry, type AppsPageVariant } from "../../gallery/format";
-import { manyStoreApps, sampleApps, storeApps } from "./mockProvider";
+import { sampleApps, manyStoreApps, storeApps } from "./mockProvider";
 
 const base = sampleApps();
 const empty = { details: {}, installed: {}, grants: {} } satisfies AppsPageVariant["data"];
@@ -208,7 +208,6 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
-    "pages/apps/FeaturesView.tsx",
     "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
@@ -219,21 +218,6 @@ export default appsPageEntry({
     "pages/apps/SourceLink.tsx",
   ],
   variants: {
-    "features-list": {
-      note: "Chosen Features tab (features=list, the default; Leo 10-21, ask-36ade8776b): every built-in feature as a switch on its own setting, grouped like Settings. The managed row cannot change.",
-      hash: "#/features",
-      data: store,
-    },
-    "features-tiles": {
-      note: "Variant (DEV, features=tiles): a card per feature, on ones tinted.",
-      hash: "#/features?features=tiles",
-      data: store,
-    },
-    "features-chips": {
-      note: "Variant (DEV, features=chips): one toggle chip per feature, the densest.",
-      hash: "#/features?features=chips",
-      data: store,
-    },
     "browse-hero-rows": {
       note: "Chosen Discover (browse=hero, the default): Cloud and CodeRouter each as a hero with a screenshot; a small store needs no shelves.",
       hash: "#/discover?layout=grid",
@@ -402,7 +386,7 @@ export default appsPageEntry({
       data: many,
     },
     error: {
-      note: "The catalog owner keeps failing: the loading grid stays and one quiet line says it is still loading; it is read again on its own, with no Reload.",
+      note: "The catalog owner returns a permission error.",
       mode: "error",
       error: { code: "cmux.apps.permission", message: "The catalog is unavailable to this workspace." },
       hash: "#/discover?layout=grid",
@@ -414,7 +398,7 @@ export default appsPageEntry({
       data: base,
     },
     "detail-error": {
-      note: "The selected app detail fails once: it reads as loading and is read again on its own, keeping the selection (no Reload).",
+      note: "The selected app detail fails once, then can be retried without losing selection.",
       detailError: { code: "cmux.apps.backend_unavailable", message: "The app details are temporarily unavailable." },
       hash: "#/discover?layout=split&app=cmux.coderouter",
       data: base,

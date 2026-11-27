@@ -216,8 +216,9 @@ try {
       root.render(
         <AttachmentStrip
           attachments={[]}
-          pending={[{ ...chip, failed: "The file is not readable." }]}
+          pending={[{ ...chip, failed: "The upload timed out", retryable: true }]}
           onCancel={() => {}}
+          onRetry={() => {}}
           onRemove={() => {}}
         />,
       );
@@ -225,8 +226,7 @@ try {
     const failed = host.querySelector(".acpmux-attachment-failed")!;
     expect(failed.classList.contains("acpmux-attachment-image")).toBe(true);
     expect(failed.textContent).not.toContain(chip.name);
-    // An upload that failed is asked again on its own while it loads; a tile that failed has only its x.
-    expect(failed.querySelectorAll("button").length).toBe(1);
+    expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   });
 
   test("a rejected video.info request ends its read and leaves the file ready to send", async () => {

@@ -23,7 +23,6 @@
 //   chat. A Claude Code envelope has no chat to answer: no Reply.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
-import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
@@ -626,7 +625,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
       expect(
         await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height),
-      ).toBe(ROW_METRIC.height);
+      ).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");

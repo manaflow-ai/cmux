@@ -4,6 +4,7 @@
 // They now read the plain runs natively and only the caret's line; each must answer exactly as the
 // old reading did.
 import { expect, test } from "bun:test";
+import { emojiTrigger } from "../src/agent-session/acpmux/emojiShortcodes";
 import { markdownOffset, mentionQuery } from "../src/agent-session/acpmux/mentionMenuModel";
 
 /** The reading before: one anchored regex per shown character. */
@@ -82,8 +83,17 @@ test("the @ word before the caret, read from its line, is the same as from the w
       expect([draft, at, mentionQuery(draft, at)]).toEqual([draft, at, mentionQueryBefore(draft, at)]);
 });
 
-// The `:emoji` and `@` words are read from the editor now, at most a bounded stretch before the
-// caret (composer/emojiTokens.ts; test/composer-emoji-lifecycle.test.tsx).
+test("the :emoji word before the caret, read from its line, ends where it did on the whole draft", () => {
+  // The old reading, for the start it found: the whole draft before the caret against the same rule.
+  const SPACE = /(?:^|\s|&#x20;|&#32;|&nbsp;)((?:\\.|&[a-z]+;|&#x?[0-9a-f]+;|[^\s\\&]|&(?![a-z#]))+)$/i;
+  for (const draft of [...drafts(), "words\nmore :smile", "a\n:)", "``` \n:smile"])
+    for (let at = 0; at <= draft.length; at++) {
+      const found = emojiTrigger(draft, at);
+      if (!found) continue;
+      const whole = SPACE.exec(draft.slice(0, at));
+      expect([draft, at, found.start]).toEqual([draft, at, at - whole![1]!.length]);
+    }
+});
 
 test("a caret at the end of a 200,000-character draft is read in well under a frame", () => {
   const draft = "composer latency fixture words keep the prompt long \\_ &amp;\n".repeat(3300);
@@ -91,6 +101,7 @@ test("a caret at the end of a 200,000-character draft is read in well under a fr
   for (let key = 0; key < 20; key++) {
     const at = markdownOffset(draft, draft.length);
     mentionQuery(draft, at);
+    emojiTrigger(draft, at);
   }
   expect((performance.now() - started) / 20).toBeLessThan(12);
 });

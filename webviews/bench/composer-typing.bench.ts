@@ -98,12 +98,6 @@ const FRAMES = argv.includes("--frames");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
-/// --repeat N: each case runs N times and reports the valid attempt with the median keydown-to-paint p99, so one burst
-/// from a job sharing the host (the nightly's cmux-linux pool VMs run several runner slots) is not the reading. WebKit
-/// L0 read p99 155 ms on the 14:17Z 2026-11-26 nightly while its p95 was 39 ms, its handler work 10 ms and its driver
-/// on time; on a quiet host the same row reads 18-29 ms. Every attempt's p99 and validity stay in the table.
-const REPEAT = Number(flag("--repeat") ?? 1);
-if (!Number.isInteger(REPEAT) || REPEAT < 1) throw new Error(`--repeat must be a whole number from 1, not ${REPEAT}`);
 const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
 const ENGINE = flag("--engine") ?? (ENGINES.length === 1 ? ENGINES[0]! : "chromium");
@@ -575,33 +569,6 @@ async function measure(
   }
 }
 
-/// One case REPEAT times: the valid attempt with the (lower) median to_paint_p99, else the first attempt.
-async function measureRepeated(
-  port: number,
-  length: number,
-  mode: string,
-  engine: "chromium" | "webkit",
-  replyWords: number,
-): Promise<Record<string, unknown>> {
-  const attempts: Record<string, unknown>[] = [];
-  for (let attempt = 0; attempt < REPEAT; attempt++)
-    attempts.push(await measure(port, length, mode, engine, replyWords));
-  if (REPEAT === 1) return attempts[0]!;
-  const p99 = (row: Record<string, unknown>) => row.to_paint_p99;
-  const valid = attempts
-    .filter((row) => row.valid === true && typeof p99(row) === "number" && Number.isFinite(p99(row)))
-    .sort((a, b) => (p99(a) as number) - (p99(b) as number));
-  const chosen = valid.length ? valid[Math.floor((valid.length - 1) / 2)]! : attempts[0]!;
-  return {
-    ...chosen,
-    attempts: REPEAT,
-    attempts_valid: valid.length,
-    attempt_valid: attempts.map((row) => row.valid ?? null),
-    attempt_to_paint_p95: attempts.map((row) => row.to_paint_p95 ?? null),
-    attempt_to_paint_p99: attempts.map((row) => p99(row) ?? null),
-  };
-}
-
 try {
   const cases = LENGTHS.flatMap((length) =>
     MODES.flatMap((mode) =>
@@ -633,7 +600,7 @@ try {
     const table: Record<string, unknown>[] = [];
     for (const engine of ENGINES)
       for (const { length, mode, words } of cases)
-        table.push(await measureRepeated(port, length, mode, engine as "chromium" | "webkit", words));
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit", words));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(

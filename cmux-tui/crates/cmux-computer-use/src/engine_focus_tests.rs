@@ -10,11 +10,10 @@ use crate::desktop::fake::{Event, FakeDesktop};
 /// With `.2` set, the person acts once right after the first reading.
 /// `.3` set: it counts the pointer only (no Input Monitoring). `.4`: the
 /// key-blind epoch (Secure Event Input, a blind tap, dictation raise it).
-/// `.5` set: the person is using the mouse or keyboard and does not stop.
-struct Counter(AtomicU64, bool, AtomicBool, AtomicBool, AtomicU64, AtomicBool);
+struct Counter(AtomicU64, bool, AtomicBool, AtomicBool, AtomicU64);
 impl PersonActivity for Counter {
     fn wait_idle(&self, _limit: Duration) -> bool {
-        !self.5.load(Ordering::SeqCst)
+        true
     }
     fn input_count(&self) -> Option<u64> {
         let n = self.0.load(Ordering::SeqCst);
@@ -77,7 +76,6 @@ fn rig_with(desktop: FakeDesktop, watched: bool) -> Rig {
         AtomicBool::new(false),
         AtomicBool::new(false),
         AtomicU64::new(0),
-        AtomicBool::new(false),
     ));
     let mut parts = EngineParts::new(desktop.clone());
     let a = Arc::new(AtomicU64::new(0));
@@ -552,205 +550,4 @@ fn secure_event_input_during_a_call_still_restores_stolen_focus() {
     let out = click(&r, "c1");
     r.person.4.fetch_add(5, Ordering::SeqCst);
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
-}
-
-// The suite for Leo's 2026-11-22 report (agents using Computer Use kept
-// interrupting his input and bringing apps to the front): every acting tool,
-// with the person typing into their own app the whole time, must leave the
-// person's front app and key window as they were, and a call that brings an
-// app forward on its own waits for the person.
-
-/// Where the person's pointer rests while they type: over none of the fake
-/// desktop's windows (Safari is 800x600 at (100, 100), 1Password 300x200 at
-/// (200, 200)).
-const RESTING: Point = Point { x: 1200.0, y: 40.0 };
-
-/// The person, typing into TextEdit with their pointer resting.
-fn typing() -> FocusSnapshot {
-    FocusSnapshot { pointer: Some(RESTING), ..person() }
-}
-
-/// The launched app of `launch_app` (the fake desktop starts pid 99).
-fn launched_front() -> FocusSnapshot {
-    FocusSnapshot {
-        pid: 99,
-        app_id: "com.example.App".into(),
-        window_id: Some("99".into()),
-        top_pid: Some(99),
-        pointer: Some(RESTING),
-    }
-}
-
-/// Every acting tool with arguments the fake desktop accepts, and the
-/// snapshot of the app that activates itself when the tool acts.
-fn acting_calls() -> Vec<(&'static str, Value, FocusSnapshot)> {
-    let safari = FocusSnapshot { pointer: Some(RESTING), ..safari_front() };
-    vec![
-        ("click", json!({"window_id": "1", "element_id": "e1"}), safari.clone()),
-        ("click", json!({"window_id": "1", "x": 20, "y": 20}), safari.clone()),
-        ("move_pointer", json!({"window_id": "1", "element_id": "e1"}), safari.clone()),
-        ("type_text", json!({"window_id": "1", "text": "hi"}), safari.clone()),
-        ("press_key", json!({"window_id": "1", "keys": "Return"}), safari.clone()),
-        ("scroll", json!({"window_id": "1", "dy": 3}), safari.clone()),
-        (
-            "drag",
-            json!({"window_id": "1", "from_x": 10, "from_y": 10, "to_x": 60, "to_y": 60}),
-            safari.clone(),
-        ),
-        ("set_value", json!({"window_id": "1", "element_id": "e1", "value": "x"}), safari.clone()),
-        (
-            "perform_action",
-            json!({"window_id": "1", "element_id": "e1", "action": "AXPress"}),
-            safari.clone(),
-        ),
-        (
-            "batch",
-            json!({"window_id": "1", "actions": [
-                {"action": "click", "element_id": "e1"},
-                {"action": "type_text", "text": "hi"},
-            ]}),
-            safari,
-        ),
-        ("launch_app", json!({"app_id": "com.example.App"}), launched_front()),
-    ]
-}
-
-/// A rig whose person types into TextEdit; the session has a screenshot of
-/// Safari's window (pixel targets need one).
-fn typing_rig() -> Rig {
-    let r = rig();
-    let shot = r.engine.call(&ctx("shot"), "screenshot", &json!({"window_id": "1"}));
-    assert!(!shot.is_error, "{:?}", shot.body);
-    *r.desktop.focus.lock().unwrap() = Some(typing());
-    r
-}
-
-#[test]
-fn every_acting_tool_puts_back_a_target_that_activates_while_the_person_types() {
-    for (tool, args, taker) in acting_calls() {
-        let r = typing_rig();
-        *r.desktop.steal_on_input.lock().unwrap() = Some(taker.clone());
-        // The person keeps typing: their input count moves during the call,
-        // while their pointer stays where it rests.
-        r.person.2.store(true, Ordering::SeqCst);
-        let out = r.engine.call(&ctx(tool), tool, &args);
-        assert!(!out.is_error, "{tool} {args}: {:?}", out.body);
-        assert_eq!(
-            out.body["focus"],
-            json!({"kept": true, "restored_from": taker.app_id}),
-            "{tool} {args}: the person's keys went to the agent's app"
-        );
-        assert_eq!(r.desktop.restores(), vec![typing()], "{tool} {args}");
-        assert_eq!(
-            r.desktop.focus.lock().unwrap().clone(),
-            Some(typing()),
-            "{tool} {args}: front app and key window"
-        );
-    }
-}
-
-#[test]
-fn every_acting_tool_keeps_focus_when_nothing_activates() {
-    for (tool, args, _) in acting_calls() {
-        let r = typing_rig();
-        r.person.2.store(true, Ordering::SeqCst);
-        let out = r.engine.call(&ctx(tool), tool, &args);
-        assert!(!out.is_error, "{tool} {args}: {:?}", out.body);
-        assert_eq!(out.body["focus"], json!({"kept": true}), "{tool} {args}");
-        assert!(r.desktop.restores().is_empty(), "{tool} {args}");
-        assert_eq!(r.desktop.focus.lock().unwrap().clone(), Some(typing()), "{tool} {args}");
-    }
-}
-
-#[test]
-fn a_person_who_clicks_the_target_keeps_it() {
-    // The pointer moved (a Dock click, a click on the window): theirs.
-    let r = typing_rig();
-    let moved = Point { x: 500.0, y: 400.0 };
-    *r.desktop.steal_on_input.lock().unwrap() =
-        Some(FocusSnapshot { pointer: Some(moved), ..safari_front() });
-    r.person.2.store(true, Ordering::SeqCst);
-    let out = click(&r, "c1");
-    assert_eq!(out.body["focus"]["moved_by"], "person", "{:?}", out.body);
-    assert!(r.desktop.restores().is_empty());
-
-    // The pointer did not move but rests on the target's window: a click
-    // there may be the person's.
-    let r = typing_rig();
-    let over = FocusSnapshot { pointer: Some(Point { x: 500.0, y: 400.0 }), ..person() };
-    *r.desktop.focus.lock().unwrap() = Some(over.clone());
-    *r.desktop.steal_on_input.lock().unwrap() =
-        Some(FocusSnapshot { pointer: over.pointer, ..safari_front() });
-    r.person.2.store(true, Ordering::SeqCst);
-    let out = click(&r, "c2");
-    assert_eq!(out.body["focus"]["moved_by"], "person", "{:?}", out.body);
-    assert!(r.desktop.restores().is_empty());
-}
-
-#[test]
-fn typing_never_hands_an_unrelated_app_the_front() {
-    // Mail is no target of the call: a switch to it during the person's
-    // input is theirs, pointer or not.
-    let r = typing_rig();
-    let mail = FocusSnapshot {
-        pid: 40,
-        app_id: "com.apple.mail".into(),
-        window_id: Some("40".into()),
-        top_pid: Some(40),
-        pointer: Some(RESTING),
-    };
-    *r.desktop.steal_on_input.lock().unwrap() = Some(mail);
-    r.person.2.store(true, Ordering::SeqCst);
-    let out = click(&r, "c1");
-    assert_eq!(out.body["focus"]["moved_by"], "person", "{:?}", out.body);
-    assert!(r.desktop.restores().is_empty());
-}
-
-#[test]
-fn launching_waits_for_the_person_and_never_starts_while_they_type() {
-    let r = typing_rig();
-    r.person.5.store(true, Ordering::SeqCst);
-    let out = r.engine.call(&ctx("l1"), "launch_app", &json!({"app_id": "com.example.App"}));
-    assert!(out.is_error);
-    assert_eq!(out.code.as_deref(), Some("person_in_control"), "{:?}", out.body);
-    assert!(
-        !r.desktop.events().iter().any(|e| matches!(e, Event::Launch(_))),
-        "no app was started"
-    );
-    assert_eq!(r.desktop.focus.lock().unwrap().clone(), Some(typing()));
-
-    // Idle again: it launches.
-    r.person.5.store(false, Ordering::SeqCst);
-    let out = r.engine.call(&ctx("l2"), "launch_app", &json!({"app_id": "com.example.App"}));
-    assert!(!out.is_error, "{:?}", out.body);
-    assert!(r.desktop.events().iter().any(|e| matches!(e, Event::Launch(_))));
-}
-
-#[test]
-fn a_permission_prompt_never_opens_while_the_person_types() {
-    let r = typing_rig();
-    r.person.5.store(true, Ordering::SeqCst);
-    let out =
-        r.engine.call(&ctx("p1"), "request_permission", &json!({"permission": "accessibility"}));
-    assert_eq!(out.code.as_deref(), Some("person_in_control"), "{:?}", out.body);
-    // Idle: it reaches the desktop (the fake one has no prompt to show).
-    r.person.5.store(false, Ordering::SeqCst);
-    let out =
-        r.engine.call(&ctx("p2"), "request_permission", &json!({"permission": "accessibility"}));
-    assert_ne!(out.code.as_deref(), Some("person_in_control"), "{:?}", out.body);
-}
-
-#[test]
-fn input_that_meets_the_persons_waits_for_them() {
-    // A click on the window under the person's own pointer, while they use it.
-    let r = typing_rig();
-    r.person.5.store(true, Ordering::SeqCst);
-    *r.desktop.pointer.lock().unwrap() = Some(Point { x: 500.0, y: 400.0 });
-    let out = click(&r, "c1");
-    assert_eq!(out.code.as_deref(), Some("person_in_control"), "{:?}", out.body);
-    assert!(
-        !r.desktop.events().iter().any(|e| matches!(e, Event::Click { .. })),
-        "nothing was clicked"
-    );
-    assert_eq!(r.desktop.focus.lock().unwrap().clone(), Some(typing()));
 }

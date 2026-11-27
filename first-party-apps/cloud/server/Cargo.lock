@@ -327,7 +327,6 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
- "serde",
  "serde_json",
 ]
 

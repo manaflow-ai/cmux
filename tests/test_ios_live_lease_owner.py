@@ -3,8 +3,7 @@
 
 Regression: with IOS_LIVE_OWNER unset and no session id the client named the owner after $PPID, which
 is a new shell on every agent tool call, so the slot taken in one call was not yours in the next. Each
-call here runs in its own bash (its own $PPID), with a fake `reach` that runs host.sh locally. The client and
-host.sh run from a scratch repo whose commit is in the fake host's fleet mirror, as the host reads host.sh from git.
+call here runs in its own bash (its own $PPID), with a fake `reach` that runs host.sh locally.
 """
 from __future__ import annotations
 
@@ -17,8 +16,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "scripts" / "ios-live"
-SESSION_VARS = ("IOS_LIVE_REPO_URL", "IOS_LIVE_OWNER", "CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_THREAD_ID",
+CLIENT = ROOT / "scripts" / "ios-live" / "ios-live"
+SESSION_VARS = ("IOS_LIVE_OWNER", "CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID", "CODEX_THREAD_ID",
                 "CODEX_SESSION_ID", "IOS_LIVE_HOST", "IOS_LIVE_AT")
 
 
@@ -31,25 +30,11 @@ class IosLiveLeaseOwner(unittest.TestCase):
         self.host_home = self.tmp / "host-home"
         self.host_home.mkdir()
         reach = bin_dir / "reach"
-        # reach HOST CMD: run CMD here, as if on the host, with the host's own HOME and fleet mirror.
-        reach.write_text('#!/usr/bin/env bash\nshift\n'
-                         'HOME="$FAKE_HOST_HOME" CMUX_CI_STEP_GLAEDA_MIRROR_DIR="$FAKE_MIRROR_DIR" exec bash -c "$*"\n')
+        # reach HOST CMD: run CMD here, as if on the host, with the host's own HOME.
+        reach.write_text('#!/usr/bin/env bash\nshift\nHOME="$FAKE_HOST_HOME" exec bash -c "$*"\n')
         reach.chmod(0o755)
-        # This checkout's ios-live and host.sh, committed in a scratch repo and in the host's fleet mirror.
-        repo = self.tmp / "repo"
-        shutil.copytree(SRC, repo / "scripts" / "ios-live")
-        genv = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
-                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_NOSYSTEM="1")
-        mirror = self.tmp / "fleet-git" / "cmux.git"
-        for cmd in (["init", "-q", "-b", "feat-cmux-next", str(repo)], ["-C", str(repo), "add", "-A"],
-                    ["-C", str(repo), "commit", "-q", "-m", "ios-live"],
-                    ["clone", "-q", "--mirror", str(repo), str(mirror)],
-                    ["-C", str(repo), "remote", "add", "origin", str(mirror)], ["-C", str(repo), "fetch", "-q", "origin"]):
-            subprocess.run(["git", *cmd], check=True, capture_output=True, env=genv)
-        self.client = repo / "scripts" / "ios-live" / "ios-live"
         self.env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
         self.env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", FAKE_HOST_HOME=str(self.host_home),
-                        FAKE_MIRROR_DIR=str(mirror.parent), IOS_LIVE_REPO_URL="file:///nonexistent",
                         XDG_CACHE_HOME=str(self.tmp / "cache"), IOS_LIVE_HOSTS="fakehost",
                         IOS_LIVE_SLOTS_PER_HOST="3")
         self.checkouts = {}
@@ -62,7 +47,7 @@ class IosLiveLeaseOwner(unittest.TestCase):
     def call(self, checkout: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
         # A fresh bash per call, so $PPID differs on every one, as in an agent's separate tool calls.
         env = dict(self.env, **extra)
-        return subprocess.run(["bash", "-c", '"$0" "$@"', str(self.client), *args], cwd=self.checkouts[checkout],
+        return subprocess.run(["bash", "-c", '"$0" "$@"', str(CLIENT), *args], cwd=self.checkouts[checkout],
                               env=env, capture_output=True, text=True, timeout=60)
 
     def ok(self, checkout: str, *args: str, **extra: str) -> str:

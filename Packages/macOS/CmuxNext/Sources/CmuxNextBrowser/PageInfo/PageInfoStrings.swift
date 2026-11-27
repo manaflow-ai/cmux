@@ -68,7 +68,6 @@ nonisolated enum PageInfoStrings {
     static var mute: String { String(localized: "pageInfo.choice.mute", defaultValue: "Mute", table: "PageInfo", bundle: .localizedModule) }
     static var resetPermission: String { String(localized: "pageInfo.reset.one", defaultValue: "Reset permission", table: "PageInfo", bundle: .localizedModule) }
     static var resetPermissions: String { String(localized: "pageInfo.reset.many", defaultValue: "Reset permissions", table: "PageInfo", bundle: .localizedModule) }
-    // retry-prompt-ok: reloading drops what the page holds (typed text, scroll); the person picks when (Chrome's Page Info)
     static var reloadToApply: String { String(localized: "pageInfo.reload.text", defaultValue: "Reload this page to apply your updated settings on this site", table: "PageInfo", bundle: .localizedModule) }
     static var reload: String { String(localized: "pageInfo.reload.button", defaultValue: "Reload", table: "PageInfo", bundle: .localizedModule) }
     static var manage: String { String(localized: "pageInfo.permission.manage", defaultValue: "Manage", table: "PageInfo", bundle: .localizedModule) }

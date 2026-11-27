@@ -20,8 +20,6 @@ struct Fake {
     writes: RefCell<Vec<(String, u32, Vec<u8>)>>,
     /// What the turn credential's install answers; `None` is `changed`.
     turn_answer: RefCell<Option<(i64, String, String)>>,
-    /// How many `cloud.machine.create` answers are lost (`timed_out`) after the machine was made.
-    lost_creates: RefCell<usize>,
 }
 
 impl Fake {
@@ -50,11 +48,6 @@ impl Cloud for Fake {
                 // The same key with another request: refused, as the platform does.
                 if row["size"] != params["size"] {
                     return Err(Failure::http(409, Some("idempotency.conflict".into()), None));
-                }
-                let mut lost = self.lost_creates.borrow_mut();
-                if *lost > 0 {
-                    *lost -= 1;
-                    return Err(Failure::TimedOut("/v1/ops".into()));
                 }
                 Ok(json!({ "machine": row.clone() }))
             }
@@ -184,17 +177,6 @@ async fn a_new_start_makes_pairs_places_and_starts_the_host() {
     // The place names the machine and team, so a message resumes a paused machine (cmux-api).
     assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["machine"], answer["machine"]);
     assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["team"], "team_1");
-}
-
-#[tokio::test]
-async fn a_create_whose_answer_is_lost_is_sent_again_under_its_key() {
-    let fake = Fake::default();
-    fake.probes(vec![done()]);
-    *fake.lost_creates.borrow_mut() = 2;
-    let answer = run(&fake, &start(false)).await.unwrap();
-    assert_eq!(answer["stage"], "done");
-    assert_eq!(fake.count("cloud.machine.create chief-machine-k1-create"), 3);
-    assert_eq!(fake.machines.borrow().len(), 1);
 }
 
 #[tokio::test]

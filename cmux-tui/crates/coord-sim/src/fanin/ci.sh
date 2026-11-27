@@ -7,14 +7,6 @@
 # (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts). A 5th argument
 # `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.self.txt, perf.children.txt, perf.stacks.gz, and offcpu.stacks.gz where sudo -n works).
 set -uo pipefail
-# `perf` is accepted in any position (`ci.sh perf`, `ci.sh 2000 perf`): it is pulled out and the
-# remaining arguments keep their order, so a misplaced flag still profiles instead of being read as RAMPS.
-ARGS=(); PROFILE_ARG=
-for a in "$@"; do if [ "$a" = perf ]; then PROFILE_ARG=perf; else ARGS+=("$a"); fi; done
-if [ -n "$PROFILE_ARG" ]; then
-  [ "$#" -ne 5 ] && echo "FANIN: \`perf\` read as the profile flag; ramp arguments: ${ARGS[*]:-(defaults)}"
-  set -- "${ARGS[@]}" "" "" "" "" ""; set -- "${@:1:4}" perf
-fi
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
 HOSTS=${3:-10}
@@ -32,13 +24,8 @@ echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ul
 # 2-hour timeout covers.
 export CARGO_TARGET_DIR=$ROOT/target-fanin
 if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
-# FANIN_ACPMUX_BIN: a daemon built already (abba.sh runs a base build and a head build in turn).
-if [ -n "${FANIN_ACPMUX_BIN:-}" ]; then
-  BIN=$FANIN_ACPMUX_BIN
-else
-  (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
-  BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
-fi
+(cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
+BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
 (cd cmux-tui/crates/coord-sim && env -u RUSTFLAGS cargo build --release && env -u RUSTFLAGS cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
 SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
 [ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
@@ -54,22 +41,8 @@ BIN=$RUN/bin/acpmux SIM=$RUN/bin/coord-sim
 echo "FANIN: acpmux $("$BIN" --version 2>/dev/null | head -1)"
 # The largest ramp's controller, found by the home in its environment (`fanin/fleet.rs` env_for).
 profile() {
-  # FANIN_PERF_ROLE=h00 (any host name) profiles that host daemon instead of the controller.
-  local top=${RAMPS##*,} pid="" p ROLE=${FANIN_PERF_ROLE:-controller}
-  local PERF=perf
+  local top=${RAMPS##*,} pid="" p
   command -v perf >/dev/null || { echo "FANIN perf: perf is not installed on this runner"; return; }
-  # Ubuntu's `perf` is a wrapper that refuses a kernel with no matching linux-tools package (a
-  # runner image's kernel moves ahead of it); the real binaries beside it run on any kernel.
-  if ! perf --version >/dev/null 2>&1; then
-    PERF=$(ls -d /usr/lib/linux-tools/*/perf /usr/lib/linux-tools-*/perf 2>/dev/null | sort -V | tail -1)
-    if [ ! -x "$PERF" ] && sudo -n true 2>/dev/null; then
-      sudo -n apt-get install -y -qq linux-tools-generic >/dev/null 2>&1 \
-        || { sudo -n apt-get update -qq >/dev/null 2>&1 && sudo -n apt-get install -y -qq linux-tools-generic >/dev/null 2>&1; }
-      PERF=$(ls -d /usr/lib/linux-tools/*/perf /usr/lib/linux-tools-*/perf 2>/dev/null | sort -V | tail -1)
-    fi
-    [ -x "$PERF" ] || { echo "FANIN perf: perf has no build for kernel $(uname -r) and none is installed beside it"; return; }
-    echo "FANIN perf: using $PERF (no linux-tools for kernel $(uname -r))"
-  fi
   # Ubuntu runners ship perf_event_paranoid 4 (no user profiling at all); a CI runner's sudo lowers it.
   if [ "$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null)" -gt 1 ] 2>/dev/null; then
     sudo -n sysctl -qw kernel.perf_event_paranoid=1 2>/dev/null \
@@ -77,72 +50,43 @@ profile() {
   fi
   for _ in $(seq 1 3600); do
     for p in $(pgrep -f -- "$BIN daemon run" || true); do
-      tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "^ACPMUX_HOME=.*/n$top/$ROLE$" && { pid=$p; break; }
+      tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "n$top/controller" && { pid=$p; break; }
     done
     [ -n "$pid" ] && break
     sleep 1
   done
-  [ -n "$pid" ] || { echo "FANIN perf: no $ROLE for n=$top"; return; }
-  echo "FANIN perf: recording $ROLE pid $pid"
+  [ -n "$pid" ] || { echo "FANIN perf: no controller for n=$top"; return; }
+  echo "FANIN perf: recording controller pid $pid"
   # Where its threads block (a lock, a full channel): each switch away, with its stack. A
   # scheduler tracepoint, so it needs root; a runner without `sudo -n` keeps the CPU profile only.
   local off=""
   if sudo -n true 2>/dev/null; then
-    sudo -n "$PERF" record -e sched:sched_switch --call-graph fp -p "$pid" -o "$OUT/offcpu.data" \
+    sudo -n perf record -e sched:sched_switch --call-graph fp -p "$pid" -o "$OUT/offcpu.data" \
       -- sleep $((WINDOW + 30)) >"$OUT/offcpu.record.log" 2>&1 &
     off=$!
   fi
   # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
-  "$PERF" record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
   if [ -n "$off" ]; then
     wait "$off"
-    sudo -n "$PERF" script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
+    sudo -n perf script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
     sudo -n rm -f "$OUT/offcpu.data"
     echo "FANIN perf: off-CPU $(grep -o '([0-9]* samples)' "$OUT/offcpu.record.log")"
   fi
   [ -s "$OUT/perf.data" ] || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
   echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
-  "$PERF" report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
-  "$PERF" report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
+  perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
+  perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
   # Every sample's stack, for any caller/callee split afterwards (perf.data itself is too big to keep).
-  "$PERF" script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
+  perf script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
   rm -f "$OUT/perf.data"
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
 [ "$PROFILE" = perf ] && { profile & PROF=$!; }
-# FANIN_CPUSPLIT=1: the box's CPU by role (controller, host daemons, agents, driver) each second of the
-# largest ramp (cpusplit.py), to tell a saturated harness box from a controller that does not scale.
-if [ "${FANIN_CPUSPLIT:-0}" = 1 ]; then
-  python3 "$ROOT/cmux-tui/crates/coord-sim/src/fanin/cpusplit.py" "$BIN" "$SIM" "${RAMPS##*,}" "$OUT/cpusplit.ndjson" $((WINDOW * 4 + 600)) \
-    > "$OUT/cpusplit.txt" 2>&1 & SPLIT=$!
-fi
-# FANIN_PIN=K: the controller gets CPUs 0..K-1 to itself and everything else (host daemons, agents,
-# driver) runs on the rest, so a fan-out round's tail is the controller's own and not a share of a
-# box the 10 host daemons saturate (cmux#51785 8-cpu split: host daemons took 480-650 of 800
-# centi-CPU in each round's busiest second). Each ramp's controller is re-pinned as it starts.
-PIN_PREFIX=()
-if [ -n "${FANIN_PIN:-}" ] && [ "$FANIN_PIN" -gt 0 ] 2>/dev/null && [ "$FANIN_PIN" -lt "$(nproc)" ]; then
-  PIN_PREFIX=(taskset -c "$FANIN_PIN-$(($(nproc) - 1))")
-  echo "FANIN pin: controller on CPUs 0-$((FANIN_PIN - 1)), the rest on $FANIN_PIN-$(($(nproc) - 1))"
-  (
-    pinned=" "
-    while :; do
-      for p in $(pgrep -f -- "$BIN daemon run" || true); do
-        case "$pinned" in *" $p "*) continue ;; esac
-        if tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q '^ACPMUX_HOME=.*/n[0-9]*/controller'; then
-          taskset -a -cp "0-$((FANIN_PIN - 1))" "$p" >/dev/null 2>&1 && { pinned="$pinned$p "; echo "FANIN pin: controller pid $p on 0-$((FANIN_PIN - 1))"; }
-        fi
-      done
-      sleep 0.5
-    done
-  ) & PINNER=$!
-fi
-"${PIN_PREFIX[@]}" "$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
+"$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
   --out "$RUN" --acpmux "$BIN" --wall-clock-cap 6000 2>&1 | tee "$OUT/fanin.log" | grep -v '^FANIN_SUMMARY'
 code=${PIPESTATUS[0]}
 [ -n "${PROF:-}" ] && wait "$PROF"
-[ -n "${PINNER:-}" ] && kill "$PINNER" 2>/dev/null
-[ -n "${SPLIT:-}" ] && { kill -INT "$SPLIT" 2>/dev/null; wait "$SPLIT"; cat "$OUT/cpusplit.txt"; }
 "$SIM" fanin teardown --out "$RUN" || true
 cp "$RUN/fanin-summary.json" "$OUT/" 2>/dev/null || true
 for d in "$RUN"/n*; do

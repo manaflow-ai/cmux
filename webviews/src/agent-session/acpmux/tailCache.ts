@@ -78,7 +78,6 @@ function tailThrough(tail: KeptTail): number {
 function noteShown(sessionId: string, tail: KeptTail): void {
   shownThrough.delete(sessionId);
   shownThrough.set(sessionId, { through: tailThrough(tail), generation: tail.summary?.createdAt });
-  // ends: each pass deletes the oldest key, so the map shrinks to SHOWN_CHATS
   while (shownThrough.size > SHOWN_CHATS) shownThrough.delete(shownThrough.keys().next().value!);
 }
 
@@ -102,7 +101,6 @@ export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
   if (keptTails.has(sessionId)) return;
   readAheadTails.delete(sessionId);
   readAheadTails.set(sessionId, tail);
-  // ends: each pass deletes the oldest key, so the map shrinks to READ_AHEAD_TAILS
   while (readAheadTails.size > READ_AHEAD_TAILS) readAheadTails.delete(readAheadTails.keys().next().value!);
 }
 
@@ -153,7 +151,6 @@ export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = tr
     readAheadTails.delete(sessionId);
     keptTails.delete(sessionId);
     keptTails.set(sessionId, tail);
-    // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   }
   // `toHost` false: the caller hands it over in a request of its own (`TailHandOver`).
@@ -214,7 +211,6 @@ export function keepHandedTail(sessionId: string, value: unknown): boolean {
   if (!tail) return false;
   readAheadTails.delete(sessionId);
   keptTails.set(sessionId, tail);
-  // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
   while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   return true;
 }
@@ -234,7 +230,6 @@ function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
       // no longer stands behind, and an answer already in flight must not put it back.
       if (tail && !keptTails.has(sessionId) && reading.get(sessionId) === read) {
         keptTails.set(sessionId, tail);
-        // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
         while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
       }
       return tail;

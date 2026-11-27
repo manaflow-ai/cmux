@@ -27,11 +27,7 @@ export function GitHubAccountsCard() {
           <div className="accounts-body">
             <div className="accounts-buttons">
               {github.signIn ? (
-                <SignInButton
-                  label={github.signIn}
-                  backend={github.signInBackend}
-                  onSignIn={() => void store.runAccounts({ action: "signIn" })}
-                />
+                <SignInButton label={github.signIn} onSignIn={() => void store.runAccounts({ action: "signIn" })} />
               ) : (
                 <Button
                   className="button"

@@ -34,8 +34,6 @@ public final class AutomationsPageHost {
     public let model: AutomationsPage
     /// Starts the cmux sign-in: the page's Sign In beside its signed-out Cloud line. Nil shows no button.
     public var signIn: (@MainActor @Sendable () -> Void)?
-    /// What that Sign In signs in to ("Signs in to cmux.com"), the line beside it; nil shows none.
-    public var signInBackend: String?
     /// Opens a prompt run's agent chat by its session name, with a title. Nil shows no Open chat.
     public var openChat: (@MainActor @Sendable (_ session: String, _ title: String) -> Void)?
 
@@ -85,7 +83,7 @@ public final class AutomationsPageHost {
     }
 
     public func makeView(tokens: @escaping @MainActor () -> ThemeTokens) -> NSView {
-        AutomationsHostingView(model: model, tokens: tokens, actions: AutomationsPageView.Actions(signIn: signIn, signInBackend: signInBackend, openChat: openChat))
+        AutomationsHostingView(model: model, tokens: tokens, actions: AutomationsPageView.Actions(signIn: signIn, openChat: openChat))
     }
 
     /// The words of a failed `cmux --json` command: its JSON error's message, else its stderr.

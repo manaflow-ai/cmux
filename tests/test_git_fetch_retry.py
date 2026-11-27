@@ -482,9 +482,7 @@ class Workflow(unittest.TestCase):
                         "git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force"
                         " --depth=1 --recursive"):
             with self.subTest(command=command):
-                # Bounded: the submodules under the retrying wrapper, the commit's fetch under one bounded
-                # try per pass of the mirror-first backoff loop.
-                self.assertTrue(("retry " + command) in script or ("once " + command) in script, command)
+                self.assertIn("retry " + command, script)
                 # Never also run bare.
                 self.assertEqual(script.count(command), 1)
 
@@ -495,19 +493,19 @@ class Workflow(unittest.TestCase):
         step = next(s for s in doc["jobs"]["build-nightly-app"]["steps"] if s.get("name") == WARM_STEP)
         script = step["run"]
         start = script.index('fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"')
-        end = script.index("# The mirror never got the commit", start)
+        end = script.index("started=$SECONDS")
         with tempfile.TemporaryDirectory() as temp:
             workspace, runner_temp = Path(temp) / "ws", Path(temp) / "tmp"
             workspace.mkdir()
             runner_temp.mkdir()
             subprocess.run(["git", "init", "-q", str(workspace)], check=True)
-            body = ("set -euo pipefail\ncurl() { return 7; }\nmirror_ok=\"\"\n" + script[start:end]
+            body = ("set -euo pipefail\ncurl() { return 7; }\n" + script[start:end]
                     + 'retry git status --short\necho done\n')
             env = {**os.environ, "RUNNER_TEMP": str(runner_temp), "GITHUB_WORKSPACE": str(workspace),
-                   "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40, "BUILD_SHA": "0" * 40}
+                   "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40}
             result = subprocess.run(["bash", "-c", body], cwd=workspace, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("unavailable; running git up to 3 times with the low-speed abort", result.stdout)
+            self.assertIn("unavailable; running git once with the low-speed abort", result.stdout)
             self.assertTrue(result.stdout.strip().endswith("done"))
             # With the helper in the workflow commit's objects, it is used.
             (workspace / "scripts/ci").mkdir(parents=True)

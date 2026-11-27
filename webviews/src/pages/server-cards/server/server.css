@@ -227,7 +227,7 @@
   min-height: 32px;
   padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -337,7 +337,7 @@ button.sv-role:focus-visible {
 .sv-box,
 .sv-role {
   border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   background: var(--page-elevated);
 }
 
@@ -434,14 +434,14 @@ button.sv-role:focus-visible {
 .sv-qr {
   display: block;
   flex: none;
-  border-radius: var(--ds-radius-sm);
+  border-radius: 4px;
   background: white;
   image-rendering: pixelated;
 }
 
 .sv-qr-tile {
   padding: var(--ds-space-2);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   background: white;
 }
 
@@ -470,7 +470,7 @@ button.sv-role:focus-visible {
   gap: var(--ds-space-2);
   min-width: 0;
   padding: var(--ds-space-1) var(--ds-space-2);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   background: var(--page-hover);
 }
 
@@ -577,7 +577,7 @@ button.sv-role:focus-visible {
   height: 28px;
   padding: 0 var(--ds-space-3);
   border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   outline: none;
   background: var(--page-elevated);
   color: var(--page-text);

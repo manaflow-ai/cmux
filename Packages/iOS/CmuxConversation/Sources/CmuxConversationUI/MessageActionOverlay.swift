@@ -1078,7 +1078,6 @@ extension ConversationViewController {
             }, at: editIndex)
         }
         if model.message.delivery?.isFailed == true {
-            // retry-prompt-ok: re-sends a failed message
             items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
                 self?.store.retry(rowID: model.rowID)
             }, at: 1)

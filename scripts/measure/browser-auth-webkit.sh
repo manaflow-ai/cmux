@@ -109,8 +109,7 @@ sleep 5
 cli="$app/Contents/Resources/bin/cmux"
 [[ -x "$cli" ]] || cli="$(command -v cmux || true)"
 mkdir -p "$work/bin" && ln -sf "$cli" "$work/bin/cmux"
-PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" \
-  --app-pid "$(cat "$CMUX_SIDE_ROOT/$name/pid" 2>/dev/null || echo 0)" --diag-dir "$out" 2>&1 | tee "$out/run.log"
+PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . || exit 3

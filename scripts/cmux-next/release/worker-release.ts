@@ -248,7 +248,7 @@ export const gitFetchRetrying = (cwd: string, args: ReadonlyArray<string>, opts:
   if (run.status === 0) return
   if ((run.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
     // No python3 on this runner: one plain fetch, as before the helper.
-    execFileSync("git", ["-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=60", "-C", cwd, "fetch", ...args], { stdio: ["ignore", "inherit", "inherit"] })
+    execFileSync("git", ["-c", "http.lowSpeedLimit=1024", "-c", "http.lowSpeedTime=60", "-C", cwd, "fetch", ...args], { stdio: ["ignore", "inherit", "inherit"] })
     return
   }
   const lines = `${run.stdout ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean)

@@ -54,7 +54,6 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
-        retryAt={row.retryAt}
         pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
         glyphTrigger={trigger}
       />
@@ -91,6 +90,5 @@ export const ThinkingRow = memo(
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
-    a.row.retry === b.row.retry &&
-    a.row.retryAt === b.row.retryAt,
+    a.row.retry === b.row.retry,
 );

@@ -66,9 +66,7 @@ config="$CMUX_SIDE_ROOT/$name/config"
 # The copy starts on an empty theme file of the run's own; each case rewrites only that file (the app watches it).
 python3 scripts/measure/look-keys-readback.py prepare --config "$config" || exit 3
 app="$("$side" path "$name")"
-# --skip-onboarding: a fresh profile opens Make cmux Yours over the main window. Step 640558b0 (cmux12s) shot the
-# menu-tokens case under that sheet: the model menu never drew, 0 #ff00ff pixels. Same flag as customizer-toggle-readback.sh.
-"$side" launch "$name" --front -- --skip-onboarding >&2 || exit 3
+"$side" launch "$name" --front >&2 || exit 3
 python3 scripts/measure/look-keys-readback.py run --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
   --control-socket "$("$side" socket "$name")" --config "$config" --cases "$cases" --only "$only" \
   --dmg "$dmg" --out "$out" 2>&1 | tee "$out/run.log"

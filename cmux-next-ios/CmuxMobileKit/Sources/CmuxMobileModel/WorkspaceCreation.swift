@@ -855,8 +855,6 @@ public final class WorkspaceCreator {
                 // there after a relaunch would start the task a second time.
                 await taskDrafts.flush()
                 if taskDrafts.lastWriteFailed {
-                    // retry-prompt-ok: starting the task is the person's action, refused before it
-                    // reached the Mac so it never runs twice; the person decides whether to send it again.
                     throw WorkspaceCreationError("Couldn't update this iPhone's saved drafts, so the task wasn't started. Try again.",
                                                  isForPerson: true)
                 }
@@ -1052,7 +1050,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         switch catalogMode {
         case .normal: break
         case .empty: return AgentCatalog(harnesses: [])
-        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
+        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         case .slow: try await clock.sleep(for: catalogDelay)
         case .many:
             // More agents than a task takes (agentLimit), and a model the account can't use.

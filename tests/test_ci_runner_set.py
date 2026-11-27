@@ -164,10 +164,8 @@ class RunnerSetTests(unittest.TestCase):
         self.assertEqual(gate["name"], "Wait until the pull request has had no push for the quiet period")
         self.assertIn("github.event_name == 'pull_request'", gate["if"])
         self.assertIn("github.run_attempt == 1", gate["if"])
-        # landing.md: a leo-named-fix PR lands with no wait. The label comes from path_route's live read of the
-        # PR's labels (",a,b,"), so a label added after the push counts too, not the event's snapshot.
-        self.assertIn("!contains(needs.path_route.outputs.labels, ',leo-named-fix,')", gate["if"])
-        self.assertIn("path_route", placement.get("needs") or [])
+        # landing.md: a leo-named-fix PR lands with no wait.
+        self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
         self.assertIn("vars.CI_PR_QUIET_PERIOD_SECONDS", gate["if"])
         self.assertTrue(gate.get("continue-on-error"))
         self.assertIn('sleep "$wait"', gate["run"])
@@ -202,9 +200,8 @@ class RunnerSetTests(unittest.TestCase):
             return cells is None or any("macos" in runs_on or "gateway_runner" in runs_on for runs_on in cells)
 
         mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
-        # swift-canary-fleet is a Linux build-fleet client now (note-canary-linux-read), so it takes no Mac.
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "fast-tier-fleet-mac"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet-mac"} <= mac, sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("macos-placement", ancestors(name), f"{name} takes a Mac before the quiet period ends")

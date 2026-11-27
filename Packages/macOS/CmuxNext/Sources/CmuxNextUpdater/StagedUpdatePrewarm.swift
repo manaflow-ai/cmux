@@ -53,9 +53,8 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// Sparkle's staged installation folders, the app's own first
     /// (``UpdateInstallPreflight/stagedInstallations(bundleIdentifier:accountHome:)``).
     public let installations: [URL]
-    /// The app's own staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``);
-    /// nil when ``installations`` is empty.
-    public var installation: URL? { installations.first }
+    /// The app's own staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``).
+    public var installation: URL { installations[0] }
     public let bundleIdentifier: String
     /// The staged build (`CFBundleVersion`).
     public let build: String
@@ -64,8 +63,9 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         self.init(installations: [installation], bundleIdentifier: bundleIdentifier, build: build)
     }
 
-    /// An empty `installations` finds no staged bundle, so the pre-warm runs nothing.
+    /// `installations` must not be empty.
     public init(installations: [URL], bundleIdentifier: String, build: String) {
+        precondition(!installations.isEmpty, "a pre-warm needs a staged installation folder")
         self.installations = installations
         self.bundleIdentifier = bundleIdentifier
         self.build = build

@@ -19,7 +19,6 @@ enum LiveCallText {
     static var hint: String { String(localized: "chiefLive.hint", defaultValue: "Ask Chief what your agents are doing or start work on your Macs.", bundle: .module) }
     static var typePlaceholder: String { String(localized: "chiefLive.typePlaceholder", defaultValue: "Type to Chief", bundle: .module) }
     static var send: String { String(localized: "chiefLive.button.send", defaultValue: "Send", bundle: .module) }
-    // retry-prompt-ok: a new call is a paid OpenAI session on the person's own key; starting it is their choice
     static var tryAgain: String { String(localized: "chiefLive.button.tryAgain", defaultValue: "Try Again", bundle: .module) }
     static var openSettings: String { String(localized: "chiefLive.button.openSettings", defaultValue: "Open Settings", bundle: .module) }
     static var done: String { String(localized: "chiefLive.button.done", defaultValue: "Done", bundle: .module) }
@@ -42,10 +41,8 @@ enum LiveCallText {
     static var failRefused: String { String(localized: "chiefLive.fail.refused", defaultValue: "OpenAI couldn’t start the call", bundle: .module) }
     static var failNetwork: String { String(localized: "chiefLive.fail.network", defaultValue: "Couldn’t connect", bundle: .module) }
     /// No status code for the person (the call's log keeps it).
-    // retry-prompt-ok: a new call is a paid OpenAI session on the person's own key; starting it is their choice
     static var failServerDetail: String { String(localized: "chiefLive.fail.serverDetail", defaultValue: "OpenAI had a server error. Try again in a moment.", bundle: .module) }
     static func requestID(_ id: String) -> String { String(localized: "chiefLive.requestID", defaultValue: "Request ID: \(id)", bundle: .module) }
     static var failDropped: String { String(localized: "chiefLive.fail.dropped", defaultValue: "The call dropped", bundle: .module) }
-    // retry-prompt-ok: a new call is a paid OpenAI session on the person's own key; starting it is their choice
     static var failDroppedDetail: String { String(localized: "chiefLive.fail.droppedDetail", defaultValue: "The connection to OpenAI was lost. Try again when you have a better connection.", bundle: .module) }
 }

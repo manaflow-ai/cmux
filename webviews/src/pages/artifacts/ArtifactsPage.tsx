@@ -3,7 +3,6 @@
 // sandboxed srcdoc, as the agent pane's passive artifacts do, so a saved document can never reach
 // the page, its bridge or the network. Choosing a revision shows its change against its parent.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
 import { FileIcon } from "../../file-icons";
 import { SignInButton } from "../../ui/SignInButton";
@@ -18,27 +17,22 @@ import { intl } from "../../ui/intl";
 export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
-  // A tree that failed to read is read again on its own (Leo, 2026-11-22: a "try again" is a vacuous
-  // decision); while a read is in flight the failure stretch goes on, so the quiet line counts from the
-  // first failure. Signed out waits for the person's Sign In instead (the auth watch reads again).
-  const signedOut = snapshot.failure?.code === SIGNED_OUT;
-  const treeFailed = snapshot.status === "failed" && !signedOut ? (snapshot.failure ?? true) : false;
-  const { stillTrying } = useAutoRetry(treeFailed, () => void store.start(), {
-    busy: snapshot.status === "loading",
-  });
   if (snapshot.status === "unavailable") return <p className="artifacts-message">{t("artifacts.page.unavailable")}</p>;
-  if (snapshot.status === "failed" && signedOut)
-    return (
-      <div className="artifacts-message" role="alert">
-        <p>{snapshot.failure?.message ?? t("artifacts.page.signIn")}</p>
-        <SignInButton label={t("artifacts.page.signIn")} onSignIn={() => void store.signIn()} />
-      </div>
-    );
-  // Asking again after a failure: nothing at first, then one quiet line with no button.
-  if (stillTrying) return <p className="artifacts-message artifacts-muted">{t("artifacts.page.stillLoading")}</p>;
-  if (snapshot.status === "failed") return <p className="artifacts-message artifacts-muted" aria-busy="true" />;
   if (snapshot.status === "idle" || snapshot.status === "loading")
     return <p className="artifacts-message artifacts-muted">{t("artifacts.page.loading")}</p>;
+  if (snapshot.status === "failed")
+    return (
+      <div className="artifacts-message" role="alert">
+        <p>{failureText(snapshot.failure, strings)}</p>
+        {snapshot.failure?.code === SIGNED_OUT ? (
+          <SignInButton label={t("artifacts.page.signIn")} onSignIn={() => void store.signIn()} />
+        ) : (
+          <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
+            {t("artifacts.page.retry")}
+          </button>
+        )}
+      </div>
+    );
   if (snapshot.status === "empty")
     return <p className="artifacts-message artifacts-muted">{t("artifacts.page.empty")}</p>;
   return (
@@ -62,7 +56,7 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
         <header className="artifacts-header">
           <span className="artifacts-path">{snapshot.selected ?? t("artifacts.file.choose")}</span>
         </header>
-        <Preview snapshot={snapshot} store={store} strings={strings} />
+        <Preview snapshot={snapshot} strings={strings} />
         <History snapshot={snapshot} store={store} strings={strings} />
       </section>
     </div>
@@ -184,38 +178,28 @@ function FileTree({
   );
 }
 
-function Preview({
-  snapshot,
-  store,
-  strings,
-}: {
-  snapshot: ArtifactsSnapshot;
-  store: ArtifactsStore;
-  strings: Strings;
-}) {
-  const { file, fileLoading, fileFailure, historyFailure, selected } = snapshot;
-  // A file or history read that failed is read again on its own (the same path, keeping what is
-  // shown); only one that keeps failing past the deadline says so, in one quiet line.
-  const failure = fileFailure ?? historyFailure;
-  const { stillTrying } = useAutoRetry(selected && retriable(failure) ? failure : false, () => {
-    if (selected) void store.select(selected, true);
-  });
-  const quiet = stillTrying ? <p className="artifacts-note">{strings.t("artifacts.file.stillLoading")}</p> : null;
-  if (fileFailure && !file) return quiet ?? <div className="artifacts-preview artifacts-muted" aria-busy="true" />;
-  if (fileLoading || !selected) return <div className="artifacts-preview artifacts-muted" aria-busy={fileLoading} />;
+function Preview({ snapshot, strings }: { snapshot: ArtifactsSnapshot; strings: Strings }) {
+  const { file, fileLoading, fileFailure } = snapshot;
+  if (fileFailure && !file)
+    return (
+      <p className="artifacts-message" role="alert">
+        {failureText(fileFailure, strings)}
+      </p>
+    );
+  if (fileLoading || !snapshot.selected)
+    return <div className="artifacts-preview artifacts-muted" aria-busy={fileLoading} />;
   if (!file) return <div className="artifacts-preview" />;
   return (
     <>
-      {/* A reload that failed keeps the file it had on screen; past the deadline one quiet line says so. */}
-      {quiet}
+      {/* A reload that failed keeps the file it had on screen and says so; a refresh tries again. */}
+      {fileFailure ? (
+        <p className="artifacts-note" role="alert">
+          {failureText(fileFailure, strings)}
+        </p>
+      ) : null}
       <FileBody file={file} strings={strings} />
     </>
   );
-}
-
-/** Whether reading again may clear `failure`: not when signed out (Sign In does) or nothing is there. */
-function retriable(failure: ArtifactsFailure | undefined): failure is ArtifactsFailure {
-  return !!failure && failure.code !== SIGNED_OUT && failure.code !== "cmux.artifacts.not_found";
 }
 
 function FileBody({ file, strings }: { file: ArtifactFile; strings: Strings }) {
@@ -257,10 +241,7 @@ function History({
     <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
       <h2 className="artifacts-history-title">{strings.t("artifacts.history.title")}</h2>
       {historyFailure ? (
-        // Read again on its own with the file (Preview); signed out or missing says the owner's words.
-        retriable(historyFailure) ? null : (
-          <p className="artifacts-muted">{failureText(historyFailure, strings)}</p>
-        )
+        <p className="artifacts-muted">{failureText(historyFailure, strings)}</p>
       ) : history.length === 0 ? (
         <p className="artifacts-muted">{strings.t("artifacts.history.none")}</p>
       ) : null}
@@ -333,5 +314,5 @@ function formatTime(time: number, language: string): string {
 
 /** The app's own words for a failure (it words them in the person's language), else the page's. */
 function failureText(failure: ArtifactsFailure | undefined, strings: Strings): string {
-  return failure?.message ?? strings.t("artifacts.history.none");
+  return failure?.message ?? strings.t("artifacts.page.failed");
 }

@@ -134,12 +134,10 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "caption" },
     },
     "dial-caption-declined": {
-      // retry-prompt-ok: the kept Retry (a new consent card on the other Mac).
       note: "Picked. studio-mini said Not now: the caption says so and Retry follows it. Nothing asks again until Retry.",
       props: { snapshot: joinedOnly, dial: declined, layout: "caption" },
     },
     "dial-caption-unanswered": {
-      // retry-prompt-ok: the kept Retry (a new consent card on the other Mac).
       note: "Picked. No answer within about three minutes: the row stops asking and offers Retry.",
       props: {
         snapshot: joinedOnly,
@@ -148,7 +146,6 @@ export default componentEntry<Props>({
       },
     },
     "dial-caption-update": {
-      // retry-prompt-ok: the person updates cmux on the other Mac first, then Retry.
       note: "Picked. studio-mini's cmux predates the consent (it answers service.unknown): Update cmux on it, with Retry.",
       props: {
         snapshot: joinedOnly,
@@ -181,7 +178,6 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "trailing" },
     },
     "dial-trailing-declined": {
-      // retry-prompt-ok: the kept Retry, laid out on the New Workspace button.
       note: "Variant: trailing words; Retry is the New Workspace button, shown without hover.",
       props: { snapshot: joinedOnly, dial: declined, layout: "trailing" },
     },
@@ -190,7 +186,6 @@ export default componentEntry<Props>({
       props: { snapshot: joinedOnly, dial: waiting, layout: "tinted" },
     },
     "dial-tinted-declined": {
-      // retry-prompt-ok: the kept Retry, laid out on the New Workspace button.
       note: "Variant: Not now in the danger ink, Retry as the New Workspace button. Reads as an error, which Not now is not.",
       props: { snapshot: joinedOnly, dial: declined, layout: "tinted" },
     },

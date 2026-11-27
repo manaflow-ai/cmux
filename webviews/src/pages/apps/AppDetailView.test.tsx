@@ -25,18 +25,9 @@ test("a normal detail load reads as loading, not as a store failure", () => {
   const html = render("loading");
   expect(html).toContain('data-detail-state="loading"');
   expect(html).toContain(en["store.detail.loading"]!);
+  expect(html).not.toContain(en["store.error.load"]!);
   expect(html).not.toContain(en["store.updates.loading"]!);
   expect(html).not.toContain('role="alert"');
-});
-
-// Leo, 2026-11-22: no vacuous Reload. A listing read that failed is read again on its own and reads
-// as loading; only one that lasts the deadline says "Still loading this app…".
-test("a failed listing read stays a quiet loading state with no Reload", () => {
-  const html = render("error");
-  expect(html).toContain('data-detail-state="loading"');
-  expect(html).toContain(en["store.detail.loading"]!);
-  expect(html).not.toContain('role="alert"');
-  expect(html).not.toContain('<button type="button" class="apps-button"');
 });
 
 test("a missing app says so instead of reusing the search empty state", () => {
@@ -52,9 +43,6 @@ test("a failed catalog does not also claim that no apps match", async () => {
   await failing.start();
   const html = renderToStaticMarkup(<AppsPage store={failing} strings={strings} />);
   failing.stop();
-  // It is read again on its own: the loading grid stays, with no Reload and no failure at first.
-  expect(html).toContain("apps-grid-loading");
+  expect(html).toContain(en["store.error.load"]!);
   expect(html).not.toContain(en["store.empty.noMatches"]!);
-  expect(html).not.toContain("supervisor unavailable");
-  expect(html).not.toContain(">Reload<");
 });

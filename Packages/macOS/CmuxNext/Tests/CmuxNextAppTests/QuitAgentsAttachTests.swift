@@ -63,8 +63,8 @@ struct QuitAgentsAttachTests {
 
         #expect(await QuitAgents.end(attached).isEmpty)
         #expect(connections.count.withLock { $0 } == 0, "an attached quit reached the other app's daemon")
-        #expect(attached.isAttached(to: URL(fileURLWithPath: own.home.path + "/", isDirectory: true)))
-        #expect(!own.isAttached(to: own.home))
+        #expect(QuitAgents.isAttached(attached, to: URL(fileURLWithPath: own.home.path + "/", isDirectory: true)))
+        #expect(!QuitAgents.isAttached(own, to: own.home))
         // The same daemon, owned: the quit asks it and reports that it did not answer.
         let owned = await QuitAgents.end(own)
         #expect(!owned.isEmpty)

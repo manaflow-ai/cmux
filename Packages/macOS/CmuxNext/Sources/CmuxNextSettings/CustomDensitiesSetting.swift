@@ -19,7 +19,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     /// The custom densities in `root`, in file order. An entry that is not a valid density, or
     /// whose id repeats or names a built-in, is skipped with a diagnostic.
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [DensityTokens] {
-        let reply = SettingsRust.answer("densities.parse", ["root": root])
+        let reply = SettingsRust().answer("densities.parse", ["root": root])
         for diagnostic in reply["diagnostics"]?.arrayValue ?? [] {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: diagnostic["path"]?.stringValue ?? Self.configPath.joined(separator: "."), message: diagnostic["message"]?.stringValue ?? "invalid density"))
         }
@@ -28,13 +28,13 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
 
     /// Whether `value` is a list of valid densities (the Settings write check).
     public static func accepts(_ value: JSONValue) -> Bool {
-        SettingsRust.answer("densities.accepts", ["value": value])["valid"]?.boolValue ?? false
+        SettingsRust().answer("densities.accepts", ["value": value])["valid"]?.boolValue ?? false
     }
 
     /// One density from its JSON object; nil when it has no valid id or name, or a value of the
     /// wrong type. Numbers out of range are clamped (``DensityTokens/init(id:name:basedOn:level:spacing:fontSize:tokens:)``).
     public static func density(from value: JSONValue) -> DensityTokens? {
-        guard let members = SettingsRust.answer("densities.json", ["density": value])["value"]?.objectValue,
+        guard let members = SettingsRust().answer("densities.json", ["density": value])["value"]?.objectValue,
               let id = members["id"]?.stringValue, let name = members["name"]?.stringValue else { return nil }
         return DensityTokens(id: id, name: name, basedOn: members["basedOn"]?.stringValue,
                              level: members["level"]?.doubleValue ?? 0, spacing: members["spacing"]?.doubleValue ?? 1,
@@ -60,7 +60,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     public static func writes(customs: [DensityTokens]?, active: DensityTokens) -> [([String], JSONValue?)] {
         let request: [String: JSONValue] = ["active": json(active)]
             .merging(customs.map { ["customs": .array($0.map(json))] } ?? [:]) { _, new in new }
-        return SettingsRust.answer("densities.writes", .object(request))["writes"]?.arrayValue?.compactMap { write in
+        return SettingsRust().answer("densities.writes", .object(request))["writes"]?.arrayValue?.compactMap { write in
             guard let path = write["path"]?.arrayValue?.compactMap(\.stringValue) else { return nil }
             return (path, write["value"].flatMap { $0.isNull ? nil : $0 })
         } ?? []
@@ -71,7 +71,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     public static func duplicate(_ base: DensityTokens, name: String, fontSize: Double? = nil, existing: [DensityTokens]) -> DensityTokens {
         let request: [String: JSONValue] = ["base": json(base), "name": .string(name), "existing": .array(existing.map(json))]
             .merging(fontSize.map { ["fontSize": .number($0)] } ?? [:]) { _, new in new }
-        var copy = density(from: SettingsRust.answer("densities.duplicate", .object(request))["value"] ?? .null) ?? base
+        var copy = density(from: SettingsRust().answer("densities.duplicate", .object(request))["value"] ?? .null) ?? base
         copy.name = name
         return copy
     }
@@ -79,6 +79,6 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     /// An id for `name`: lowercase letters, digits and hyphens, unique among `existing` and the
     /// built-ins.
     public static func uniqueID(for name: String, existing: [DensityTokens]) -> String {
-        SettingsRust.answer("densities.unique_id", ["name": .string(name), "existing": .array(existing.map(json))])["id"]?.stringValue ?? "custom"
+        SettingsRust().answer("densities.unique_id", ["name": .string(name), "existing": .array(existing.map(json))])["id"]?.stringValue ?? "custom"
     }
 }

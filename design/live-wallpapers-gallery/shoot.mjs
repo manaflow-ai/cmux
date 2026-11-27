@@ -33,8 +33,6 @@ const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ozone-platform=headless"],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-// SwiftShader draws every card on the CPU: a heavy program on a busy host takes a while.
-page.setDefaultTimeout(Number(process.env.SHOOT_TIMEOUT_MS ?? 600000));
 page.on("console", (m) => m.type() === "error" && console.error(m.text()));
 
 await page.goto(`${base}?still=1${only ? `&id=${only}` : ""}`);
@@ -45,39 +43,7 @@ for (const section of await page.$$("section")) {
   console.log(`${id}-stills.png`);
 }
 
-// A motion scene: each card's still at full size, then a frame sequence across one loop (8 frames
-// of the first card), all from Rust's packed uniforms (build.mjs).
-const png = (url) => Buffer.from(url.slice(url.indexOf(",") + 1), "base64");
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-for (const section of await page.$$("section[data-scene]")) {
-  const id = await section.getAttribute("id");
-  const cards = await section.$$eval("figure[data-card]", (fs) => fs.map((f) => f.dataset.card));
-  for (const card of cards) {
-    const { url } = await page.evaluate(([i, c]) => window.sceneFrame(i, c, "still"), [id, card]);
-    const name = `${id}-${card.split("|").map(slug).join("-")}.png`;
-    fs.writeFileSync(path.join(outDir, name), png(url));
-    console.log(name);
-  }
-  // SHOOT_FRAMES: how many frames of the card's sequence, spread evenly (default 8), or "all".
-  const seqCard = await page.evaluate((i) => window.sceneSequenceCard(i), id);
-  if (!seqCard) continue;
-  const { count } = await page.evaluate(([i, c]) => window.sceneFrame(i, c, 0), [id, seqCard]);
-  const want = process.env.SHOOT_FRAMES === "all" ? count : Math.min(count, Number(process.env.SHOOT_FRAMES ?? 8));
-  for (let k = 0; k < want; k++) {
-    const frame = Math.floor((k * count) / want);
-    const { url } = await page.evaluate(([i, c, f]) => window.sceneFrame(i, c, f), [id, seqCard, frame]);
-    fs.writeFileSync(path.join(outDir, `${id}-frame-${String(k).padStart(3, "0")}.png`), png(url));
-  }
-  console.log(`${id}-frame-*.png`);
-}
-
-// A pointer sweep on the first card of each wallpaper, live: 4 frames across the card
-// (SHOOT_SWEEP=0 skips it).
-if (process.env.SHOOT_SWEEP === "0") {
-  await browser.close();
-  server.close();
-  process.exit(0);
-}
+// A pointer sweep on the first card of each wallpaper, live: 4 frames across the card.
 await page.goto(`${base}${only ? `?id=${only}` : ""}`);
 await page.waitForSelector("body[data-ready]");
 for (const section of await page.$$("section")) {

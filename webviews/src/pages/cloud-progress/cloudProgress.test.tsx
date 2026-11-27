@@ -66,7 +66,6 @@ test("a change event reads the state again, and a reply older than a newer read 
   store.stop();
 });
 
-// retry-prompt-ok: Retry starts a Cloud machine again (a cost), so it stays the person's button.
 test("a failure shows its reason and buttons in the room they kept; Retry goes to the host", async () => {
   const calls: string[] = [];
   const provider = new MockCloudProgressProvider({ state: sampleState("connecting") });

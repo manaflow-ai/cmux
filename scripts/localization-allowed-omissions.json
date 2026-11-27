@@ -1,8 +1,4 @@
 {
-  "mobile.billing.plan.next_plus": {
-    "class": "brand",
-    "source": "Plus"
-  },
   "settings.choice.keyStyleVim": {
     "class": "brand",
     "source": "Vim"

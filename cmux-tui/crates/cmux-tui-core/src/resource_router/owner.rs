@@ -404,9 +404,6 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerGithubApp
         | ResourceOperation::CloudOwnerGithubRepos
         | ResourceOperation::CloudOwnerGithubConnect
-        | ResourceOperation::CloudOwnerGithubComplete
-        | ResourceOperation::CloudOwnerGithubList
-        | ResourceOperation::CloudOwnerGithubCloneToken
         | ResourceOperation::CloudOwnerTurnCheckpoint
         | ResourceOperation::CloudOwnerTurnRewind
         | ResourceOperation::CloudOwnerTurns
@@ -418,7 +415,6 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::CloudMachineChiefStart
         | ResourceOperation::CloudMachineChiefResize
-        | ResourceOperation::CloudMachineSetupDesktop
         | ResourceOperation::CloudMachineFork
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure

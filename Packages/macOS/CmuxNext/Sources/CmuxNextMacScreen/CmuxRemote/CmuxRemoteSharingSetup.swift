@@ -118,30 +118,33 @@ struct CmuxRemoteSharingSetup {
     /// changes the sharing switch. Accessibility is optional; viewing still needs Screen Recording.
     func proceed(after answer: String, remembersYes: Bool = true, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
         guard answer == "continue", !Task.isCancelled else { return false }
-        // The guide's steps are Rust's (cmux-rd-ffi `remote.setupStep` / `remote.setupAnswer`): the
-        // next sheet from both grants now, and what an answer does. One prompt at a time: no sheet
-        // of ours while macOS's prompt is up; every answer ends in a fresh read.
-        let read = await refresh()
-        var state: [String: Any] = ["screen": read.screen, "control": read.control]
-        var next = RdUI.call("remote.setupStep", state) as? [String: Any]
-        // Each pass waits on the person's answer to a sheet; it ends when Rust says done (or answers nothing).
-        while let current = next, current["done"] as? Bool == false {
-            guard !Task.isCancelled, let step = (current["step"] as? String).flatMap(Step.init(rawValue:)) else { return false }
+        var permissions = await refresh()
+        var screenRequested = false, controlRequested = false, viewOnly = false
+        // Every read can revoke either grant. Select the next sheet from both current grants,
+        // so losing Screen Recording during the optional control step returns to its guide.
+        while !permissions.screen || (!permissions.control && !viewOnly) {
+            guard !Task.isCancelled else { return false }
+            let needsScreen = !permissions.screen
+            let step: Step = needsScreen
+                ? (screenRequested ? .screenCheck : .screen)
+                : (controlRequested ? .controlCheck : .control)
             let answer = await present(Self.spec(step))
-            guard !Task.isCancelled, let reply = RdUI.call("remote.setupAnswer", state.merging(["answer": answer]) { $1 }) as? [String: Any],
-                  let after = reply["state"] as? [String: Any] else { return false }
-            switch reply["action"] as? String {
-            case "requestScreen": await requestScreen()
-            case "requestControl": await requestControl()
-            case "refresh": break
+            guard !Task.isCancelled else { return false }
+            switch answer {
+            case "allow":
+                // One prompt at a time: no sheet of ours while macOS's prompt is up; then a fresh
+                // read, so a grant made in macOS's prompt or System Settings skips Check Again.
+                if needsScreen { await requestScreen(); screenRequested = true }
+                else { await requestControl(); controlRequested = true }
+                permissions = await refresh()
+            case "check": permissions = await refresh()
+            case "view" where !needsScreen:
+                viewOnly = true
+                permissions = await refresh()
             default: return false
             }
-            let permissions = await refresh()
-            state = after.merging(["screen": permissions.screen, "control": permissions.control]) { $1 }
-            next = RdUI.call("remote.setupStep", state) as? [String: Any]
         }
-        // No answer never enables sharing.
-        guard !Task.isCancelled, next?["done"] as? Bool == true else { return false }
+        guard !Task.isCancelled else { return false }
         try await enable()
         // The overview sheet (its last line names the standing yes) was answered: that is the one yes. A native
         // click with both grants ready shows no sheet and keeps no yes. Either way the person turned sharing
@@ -251,9 +254,9 @@ extension CmuxRemoteShareConsent {
     /// since its credential is acpmux's and the hub checks it.
     public nonisolated static func holds(settingOn: Bool, managed: ManagedSource?, recorded: Bool,
                                          ownJoin: Bool = false, declined: Bool = false) -> Bool {
-        let source: Any = managed.map { $0 == .device ? "device" : "team" } ?? NSNull()
-        return RdUI.call("remote.consentHolds", ["settingOn": settingOn, "managed": source, "recorded": recorded,
-                                                 "ownJoin": ownJoin, "declined": declined]) as? Bool ?? false
+        if settingOn && (managed == .device || recorded) { return true }
+        if managed != nil && !settingOn { return false }
+        return ownJoin && !declined
     }
 
     /// `macScreen.shareWithoutAsking` from the app's settings, with the records in `defaults` and
@@ -308,8 +311,8 @@ extension CmuxRemoteShareConsent {
     /// an old yes (review of #47312, P1). An off after the recorded yes is the person's decline, so the
     /// join default stops too. Called from every settings snapshot change.
     public nonisolated static func forgetUnlessOn(settingOn: Bool, defaults: UserDefaults = .standard) {
-        let plan = RdUI.call("remote.forgetUnlessOn", ["settingOn": settingOn, "recorded": defaults.object(forKey: recordKey) is Date]) as? [String: Bool]
-        if plan?["recordDecline"] == true { defaults.set(Date(), forKey: declinedKey) }
-        if plan?["removeRecord"] == true { defaults.removeObject(forKey: recordKey) }
+        guard !settingOn else { return }
+        if defaults.object(forKey: recordKey) is Date { defaults.set(Date(), forKey: declinedKey) }
+        defaults.removeObject(forKey: recordKey)
     }
 }

@@ -96,11 +96,6 @@ pub struct SessionCfg {
     /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub capture: crate::capture_backend::CaptureBackend,
-    /// The viewer negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
-    /// Text"): a Linux OpenH264 encoder codes this session in screen usage. Never set from
-    /// the command line; [`session_cfg`] sets it from the viewer's caps.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub sharp_text: bool,
 }
 
 pub struct MediaSession {
@@ -113,9 +108,6 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
-    /// When the last stats line went out (0 before the first), for the still screen's
-    /// heartbeat ([`stats_due`]).
-    stats_sent_ns: u64,
     /// The profile the last encoded frame ran with, as the encoder applied it (None until one
     /// is encoded, and always from an encoder without an ultra mode): the stats line's
     /// `encode_profile`.
@@ -257,8 +249,6 @@ struct FrameLog {
     idr_reason: Option<&'static str>,
     /// With a resolution ladder: the picture this frame was encoded at.
     picture: Option<Picture>,
-    /// The congestion controller's target for this frame.
-    target_kbps: u32,
 }
 
 impl Timing {
@@ -295,10 +285,6 @@ impl Timing {
             fields.insert("height".into(), p.height.into());
             fields.insert("eighths".into(), p.eighths.into());
             fields.insert("max_qp".into(), p.max_qp.into());
-            // The budget the ladder sized this picture for: target over pixels at the fps
-            // cap is the bits per pixel per frame the ladder holds at or above its floor.
-            fields.insert("fps".into(), p.fps.into());
-            fields.insert("target_kbps".into(), log.target_kbps.into());
         }
         line
     }
@@ -332,19 +318,6 @@ impl Timing {
 /// blip, including a phone waking from sleep; the session is still bounded.
 const REATTACH_GRACE_NS: u64 = 90_000_000_000;
 
-/// How often a session whose screen is still (no new frame since the last stats line) still
-/// sends one: the viewer's proof that the host is alive and sent nothing new.
-const STILL_STATS_EVERY_NS: u64 = 2_000_000_000;
-
-/// Whether a stats line goes out now: a new frame since the last one, or a still screen's
-/// heartbeat once [`STILL_STATS_EVERY_NS`] has passed since the last line (`sent_at_ns` 0: none
-/// sent yet).
-fn stats_due(frames: u64, frames_sent: u64, now_ns: u64, sent_at_ns: u64) -> bool {
-    frames != frames_sent
-        || sent_at_ns == 0
-        || now_ns.saturating_sub(sent_at_ns) >= STILL_STATS_EVERY_NS
-}
-
 fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
 }
@@ -358,35 +331,19 @@ pub fn offers_h264_baseline(codec: &str) -> bool {
     !matches!(codec, "vp9" | "av1")
 }
 
-/// Whether this host offers cap `video.sharp_text`: a Linux host whose encoder may be
-/// OpenH264 (`auto` falls back to it without a GPU), the one that codes screen content in
-/// camera usage.
-pub fn offers_sharp_text(codec: &str) -> bool {
-    cfg!(target_os = "linux") && matches!(codec, "auto" | "openh264")
-}
-
 /// The session's settings with the viewer's caps applied: a viewer that negotiated
 /// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
-/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says, and one that
-/// negotiated `video.sharp_text` gets OpenH264's screen usage.
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
 fn session_cfg<'a>(
     cfg: &'a SessionCfg,
     negotiated_caps: &[String],
 ) -> std::borrow::Cow<'a, SessionCfg> {
-    let has = |cap: &str| negotiated_caps.iter().any(|c| c == cap);
-    let baseline = has(cmux_rd_core::service::caps::H264_BASELINE) && cfg.profile != "baseline";
-    let sharp_text = has(cmux_rd_core::service::caps::SHARP_TEXT) && !cfg.sharp_text;
-    if !baseline && !sharp_text {
-        return std::borrow::Cow::Borrowed(cfg);
+    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
+    if baseline && cfg.profile != "baseline" {
+        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
     }
-    let mut owned = cfg.clone();
-    if baseline {
-        owned.profile = "baseline".into();
-    }
-    if sharp_text {
-        owned.sharp_text = true;
-    }
-    std::borrow::Cow::Owned(owned)
 }
 
 pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {
@@ -450,14 +407,6 @@ impl OpenedDesktop {
             ready_us: now_us(),
         })
     }
-
-    /// Whether its stream suits a viewer that negotiated `profile`: the one it was opened for,
-    /// or baseline from an encoder that only makes Constrained Baseline (OpenH264). Opening the
-    /// desktop again for the profile alone put a whole open (capture and encoder, 340-410 ms on a
-    /// Linux VM) between the viewer's start and the first keyframe.
-    fn serves_profile(&self, profile: &str) -> bool {
-        self.profile == profile || (profile == "baseline" && self.frames.constrained_baseline())
-    }
 }
 
 impl MediaSession {
@@ -490,7 +439,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let cfg = &*session_cfg(cfg, negotiated_caps);
         let cursor = wants_cursor(negotiated_caps);
-        let opened = if opened.cursor == cursor && opened.serves_profile(&cfg.profile) {
+        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
             opened
         } else {
             // The capture closes before it opens again.
@@ -552,7 +501,6 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
-            stats_sent_ns: 0,
             encoded_profile: None,
             departures: Vec::new(),
             departed_datagrams: 0,
@@ -882,7 +830,6 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
             picture: req.picture,
-            target_kbps: req.target_kbps,
         });
         self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
@@ -1143,15 +1090,12 @@ impl MediaSession {
         self.take_departures(carrier);
         let now = now_ns();
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
-        // Every period while frames flow; on a still screen (damage-driven capture sends no
-        // frame) a heartbeat every STILL_STATS_EVERY_NS, so the viewer can tell a screen that
-        // did not change (host `frames` equal to what it decoded) from a stall.
+        // Stats only while frames flow: an idle session sends nothing.
         let stats = self.engine.stats();
-        if !stats_due(stats.frames, self.stats_frames_sent, now, self.stats_sent_ns) {
+        if stats.frames == self.stats_frames_sent {
             return;
         }
         self.stats_frames_sent = stats.frames;
-        self.stats_sent_ns = now;
         let cpu = process_cpu_s();
         let cpu_pct =
             (cpu - self.cpu_last.0) / ((now - self.cpu_last.1) as f64 / 1e9).max(1e-3) * 100.0;
@@ -1198,23 +1142,9 @@ fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str 
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        idr_reason, stats_due, viewer_silent_too_long, wants_ladder, STILL_STATS_EVERY_NS,
-    };
+    use super::{idr_reason, viewer_silent_too_long, wants_ladder};
     use cmux_rd_core::flow::Rect;
     use cmux_rd_engine::{EncodeRequest, IdrReason};
-
-    #[test]
-    fn a_still_screen_still_sends_stats_at_the_heartbeat() {
-        let t = 10_000_000_000;
-        // New frames: every period.
-        assert!(stats_due(5, 4, t + 1, t));
-        // Still screen: nothing until the heartbeat, then one line.
-        assert!(!stats_due(5, 5, t + STILL_STATS_EVERY_NS - 1, t));
-        assert!(stats_due(5, 5, t + STILL_STATS_EVERY_NS, t));
-        // The first line goes out even before a frame.
-        assert!(stats_due(0, 0, t, 0));
-    }
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {

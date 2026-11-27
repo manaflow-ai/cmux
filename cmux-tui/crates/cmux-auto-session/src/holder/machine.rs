@@ -199,10 +199,14 @@ pub(super) fn taking(
 pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
     match event {
         Event::Assigned { kind, epoch: at } => assigned_while_running(out, epoch, kind, at, now),
-        // The machine needs a replica during a silent turn too, not only at turn end.
+        // An idle chat whose last copy failed is copied again: until the store has it, the
+        // chat cannot go home.
         Event::Tick => {
             if out.due(now) {
-                out.checkpoint(now);
+                let failed = out.chat.copy == CopyState::Failed;
+                if failed && !out.chat.needs_run && !out.chat.too_large {
+                    out.copy(now);
+                }
                 out.renew(now);
             }
         }

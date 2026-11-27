@@ -18,7 +18,6 @@ use std::sync::{Arc, OnceLock};
 /// A terminal UI's entry: open `session` (or the session list when None) on `client`.
 pub type Ui = fn(Arc<Client>, Option<String>) -> Pin<Box<dyn Future<Output = Result<()>>>>;
 
-// test-hook-allow: not a test hook; the binary installs its terminal UI once at start, first wins
 static UI: OnceLock<Ui> = OnceLock::new();
 
 /// Install the terminal UI this process opens sessions in (the `cmux` binary installs

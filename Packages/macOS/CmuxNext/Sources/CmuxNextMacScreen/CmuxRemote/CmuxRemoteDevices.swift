@@ -133,29 +133,6 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         return try live.blockingCall(method, params)
     }
 
-    /// Each time the acpmux daemon's share host comes online as its device (`device.watch`): the device id and the hub
-    /// user it signed in as, the first at once when it is online already. Ends with the channel (the daemon stopped, or
-    /// one without the method), or when the stream is dropped.
-    func onlineEvents() -> AsyncStream<ShareHostOnline> {
-        // Only the newest matters: the device the daemon is online as now.
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            // task-owner: one watch channel; the stream's end cancels it and closes the channel.
-            let task = Task.detached(priority: .utility) { [open] in
-                defer { continuation.finish() }
-                guard let socket = try? await open() else { return }
-                let watch = RemoteDeviceChannel(socket: socket)
-                defer { watch.close() }
-                guard (try? await watch.call("device.watch")) != nil else { return }
-                await withTaskCancellationHandler {
-                    while let line = await watch.nextPush() {
-                        if let online = ShareHostOnline(line: line) { continuation.yield(online) }
-                    }
-                } onCancel: { watch.close() }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
     /// The hub's pushes from the worker's socket, as a socket this app's hub reads.
     func subscribe() async throws -> any DeviceHubSocketConnection {
         let fresh = RemoteDeviceChannel(socket: try await open())
@@ -200,23 +177,5 @@ nonisolated struct RemoteDeviceKeys: DeviceKeyMaterial {
             throw DeviceHubError.identity("cmux Remote did not open the relay secret")
         }
         return plain
-    }
-}
-
-/// The acpmux daemon's `{"event":"online","id":..,"user_id":..}`: it is online as device `id`, signed in as `userID`.
-nonisolated struct ShareHostOnline: Equatable, Sendable {
-    let id: String
-    let userID: String
-
-    init(id: String, userID: String) {
-        self.id = id.lowercased()
-        self.userID = userID
-    }
-
-    init?(line: String) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
-              object["event"] as? String == "online", let id = object["id"] as? String, !id.isEmpty,
-              let user = object["user_id"] as? String, !user.isEmpty else { return nil }
-        self.init(id: id, userID: user)
     }
 }

@@ -173,7 +173,6 @@ fn braid_policy(race: Option<RouteRace>, routes: usize) -> RacePolicy {
     RacePolicy {
         stagger: race.map_or(NEVER, |race| race.stagger),
         attempt_timeout: NEVER,
-        last_attempt_timeout: NEVER,
         max_in_flight: if race.is_some() { routes } else { 1 },
         max_attempts: routes,
     }

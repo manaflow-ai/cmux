@@ -20,8 +20,6 @@ extension GitHubConnections {
             "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
             // Msg 3790: signed out, the card says to sign in and shows the Sign In button.
             "signIn": scopeIsSignedOut ? .string(SignInButton.defaultTitle) : .null,
-            // Under it: what that Sign In signs in to ("Signs in to cmux.com").
-            "signInBackend": scopeIsSignedOut ? signInBackend.map(JSONValue.string) ?? .null : .null,
             "connections": .array(currentConnections.map { row in
                 ["id": row["id"] ?? .null,
                  "account": row["account"]?["name"] ?? "GitHub",

@@ -1,10 +1,9 @@
-public import Foundation
+import Foundation
 
-/// The viewer's side of the `cmux.rd/1` session setup. The rules live in Rust
-/// (cmux-rd-ffi `view/handshake.rs`, ops `handshake.*` over `cmux_rd_view_call`): hello and
-/// start go out, then the host answers welcome and started (or refused); ended closes the
-/// session; every other order is a protocol error and ends the session. This type keeps the
-/// Rust state and reads its phase back.
+/// The viewer's side of the `cmux.rd/1` session setup, as a pure reducer:
+/// hello and start go out, then the host answers welcome and started (or
+/// refused); ended closes the session. Every other order is a protocol error
+/// and ends the session.
 public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
     public enum Phase: Sendable, Equatable {
         case awaitingWelcome
@@ -19,14 +18,9 @@ public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
     public let service: String
     /// True after the viewer sent stop: the host's ended then means "stopped by viewer".
     public private(set) var stopSent = false
-    /// The Rust `Handshake`, as JSON.
-    private var state: Data
 
     public init(service: String) {
         self.service = service
-        let state = RemoteRdView.call(["op": "handshake.new", "service": service])
-            ?? ["service": service]
-        self.state = (try? JSONSerialization.data(withJSONObject: state)) ?? Data()
     }
 
     /// The pane-facing state of the current phase.
@@ -43,57 +37,50 @@ public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
         return false
     }
 
-    /// Applies one control message from the host (the frame payload).
-    public mutating func receive(_ json: Data) {
-        guard !isEnded, let message = try? JSONSerialization.jsonObject(with: json) else { return }
-        apply("handshake.receive", ["message": message])
+    /// Applies one control message from the host.
+    public mutating func receive(_ control: RemoteRdControl) {
+        guard !isEnded else { return }
+        switch (phase, control) {
+        case let (.awaitingWelcome, .welcome(welcome)):
+            // A host older than C1 omits the service; a mismatch is a protocol error.
+            if let routed = welcome.service, routed != service {
+                phase = .ended(.connectionLost)
+                return
+            }
+            self.welcome = welcome
+            phase = .awaitingStarted
+        case let (.awaitingStarted, .started(session)):
+            phase = .streaming(session: session)
+        case (_, .refused):
+            phase = .ended(.consentDenied)
+        case let (_, .ended(reason)):
+            phase = .ended(stopSent ? .stoppedByViewer : Self.hostEnd(reason))
+        case (_, .stats), (_, .unknown), (_, .service), (_, .bulkCredit), (_, .streamOpen),
+             (_, .streamOpened), (_, .streamRefused), (_, .streamClose):
+            // Service, bulk and stream messages go to their handlers, not the setup.
+            break
+        default:
+            phase = .ended(.connectionLost)
+        }
     }
 
     /// What the host's `ended` means: `cmux rd serve` ends a session it could not run with
     /// `failed: <error>` (cmux-rd-host `serve.rs`), and that error is kept for the card; any
     /// other reason (stopped, the viewer left) is the host stopping.
     public static func hostEnd(_ reason: String) -> RemoteSessionEnd {
-        RemoteRdView.sessionEnd(RemoteRdView.call(["op": "handshake.hostEnd", "reason": reason]))
-            ?? .hostStoppedSharing
+        let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text == "failed" || text.hasPrefix("failed:") else { return .hostStoppedSharing }
+        return .hostFailed(reason: String(text.dropFirst("failed".count).drop { $0 == ":" || $0 == " " }))
     }
 
     /// The viewer sent stop.
     public mutating func viewerStopped() {
-        apply("handshake.viewerStopped", [:])
+        stopSent = true
     }
 
     /// The carrier closed or failed.
     public mutating func connectionClosed() {
         guard !isEnded else { return }
-        apply("handshake.closed", [:])
-    }
-
-    /// Runs one `handshake.*` op on the state and reads the next state back.
-    private mutating func apply(_ op: String, _ fields: [String: Any]) {
-        guard let current = try? JSONSerialization.jsonObject(with: state) else { return }
-        var request = fields
-        request["op"] = op
-        request["state"] = current
-        guard let next = RemoteRdView.call(request)?["state"] as? [String: Any],
-              let data = try? JSONSerialization.data(withJSONObject: next) else { return }
-        state = data
-        stopSent = next["stopSent"] as? Bool ?? false
-        if let phase = Self.phase(next["phase"]) { self.phase = phase }
-        welcome = (next["welcome"] as? [String: Any]).flatMap { welcome in
-            (try? JSONSerialization.data(withJSONObject: welcome))
-                .flatMap { try? JSONDecoder().decode(RemoteRdWelcome.self, from: $0) }
-        }
-    }
-
-    /// A Rust `Phase` (`{"kind": ...}`).
-    private static func phase(_ value: Any?) -> Phase? {
-        guard let object = value as? [String: Any], let kind = object["kind"] as? String else { return nil }
-        switch kind {
-        case "awaitingWelcome": return .awaitingWelcome
-        case "awaitingStarted": return .awaitingStarted
-        case "streaming": return (object["session"] as? NSNumber).map { .streaming(session: $0.uint64Value) }
-        case "ended": return RemoteRdView.sessionEnd(object["end"]).map { .ended($0) }
-        default: return nil
-        }
+        phase = .ended(stopSent ? .stoppedByViewer : .connectionLost)
     }
 }

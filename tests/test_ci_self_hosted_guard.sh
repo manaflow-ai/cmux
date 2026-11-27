@@ -109,12 +109,13 @@ check_ios_runner_routing() {
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer
   # (a bot's re-run the picker's own Blacksmith retry, bot_retry_runs_on).
-  # The mobile-core packages test on Linux (mobile-core-linux), so no macOS
-  # job reads package_runs_on.
+  # mobile-core-package needs no simulator, so it reads package_runs_on. The
+  # dispatch input comes first; the cmux-next lane then asks for owned
+  # (tests/test_ci_pr_runner_pool.py pins the whole expression).
   # ios-simulator-build reads build_runs_on (the sim-first label when one is
   # idle), falling back to runs_on.
   if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
-     grep -Fq "needs.runner.outputs.package_runs_on" "$IOS_FILE"; then
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi

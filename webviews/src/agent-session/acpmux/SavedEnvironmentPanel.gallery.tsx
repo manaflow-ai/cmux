@@ -124,7 +124,6 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
       play: openLongHost,
     },
     "browse-error": {
-      // retry-prompt-ok: its Retry opens the native folder chooser again, a sheet the person must want.
       note: "A rejected native folder chooser stays in the environment panel with its reason and a Retry action.",
       props: browseError,
       play: async (ctx) => {

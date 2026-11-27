@@ -203,7 +203,6 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
-mod terminal_warm_compact;
 #[cfg(test)]
 use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
@@ -739,8 +738,6 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
-    /// Terminal agents' warm compaction timer (`terminal_warm_compact.rs`).
-    terminal_warm_compact: terminal_warm_compact::TerminalWarmCompact,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// The chat-index project import's wake (`project_chats.rs`).

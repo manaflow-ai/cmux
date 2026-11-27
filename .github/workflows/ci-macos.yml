@@ -2582,39 +2582,9 @@ jobs:
               COMPILER_INDEX_STORE_ENABLE=NO \
               CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
           }
-          log_dir="$(mktemp -d "$RUNNER_TEMP/release-build.XXXXXX")"
-          echo "build_log=$log_dir/release-build.log" >> "$GITHUB_OUTPUT"
-          cmux_fleet_cache_build scripts/ci "$log_dir/release-build.log" release_build
+          cmux_fleet_cache_build scripts/ci "$RUNNER_TEMP/release-build.log" release_build
           ended="$(date +%s)"
           echo "compile_seconds=$((ended - started))" >> "$GITHUB_OUTPUT"
-
-      # Restoring CompilationCache.noindex on CI is not a use Xcode's cache was
-      # designed for, so this summary puts the CAS hit and miss counts (per
-      # target, where macros and bridging headers show up as misses) beside
-      # the restore seconds ("Cache restore") and compile seconds above.
-      - name: Report Release compilation cache hits
-        if: always() && !cancelled() && steps.build-release.outcome != 'skipped'
-        continue-on-error: true
-        env:
-          BUILD_LOG: ${{ steps.build-release.outputs.build_log }}
-          COMPILE_SECONDS: ${{ steps.build-release.outputs.compile_seconds }}
-          COMPILE_OUTCOME: ${{ steps.build-release.outcome }}
-        run: |
-          set -euo pipefail
-          # The local-cache retry writes a sibling log. Count the final attempt.
-          if [[ -n "$BUILD_LOG" && -f "$BUILD_LOG.retry" ]]; then
-            BUILD_LOG="$BUILD_LOG.retry"
-          fi
-          if [[ ! -s "$BUILD_LOG" ]]; then
-            echo "Release compilation cache counts unavailable (no build log)." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          args=(build-universal --build-log "$BUILD_LOG" --output "$RUNNER_TEMP/release-build-metrics.json"
-            --compile-outcome "$COMPILE_OUTCOME" --summary "$GITHUB_STEP_SUMMARY")
-          if [[ "$COMPILE_SECONDS" =~ ^[0-9]+$ ]]; then
-            args+=(--compile-seconds "$COMPILE_SECONDS")
-          fi
-          python3 scripts/ci/build_metrics.py "${args[@]}"
 
       - name: Download Release Ghostty CLI helper
         if: steps.restore-release-product.outputs.hit != 'true'

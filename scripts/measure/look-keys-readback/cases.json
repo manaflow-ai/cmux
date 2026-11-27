@@ -112,20 +112,6 @@
         "appearance.metrics.composerPadding": 10,
         "appearance.metrics.composerMinHeight": 52
       }
-    },
-    {
-      "name": "composer-customizer",
-      "pr": 53624,
-      "setup": [
-        {
-          "action": "palette.newAgentChat",
-          "focus": true,
-          "wait": 10
-        }
-      ],
-      "settings": {
-        "experiments.composerCustomizer": true
-      }
     }
   ]
 }

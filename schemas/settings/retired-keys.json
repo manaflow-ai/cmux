@@ -260,13 +260,6 @@
       "since": "2026-11-24",
       "until": "2027-01-23",
       "why": "The agent to-do list is removed from every surface (2026-11-24): nothing is left to pin."
-    },
-    {
-      "key": "sidebar.showAutomaticSessions",
-      "reason": "the sidebar no longer folds script-started sessions into an Automatic row; they show in their list",
-      "since": "2026-11-25",
-      "until": "2027-01-24",
-      "why": "The Automatic (N) sidebar row is removed (#55721, taking back #49506; Leo 2026-11-25: \"PLS REMOVE\"); workspace auto-renaming stays as silent behaviour."
     }
   ]
 }

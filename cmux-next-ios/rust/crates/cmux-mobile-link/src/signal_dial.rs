@@ -62,16 +62,8 @@ pub async fn connect_tcp(request: &Request) -> Result<TcpStream, tungstenite::Er
     cmux_egress::check(&host, "cmux_mobile_link::signal_dial").map_err(|refused| {
         tungstenite::Error::Io(io::Error::new(io::ErrorKind::PermissionDenied, refused))
     })?;
-    // The lookup goes through the remembered route literals: a DNS server that hangs or
-    // fails still leaves the addresses that last worked (`crate::route_literals`).
-    let routes = crate::route_literals::RouteLiterals::shared();
-    let addresses: Vec<SocketAddr> =
-        routes.resolve_host(&host).await?.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
-    let stream = connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await?;
-    if let Ok(peer) = stream.peer_addr() {
-        routes.confirm(&host, peer.ip());
-    }
-    Ok(stream)
+    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await?.collect();
+    Ok(connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await?)
 }
 
 #[cfg(test)]

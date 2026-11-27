@@ -176,13 +176,3 @@ test("a keystroke in an ordered list visits as many nodes in 10,000 lines as in 
   expect(small).toBeGreaterThan(0);
   expect(large).toBeLessThanOrEqual(small * 1.1);
 });
-
-test("a keystroke in a heading visits about as many nodes in 10,000 lines as in 1,000", async () => {
-  // The heading's anchor changes on each key: its id, the ids sharing its text, and the links to it
-  // are checked again, not every heading and link of the file.
-  const small = await keystroke(1_000, (part) => `Part ${part}`);
-  const large = await keystroke(10_000, (part) => `Part ${part}`);
-  console.log(`heading keystroke visits: 1,000 lines ${small}, 10,000 lines ${large}`);
-  expect(small).toBeGreaterThan(0);
-  expect(large).toBeLessThanOrEqual(small * 1.2);
-});

@@ -8,15 +8,15 @@
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#0e1628", "foreground": "#efe8d8", "selection": "#7d8ab0", "accent": "#d4af5f" },
+  "colors": { "background": "#0e1628", "foreground": "#efe8d8", "selection": "#2a3550", "accent": "#d4af5f" },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #0e1628",
     "foreground = #efe8d8",
     "cursor-color = #d4af5f",
     "cursor-text = #0e1628",
-    "selection-background = #7d8ab0",
-    "selection-foreground = #0e1628",
+    "selection-background = #2a3550",
+    "selection-foreground = #efe8d8",
     "palette = 0=#18223a",
     "palette = 1=#e07a6e",
     "palette = 2=#8fc59a",

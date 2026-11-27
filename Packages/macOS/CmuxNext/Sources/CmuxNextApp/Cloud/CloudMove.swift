@@ -187,7 +187,7 @@ struct CloudMove {
             let registry = services.registry, again = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
         }
-        var title = CloudMoveStrings.retry  // retry-prompt-ok: moving a chat copies its files and may pick or make a paid Cloud machine; the person retries or lets the toast go
+        var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
         if let toastID { Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title) }
         // The card says the failure: a toast the move's machine update left up goes.
@@ -441,7 +441,7 @@ struct CloudMove {
 
     /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too); one window at a time; `working`: a run's progress (``CmuxToast/working``).
     static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil,
-                      retryTitle: String = CloudMoveStrings.retry, working: Bool = false) {  // retry-prompt-ok: a Cloud move or bring-back retry copies files and moves the chat; the person chooses it
+                      retryTitle: String = CloudMoveStrings.retry, working: Bool = false) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let action = retry == nil ? nil : CmuxToast.Action(title: retryTitle)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration, oneWindow: true, working: working), in: window)

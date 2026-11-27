@@ -123,7 +123,6 @@ public final class DaemonService {
         self.echoesPlacementShift = echoesPlacementShift
         // Each batch is a recorded frame task of `daemon.store.drain` (main-thread-scheduling.md G4).
         drainScheduler = FrameBatcher(owner: "daemon.store.drain", frameOn: mainWork)
-        // retry-prompt-ok: a wakeup ledger owner name, not user-facing
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none

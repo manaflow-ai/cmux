@@ -140,14 +140,3 @@ fn time_fields_are_optional_on_disk() {
     let t = serde_json::to_value(timer("t", 9, Some(10), None)).unwrap();
     assert_eq!((t["dueMs"].clone(), t["everyMs"].clone()), (json!(9), json!(10)));
 }
-
-#[test]
-fn a_fired_wake_is_no_inbox_item_so_it_wakes_an_idle_chat() {
-    // The inbox files a message with no class as an FYI, and an FYI never wakes an idle chat:
-    // a time watch's wake waited for the chat's next turn, up to an hour late.
-    let w = Watch { caller: Some("sink".into()), ..timer("t", 1_000, None, None) };
-    let d = delivery(&w, prompt_id("t", 1_000), "wake t".into(), true);
-    assert!(crate::hub::inbox::watch_wake(&d.request));
-    let plain = json!({"sessionId": "sink", "prompt": [], "_meta": {"acpmux": {"promptId": "p"}}});
-    assert!(!crate::hub::inbox::watch_wake(&plain));
-}

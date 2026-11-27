@@ -96,7 +96,7 @@
 .acpmux-composer-context:has(> .acpmux-folder-choice) {
   flex-wrap: wrap;
 }
-.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker[data-kind="branch"] {
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
   order: 2;
 }
 .acpmux-composer-context > .acpmux-folder-choice {
@@ -114,14 +114,13 @@
    bounds a long host name. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
-/* The branch keeps its name: it shrinks only past half the strip. The chat composer draws it in its
-   bottom row instead (ComposerBranch, below), so this is New Tab's and the galleries' strip. */
-.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The branch keeps its name: it shrinks only past half the strip. */
+.acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
 /* The folder and the branch cut only when the strip runs out of room (the rules above), never at
    the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
    empty strip. The computer keeps the cap. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
-.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] .acpmux-location-button { max-width: none; }
+.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -247,13 +246,13 @@
 }
 /* The same steps beside the branch (the context's last control, a plain picker with no rows). */
 @container acpmux-strip (width < 472px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 416px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 314px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
 }
 /* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
@@ -1949,7 +1948,7 @@
 }
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
-.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker[data-kind="branch"] { margin-left: var(--acpmux-location-gap, 4px); }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
 /* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
 .acpmux-env-popover .acpmux-env-heading {
   padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
@@ -2216,20 +2215,6 @@
 .acpmux-composer-bar .acpmux-chips:has(> .acpmux-terminal-pickers[data-look="trailing"]) {
   margin-inline-start: auto;
 }
-
-/* The chat composer's branch, in the quiet row under the draft (ComposerBranch, Composer.tsx): the
-   row is bottom-anchored, so the branch holds still as the draft grows, as +, the mic and Send do
-   (ask-f87d5d43b4: "this still being at the top of the composer as it grows is the same issue").
-   It keeps the strip's chip and gives up width before the mode and model do. */
-.acpmux-composer-branch {
-  display: inline-flex;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 40%;
-  flex-shrink: 100;
-}
-.acpmux-composer-branch > .acpmux-location-picker { min-width: 0; }
-.acpmux-composer-branch .acpmux-location-button { max-width: 100%; }
 
 .acpmux-folder-popover .acpmux-source-status {
   max-inline-size: 54%;

@@ -68,7 +68,7 @@ final class HostSessions {
         }
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         let host = ScreenStreamHost(name: Host.current().localizedName ?? "Mac", viewOnly: ticket.scope == .view,
-                                    backend: { ScreenCaptureBackend(log: log, rules: .bundled) }, rules: .bundled, log: log)
+                                    backend: { ScreenCaptureBackend(log: log) }, log: log)
         let (events, sink) = AsyncStream.makeStream(of: ScreenStreamHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { sink.yield($0) }
         self.host = host

@@ -734,25 +734,19 @@ impl Pacer {
         {
             self.resent += 1;
             connection.delay.resent();
-        }
-        // Everything but fresh data goes ahead of the fresh data queued here
-        // (TCP takes it in any order): the delay window holds that data until
-        // an ACK arrives, and the peer's window waits on the ACKs, resends
-        // and challenge ACKs this side sends. Queued behind held data, both
-        // ends held each other's ACKs after a roam, and only one segment per
-        // backed-off RTO got through (an airplane-mode resume stalled 10 s
-        // instead of 5). A reset stays in order: it ends the data before it.
-        if !fresh
-            && !segment.reset
-            && let Some(max) = connection.snd_max
-            && let Some(at) = connection.queue.iter().position(|waiting| {
-                self::segment(waiting).is_some_and(|queued| {
-                    queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+            // Ahead of the fresh data queued here (TCP takes it in any
+            // order): the delay window may hold that data until an ACK this
+            // segment is what brings.
+            if let Some(max) = connection.snd_max
+                && let Some(at) = connection.queue.iter().position(|waiting| {
+                    self::segment(waiting).is_some_and(|queued| {
+                        queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+                    })
                 })
-            })
-        {
-            connection.queue.insert(at, packet);
-            return fresh;
+            {
+                connection.queue.insert(at, packet);
+                return fresh;
+            }
         }
         // A pure ACK (or window update, or keepalive probe) does not wait
         // behind fresh data the delay window may hold for an ACK from the

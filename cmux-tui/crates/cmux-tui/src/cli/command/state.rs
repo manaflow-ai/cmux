@@ -35,16 +35,13 @@ impl Params {
         self.fields.insert(field.into(), value);
     }
 
-    /// A room or group given by id or exact name. An id goes as it is: only a name needs the
-    /// list read first, so `room <id> pin` is one request (and a catalog request row's verb).
+    /// A room or group given by id or exact name.
     fn state(&mut self, field: &'static str, value: &str, list: Op) -> Result<(), UsageError> {
         if value.is_empty() || value.len() > 64 {
             return Err(UsageError::new(format!("{field} must contain 1 to 64 UTF-8 bytes")));
         }
         self.insert(field, Value::String(value.into()));
-        if !is_state_id(value, list) {
-            self.resolve.push(Resolve::StateName { field, list });
-        }
+        self.resolve.push(Resolve::StateName { field, list });
         Ok(())
     }
 
@@ -83,21 +80,6 @@ impl Params {
         }
         Ok(plan)
     }
-}
-
-/// Whether `value` has the shape of an id the daemon mints for a `list` record (its prefix and
-/// 32 lowercase hex digits). The name lookup would keep an existing id as it is, so the CLI
-/// skips the read; a name never has this shape in practice.
-fn is_state_id(value: &str, list: Op) -> bool {
-    let prefix = match list {
-        Op::RoomList => "prof",
-        Op::WorkspaceGroupList => "grp",
-        Op::TabGroupList => "tgrp",
-        Op::SavedTabGroupList => "saved",
-        Op::ScreenGroupList => "sgrp",
-        _ => return false,
-    };
-    validate_prefixed_id("", prefix, value).is_ok()
 }
 
 /// `--color` for a tab or screen group: one of the fixed group colors or `#RRGGBB`.

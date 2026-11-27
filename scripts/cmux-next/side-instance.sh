@@ -30,8 +30,7 @@
 #                                             (CMUX_NEXT_NO_ACTIVATE=1, CMUX_NEXT_TEST_WINDOW_SCREEN=its index).
 #                                             Window shots and window recordings still see them. Falls back to
 #                                             --shown, and says so, when the display cannot be made (no clang,
-#                                             no console session, a headless Mac whose virtual display
-#                                             AppKit never lists: tried once per boot, CMUX_SIDE_PARK_RETRY=1)
+#                                             no console session)
 #                                   --shown   on the person's screens, behind their app (`open -g`, as every
 #                                             launch was before parked: measurements and fleet display
 #                                             recordings keep it with CMUX_SIDE_PLACEMENT=shown)
@@ -216,46 +215,19 @@ PLIST
   fi
   echo "$out"
 }
-# This boot's id: a park display that failed is not tried again until the Mac restarts. SIDE_INSTANCE_BOOT_ID: tests.
-park_boot_id() {
-  [[ -n "${SIDE_INSTANCE_BOOT_ID:-}" ]] && { echo "$SIDE_INSTANCE_BOOT_ID"; return; }
-  sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p' || true
-}
 # Starts the park display for $name; prints its NSScreen index. Its pid goes to $dir/park.pid.
-# A park display that cannot be made on this Mac (a headless CI Mac whose virtual display AppKit never lists) costs one
-# try per boot and park-display.m source, not every launch: the failure is remembered in $root/.park-display/failed,
-# and a launch waits only while the helper still runs. Before, each launch on such a Mac waited the full 15 s and
-# a measured `cmux app try` side phase went from 8 s to 25.9 s (retry 0.8 s to 17.3 s; cmuxterm-hq
-# goals/team-dev-build-is-swap.md). CMUX_SIDE_PARK_RETRY=1 tries again (a display plugged in since).
 park_start() {
-  local park ready="$dir/park.ready" pid="" memo="$root/.park-display/failed" boot tries
+  local park ready="$dir/park.ready" pid=""
   park="$(park_app)" || return 1
-  boot="$(park_boot_id)"
-  if [[ -z "${CMUX_SIDE_PARK_RETRY:-}" && -n "$boot" && -f "$memo" && "$(cat "$memo")" == "$park $boot" ]]; then
-    echo "side-instance: the park display failed on this Mac since it started (CMUX_SIDE_PARK_RETRY=1 tries again)" >&2
-    return 1
-  fi
   rm -f "$ready" "$dir/park.log"
   open -g -n --stderr "$dir/park.log" "$park" --args --pid-file "$dir/pid" --ready-file "$ready" \
     || { echo "side-instance: open $park failed" >&2; return 1; }
-  # Up to 15 s for the ready line; after the first second, an exited helper ends the wait (park-display.m gives up
-  # after 10 s and says why in its log).
-  for tries in $(seq 1 150); do
-    [[ -s "$ready" ]] && break
-    if (( tries > 10 )) && ! pgrep -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" >/dev/null 2>&1; then
-      [[ -s "$ready" ]] && break
-      echo "side-instance: the park display exited without a screen after $((tries / 10)) s" >&2
-      break
-    fi
-    /bin/sleep 0.1
-  done
+  for _ in $(seq 1 150); do [[ -s "$ready" ]] && break; /bin/sleep 0.1; done
   if [[ ! -s "$ready" ]]; then
-    echo "side-instance: the park display was not ready: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
+    echo "side-instance: the park display was not ready in 15 s: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
     pkill -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" 2>/dev/null || true
-    [[ -n "$boot" ]] && { mkdir -p "$root/.park-display"; echo "$park $boot" >"$memo"; }
     return 1
   fi
-  rm -f "$memo"
   pid="$(pgrep -n -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" || true)"
   [[ -n "$pid" ]] && echo "$pid" >"$dir/park.pid"
   sed -n 's/^ready .*screen=\([0-9][0-9]*\).*/\1/p' "$ready"

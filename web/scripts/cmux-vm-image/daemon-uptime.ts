@@ -16,8 +16,8 @@
  * id, sees it unbound, stops the session host, drops the remote identity, writes the id back and
  * starts a new session host.
  */
-import { DEVBOX_WORK_HOME } from "../../services/vms/workUser";
-import { DEVBOX_INSTANCE_ID_COMMAND } from "./machine-commands";
+import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
+import { DEVBOX_INSTANCE_ID_COMMAND } from "../devbox-image-common";
 import { HOST_UNIT } from "./host-agent";
 
 export const HOLD_SECONDS = 60;

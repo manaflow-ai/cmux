@@ -218,29 +218,6 @@ async fn change(cli: &Cli, verb: &str, login: &str) -> Result<(), LoginError> {
     }
 }
 
-/// `gh auth setup-git`'s arguments: git on this machine asks gh for github.com credentials.
-pub const SETUP_GIT_ARGS: [&str; 4] = ["auth", "setup-git", "--hostname", HOST];
-
-/// Makes git on this machine use gh's github.com sign-in (`gh auth setup-git`), in at most
-/// [`CHANGE_WAIT`]. `gh auth login --web` with no prompt (how [`super::start_in`] runs it) skips
-/// this step, so after a Cloud machine's "Sign in with GitHub" `git clone` and `git push` of a
-/// private repository still had no credentials (Leo, 2026-11-25: "Sign in with GitHub from the
-/// Cloud machine ... You need to just do this and wire it up"). gh writes only its own credential
-/// helper line into the user's git config; no token is read or kept here.
-pub async fn setup_git(cli: &Cli) -> Result<(), LoginError> {
-    let cmd = gh(cli, &SETUP_GIT_ARGS);
-    match crate::complete::run::run(cmd, None, CHANGE_WAIT).await {
-        Ok(out) if out.success => Ok(()),
-        Ok(_) => Err(LoginError::new(reason::FAILED, "gh auth setup-git failed")),
-        Err(crate::complete::run::RunError::Timeout) => {
-            Err(LoginError::new(reason::FAILED, "gh auth setup-git did not finish"))
-        }
-        Err(crate::complete::run::RunError::Spawn(e)) => {
-            Err(LoginError::new(reason::FAILED, format!("start gh: {e}")))
-        }
-    }
-}
-
 /// Makes `login` gh's active github.com account.
 pub async fn switch(cli: &Cli, login: &str) -> Result<(), LoginError> {
     change(cli, "switch", login).await

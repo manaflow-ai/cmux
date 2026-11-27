@@ -84,6 +84,8 @@ cmux-api-staging.debussy.workers.dev
 cmux-device-hub-dev.debussy.workers.dev
 # the device hub: pairing and screen sharing between your devices (production)
 cmux-device-hub.debussy.workers.dev
+# a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it
+cmux-lawrences-mac-mini.tail137216.ts.net
 # the iPhone pairing API in development builds
 cmux-mobile-api-dev.debussy.workers.dev
 # cmux Cloud platform API in development builds

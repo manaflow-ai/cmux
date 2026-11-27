@@ -1,6 +1,5 @@
 import React from "react";
-import { useAutoRetry } from "./autoRetry";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import { sandboxFailureKey, sandboxRetryable, type SandboxReceipt, type SandboxRun } from "./sandboxRun";
 import "./sandboxRun.css";
@@ -16,26 +15,16 @@ export function SandboxRunView({
   unread = false,
 }: {
   run: SandboxRun;
-  /// The newest read of the host didn't answer: the card reads again on its own, whatever its state (the
-  /// chat view hides the composer's notice while a card shows), and says so only once that has lasted.
+  /// The newest read of the host didn't answer: the card offers Check again, whatever its state (the
+  /// chat view hides the composer's notice while a card shows).
   unread?: boolean;
   onBack?(): void;
   /// Sandboxed was picked but can't run now: send as a Persistent chat instead.
   onPersistent?(): void;
-  /// The answer was lost (the run may still be going): read the host's send again. A read changes
-  /// nothing, so it is never the person's click (Leo, 2026-11-22: "vacuous decisions like that should be
-  /// just done"): the card asks again on its own (autoRetry.ts) until a read answers.
+  /// The answer was lost (the run may still be going): read the host's send again.
   onCheckAgain?(): void;
 }) {
   const t = useT();
-  // A read that didn't answer, or a failure that may hide a live Run: read the host again on its own.
-  const unchecked =
-    onCheckAgain !== undefined &&
-    (unread || (run.state === "failed" && !sandboxRetryable(run))) &&
-    run.state !== "done";
-  const { stillTrying } = useAutoRetry(unchecked, () => onCheckAgain?.());
-  // Only a read that keeps failing is said, in one quiet line with no button.
-  const stillChecking = unread && unchecked && stillTrying;
   // A failure that may hide a live Run says so, whatever the host's own words were.
   const failureKey =
     run.state === "failed"
@@ -53,22 +42,27 @@ export function SandboxRunView({
       </div>
       {run.state === "running" ? (
         <output className="acpmux-sandbox-running">
-          <WaitSpinner size={14} loading />
+          <Spinner size={14} loading />
           <span>{t("sandbox.running")}</span>
-          {stillChecking && (
+          {unread && onCheckAgain && (
             <>
               {" "}
-              <span data-still-trying="">{t("sandbox.stillChecking")}</span>
+              <span>{t("sandbox.unchecked")}</span>{" "}
+              <button type="button" className="acpmux-folder-choice-button" onClick={onCheckAgain}>
+                {t("sandbox.checkAgain")}
+              </button>
             </>
           )}
         </output>
       ) : run.state === "failed" ? (
         <div className="acpmux-sandbox-receipt" role="alert">
           {t(failureKey ?? "sandbox.error.failed")}
-          {stillChecking && (
+          {onCheckAgain && (unread || !sandboxRetryable(run)) && (
             <>
               {" "}
-              <span data-still-trying="">{t("sandbox.stillChecking")}</span>
+              <button type="button" className="acpmux-folder-choice-button" onClick={onCheckAgain}>
+                {t("sandbox.checkAgain")}
+              </button>
             </>
           )}
           {onPersistent && (

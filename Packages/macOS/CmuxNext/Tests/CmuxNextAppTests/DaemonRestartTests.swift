@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
-@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -172,16 +171,16 @@ struct DaemonRestartTests {
         // Restart too: no daemon runs, so the person needs a way out (restore fuzz h2). Until then
         // this asserted Restart hidden here, which left a full disk with nothing to press.
         await Self.wait { Self.shown("daemon.restart", in: view) != nil }
-        // No Retry Now (Leo 2026-11-22: a vacuous "try again" is just done): the connect retries by itself.
-        #expect(Self.shown("daemon.retryNow", in: view) == nil)
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
         #expect(Self.shown("daemon.restart", in: view) != nil)
         #expect(standIn.ensures().allSatisfy { !$0.contains("--replace-unresponsive") })
 
-        // The owner is stuck now: the window coming back into sight asks again at once, and the failure still offers Restart.
+        // The owner is stuck now: Retry Now asks again, and the failure still offers Restart.
         standIn.mark(standIn.stuck)
         let before = standIn.ensures().count
-        FrameScheduler.tellSightFollowers(of: try #require(view.window))
-        // Restart already shows, so wait for that ensure.
+        try Self.press(try #require(retry))
+        // Restart already shows, so wait for Retry Now's own ensure.
         await Self.wait { standIn.ensures().count > before }
         #expect(standIn.ensures().count > before)
         #expect(Self.shown("daemon.restart", in: view) != nil)
@@ -204,7 +203,7 @@ struct DaemonRestartTests {
         #expect(ensures.filter { $0.contains("--replace-unresponsive") }.count == 1)
     }
 
-    @Test func aRefusedRestartSaysSoAndKeepsRestart() async throws {
+    @Test func aRefusedRestartSaysSoAndLeavesRetry() async throws {
         let launched = try Self.launch(stuck: true, refuse: true)
         defer { launched.stop() }
         let standIn = launched.standIn
@@ -222,9 +221,9 @@ struct DaemonRestartTests {
         #expect(!shownStatus.isHidden)
         #expect(!shownStatus.stringValue.isEmpty)
         #expect(!shownStatus.stringValue.contains("server.replace"))
-        let restart = Self.shown("daemon.restart", in: view)
-        #expect(restart != nil)
-        #expect(restart?.isEnabled == true)
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
+        #expect(retry?.isEnabled == true)
     }
 
     #if DEBUG

@@ -7,9 +7,9 @@
 //! base version; a file gone here is DELETEd the same way). A 409 pulls again, which merges the
 //! store's version in, and tries once more.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -80,51 +80,7 @@ pub struct Engine {
     state_dir: PathBuf,
     host: String,
     pub state: State,
-    /// Each file's sha256 as last read, under the `stat` it was read at: a pass reads and hashes
-    /// only files whose stamp moved, not the whole folder (thousands of notes, every pass).
-    hashed: HashMap<String, (Stamp, String)>,
-    /// The state as `state.json` last held it: a pass that changed nothing writes nothing.
-    saved: Option<State>,
-    /// Files read and hashed by pushes since start (what the stamp cache saves; tests read it).
-    pub hashed_reads: u64,
     _lock: cmux_file_lock::FileLock,
-}
-
-/// What `stat` says of a file. The same stamp means the same bytes as when it was last hashed,
-/// as git's index assumes; a file modified in the last [`RACY`] gets none, so a write landing in
-/// the same clock tick as our read is never missed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Stamp {
-    len: u64,
-    modified: SystemTime,
-    #[cfg(unix)]
-    ino: u64,
-    #[cfg(unix)]
-    ctime: (i64, i64),
-}
-
-const RACY: Duration = Duration::from_secs(2);
-
-impl Stamp {
-    fn of(meta: &std::fs::Metadata) -> Option<Stamp> {
-        if !meta.is_file() {
-            return None;
-        }
-        let modified = meta.modified().ok()?;
-        if SystemTime::now().duration_since(modified).map_or(true, |age| age < RACY) {
-            return None;
-        }
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
-        Some(Stamp {
-            len: meta.len(),
-            modified,
-            #[cfg(unix)]
-            ino: meta.ino(),
-            #[cfg(unix)]
-            ctime: (meta.ctime(), meta.ctime_nsec()),
-        })
-    }
 }
 
 impl Engine {
@@ -154,19 +110,7 @@ impl Engine {
                 }
             };
         let state = State::load(&state_dir);
-        let saved = Some(state.clone());
-        Ok(Engine {
-            client,
-            scope,
-            dir,
-            state_dir,
-            host,
-            state,
-            hashed: HashMap::new(),
-            saved,
-            hashed_reads: 0,
-            _lock: lock,
-        })
+        Ok(Engine { client, scope, dir, state_dir, host, state, _lock: lock })
     }
 
     pub fn dir(&self) -> &Path {
@@ -188,7 +132,8 @@ impl Engine {
             }
             Err(e) => self.state.last_error = Some(format!("{e:#}")),
         }
-        self.save_if_changed()?;
+        self.prune_bases();
+        self.save()?;
         result.map(|()| report)
     }
 
@@ -285,15 +230,14 @@ impl Engine {
     /// Publish what changed here.
     pub async fn push(&mut self, report: &mut Report) -> Result<()> {
         let local = self.scan()?;
-        for (rel, stamp) in &local {
-            self.publish(rel, *stamp, report).await?;
+        for rel in &local {
+            self.publish(rel, report).await?;
         }
-        self.hashed.retain(|rel, _| local.contains_key(rel));
         let gone: Vec<(String, Base)> = self
             .state
             .files
             .iter()
-            .filter(|(rel, base)| !base.sha256.is_empty() && !local.contains_key(*rel))
+            .filter(|(rel, base)| !base.sha256.is_empty() && !local.contains(*rel))
             .map(|(rel, base)| (rel.clone(), base.clone()))
             .collect();
         for (rel, base) in gone {
@@ -325,34 +269,12 @@ impl Engine {
         Ok(tree.entries.iter().find(|e| e.path == rel).map(|e| e.version))
     }
 
-    async fn publish(
-        &mut self,
-        rel: &str,
-        scanned: Option<Stamp>,
-        report: &mut Report,
-    ) -> Result<()> {
-        // Unchanged since it was last hashed, and agreed or refused at that hash: nothing to do,
-        // without reading it.
-        if let Some(stamp) = scanned
-            && let Some((known, sha)) = self.hashed.get(rel)
-            && *known == stamp
-            && (self.state.files.get(rel).is_some_and(|b| &b.sha256 == sha)
-                || self.state.refused.get(rel).is_some_and(|r| &r.sha256 == sha))
-        {
-            return Ok(());
-        }
+    async fn publish(&mut self, rel: &str, report: &mut Report) -> Result<()> {
         for _ in 0..3 {
-            let stamp =
-                std::fs::symlink_metadata(self.dir.join(rel)).ok().and_then(|m| Stamp::of(&m));
             let Some(bytes) = self.read_local(rel)? else {
                 return Ok(());
             };
             let sha = sha256_hex(&bytes);
-            self.hashed_reads += 1;
-            match stamp {
-                Some(stamp) => self.hashed.insert(rel.to_owned(), (stamp, sha.clone())),
-                None => self.hashed.remove(rel),
-            };
             let base = self.state.files.get(rel).cloned();
             if base.as_ref().is_some_and(|b| b.sha256 == sha) {
                 return Ok(());
@@ -445,38 +367,9 @@ impl Engine {
     }
 
     pub fn save(&self) -> Result<()> {
-        let bytes = serde_json::to_vec(&self.state)?;
+        let bytes = serde_json::to_vec_pretty(&self.state)?;
         write_atomic(&self.state_dir.join("state.json"), &bytes)
             .context("save the memory sync state")
-    }
-
-    /// Save (and prune the bases) only when the pass changed the state; `last_ok` alone is
-    /// written at most once a minute. A pass per remote change on a folder of thousands of
-    /// files otherwise rewrote a megabyte of JSON and listed every base, each time.
-    fn save_if_changed(&mut self) -> Result<()> {
-        let (files_moved, changed) = match &self.saved {
-            None => (true, true),
-            Some(saved) => {
-                let s = &self.state;
-                let files_moved = s.files != saved.files;
-                let clock = s.last_ok.unwrap_or(0).saturating_sub(saved.last_ok.unwrap_or(0)) >= 60;
-                let changed = files_moved
-                    || clock
-                    || s.last_seq != saved.last_seq
-                    || s.refused != saved.refused
-                    || s.last_error != saved.last_error
-                    || s.remote_seq != saved.remote_seq;
-                (files_moved, changed)
-            }
-        };
-        if files_moved {
-            self.prune_bases();
-        }
-        if changed {
-            self.save()?;
-            self.saved = Some(self.state.clone());
-        }
-        Ok(())
     }
 
     /// A regular file's bytes at `rel`, `None` when there is none (a symlink is none).
@@ -504,21 +397,15 @@ impl Engine {
                 .with_context(|| format!("create {}", parent.display()))?;
         }
         let temp = temp_beside(&path);
-        let written = {
-            let _turn = crate::dead_temps::hold(&temp);
-            fill_temp(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
-            let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
-            if now.as_deref() == expect {
-                crate::home_fs::rename(&temp, &path)
-                    .with_context(|| format!("rename into {}", path.display()))?;
-                true
-            } else {
-                let _ = crate::home_fs::remove_file(&temp);
-                false
-            }
-        };
-        sweep_dead_temps(&path);
-        Ok(written)
+        crate::home_fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
+        let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
+        if now.as_deref() != expect {
+            let _ = crate::home_fs::remove_file(&temp);
+            return Ok(false);
+        }
+        crate::home_fs::rename(&temp, &path)
+            .with_context(|| format!("rename into {}", path.display()))?;
+        Ok(true)
     }
 
     fn remove_local(&self, rel: &str, expect: Option<&str>) -> Result<()> {
@@ -533,9 +420,8 @@ impl Engine {
 
     /// Every synced file under the folder, as `/`-separated relative paths. Symlinks are not
     /// followed; hidden, editor and oversized files are left out.
-    /// Each comes with its [`Stamp`] from the same `stat`.
-    fn scan(&self) -> Result<BTreeMap<String, Option<Stamp>>> {
-        let mut out = BTreeMap::new();
+    pub fn scan(&self) -> Result<BTreeSet<String>> {
+        let mut out = BTreeSet::new();
         let mut stack = vec![(self.dir.clone(), String::new())];
         while let Some((dir, prefix)) = stack.pop() {
             let entries = match std::fs::read_dir(&dir) {
@@ -555,10 +441,9 @@ impl Engine {
                 if kind.is_dir() {
                     stack.push((entry.path(), rel));
                 } else if kind.is_file()
-                    && let Ok(meta) = entry.metadata()
-                    && meta.len() <= MAX_FILE_BYTES
+                    && entry.metadata().map(|m| m.len() <= MAX_FILE_BYTES).unwrap_or(false)
                 {
-                    out.insert(rel, Stamp::of(&meta));
+                    out.insert(rel);
                 }
             }
         }
@@ -678,31 +563,12 @@ pub fn safe_rel(rel: &str) -> bool {
         && rel.split('/').all(|p| !p.is_empty() && p != "." && p != "..")
 }
 
-/// The hidden copy a write of `path` fills before its rename: one name per file and process,
-/// the same on every write, never one per write (each new name is one more path fseventsd keeps,
-/// `dead_temps`). This process's writers of one name take turns (`dead_temps::hold`).
 fn temp_beside(path: &Path) -> PathBuf {
-    path.with_file_name(format!("{}{}", temp_prefix(path), std::process::id()))
-}
-
-fn temp_prefix(path: &Path) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    format!(".{name}.memtmp-")
-}
-
-/// Fill `temp` from nothing (0600 when new): the caller holds its turn, so no other writer of
-/// this process fills it meanwhile.
-fn fill_temp(temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let mut file = crate::home_fs::create_file(temp)?;
-    file.write_all(bytes)
-}
-
-/// Remove the copies of `path` a process that is gone left behind (`dead_temps::remove`).
-fn sweep_dead_temps(path: &Path) {
-    if let Some(dir) = path.parent() {
-        crate::dead_temps::remove(dir, &temp_prefix(path));
-    }
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    path.with_file_name(format!(".{name}.memtmp-{}-{n}", std::process::id()))
 }
 
 /// Write through a hidden temp beside `path`, then rename over it.
@@ -711,16 +577,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         crate::home_fs::create_dirs(parent)?;
     }
     let temp = temp_beside(path);
-    let done = {
-        let _turn = crate::dead_temps::hold(&temp);
-        fill_temp(&temp, bytes).and_then(|()| crate::home_fs::rename(&temp, path)).inspect_err(
-            |_| {
-                let _ = crate::home_fs::remove_file(&temp);
-            },
-        )
-    };
-    sweep_dead_temps(path);
-    done
+    crate::home_fs::write(&temp, bytes)?;
+    crate::home_fs::rename(&temp, path).inspect_err(|_| {
+        let _ = crate::home_fs::remove_file(&temp);
+    })
 }
 
 fn mtime_ms(path: &Path) -> Option<u64> {

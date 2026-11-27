@@ -1741,10 +1741,6 @@ pub struct Config {
     /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
-    /// `autoCloudEnroll`: this machine's AutoCloud enrollment as `_acpmux/autocloud_enroll` last
-    /// set it (`autocloud_enroll.rs`); absent, the settings key `cloud.autoCloudEnroll` decides.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_cloud_enroll: Option<serde_json::Value>,
     /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
@@ -1779,16 +1775,6 @@ pub struct Config {
     /// `acpmux config --set lane_gh_broker=PATH`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lane_gh_broker: Option<String>,
-    /// `laneGhCarrier`: the machines (names in the hub's address book, in order of preference)
-    /// whose lane-gh broker this lane machine reaches over the held carrier link instead of the
-    /// broker's `ssh -R` forward (RFD 0060 Weft move 3). Set, the daemon holds the forward
-    /// `acpmux machine broker-forward` runs, at [`crate::cli::host_broker_forward::held_socket_path`]
-    /// (`~/.cache/lane-gh/carrier.sock`), and an agent session it starts gets `LANE_GH_SOCKET` set
-    /// to it while one owner's broker answered its last progress check; with none answering, a new
-    /// session keeps `lane-gh`'s default (the `ssh -R` socket). Unset (the default): nothing
-    /// changes. Set with `acpmux config --set lane_gh_carrier=OWNER[,OWNER...]`; a restart applies it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lane_gh_carrier: Option<Vec<String>>,
     /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
     /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
     /// machines on it first when their name resolves to a private address (one GCP region's VPC),

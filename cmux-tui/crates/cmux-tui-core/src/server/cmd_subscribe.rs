@@ -43,11 +43,6 @@ pub(crate) const TREE_SELECTION_DELTAS_CAPABILITY: &str = "tree-selection-deltas
 /// An owner app that understands the authenticated worker's screen identity
 /// opts into its initial replay and live `screen-device-changed` events.
 pub(crate) const SCREEN_DEVICE_IDENTITY_CAPABILITY: &str = "screen-device-identity-v1";
-/// A client that says it in `set-client-info` gets, first on each `subscribe`, an
-/// `agent-presence-changed` for every terminal's presence, a cleared one with nulls. It can then
-/// keep the presence it shows across a reconnect to the same daemon instead of dropping it until
-/// each agent's next hook event (hq#19373, ask c-ea62b204f6). `identify` lists it.
-pub(crate) const AGENT_PRESENCE_REPLAY_CAPABILITY: &str = "agent-presence-replay-v1";
 
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
@@ -120,13 +115,6 @@ pub(super) fn subscribe_command(
     } else {
         Vec::new()
     };
-    // Read after the subscription exists: a change after this read also comes live, after these.
-    let presence_replay =
-        if mux.control_clients.supports_capability(client, AGENT_PRESENCE_REPLAY_CAPABILITY) {
-            mux.agent_presence_replay()
-        } else {
-            Vec::new()
-        };
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
@@ -165,14 +153,8 @@ pub(super) fn subscribe_command(
         writer.register_interrupt(&interrupt);
         outbound_stream.register_interrupt(&interrupt);
         events.wake_on(&interrupt);
-        // The replay goes through the same filters as a live event (incognito, page relays).
-        let mut presence_replay = presence_replay.into_iter();
         while writer.is_open() && outbound_stream.is_open() {
-            let next = match presence_replay.next() {
-                Some(event) => Ok(event),
-                None => events.recv_until_interrupted(&interrupt),
-            };
-            let event = match next {
+            let event = match events.recv_until_interrupted(&interrupt) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,

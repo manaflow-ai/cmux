@@ -27,7 +27,7 @@ set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
-cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix (advisory) / action exports"
+cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix / action exports"
 # shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"

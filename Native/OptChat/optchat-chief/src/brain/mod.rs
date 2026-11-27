@@ -898,9 +898,6 @@ pub(crate) struct MachineLimit {
     pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
-/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
-type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
-
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1011,7 +1008,7 @@ pub struct Brain {
     /// The turn session the last turn kept (`Settings::keep_turn_session`).
     kept: Option<turns::KeptTurn>,
     /// The running turn's keep check: its key, session shape, and view identity.
-    keep_pending: Option<KeepPending>,
+    keep_pending: Option<(String, u64, Vec<(optchat_core::NodeId, bool)>)>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 

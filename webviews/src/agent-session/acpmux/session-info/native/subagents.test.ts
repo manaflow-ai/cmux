@@ -13,16 +13,7 @@ const agent = (over: Partial<Subagent>): Subagent =>
 function rows(agents: Subagent[], resume: SubagentsSectionInput["resume"], sessions: StartedSession[] = []) {
   const actions = new NativeInfoActions();
   const section = subagentsSection(
-    {
-      open: true,
-      agents,
-      waiting: new Set(),
-      sessions,
-      now: 3,
-      connectionQuiet: () => true,
-      endedOpen: true,
-      ...(resume && { resume }),
-    },
+    { open: true, agents, waiting: new Set(), sessions, now: 3, endedOpen: true, ...(resume && { resume }) },
     actions,
     t,
   );
@@ -51,12 +42,12 @@ describe("Session Info's native Subagents: Resume on a stopped one", () => {
 
   test("busy disables it, a refusal says why on the row, and no Resume without the chat's action", () => {
     const busy: ResumeRun = { version: "v", busy: true };
-    const refused: ResumeRun = { version: "v", key: "retry.gone" };
+    const refused: ResumeRun = { version: "v", key: "retry.busy" };
     const busyRow = rows([agent({ resumable: true })], { capabilities, run: () => {}, shown: () => busy }).rows[1];
     expect(busyRow?.buttons?.[0]?.disabled).toBe(true);
     const refusedRow = rows([agent({ resumable: true })], { capabilities, run: () => {}, shown: () => refused })
       .rows[1];
-    expect(refusedRow?.detail).toBe("retry.gone");
+    expect(refusedRow?.detail).toBe("retry.busy");
     expect(rows([agent({ resumable: true })], undefined).rows[1]?.buttons).toBeUndefined();
     expect(
       rows([agent({ resumable: true, harness: "codex" })], { capabilities, run: () => {}, shown: () => undefined })

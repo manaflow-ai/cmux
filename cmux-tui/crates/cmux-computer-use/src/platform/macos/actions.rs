@@ -1097,7 +1097,7 @@ fn enable_menu_item(
     let title = item.string("AXTitle").unwrap_or_default();
     let key = key_in_app(d, t).ok_or_else(|| {
         DesktopError::Unsupported(format!(
-            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. A context menu runs in the background: click the window's content or an item in it with button right and menu_item, if it lists the command; else delivery foreground if it is allowed"
+            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
         ))
     })?;
     // Short reads; the item keeps them while the scope is open (the caller
@@ -1794,8 +1794,7 @@ fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax, before: &FocusBefore) -> bo
     }
 }
 
-/// Asks a Chromium app (a browser, or an app that embeds Chromium pages:
-/// cmux's agent chats) to show its pages to accessibility
+/// Asks a Chromium app to show its pages to accessibility
 /// ([`roles::web_accessibility_attribute`]), once per process, and waits
 /// (at most [`WEB_TREE_WAIT`]) for `win`'s web content to appear. It
 /// changes no focus, window or front app: it is what a screen reader asks.
@@ -1803,7 +1802,9 @@ pub(super) fn show_web_content(t: &Target, win: &Ax) {
     static DONE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i32>>> =
         std::sync::OnceLock::new();
     let pid = t.window.pid;
-    let Some(attr) = roles::web_accessibility_attribute(app_bundle(t).as_deref()) else {
+    let Some(attr) =
+        roles::web_accessibility_attribute(roles::web_engine(app_bundle(t).as_deref()))
+    else {
         return;
     };
     {

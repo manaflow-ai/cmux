@@ -1,6 +1,5 @@
 use super::*;
 use crate::seal;
-use p256::SecretKey;
 use p256::ecdsa::SigningKey;
 
 fn identity() -> SigningKey {

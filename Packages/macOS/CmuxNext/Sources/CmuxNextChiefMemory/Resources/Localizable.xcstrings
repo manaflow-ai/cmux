@@ -3675,127 +3675,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ذاكرة الـ Chief لا تستجيب. ستُحمَّل هنا تلقائيًا بمجرد أن يعمل الـ Chief."
+            "value": "لم تستجب ذاكرة Chief. شغّل Chief (أرسل إليه رسالة في Chief)، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Memorija Chiefa ne odgovara. Učitat će se ovdje sama čim Chief bude radio."
+            "value": "Chiefova memorija nije odgovorila. Pokrenite Chiefa (pošaljite mu poruku u Chief), pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefs hukommelse svarer ikke. Den indlæses her af sig selv, når Chief kører."
+            "value": "Chiefs hukommelse svarede ikke. Start Chief (send en besked i Chief), og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das Gedächtnis des Chiefs antwortet nicht. Es lädt hier von selbst, sobald der Chief läuft."
+            "value": "Das Gedächtnis des Chiefs hat nicht geantwortet. Starte den Chief (sende ihm eine Nachricht in Chief) und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief’s memory isn’t answering. It loads here on its own once the Chief is running."
+            "value": "The Chief’s memory did not answer. Start the Chief (send it a message in Chief), then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La memoria del Chief no responde. Se cargará aquí sola en cuanto el Chief esté en marcha."
+            "value": "La memoria del Chief no respondió. Inicia el Chief (envíale un mensaje en Chief) y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mémoire du Chief ne répond pas. Elle se charge ici d’elle-même dès que le Chief tourne."
+            "value": "La mémoire du Chief n’a pas répondu. Démarrez le Chief (envoyez-lui un message dans Chief), puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La memoria del Chief non risponde. Si caricherà qui da sola appena il Chief sarà in esecuzione."
+            "value": "La memoria del Chief non ha risposto. Avvia il Chief (inviagli un messaggio in Chief), poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief のメモリが応答していません。Chief が動き始めると、ここに自動で読み込まれます。"
+            "value": "Chief のメモリが応答しませんでした。Chief を起動して（Chief でメッセージを送って）から、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អង្គចងចាំរបស់ Chief មិនឆ្លើយតបទេ។ វានឹងផ្ទុកនៅទីនេះដោយខ្លួនឯង នៅពេល Chief កំពុងដំណើរការ។"
+            "value": "អង្គចងចាំរបស់ Chief មិនបានឆ្លើយតបទេ។ ចាប់ផ្តើម Chief (ផ្ញើសារទៅវានៅក្នុង Chief) រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief의 메모리가 응답하지 않습니다. Chief가 실행되면 여기에 자동으로 불러옵니다."
+            "value": "Chief의 메모리가 응답하지 않았습니다. Chief를 시작한 다음(Chief에서 메시지 보내기) 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefs minne svarer ikke. Det lastes inn her av seg selv når Chief kjører."
+            "value": "Chiefens minne svarte ikke. Start Chief (send den en melding i Chief), og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pamięć Chiefa nie odpowiada. Wczyta się tutaj sama, gdy Chief zacznie działać."
+            "value": "Pamięć Chiefa nie odpowiedziała. Uruchom Chiefa (wyślij mu wiadomość w Chief) i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A memória do Chief não está respondendo. Ela carrega aqui sozinha assim que o Chief estiver em execução."
+            "value": "A memória do Chief não respondeu. Inicie o Chief (envie uma mensagem no Chief) e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Память Chief не отвечает. Она загрузится здесь сама, как только Chief запустится."
+            "value": "Память Chief не ответила. Запустите Chief (отправьте ему сообщение в Chief) и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน่วยความจำของ Chief ไม่ตอบสนอง จะโหลดที่นี่เองเมื่อ Chief ทำงาน"
+            "value": "หน่วยความจำของ Chief ไม่ตอบสนอง เริ่ม Chief (ส่งข้อความถึงใน Chief) แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief'in belleği yanıt vermiyor. Chief çalışmaya başlayınca burada kendiliğinden yüklenir."
+            "value": "Chief’in belleği yanıt vermedi. Chief’i başlatın (Chief’da ona bir mesaj gönderin) ve yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пам’ять Chief не відповідає. Вона завантажиться тут сама, щойно Chief запуститься."
+            "value": "Пам’ять Chief не відповіла. Запустіть Chief (надішліть йому повідомлення в Chief) і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bộ nhớ của Chief không phản hồi. Nó sẽ tự tải ở đây khi Chief chạy."
+            "value": "Bộ nhớ của Chief không phản hồi. Hãy khởi động Chief (gửi tin nhắn trong Chief) rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 的记忆没有响应。Chief 运行后会自动在此加载。"
+            "value": "Chief 的记忆没有响应。请启动 Chief（在 Chief 中给它发消息），然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 的記憶沒有回應。Chief 執行後會自動在此載入。"
+            "value": "Chief 的記憶沒有回應。請啟動 Chief（在 Chief 中傳訊息給它），然後再試一次。"
           }
         }
       }

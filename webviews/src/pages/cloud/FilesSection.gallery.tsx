@@ -91,7 +91,6 @@ export default componentEntry<Props>({
       play: editDuringSave,
     },
     failure: {
-      // retry-prompt-ok: a save of the person's edits; Save stays theirs to press again.
       note: "A failed write retains the draft and enables retry.",
       props: { result: "failure" },
       play: editDuringSave,

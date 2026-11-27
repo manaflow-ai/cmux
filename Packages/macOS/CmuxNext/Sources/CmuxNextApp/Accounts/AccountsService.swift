@@ -108,7 +108,7 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth, backend: services.cloud.configuration.runtimeSelection?.developerBackendLabel, signInBackend: services.cloud.configuration.signInBackendLine) }
+    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth, backend: services.cloud.configuration.runtimeSelection?.developerBackendLabel) }
 
     func runCmuxAccount(_ action: CmuxAccountAction) {
         if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }

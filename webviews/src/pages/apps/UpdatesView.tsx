@@ -1,5 +1,4 @@
 import type { Strings } from "../shared/i18n";
-import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
@@ -8,12 +7,6 @@ export function UpdatesView({ snap, store, strings }: { snap: AppsSnapshot; stor
   const { t } = strings;
   const installedById = new Map(snap.installed.map((app) => [app.id, app]));
   const updates = snap.updates.filter((update) => installedById.has(update.app));
-  // A failed update check is checked again on its own; only one that lasts the deadline says one quiet
-  // line (the list may be out of date), with no Retry. Check for updates stays: it is the person's own
-  // check, not a retry.
-  const { stillTrying } = useAutoRetry(snap.updatesError, () => void store.refreshUpdates(), {
-    busy: snap.updatesLoading,
-  });
 
   return (
     <section className="apps-section apps-updates" aria-labelledby="apps-updates-heading">
@@ -37,9 +30,14 @@ export function UpdatesView({ snap, store, strings }: { snap: AppsSnapshot; stor
           {t("store.action.checkUpdates")}
         </button>
       </div>
-      {snap.updatesError && stillTrying && (
+      {snap.updatesError && (
         <output className="apps-updates-status">
-          <span className="apps-muted">{t("store.updates.stale")}</span>
+          <span className="apps-failure selectable">
+            {snap.updatesStale ? t("store.updates.stale") : snap.updatesError}
+          </span>
+          <button type="button" className="apps-button" onClick={() => void store.refreshUpdates()}>
+            {t("store.action.retry")}
+          </button>
         </output>
       )}
       {updates.length > 0 && (

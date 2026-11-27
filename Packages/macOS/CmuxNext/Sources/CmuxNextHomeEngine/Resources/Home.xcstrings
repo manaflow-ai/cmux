@@ -13316,127 +13316,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's Chief didn't start in time, so the change wasn't saved."
+            "value": "This Mac's Chief was not running. It is starting now; try again in a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac の Chief が時間内に起動しなかったため、変更は保存されませんでした。"
+            "value": "この Mac の Chief は動いていませんでした。いま開始しています。少し待ってからもう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يبدأ الـ Chief على هذا الـ Mac في الوقت المناسب، لذلك لم يُحفظ التغيير."
+            "value": "لم يكن الـ Chief على هذا الـ Mac يعمل. يجري تشغيله الآن؛ حاول مرة أخرى بعد لحظات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na ovom Macu se nije pokrenuo na vrijeme, pa promjena nije sačuvana."
+            "value": "Chief na ovom Macu nije radio. Sada se pokreće; pokušajte ponovo za trenutak."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Macs Chief startede ikke i tide, så ændringen blev ikke gemt."
+            "value": "Denne Macs Chief kørte ikke. Den starter nu; prøv igen om et øjeblik."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Chief dieses Macs ist nicht rechtzeitig gestartet, daher wurde die Änderung nicht gespeichert."
+            "value": "Der Chief dieses Macs lief nicht. Er startet jetzt; versuche es gleich noch einmal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El Chief de este Mac no se inició a tiempo, así que el cambio no se guardó."
+            "value": "El Chief de este Mac no se estaba ejecutando. Se está iniciando ahora; inténtalo de nuevo en un momento."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le Chief de ce Mac n'a pas démarré à temps : la modification n'a pas été enregistrée."
+            "value": "Le Chief de ce Mac ne fonctionnait pas. Il démarre maintenant ; réessayez dans un instant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il Chief di questo Mac non si è avviato in tempo, quindi la modifica non è stata salvata."
+            "value": "Il Chief di questo Mac non era in esecuzione. Si sta avviando ora; riprova tra un momento."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief នៅលើ Mac នេះមិនបានចាប់ផ្ដើមទាន់ពេលទេ ដូច្នេះការផ្លាស់ប្ដូរមិនត្រូវបានរក្សាទុកទេ។"
+            "value": "Chief នៅលើ Mac នេះមិនបានដំណើរការទេ។ វាកំពុងចាប់ផ្ដើមឥឡូវនេះ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 Chief가 제때 시작되지 않아 변경 사항이 저장되지 않았습니다."
+            "value": "이 Mac의 Chief가 실행 중이 아니었습니다. 지금 시작하는 중이니 잠시 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief på denne Macen startet ikke i tide, så endringen ble ikke lagret."
+            "value": "Chief på denne Macen kjørte ikke. Den starter nå; prøv igjen om et øyeblikk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na tym Macu nie uruchomił się na czas, więc zmiana nie została zapisana."
+            "value": "Chief na tym Macu nie działał. Uruchamia się teraz; spróbuj ponownie za chwilę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chief deste Mac não iniciou a tempo, então a alteração não foi salva."
+            "value": "O Chief deste Mac não estava em execução. Ele está iniciando agora; tente de novo em instantes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на этом Mac не запустился вовремя, поэтому изменение не сохранено."
+            "value": "Chief на этом Mac не был запущен. Сейчас он запускается; повторите попытку через минуту."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ของ Mac เครื่องนี้เริ่มต้นไม่ทันเวลา จึงไม่ได้บันทึกการเปลี่ยนแปลง"
+            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่ กำลังเริ่มต้นตอนนี้ ลองอีกครั้งในอีกสักครู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac'in Chief'i zamanında başlamadı, bu yüzden değişiklik kaydedilmedi."
+            "value": "Bu Mac'in Chief'i çalışmıyordu. Şimdi başlatılıyor; birazdan yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на цьому Mac не запустився вчасно, тому зміну не збережено."
+            "value": "Chief на цьому Mac не був запущений. Зараз він запускається; спробуйте ще раз за мить."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief của máy Mac này không khởi động kịp, nên thay đổi chưa được lưu."
+            "value": "Chief của máy Mac này không chạy. Nó đang khởi động; hãy thử lại sau giây lát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的 Chief 未能及时启动，因此更改未保存。"
+            "value": "此 Mac 的 Chief 未在运行。现在正在启动，请稍后再试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的 Chief 未能及時啟動，因此變更未儲存。"
+            "value": "此 Mac 的 Chief 未在執行。現在正在啟動，請稍後再試。"
           }
         }
       }

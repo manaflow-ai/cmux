@@ -1,6 +1,7 @@
 // A dropped file is read by the session's own tools through its path, never copied into the
 // prompt. Files without a usable path retain their existing preview and upload transport.
 import {
+  filesOnce,
   isImageFile,
   linkAttachment,
   linkItems,
@@ -11,7 +12,6 @@ import {
   type DroppedKind,
   type KnownPaths,
   type LinkItem,
-  filesOnce,
 } from "../attachments";
 import { localImagePreview, previewForFile } from "./imagePool";
 import { linkedImagePath } from "../conversation/userBubbleModel";
@@ -31,8 +31,7 @@ export type IntakeOptions = {
   cancelled?: UploadCancelled;
 };
 
-/// `final`: the host refused the upload outright (it is still asked again on its own, slowly:
-/// uploadRetry.ts).
+/// `final`: the host refused the upload outright, so it is not tried again on its own.
 export type IntakeError = AttachmentError | { text: string; final?: boolean };
 
 /// What happens to each file of a batch, by its index, the moment it happens: a chip never waits
@@ -219,7 +218,7 @@ export async function intakeFiles(
         const { image, videoShape } = await prepared[index]!;
         // A later file may fail after earlier files finished. Keep every returned path, even when
         // the batch also carries an error, so completed uploads remain attachable and only the
-        // failed/unattempted chips are asked again (uploadRetry.ts).
+        // failed/unattempted chips offer Retry.
         const path = sent && "paths" in sent ? sent.paths[at] : undefined;
         if (path && image) {
           image.originalPath = path;

@@ -1,12 +1,12 @@
 // l10n-allow-file: synthetic file names and host errors for a behavioral regression.
-// An image's original that fails between a commit and that commit's passive effects is still saved again
+// An image's original that fails between a commit and that commit's passive effects keeps its Retry
 // (composer/attachmentIntakeModel.ts, the cleanup effect's `everDrawn` guard, which each commit's
 // layout phase fills, never a render; #40892, review F1).
 //
 // The cleanup effect drops the original's file and failure of a chip no longer in the strip. It runs
 // after its commit's paint, so a second image read meanwhile (staged, its original failed) is in no
 // render's `attachments` yet: without the guard the effect took it for one that left and dropped its
-// file, so it was never asked again (composer/uploadRetry.ts). The race is made deterministic here: the second image is pasted and fully decoded, but its
+// Retry. The race is made deterministic here: the second image is pasted and fully decoded, but its
 // intake waits on the host's answer of where its file is (`localPaths`), which both its staging and
 // its upload wait on. A commit that changes the strip answers it from its layout phase and holds the
 // frame past React's scheduler slice, so the scheduler yields before that commit's passive effects.
@@ -129,7 +129,7 @@ async function until(check: () => boolean, inAct = false) {
   expect(check()).toBe(true);
 }
 
-test("an original that fails before its chip's first render keeps its file, to be saved again", async () => {
+test("an original that fails before its chip's first render keeps its Retry", async () => {
   const answers: UploadResult[] = [{ paths: ["/remote/first.png"] }, { error: "The disk is full." }];
   // The host's answer of where the pasted file is: held until the strip's commit. It knows no path
   // (an empty list), so the file uploads.
@@ -137,8 +137,7 @@ test("an original that fails before its chip's first render keeps its file, to b
   const options: AttachmentIntakeOptions = {
     allowImages: true,
     pasteTarget: () => undefined,
-    // Asked again on its own meanwhile (its backoff), it keeps failing the same way until the end.
-    upload: async () => answers.shift() ?? { error: "The disk is full." },
+    upload: async () => answers.shift(),
     localPaths: () => new Promise((resolve) => (answerPaths = () => resolve([]))),
   };
   const handle: { current: Intake | null } = { current: null };
@@ -192,8 +191,8 @@ test("an original that fails before its chip's first render keeps its file, to b
   expect(trace.slice(layout, layout + 2)).toEqual(["layout first.png", "passive first.png"]);
   const second = handle.current!.attachments.find((chip) => chip.name === "second.png");
   expect(second).toBeDefined();
-  // Its original failed while no render had staged it: the failure and its file stay, so it is
-  // uploaded again (here asked at once, as a wake does, not after the backoff).
+  // Its original failed while no render had staged it: the failure and its file stay, so Retry shows
+  // and uploads it again.
   expect(handle.current!.originalFailures[second!.id]).toBe("The disk is full.");
   answers.push({ paths: ["/remote/second.png"] });
   act(() => handle.current!.retry(second!.id));

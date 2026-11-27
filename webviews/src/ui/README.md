@@ -5,18 +5,6 @@ for menu, focus, positioning, and dialog semantics. Base UI is already in the bu
 the direction-aware keyboard and VoiceOver behavior used by the existing pages; React Aria can be
 adopted behind these APIs later without changing callers.
 
-Every export here is ready, experimental or deprecated; [STATUS.md](STATUS.md) says what each
-promises and how an export is tagged.
-
-## For agents
-
-Run `bun run gen:component-manifest` to write `src/ui/llms.txt`, which lists every component with a
-one-line summary and links to a page per component in `src/ui/docs/` (props, `data-*` attributes,
-gallery entries, an example); `src/ui/components.generated.json` is the same data for tools. They are
-read from the source, never committed (gitignored): generate them where you read them.
-`bun run check:component-manifest` fails when the source no longer generates. Put `@status experimental`
-(or `deprecated`) in a component's JSDoc to set its status.
-
 ## Menu
 
 ```tsx
@@ -169,7 +157,7 @@ Rules:
 
 ## Liquid glass
 
-A glass surface adds `.ui-glass`; its
+A glass surface adds `.ui-glass` (React: `<Glass>` from `ui/glass/Glass.tsx`) and nothing else; its
 tint, blur and rim come from `ui/glass/glass.css`, which `pages/shared/desktop.ts` loads on every page
 and the agent pane. Override a token on the surface itself, never the fill. Reduce Transparency holds
 every `.ui-glass` opaque whatever tokens it sets (`!important` in glass.css), with `--glass-opaque` as

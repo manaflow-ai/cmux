@@ -56,9 +56,6 @@ pub const MAX_MOVES: usize = 4;
 pub const MIN_IDLE_SECS: u64 = 300;
 /// The capability with which an absent `workingBelow` means false.
 pub const IDLE_FACTS: &str = crate::capabilities::SESSION_IDLE_FACTS;
-/// The row field counting the daemon's background tasks the session runs, carried with
-/// [`crate::capabilities::SESSION_BG_FACTS`]; absent: unknown, the session stays.
-pub const BG_TASKS: &str = "bgTasksRunning";
 
 /// The registry's `lane_overflow.rebalance`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,24 +116,18 @@ pub fn conf(registry: Option<&Value>) -> Conf {
 }
 
 /// A peer's `session info` as a row a pass judges: its `peer` dropped (the pass runs for that
-/// host), and `workingBelow` from what does run below it when it has none (a field `session
-/// info` does not carry): a background command (`commandsRunning`), a background subagent
-/// (`subagentsRunning`) or a working sub-session (`subagentsWorkingSince`). `backgroundsWork`
-/// is not one: it says the harness can background a turn (Ctrl-B), true for every Claude Code
-/// session, so reading it as work held every peer session. Unknown stays unknown: no
-/// `workingBelow` is invented from a row missing all three.
+/// host), and `workingBelow` from `backgroundsWork` and `commandsRunning` when it has none (a
+/// field `session info` does not carry). Unknown stays unknown: no `workingBelow` is invented
+/// from a row missing both.
 pub fn peer_row(info: &Value) -> Value {
     let mut row = info.clone();
     if let Some(o) = row.as_object_mut() {
         o.remove("peer");
         if !o.contains_key("workingBelow") {
+            let bg = o.get("backgroundsWork").and_then(Value::as_bool);
             let cmds = o.get("commandsRunning").and_then(Value::as_u64);
-            let subs = o.get("subagentsRunning").and_then(Value::as_u64);
-            let since = o.get("subagentsWorkingSince");
-            if cmds.is_some() || subs.is_some() || since.is_some() {
-                let below = cmds.unwrap_or(0) > 0
-                    || subs.unwrap_or(0) > 0
-                    || since.is_some_and(Value::is_u64);
+            if bg.is_some() || cmds.is_some() {
+                let below = bg == Some(true) || cmds.unwrap_or(0) > 0;
                 o.insert("workingBelow".into(), Value::Bool(below));
             }
         }
@@ -223,21 +214,6 @@ pub fn held(row: &Value, idle_facts: bool, now_ms: u64, min_idle_ms: u64) -> Opt
         Some(Value::Bool(false)) => {}
         _ if idle_facts => {}
         _ => return Some("work below it is unknown (its daemon predates session-idle-facts-v1)"),
-    }
-    // The daemon's own background tasks (`bg_start`, `run_wait`, a backgrounded shell) stay on
-    // this host when the session moves: its wake would be lost. The move re-arms none of them
-    // yet, so any one running holds the session; a row without the count (a daemon before
-    // `session-bg-facts-v1`, old or a peer's) is unknown and held too.
-    match row.get(BG_TASKS).and_then(Value::as_u64) {
-        Some(0) => {}
-        Some(_) => {
-            return Some("a background task runs (a move cannot re-arm it at the destination)");
-        }
-        None => {
-            return Some(
-                "its background tasks are unknown (its daemon predates session-bg-facts-v1)",
-            );
-        }
     }
     if set(row, "starting") {
         return Some("it is starting");

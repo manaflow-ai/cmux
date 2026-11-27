@@ -27,13 +27,6 @@ export const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// the chat's `limits` changing.
 export const SUBSESSION_KIND = "subsession";
 
-/// The keys a plain attach sends, and only those: the relay params contract
-/// (test/agent-pane-relay-params-contract.test.ts) reads them off this type.
-export type PlainAttach = Pick<
-  AttachParams,
-  "sessionId" | "waitLogs" | "settled" | "afterSeq" | "limit" | "maxBytes" | "kinds" | "eventStream" | "visible"
-> & { attending: boolean };
-
 /// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
 /// reconnect that holds the chat through that seq) the page is the records after it instead, oldest
 /// first (acpmux requests.rs: `afterSeq` alone pages forward), so a reconnect reads only what it
@@ -48,7 +41,7 @@ export function plainAttach(
     maxBytes: number;
     afterSeq?: number;
   },
-): PlainAttach {
+): AttachParams & { attending: boolean } {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,

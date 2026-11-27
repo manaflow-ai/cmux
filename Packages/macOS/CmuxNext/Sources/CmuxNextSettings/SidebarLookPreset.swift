@@ -1,7 +1,7 @@
 import CmuxNextDesign
 public import Foundation
 
-/// `sidebar.look`: the sidebar drawn like another app's (`claude`, `codex`, `studio`, `rex`), or cmux's own
+/// `sidebar.look`: the sidebar drawn like another app's (`claude`, `codex`, `studio`), or cmux's own
 /// (`cmux`, the default). A look is data: a shipped file of ordinary public settings
 /// (`Resources/sidebar-looks/<look>.json`, the theme-file shape), so a person can rebuild or change
 /// any look in cmux-next.json. It fills only the keys that cmux-next.json, the managed layers and the
@@ -27,7 +27,7 @@ public nonisolated struct SidebarLookPreset {
     /// skipped (the Rust tests keep the shipped files clean). Empty when there is no file. File I/O.
     public static func entries(of name: String, folder: URL?) -> [(path: [String], value: JSONValue)] {
         guard let text = text(of: name, folder: folder) else { return [] }
-        let reply = SettingsRust.answer("sidebar_look.entries", ["name": .string(name), "text": .string(text)])
+        let reply = SettingsRust().answer("sidebar_look.entries", ["name": .string(name), "text": .string(text)])
         return (reply["entries"]?.arrayValue ?? []).compactMap { entry in
             guard let path = entry["path"]?.arrayValue?.compactMap(\.stringValue), let value = entry["value"] else { return nil }
             return (path, value)

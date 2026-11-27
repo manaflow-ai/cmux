@@ -39,13 +39,10 @@ export function AgentCallCard({ call, tool, look = "report" }: { call: AgentCall
   const findItems = useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]);
   const state = call.running ? "working" : call.failed ? "failed" : "done";
   const status = (
-    <span className="cv-agentcall__status" data-state={state} title={t(SUBSESSION_STATE_LABEL[state])}>
+    <span className="cv-agentcall__status" data-state={state}>
       {call.running && <Spinner size={12} loading />}
-      {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
       <span className="cv-agentcall__status-text">
-        {[call.running ? "" : t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)]
-          .filter(Boolean)
-          .join(" · ")}
+        {[t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)].join(" · ")}
       </span>
     </span>
   );

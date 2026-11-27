@@ -373,18 +373,6 @@ struct BillingRig {
         #expect(rig.model.offersFailure == .productUnavailable)
     }
 
-    @Test func emptyStoreReloadKeepsEarlierOffers() async throws {
-        let rig = await BillingRig()
-        await rig.model.refresh()
-        let earlier = rig.model.offers.map(\.product.id)
-        #expect(!earlier.isEmpty)
-        await rig.store.configure(products: [])
-        await rig.model.refresh()
-
-        #expect(rig.model.offers.map(\.product.id) == earlier)
-        #expect(rig.model.offersFailure == nil)
-    }
-
     @Test func signOutClearsAccountState() async throws {
         let rig = await BillingRig()
         await rig.model.refresh()
@@ -596,64 +584,5 @@ func settle(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool
     let deadline = clock.now.advanced(by: timeout)
     while !condition(), clock.now < deadline {
         await Task.yield()
-    }
-}
-
-/// New-user journeys, 2026-11-23: a failed web renewal showed only on the web
-/// dashboard. The model reads `paymentPastDue` with the account, for a plan
-/// billed on the web only.
-@MainActor
-@Suite struct BillingModelPaymentPastDueTests {
-    static let webPro = BillingFixtures.account(eligible: false, reason: .stripeSubscriptionActive, plan: .pro, source: .stripe, products: [])
-
-    @Test func aFailedWebRenewalIsReadWithTheAccount() async {
-        let rig = await BillingRig(account: Self.webPro)
-        await rig.api.setPastDue(.success(true))
-
-        await rig.model.refresh()
-
-        #expect(rig.model.paymentPastDue)
-        #expect(await rig.api.pastDueReads == 1)
-    }
-
-    @Test func aPaidRenewalOrAFailedReadShowsNothing() async {
-        let rig = await BillingRig(account: Self.webPro)
-        await rig.api.setPastDue(.success(true))
-        await rig.model.refresh()
-        #expect(rig.model.paymentPastDue)
-
-        await rig.api.setPastDue(.success(false))
-        await rig.model.refresh()
-        #expect(!rig.model.paymentPastDue)
-
-        await rig.api.setPastDue(.failure(.transport))
-        await rig.model.refresh()
-        #expect(!rig.model.paymentPastDue)
-    }
-
-    @Test func aPlanNotBilledOnTheWebMakesNoRead() async {
-        for account in [
-            BillingFixtures.account(),
-            BillingFixtures.account(plan: .pro, source: .apple),
-        ] {
-            let rig = await BillingRig(account: account)
-            await rig.api.setPastDue(.success(true))
-
-            await rig.model.refresh()
-
-            #expect(!rig.model.paymentPastDue)
-            #expect(await rig.api.pastDueReads == 0)
-        }
-    }
-
-    @Test func signOutClearsTheNotice() async {
-        let rig = await BillingRig(account: Self.webPro)
-        await rig.api.setPastDue(.success(true))
-        await rig.model.refresh()
-        #expect(rig.model.paymentPastDue)
-
-        rig.model.resetForSignOut()
-
-        #expect(!rig.model.paymentPastDue)
     }
 }

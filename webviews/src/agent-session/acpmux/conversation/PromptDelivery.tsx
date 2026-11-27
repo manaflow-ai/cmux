@@ -115,7 +115,6 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             aria-describedby={retryWaits ? retryWhy : undefined}
             onClick={() => act("chat.retryPrompt")}
           >
-            {/* retry-prompt-ok: sends the person's prompt again, a paid model request. */}
             {t("turn.retry")}
           </button>
         )}

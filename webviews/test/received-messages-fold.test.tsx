@@ -149,15 +149,7 @@ for (const family of ["claude", "codex"])
   test(`a turn's notices and received lines next to each other are one row of every message (${family})`, () => {
     const rows = shown(family);
     const groups = rows.filter((r) => r.kind === "laneNoticeBatch");
-    // Codex's reply-only turn keeps its Worked for line, closed over nothing (turns.ts `holdsHeader`, #51896);
-    // Claude's in-place runs, the arm these tests set, draw no turn fold.
-    expect(rows.map((r) => r.kind)).toEqual([
-      "user",
-      ...(family === "codex" ? ["worked"] : []),
-      "assistant",
-      "turnSummary",
-      "laneNoticeBatch",
-    ]);
+    expect(rows.map((r) => r.kind)).toEqual(["user", "assistant", "turnSummary", "laneNoticeBatch"]);
     expect(groups).toHaveLength(1);
     // Every message is its own row under it: 3 + 2 + 2.
     expect(

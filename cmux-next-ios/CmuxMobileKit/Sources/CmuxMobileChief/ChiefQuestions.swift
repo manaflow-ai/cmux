@@ -164,7 +164,6 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
     /// The Mac answered the check: it still waits for an answer, so this
     /// one never reached it.
     public mutating func checkedStillPending() {
-        // retry-prompt-ok: answering Chief's question is the person's write; the sheet keeps their answer to send again
         if state == .checking { state = .failed(String(localized: "Not sent: your Mac doesn't have this answer. Try again.")) }
     }
 
@@ -183,7 +182,6 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
             return String(localized: "Not sent: your Mac didn't accept this iPhone's approval.")
         case let refused as ConversationBackendError where refused.message.contains("invalid_answer"):
             return String(localized: "Not sent: the answer doesn't fit the question.")
-        // retry-prompt-ok: answering Chief's question is the person's write; the sheet keeps their answer to send again
         default: return String(localized: "Not sent: Chief on your Mac didn't take the answer. Try again.")
         }
     }

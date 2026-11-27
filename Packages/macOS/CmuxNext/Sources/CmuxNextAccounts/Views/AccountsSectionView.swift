@@ -57,11 +57,6 @@ private struct AccountsHeader: View {
                     .disabled(model.isRefreshing)
                     .accessibilityIdentifier("cmux.accounts.refresh")
             }
-            // Under Sign In: what it signs in to ("Signs in to cmux.com").
-            if !model.isSignedInToCmux, let line = model.services.cmuxAccount.signInBackend {
-                Text(line).font(palette.caption).foregroundStyle(palette.secondary).lineLimit(1).truncationMode(.middle)
-                    .accessibilityIdentifier(SignInButton.backendLineIdentifier.rawValue)
-            }
         }
     }
 }

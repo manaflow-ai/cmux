@@ -218,7 +218,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
         // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
         let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
-            let backend = ScreenCaptureBackend(log: log, rules: MacScreenRules.rules)
+            let backend = ScreenCaptureBackend(log: log)
             backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }
             let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
             self?.webRTCExclusions.withLock { previous in
@@ -226,7 +226,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 previous = watch
             }
             return backend
-        }, rules: MacScreenRules.rules, log: log)
+        }, log: log)
         host.onEvent = { [weak self] event in
             switch event {
             case .viewerConnected: self?.emit(.viewerConnected)

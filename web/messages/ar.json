@@ -5495,9 +5495,7 @@
     "errorInvalidTotp": "رمز التحقق بخطوتين هذا غير صالح.",
     "errorSignUpNotAllowed": "لا يمكن إنشاء حسابات جديدة حالياً.",
     "errorPasskey": "لم يكتمل تسجيل الدخول بمفتاح المرور. حاول مرة أخرى أو استخدم طريقة أخرى.",
-    "errorGeneric": "حدث خطأ ما. حاول مرة أخرى.",
-    "errorRedirectNotAllowed": "عنوان تسجيل الدخول لهذا الإصدار غير مسموح به على {backend}.",
-    "backendDevelopment": "خادم التطوير"
+    "errorGeneric": "حدث خطأ ما. حاول مرة أخرى."
   },
   "MobileRelease106": {
     "title": "الجديد في 1.0.6",

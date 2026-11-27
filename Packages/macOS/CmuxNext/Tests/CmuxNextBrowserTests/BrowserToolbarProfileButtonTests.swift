@@ -45,31 +45,6 @@ import Testing
         #expect(avatar.superview == nil)
     }
 
-    /// An incognito tab's button is its own disc (cmuxterm-hq RFD 0125, D1: "incognito (dark disc, incognito
-    /// glyph)" and "never the generic glyph"): the incognito glyph on the primary-text plate, no letter.
-    @Test func anIncognitoTabDrawsTheIncognitoDisc() throws {
-        let buttons = toolbar(pins: ["profile"])
-        let button = try #require(buttons.button(.profile) as? ChromeIconButton)
-        buttons.profileBadge = BrowserProfileBadge(monogram: "W", color: .blue, name: "Work")
-        buttons.profileBadge = .incognito(name: "Incognito")
-        let avatar = try #require(buttons.profileAvatar)
-        #expect(button.glyphReplacement === avatar, "the disc, not the plain person glyph")
-        #expect(avatar.shownSymbol == "browser.incognito" && avatar.shownText.isEmpty)
-        #expect(avatar.badge?.isIncognito == true)
-        let header = BrowserProfileBadge.incognito(name: "Incognito").menuHeader(.builtIn)
-        #expect(header.title == "Incognito" && header.subtitle == BrowserProfileStrings.incognitoReason && header.image != nil)
-        // Back to a profile: its letter on its color again.
-        buttons.profileBadge = BrowserProfileBadge(monogram: "W", color: .blue, name: "Work")
-        #expect(avatar.shownText == "W" && avatar.shownSymbol == nil)
-    }
-
-    /// Every header has its reason line, the built-in default's too (RFD 0125, D2: "one line saying why this tab has it").
-    @Test func everySourceHasAReasonLine() {
-        let reasons = [BrowserProfileCascade.Source.workspace, .space, .tab, .builtIn].map(BrowserProfileStrings.reason)
-        #expect(reasons.allSatisfy { !$0.isEmpty })
-        #expect(Set(reasons).count == reasons.count)
-    }
-
     /// The avatar set before the button exists (a tab bound while the button is unpinned) shows once it is pinned.
     @Test func aProfileSetBeforeTheButtonShowsOnceItIsPinned() throws {
         var pins: [String] = []

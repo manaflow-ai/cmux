@@ -68,7 +68,7 @@
   margin-bottom: calc(var(--grid-base) * 3);
   padding: calc(var(--grid-base) * 4);
   border: 1px solid color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 8%, transparent);
 }
 
@@ -96,7 +96,7 @@
 .stats-tile {
   padding: 10px 12px;
   border: 1px solid var(--page-separator);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
 }
 
 .stats-tile-label,

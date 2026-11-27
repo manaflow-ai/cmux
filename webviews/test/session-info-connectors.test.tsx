@@ -109,7 +109,7 @@ test("connector rows use the Environment row icon slot", async () => {
   expect(connectorIcon?.getAttribute("height")).toBe(environmentIcon?.getAttribute("height"));
 });
 
-test("a failed server's Reconnect asks for that server, waits, and stays Reconnect after an error", async () => {
+test("a failed server's Reconnect asks for that server, waits, and offers Try again after an error", async () => {
   const container = installDom();
   const asked: string[] = [];
   let answer: { resolve: () => void; reject: () => void } | undefined;
@@ -130,7 +130,7 @@ test("a failed server's Reconnect asks for that server, waits, and stays Reconne
   expect(buttons[0]!.disabled).toBe(true);
 
   await act(async () => answer!.reject());
-  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.reconnectAction"));
+  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.retry"));
   expect(buttons[0]!.disabled).toBe(false);
   expect(buttons[0]!.dataset.state).toBe("failed");
 

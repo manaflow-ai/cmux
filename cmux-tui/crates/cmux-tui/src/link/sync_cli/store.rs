@@ -39,11 +39,14 @@ use super::remote::Remote;
 
 /// Files up to this size are one blob.
 const WHOLE_FILE_MAX: u64 = 4 * 1024 * 1024;
-/// Content-defined chunk bounds: the shared chunker's `link sync push` size
-/// (FastCDC with normalized chunking, 512 KiB to 8 MiB, 2 MiB average).
-const CHUNKER: cmux_projection::cdc::Params = cmux_projection::cdc::SYNC;
-const CHUNK_MIN: usize = CHUNKER.min;
-const CHUNK_MAX: usize = CHUNKER.max;
+/// Content-defined chunk bounds (FastCDC with normalized chunking).
+const CHUNK_MIN: usize = 512 * 1024;
+const CHUNK_AVG: usize = 2 * 1024 * 1024;
+const CHUNK_MAX: usize = 8 * 1024 * 1024;
+/// Bits the cut test checks below and above the average: harder to cut
+/// before it, easier after, so sizes cluster around it.
+const MASK_HARD_BITS: u32 = 23;
+const MASK_EASY_BITS: u32 = 19;
 /// Hashes per `missing` request (the store's limit is 1000).
 const MISSING_BATCH: usize = 500;
 /// Uploads at once.
@@ -249,10 +252,59 @@ impl std::fmt::Display for Superseded {
 
 impl std::error::Error for Superseded {}
 
-/// Where the first chunk of `data` ends ([`cmux_projection::cdc::cut`], the chunker a
-/// projection shares). `data` is the rest of the file, or at least [`CHUNK_MAX`] of it.
+/// The gear table of the rolling hash: fixed, so the same bytes always cut
+/// at the same places on every Mac.
+fn gear() -> &'static [u64; 256] {
+    static GEAR: OnceLock<[u64; 256]> = OnceLock::new();
+    GEAR.get_or_init(|| {
+        let mut table = [0u64; 256];
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        for entry in &mut table {
+            // splitmix64
+            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            *entry = z ^ (z >> 31);
+        }
+        table
+    })
+}
+
+/// The top `bits` bits of a u64.
+const fn top(bits: u32) -> u64 {
+    !0u64 << (64 - bits)
+}
+
+/// Where the first chunk of `data` ends (FastCDC, normalized chunking).
+/// `data` is the rest of the file, or at least [`CHUNK_MAX`] of it.
 pub(super) fn cut(data: &[u8]) -> usize {
-    cmux_projection::cdc::cut(&CHUNKER, data)
+    if data.len() <= CHUNK_MIN {
+        return data.len();
+    }
+    let end = data.len().min(CHUNK_MAX);
+    let normal = end.min(CHUNK_AVG);
+    let gear = gear();
+    let roll = |hash: u64, byte: &u8| {
+        (hash << 1).wrapping_add(gear.get(usize::from(*byte)).copied().unwrap_or_default())
+    };
+    let (Some(hard), Some(easy)) = (data.get(CHUNK_MIN..normal), data.get(normal..end)) else {
+        return end;
+    };
+    let mut hash = 0u64;
+    for (at, byte) in (CHUNK_MIN..).zip(hard) {
+        hash = roll(hash, byte);
+        if hash & top(MASK_HARD_BITS) == 0 {
+            return at + 1;
+        }
+    }
+    for (at, byte) in (normal..).zip(easy) {
+        hash = roll(hash, byte);
+        if hash & top(MASK_EASY_BITS) == 0 {
+            return at + 1;
+        }
+    }
+    end
 }
 
 /// The pieces of `reader`'s bytes, cut by [`cut`].
@@ -726,7 +778,3 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 #[path = "store_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "store_seeded_tests.rs"]
-mod seeded_tests;

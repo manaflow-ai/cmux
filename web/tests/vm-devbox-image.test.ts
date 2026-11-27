@@ -792,7 +792,7 @@ test "$daemon_pid" = fixture
     expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
     expect(freestyleScript).toContain("pkg-config locales");
     expect(freestyleScript).toContain("locale-gen C.UTF-8");
-    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/workUser.ts"), "utf8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
     expect(workUser).toContain("91-cmux-work-user");
     expect(workUser).toContain("NOPASSWD:ALL");
     // An in-place upgrade installs the service too, through its install script.

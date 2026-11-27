@@ -368,9 +368,6 @@ fn serve_session(
         preset: "ultrafast",
         profile: "baseline",
         openh264_lib: opts.get("openh264-lib"),
-        // `video.sharp_text` is offered by Linux hosts only (`stream::offers_sharp_text`), so a
-        // Windows session never negotiates it; windows.rs's sessions set it the same way.
-        sharp_text: false,
     })?;
     wire.send_control(&Control::Welcome {
         encoder: encoder.name(),

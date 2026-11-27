@@ -63,7 +63,7 @@ final class ScriptedBackend: WorkspaceCreationBackend {
         #expect(placeholder.macID == "mac-studio")
         #expect(placeholder.tabs.map(\.kind) == [.terminal])
         #expect(placeholder.title == "New Workspace")
-        await yieldUntil { !(backend.requests.isEmpty) }
+        while backend.requests.isEmpty { await Task.yield() }
         backend.release()
         await creator.settle()
         #expect(!store.isPending(placeholder.id))
@@ -96,7 +96,7 @@ final class ScriptedBackend: WorkspaceCreationBackend {
                              tabs: [WorkspaceTab(id: "s1", kind: .terminal, title: "zsh")], lastActivityAt: Date())
         backend.result = { _ in .success(real) }
         let placeholder = try #require(creator.create())
-        await yieldUntil { !(backend.requests.isEmpty) }
+        while backend.requests.isEmpty { await Task.yield() }
         // The daemon's tree arrives before the reply.
         store.replaceWorkspaces(macID: "mac-studio", with: [real])
         #expect(store.workspaces.contains { $0.id == placeholder.id })

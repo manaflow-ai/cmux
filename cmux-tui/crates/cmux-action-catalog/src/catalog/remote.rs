@@ -62,7 +62,6 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "machine doctor",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -270,7 +269,6 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote install",
         is_destructive: true,
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -318,7 +316,6 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote forget",
         is_destructive: true,
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

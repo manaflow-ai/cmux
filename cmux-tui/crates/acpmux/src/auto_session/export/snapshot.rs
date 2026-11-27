@@ -113,34 +113,16 @@ struct ChatState {
     open_turn: Option<OpenTurn>,
 }
 
-/// State captured before the event high-water mark is read. The bounded event upload can then
-/// publish a manifest whose chat/native state is never ahead of `through`.
-pub(crate) struct Captured {
-    pub through: u64,
-    chat: ChatState,
-    files: Vec<AgentFile>,
-}
-
-pub(crate) async fn capture(
-    hub: &Arc<Hub>,
-    session: &Arc<Session>,
-    tool: Option<OpenTool>,
-) -> Result<Captured, Failed> {
-    let files = agent_files(hub, session).await?;
-    let chat = chat_state(hub, session, tool);
-    let through = session.read_meta(|meta| meta.last_seq);
-    Ok(Captured { through, chat, files })
-}
-
 /// Takes a snapshot of the chat as it is now and stores it under `fence`. `last_seq` is the last
 /// event the store has: the events went first, and the snapshot covers the chat through them.
-/// `captured` contains the chat/native state read before the event high-water mark.
+/// `tool` is the tool call in flight, if the caller follows one.
 pub(crate) async fn upload<C: AutoCloud>(
+    hub: &Arc<Hub>,
     cloud: &C,
     session: &Arc<Session>,
     fence: &Fence,
     last_seq: u64,
-    captured: Captured,
+    tool: Option<OpenTool>,
     now: u64,
 ) -> Result<Stored, Failed> {
     let cwd = session.meta().cwd;
@@ -157,9 +139,11 @@ pub(crate) async fn upload<C: AutoCloud>(
         Folder::Git(git) => Some(git.tree.clone()),
         Folder::Plain(_) => None,
     };
+    // Read before the pack that names their bytes is made, so they outlive it.
+    let files = agent_files(hub, session).await?;
     let Parts { mut pack, cwd } = parts(&folder)?;
-    let native = native::add(&mut pack, &captured.files).map_err(|_| Failed::TooLarge)?;
-    let chat = captured.chat;
+    let native = native::add(&mut pack, &files).map_err(|_| Failed::TooLarge)?;
+    let chat = chat_state(hub, session, tool);
     let manifest = Manifest {
         v: MANIFEST_VERSION,
         at: now,

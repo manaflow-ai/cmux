@@ -4,7 +4,7 @@
 //!
 //! | op | request | reply |
 //! | --- | --- | --- |
-//! | `tab_discard_setting` | `{setting}` | `{enabled, mode, hidden_seconds, discards_automatically}`: the setting in force |
+//! | `tab_discard_setting` | `{setting}` | `{enabled, mode, hidden_seconds}`: the setting in force |
 //! | `tab_discard_threshold` | `{setting, pressure}` | `{seconds}`: seconds hidden before a page is discarded (null: never) |
 //! | `tab_discard_plan` | `{setting, pressure, candidates}` | [`Plan`]: the pages to discard now |
 //! | `tab_discard_freeze_plan` | `{setting, candidates}` | [`Plan`]: the pages to freeze now |
@@ -12,8 +12,6 @@
 //! | `tab_discard_probe` | `{key, probe, pressure, shows_form_submission}` | `{exemption}`: what the page's answer right before a discard keeps (it records an answer); null when it may go |
 //! | `tab_discard_freeze_probe` | `{key, probe}` | `{keep}`: the answer right before a freeze (recorded); true keeps the page awake |
 //! | `tab_discard_probe_doubted` | `{key, step}` | `{doubted}` |
-//! | `tab_discard_record` | `{key, probe, step}` | `{doubted}`: records one probe for `step` (a miss counts) |
-//! | `tab_discard_probe_verdict` | `{probe, pressure, doubted, shows_form_submission}` | `{exemption, stops_when_frozen, keep_reason}`: what one answer says, recording nothing |
 //! | `tab_discard_shown` | `{key}` | `{}`: the page showed; its missed probes start again |
 //! | `tab_discard_forget` | `{key}` | `{}`: the page closed |
 
@@ -73,26 +71,6 @@ struct ProbeRequest {
 }
 
 #[derive(Deserialize)]
-struct RecordRequest {
-    key: String,
-    probe: PageProbe,
-    #[serde(default)]
-    step: Step,
-}
-
-#[derive(Deserialize)]
-struct VerdictRequest {
-    #[serde(default)]
-    probe: PageProbe,
-    #[serde(default)]
-    pressure: Pressure,
-    #[serde(default)]
-    doubted: bool,
-    #[serde(default)]
-    shows_form_submission: bool,
-}
-
-#[derive(Deserialize)]
 struct KeyRequest {
     key: String,
     #[serde(default)]
@@ -127,7 +105,6 @@ impl TabDiscard {
                     "enabled": setting.is_enabled(),
                     "mode": setting.effective_mode(),
                     "hidden_seconds": plan::threshold(&setting, Pressure::Normal),
-                    "discards_automatically": setting.discards_automatically,
                 }))
             }
             "tab_discard_threshold" => {
@@ -163,19 +140,6 @@ impl TabDiscard {
                 let ProbeRequest { key, probe, .. } = parse(request)?;
                 let doubted = self.history.record(probe, &key, Step::Freeze);
                 Ok(json!({ "keep": probe.stops_when_frozen() || doubted }))
-            }
-            "tab_discard_record" => {
-                let RecordRequest { key, probe, step } = parse(request)?;
-                Ok(json!({ "doubted": self.history.record(probe, &key, step) }))
-            }
-            "tab_discard_probe_verdict" => {
-                let VerdictRequest { probe, pressure, doubted, shows_form_submission } =
-                    parse(request)?;
-                Ok(json!({
-                    "exemption": probe.exemption(),
-                    "stops_when_frozen": probe.stops_when_frozen(),
-                    "keep_reason": probe.keep_reason(pressure, doubted, shows_form_submission),
-                }))
             }
             "tab_discard_probe_doubted" => {
                 let KeyRequest { key, step } = parse(request)?;

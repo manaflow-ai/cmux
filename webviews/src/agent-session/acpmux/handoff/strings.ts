@@ -26,7 +26,6 @@ const HANDOFF_KEYS = {
   returnSource: "handoff.returnSource",
   discard: "handoff.discard",
   saving: "handoff.saving",
-  // retry-prompt-ok: ReviewMessage.tsx's Reload saved review drops the person's unsaved edits.
   reload: "handoff.reload",
   coverage: "handoff.coverage",
   source: "handoff.source",

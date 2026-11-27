@@ -17,16 +17,6 @@ extension PaneOverlayView {
         static let flash = Glow(opacity: 0.6, radius: 6)
     }
 
-    /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash
-    /// (`ScreenContentView.requestsFocusFlash`, which also needs motion allowed) and no ring
-    /// already marks it.
-    static func flashesFocus(wasFocused: Bool, focused: Bool, requested: Bool, ringShows: Bool) -> Bool {
-        requested && focused && !wasFocused && !ringShows
-    }
-
-    /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
-    static let flashMinimumWidth: CGFloat = 2
-
     /// The resting ring's glow (for tests).
     var attentionGlow: Glow { Glow(opacity: attentionLayer.shadowOpacity, radius: attentionLayer.shadowRadius) }
     /// The glow's color (for tests).

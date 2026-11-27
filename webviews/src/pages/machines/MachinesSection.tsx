@@ -251,8 +251,6 @@ const JoinedRow = memo(function JoinedRow({
   const stopped = dialStopped(dial);
   const dialWords = dial ? dialText(dial, row.name, strings) : undefined;
   const inCaption = dialWords !== undefined && dialLayout !== "trailing";
-  // retry-prompt-ok: Retry asks the other Mac's person again (a consent card on their screen) and opens a
-  // workspace there; after Not now that is the person's call, never a loop.
   const retry = strings.t("machines.dial.retry");
   const open = () => {
     if (asks) store.openJoined(row.id);
@@ -285,7 +283,6 @@ const JoinedRow = memo(function JoinedRow({
               {caption}
             </span>
           )}
-          {/* retry-prompt-ok: asks the other Mac's person again and opens a workspace there */}
           {stopped && dialLayout === "caption" && (
             <button type="button" className="machines-retry" onClick={open}>
               {retry}

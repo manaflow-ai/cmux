@@ -173,7 +173,7 @@ final class CloudService {
         self.mainWork = mainWork
         self.work = work
         configuration = selectedConfiguration ?? .unavailable
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, consentSession: SessionConsentClient.consentSession(configuration))
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
@@ -863,7 +863,7 @@ final class CloudService {
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
     func shareOwnerToken(api: URL?) async -> String? {
-        guard let stackUser = await auth.restoredUserID(), !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
             try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })

@@ -935,22 +935,6 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
-    def test_a_retired_subscription_is_never_a_blocker(self) -> None:
-        # Readiness run 45748224089 (2026-11-26) counted the unused trial App
-        # Store Connect cannot delete as two blockers (no promotional image,
-        # READY_TO_SUBMIT); Go Monthly's READY_TO_SUBMIT stays one.
-        asc = self.root / "asc-validate.json"
-        asc.write_text(json.dumps({"remediation": {"steps": [
-            {"blocking": True, "severity": "warning", "checkId": "subscriptions.images.recommended",
-             "message": "trial has no subscription promotional image", "resourceId": "6822947304"},
-            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
-             "message": "trial is READY_TO_SUBMIT", "resourceId": "6822947304"},
-            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
-             "message": "Go Monthly is READY_TO_SUBMIT", "resourceId": "6818445194"}]}}))
-        findings = gate.asc_findings(asc)
-        self.assertEqual([(f["where"], f["severity"]) for f in findings],
-                         [("6822947304", "info"), ("6822947304", "info"), ("6818445194", "blocker")])
-
     def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
         # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
         # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
@@ -1330,23 +1314,6 @@ class GateWorkflowTests(unittest.TestCase):
                              "cmux-next-ios/AppStoreReview/known-blockers.json",
                              "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
-
-    def test_a_refused_package_fetch_never_ends_a_device_leg(self) -> None:
-        # Run 45746201444 lost both device legs to `swift-crypto.git: ... returned error: 403`
-        # inside build-for-testing, though the kept DerivedData slot held every clone.
-        import yaml  # noqa: PLC0415
-
-        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
-        steps = doc["jobs"]["reviewer-path"]["steps"]
-        names = [step.get("name") for step in steps]
-        resolve = steps[names.index("Resolve packages")]["run"]
-        build = steps[names.index("Build the app and the gate for testing")]["run"]
-        self.assertLess(names.index("Resolve packages"), names.index("Build the app and the gate for testing"))
-        self.assertIn("-resolvePackageDependencies", resolve)
-        self.assertIn("for wait_s in 0 30 90", resolve)
-        self.assertIn("resolve -skipPackageUpdates", resolve)
-        self.assertIn("-skipPackageUpdates", build)
-        self.assertNotIn("xcodegen generate", build)
 
     def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
         # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the

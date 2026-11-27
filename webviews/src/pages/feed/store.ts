@@ -5,7 +5,6 @@
 // `pending` dims the item. The page keeps only client view state: the route, the Inbox filter, the
 // selection, unsent drafts and the reports basket's reply. React reads it through
 // `useSyncExternalStore`; tests drive it directly.
-import { AutoRetryLoop } from "../../agent-session/acpmux/autoRetry";
 import { createNoticeQueue, type NoticeQueue } from "../../ui/NoticeStack";
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
@@ -120,10 +119,6 @@ export class FeedStore {
   /** Each report's last reply that was not sent: sent again, it keeps its id. */
   private readonly unsent = new Map<string, ReportReply>();
   readonly notices: NoticeQueue = createNoticeQueue();
-  /** A view read the owner refused while the link was up (a daemon still starting, a read that
-   *  timed out) is asked again on its own; nothing else would ever re-read it. */
-  private readRetry?: AutoRetryLoop;
-  private unwake?: () => void;
 
   constructor(
     private readonly client: PageClient | null,
@@ -165,7 +160,6 @@ export class FeedStore {
     const lifetime = ++this.lifetime;
     const alive = () => lifetime === this.lifetime;
     this.starting = true;
-    this.followReadRetry(alive);
     try {
       await this.watchView(lifetime);
       if (this.snapshot.route.view === "inbox") await this.watchReports(lifetime);
@@ -196,26 +190,7 @@ export class FeedStore {
     this.starting = false;
     this.viewWatch = "none";
     this.reportsWatch = "none";
-    this.readRetry?.dispose();
-    this.readRetry = undefined;
-    this.unwake?.();
-    this.unwake = undefined;
     for (const stop of this.stops.splice(0)) stop();
-  }
-
-  /** The read's retry loop for this lifetime, woken when the page shows again. Kept apart from
-   *  `stops`, which say whether the page is following its owner. */
-  private followReadRetry(alive: () => boolean): void {
-    this.readRetry?.dispose();
-    this.unwake?.();
-    const retry = new AutoRetryLoop(() => {
-      if (alive()) void this.reload();
-    });
-    this.readRetry = retry;
-    if (typeof document === "undefined") return;
-    const wake = () => retry.wake();
-    document.addEventListener("visibilitychange", wake);
-    this.unwake = () => document.removeEventListener("visibilitychange", wake);
   }
 
   /** Subscribes to the view's changes unless that is live or under way; a failed one (the daemon
@@ -327,7 +302,6 @@ export class FeedStore {
           return this.reload();
         }
       }
-      this.readRetry?.succeed();
       this.set({
         view,
         loading: false,
@@ -338,8 +312,6 @@ export class FeedStore {
       if (generation !== this.generation) return;
       this.set({ loading: false });
       this.fail(error);
-      // A lost link re-reads when it comes back (relink); any other refusal is asked again here.
-      if (!(isPageError(error) && error.code === LINK_CLOSED)) this.readRetry?.fail();
     }
   }
 

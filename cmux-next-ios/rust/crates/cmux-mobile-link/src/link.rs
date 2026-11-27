@@ -3277,20 +3277,18 @@ async fn handle_frame(
             let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
             let closed = Arc::new(AtomicBool::new(false));
             let inbox = Inbox::new(tx, inner, stream, frame.channel);
-            // The peer asks for a delivery only when both sides listed its
-            // lane, so the request is the agreement: the channel is numbered
-            // (and a screen channel's messages carry their base) from its
-            // first message, as the peer reads it. Whether a message also
-            // goes as datagrams is decided per send (`send_numbered`): the
-            // Mac attaches its datagram lane after the link is accepted, and
-            // the phone's first opens can arrive before that. Deciding here
-            // left those channels on the stream path for their life.
+            // Replies are sent as datagrams too only when this side
+            // also has the peer's word that it takes them.
             let delivery = request.delivery;
+            // A screen delivery from a peer this side did not agree it with
+            // gets the stream path only.
+            let delivery = delivery.filter(|delivery| *delivery != Delivery::Screen || inner.screen());
             let route = Route::new(inbox, &closed, delivery);
             let screen = route.screen.clone();
             inner.lock_channels().insert(frame.channel, route);
+            let mirror = delivery.filter(|_| inner.classes());
             let channel =
-                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, delivery, screen);
+                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, mirror, screen);
             let accepted =
                 IncomingChannel { service: request.service, args: request.args, lane: request.lane, channel };
             if incoming.send(accepted).await.is_err() {
@@ -3442,8 +3440,8 @@ pub struct ChannelSender {
     closed: Arc<AtomicBool>,
     /// Where queued payload bytes are counted, if anywhere.
     meter: Option<Arc<ByteMeter>>,
-    /// Each send is a numbered message, also sent as datagrams while this
-    /// link has the class lane (`crate::classes`).
+    /// Each send is a numbered message, sent as datagrams too
+    /// (`crate::classes`).
     mirror: Option<Delivery>,
     next_seq: AtomicU64,
     /// Present on a [`Delivery::Screen`] channel.
@@ -3498,9 +3496,8 @@ impl ChannelSender {
         self.send_numbered(data, mark).await.map(|_| ())
     }
 
-    /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
-    /// the peer through [`crate::classes::SCREEN_LANE`]): its messages carry
-    /// their base and go as screen datagrams too once the lane is attached.
+    /// Whether this channel sends screen datagrams ([`Delivery::Screen`] and
+    /// the peer agreed [`crate::classes::SCREEN_LANE`]).
     pub fn screen_class(&self) -> bool {
         self.screen.is_some() && self.mirror.is_some()
     }
@@ -3543,14 +3540,7 @@ impl ChannelSender {
             return Err(LinkError::ChannelClosed);
         }
         let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
-        // The lane is checked at send time: a channel accepted before this
-        // side attached its datagrams starts sending them once it has.
-        let lane = match self.screen {
-            Some(_) => self.inner.screen(),
-            None => self.inner.classes(),
-        };
         if let (Some(delivery), Some(seq)) = (self.mirror, seq)
-            && lane
             && data.len() <= crate::classes::MIRROR_MAX
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
@@ -5461,71 +5451,6 @@ mod tests {
         );
         assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
         assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
-    }
-
-    /// The Mac attaches its datagram lane after it accepts the link, so the
-    /// phone's first opens can be accepted before it. Those channels still
-    /// send class and screen datagrams once the lane is attached: before,
-    /// the accept fixed them to the stream path for their life (echo-flood
-    /// runs with `datagram_wins: 0`).
-    #[tokio::test(start_paused = true)]
-    async fn channels_accepted_before_the_lane_attaches_send_datagrams_after() {
-        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
-        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
-        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..phone_lane });
-        let server = tokio::spawn({
-            let mac = mac.clone();
-            async move {
-                let echo = mac.accept().await.expect("echo");
-                let screen = mac.accept().await.expect("screen");
-                (echo.channel, screen.channel)
-            }
-        });
-        let mut echo = phone.open_latest("echo", serde_json::json!({})).await.unwrap();
-        let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
-        let (mac_echo, mac_screen) = server.await.unwrap();
-        assert!(!mac.class_datagrams(), "the Mac's lane is not attached yet");
-        let (echo_tx, _echo_rx) = mac_echo.split();
-        let (screen_tx, _screen_rx) = mac_screen.split();
-        assert!(screen_tx.screen_class(), "the phone's request is the agreement");
-        // A message before the lane goes on the stream only, and arrives.
-        echo_tx.send(Bytes::from_static(b"early")).await.unwrap();
-        match tokio::time::timeout(Duration::from_millis(500), echo.recv()).await {
-            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"early"),
-            other => panic!("early: {other:?}"),
-        }
-        screen_tx.send_screen(None, b"first").await.unwrap();
-        match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
-            Ok(Some(ChannelEvent::Data(bytes))) => {
-                let message = crate::classes::screen_message(&bytes).expect("a screen message");
-                assert_eq!(&message.payload[..], b"first");
-            }
-            other => panic!("first screen: {other:?}"),
-        }
-
-        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..mac_lane });
-        dark.send_replace(true);
-        echo_tx.send(Bytes::from_static(b"late")).await.unwrap();
-        match tokio::time::timeout(Duration::from_millis(100), echo.recv()).await {
-            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"late"),
-            other => panic!("late echo over a dark stream: {other:?}"),
-        }
-        screen_tx.send_screen(None, b"second").await.unwrap();
-        match tokio::time::timeout(Duration::from_millis(100), screen.recv()).await {
-            Ok(Some(ChannelEvent::Data(bytes))) => {
-                let message = crate::classes::screen_message(&bytes).expect("a screen message");
-                assert_eq!(&message.payload[..], b"second");
-            }
-            other => panic!("second screen over a dark stream: {other:?}"),
-        }
-        assert!(phone.datagram_wins() >= 2);
-        dark.send_replace(false);
-        assert!(phone.ping().await.is_ok());
-        assert!(tokio::time::timeout(Duration::from_millis(200), echo.recv()).await.is_err(), "echo twice");
-        assert!(
-            tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
-            "screen twice"
-        );
     }
 
     /// Screen messages cross a dark stream as screen datagrams, newest wins,

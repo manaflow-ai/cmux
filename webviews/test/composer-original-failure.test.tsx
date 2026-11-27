@@ -1,10 +1,8 @@
 // l10n-allow-file: synthetic file names and host errors for a behavioral regression.
 // An image is its chip once its preview is made, while its original still uploads (composer/
-// intakeFiles.ts). When that upload fails it is asked again on its own, with no Retry (Leo,
-// 2026-11-22: "vacuous decisions like that should be just done"; composer/uploadRetry.ts); a failure
-// that lasts gets one quiet mark on the chip, and the preview still sends; when the person sends or
-// removes the chip, the cancelled upload stays silent.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+// intakeFiles.ts). When that upload fails, the chip says so and offers Retry, and the preview
+// still sends; when the person sends or removes the chip, the cancelled upload stays silent.
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -17,7 +15,7 @@ import {
   type AttachmentIntakeOptions,
 } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
-import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
+import { UPLOAD_RETRY_INPUT_WAIT_MS } from "../src/agent-session/acpmux/composer/uploadRetry";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -163,7 +161,7 @@ test("a cancelled original (its chip sent or removed) stays silent, and a saved 
   expect(ok.events).toEqual(["ready 0 image", "original 0 /tmp/shot.png"]);
 });
 
-test("a staged image whose original keeps failing shows one quiet mark beside its preview, never a button", () => {
+test("a staged image whose original failed shows Retry beside its preview", () => {
   const chip: ComposerAttachment = {
     id: "shot",
     kind: "image",
@@ -173,63 +171,49 @@ test("a staged image whose original keeps failing shows one quiet mark beside it
     data: btoa("pixels"),
   };
   const failures = { shot: "The disk is full." };
-  // The failure has lasted the house deadline (lasting.ts; 0 here, as in the gallery's frames).
-  setLastingGrace(0);
-  let html: string;
-  try {
-    html = renderToStaticMarkup(
-      <AttachmentStrip attachments={[chip]} onRemove={() => {}} originalFailures={failures} />,
-    );
-  } finally {
-    setLastingGrace(LASTING_MS);
-  }
+  const html = renderToStaticMarkup(
+    <AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} originalFailures={failures} />,
+  );
   expect(html).toContain("<img");
-  expect(html).toContain('class="acpmux-attachment-original-still"');
+  expect(html).toContain('class="acpmux-attachment-original-retry"');
   expect(html).toContain("The disk is full.");
-  expect(html).not.toContain("acpmux-attachment-original-retry");
-  // Only the chip's x is a button.
-  expect(html.match(/<button/g)?.length).toBe(1);
-  // Before the deadline it says nothing (it is being asked again), and without this page's failure
-  // (a draft, a wake or another chat brought the chip back) the preview shows as it did.
-  const early = renderToStaticMarkup(
+  // Without a Retry to offer, or without this page's failure (a draft, a wake or another chat brought
+  // the chip back), the preview shows as it did.
+  const noRetry = renderToStaticMarkup(
     <AttachmentStrip attachments={[chip]} onRemove={() => {}} originalFailures={failures} />,
   );
-  const noFailure = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} />);
-  expect(early).not.toContain("acpmux-attachment-original-still");
-  expect(noFailure).not.toContain("acpmux-attachment-original-still");
+  const noFailure = renderToStaticMarkup(
+    <AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} />,
+  );
+  expect(noRetry).not.toContain("acpmux-attachment-original-retry");
+  expect(noFailure).not.toContain("acpmux-attachment-original-retry");
 });
 
 // Leo, 2026-10-31: "video attachments (big attachments?) still sucks", over a strip of empty tiles
-// that each showed only an underlined "Retry". A tile whose upload is asked again keeps its shape and
-// kind and keeps loading (once that lasts, its tooltip says it still tries, and why); a refused one
-// shows only its x; a streaming one shows how far it got.
-test("a tile still asked again keeps loading with its reason; a refused one has only its x; a streaming one shows its progress", () => {
-  setLastingGrace(0);
-  let html: string;
-  try {
-    html = renderToStaticMarkup(
-      <AttachmentStrip
-        attachments={[]}
-        pending={[
-          { id: "video", name: "Screen Recording.mov", image: false, retrying: "The upload timed out." },
-          { id: "shot", name: "shot.png", image: true, retrying: "The disk is full." },
-          // A file the composer refused fails the same way again: never asked again, only its x.
-          { id: "refused", name: "notes.heic", image: true, failed: "notes.heic can't be attached" },
-          { id: "big", name: "big.mp4", image: false, uploading: true, progress: 0.42 },
-        ]}
-        onRemove={() => {}}
-        onCancel={() => {}}
-      />,
-    );
-  } finally {
-    setLastingGrace(LASTING_MS);
-  }
+// that each showed only an underlined "Retry". A failed tile keeps its shape and kind and shows one
+// small retry glyph button (why is in its tooltip); a streaming one shows how far it got.
+test("a failed tile shows its kind and one retry glyph button; a streaming one shows its progress", () => {
+  const html = renderToStaticMarkup(
+    <AttachmentStrip
+      attachments={[]}
+      pending={[
+        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out.", retryable: true },
+        { id: "shot", name: "shot.png", image: true, failed: "The disk is full.", retryable: true },
+        // A file the composer refused fails the same way again: no Retry, only its x.
+        { id: "refused", name: "notes.heic", image: true, failed: "notes.heic can't be attached" },
+        { id: "big", name: "big.mp4", image: false, uploading: true, progress: 0.42 },
+      ]}
+      onRemove={() => {}}
+      onCancel={() => {}}
+      onRetry={() => {}}
+    />,
+  );
+  // The file's name stays on its tile; each failed tile a Retry can make has exactly one retry
+  // button, a glyph, and the refused one has none.
   expect(html).toContain("Screen Recording.mov");
-  expect(html.match(/data-still-trying/g)?.length).toBe(2);
-  expect(html).toContain("The upload timed out.");
-  expect(html).toContain("notes.heic can");
-  expect(html).not.toContain("acpmux-attachment-retry");
-  expect(html).not.toMatch(/>Retry</);
+  expect(html.match(/class="acpmux-attachment-retry"/g)?.length).toBe(2);
+  expect(html).not.toMatch(/class="acpmux-attachment-retry"[^>]*>Retry</);
+  expect(html).toContain('title="The upload timed out."');
   expect(html).toMatch(/<progress[^>]*value="42"/);
 });
 
@@ -242,20 +226,19 @@ function Harness({ options, handle }: { options: AttachmentIntakeOptions; handle
       attachments={intake.attachments}
       pending={intake.pending}
       onRemove={() => {}}
+      onRetry={intake.retry}
       originalFailures={intake.originalFailures}
     />
   );
 }
 
-/// Resolves once `check` holds, looked at again after each turn of the event loop (each state change
-/// re-renders the harness), giving up after `within` ms: the asks again back off from 0.5-1 s, then 1-2 s (autoRetry.ts).
-async function until(check: () => boolean, within = 4_000) {
-  const end = Date.now() + within;
-  while (!check() && Date.now() < end) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+/// Resolves once `check` holds after a render (each state change re-renders the harness).
+async function until(check: () => boolean) {
+  for (let turn = 0; turn < 200 && !check(); turn++) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(check()).toBe(true);
 }
 
-test("a staged image's original that failed is uploaded again on its own; the preview sends meanwhile", async () => {
+test("Retry on a staged image uploads its original again; the preview sends meanwhile", async () => {
   const answers: UploadResult[] = [{ error: "The disk is full." }, { paths: ["/remote/shot.png"] }];
   const uploaded: string[][] = [];
   const options: AttachmentIntakeOptions = {
@@ -273,23 +256,62 @@ test("a staged image's original that failed is uploaded again on its own; the pr
   await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   const chip = handle.current!.attachments[0]!;
   expect(handle.current!.originalFailures).toEqual({ [chip.id]: "The disk is full." });
-  // The chip itself carries nothing of it: a draft or a wake takes the preview as it is.
+  // The chip itself carries nothing of it: a draft or a wake takes the preview without a dead Retry.
   expect(chip).not.toHaveProperty("originalFailed");
   expect(handle.current!.pending).toEqual([]);
   // The preview still goes as an image block, without its original.
   expect(promptBlocks("", [chip]).map((block) => block.type)).toEqual(["image"]);
-  // Nothing to click, and no mark before the failure lasts.
-  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
-  expect(host.querySelector(".acpmux-attachment-original-still")).toBeNull();
+  const retry = host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry");
+  expect(retry).not.toBeNull();
+  act(() => retry!.click());
   await until(() => handle.current!.attachments[0]?.originalPath === "/remote/shot.png");
   expect(handle.current!.originalFailures).toEqual({});
   expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
 
-// Review (Astra) at 69987495, and Sol at 04641cba: in a chat on this Mac too the original is saved
-// again (a prompt too large for one message goes with links to the originals only once they are
-// saved); it keeps going while it fails and stops once saved.
-test("a local chat saves the original again on its own until it is saved, and then asks no more", async () => {
+// Review (Sol) at 04641cba: saving an image's original again is a real retry in a chat on this Mac
+// too (a prompt too large for one message goes with links to the originals only once they are
+// saved), so its Retry shows there, before and after a carry; and nothing uploads on its own, so a
+// key in another chat never sends this image to that chat's machine.
+test("an image whose original was not saved shows Retry in a local chat too, and nothing uploads on its own", async () => {
+  const uploads: string[] = [];
+  const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    localChat,
+    upload: async () => {
+      uploads.push(scope);
+      return { error: "The disk is full." };
+    },
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+  act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
+  // An upload that should never start has no event to wait for. Under fake timers every try again
+  // a listener could arm (zero-delay after the input, or the timed one) fires at once, and the act
+  // after it runs what that started, so an upload that starts on its own is in `uploads` here.
+  jest.useFakeTimers();
+  for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
+  try {
+    act(() => void jest.advanceTimersByTime(UPLOAD_RETRY_INPUT_WAIT_MS));
+  } finally {
+    jest.useRealTimers();
+  }
+  await act(async () => {});
+  expect(uploads).toEqual(["local"]);
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+});
+
+// Review (Astra) at 69987495: in a chat on this Mac, Retry over an image whose original was not
+// saved runs the same save again: it goes on success and comes back if the save fails again.
+test("a local chat's Retry saves the original again, and shows again only if that fails", async () => {
   const answers: UploadResult[] = [
     { error: "The disk is full." },
     { error: "Still full." },
@@ -302,25 +324,29 @@ test("a local chat saves the original again on its own until it is saved, and th
     localChat: true,
     upload: async (files) => {
       uploads.push(files.map((file) => file.name));
-      return answers.shift() ?? { error: "asked after it was saved" };
+      return answers.shift();
     },
   };
   const handle: { current: Intake | null } = { current: null };
   root = createRoot(host);
   act(() => root!.render(<Harness options={options} handle={handle} />));
   await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => uploads.length === 2);
-  await until(() => handle.current!.originalFailures[handle.current!.attachments[0]!.id] === "Still full.");
-  await until(() => handle.current!.attachments[0]?.originalPath === "/Users/me/Chat Uploads/shot.png", 6_000);
-  expect(handle.current!.originalFailures).toEqual({});
-  // fixed-wait: past the next backoff step, to see that a saved original is not asked again.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 2_500)));
+  const retry = () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry");
+  await until(() => Boolean(retry()));
+  act(() => retry()!.click());
+  await until(() => uploads.length === 2 && Boolean(retry()));
+  expect(handle.current!.originalFailures[handle.current!.attachments[0]!.id]).toBe("Still full.");
+  act(() => retry()!.click());
+  await until(() => handle.current!.attachments[0]?.originalPath === "/Users/me/Chat Uploads/shot.png");
   expect(uploads).toEqual([["shot.png"], ["shot.png"], ["shot.png"]]);
+  expect(handle.current!.originalFailures).toEqual({});
+  expect(retry()).toBeNull();
 });
 
-// Review (Astra): an original's upload asked again stops once its chip leaves the strip, also after
-// the chip moved with the composer to another chat.
-test("an original asked again stops when its carried chip leaves the strip", async () => {
+// Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
+// with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
+// cannot show, also when it left with a switch to another chat.
+test("Retry's upload stops when its carried chip leaves the strip", async () => {
   const uploaded: string[][] = [];
   let retrying: ((index: number) => boolean) | undefined;
   let finish = () => {};
@@ -345,25 +371,23 @@ test("an original asked again stops when its carried chip leaves the strip", asy
   await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   // A harness switch: the composer, its strip with this chip, moves to the new chat.
   act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!.click());
   await until(() => retrying !== undefined);
   expect(retrying!(0)).toBe(false);
   act(() => handle.current!.setAttachments([]));
   expect(retrying!(0)).toBe(true);
   await act(async () => finish());
   expect(handle.current!.attachments).toEqual([]);
-  // fixed-wait: past the next backoff step: a chip that left is not asked again.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 2_500)));
-  expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
 });
 
-test("a failed original whose chip left with a switch to another chat keeps no file to ask again", async () => {
-  const uploaded: string[] = [];
+test("a failed original whose chip left with a switch to another chat keeps no file for Retry", async () => {
+  const uploaded: string[][] = [];
   const options = (scope: string): AttachmentIntakeOptions => ({
     allowImages: true,
     pasteTarget: () => undefined,
     scope,
-    upload: async () => {
-      uploaded.push(scope);
+    upload: async (files) => {
+      uploaded.push(files.map((file) => file.name));
       return { error: "The disk is full." };
     },
   });
@@ -374,24 +398,20 @@ test("a failed original whose chip left with a switch to another chat keeps no f
   await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   const chip = handle.current!.attachments[0]!;
   // Another chat shows: its strip has its own chips (the composer's kept drafts swap them).
-  act(() => {
-    root!.render(<Harness options={options("B")} handle={handle} />);
-    handle.current!.setAttachments([]);
-  });
-  // The file went when the chip left: the same chip staged again (here, while B shows) is not
-  // uploaded, on its own or asked at once, for a file no longer held, and nothing goes to B.
+  act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => handle.current!.setAttachments([]));
+  // The file went when the chip left: the same chip staged again (here, while B shows) runs no Retry
+  // for a file no longer held.
   act(() => handle.current!.setAttachments([chip]));
   act(() => handle.current!.retry(chip.id));
-  // fixed-wait: past the first backoff steps.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 2_000)));
-  expect(uploaded).toEqual(["A"]);
+  expect(uploaded).toEqual([["shot.png"]]);
 });
 
-// Review (Astra) at fb51546b asked whether a carried chip's original should be saved again after the
-// switch. It should: a chip is carried only when the prompt moves to the new chat (a harness switch),
-// so the original belongs on the new chat's machine and is uploaded there. A switch that does not
+// Review (Astra) at fb51546b asked whether a carried chip's Retry should survive the switch. It
+// should: a chip is carried only when the prompt moves to the new chat (a harness switch), so the
+// original belongs on the new chat's machine and Retry uploads it there. A switch that does not
 // carry swaps the strip for the other chat's chips, and the failure goes with the chip (above).
-test("a carried chip's original is uploaded again to the chat the prompt moved to", async () => {
+test("a carried chip's Retry uploads its original to the chat the prompt moved to", async () => {
   const uploads: string[] = [];
   const options = (scope: string): AttachmentIntakeOptions => ({
     allowImages: true,
@@ -409,6 +429,7 @@ test("a carried chip's original is uploaded again to the chat the prompt moved t
   await act(() => handle.current!.attach([png("shot.png")], true));
   await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!.click());
   await until(() => handle.current!.attachments[0]?.originalPath === "/B/shot.png");
   expect(uploads).toEqual(["A", "B"]);
   expect(handle.current!.originalFailures).toEqual({});

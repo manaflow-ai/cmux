@@ -165,13 +165,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           foreach ($scope in @('view', 'control')) {
             $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
-            if ($LASTEXITCODE -ne 0) {
-              # The report (failed_at, the host's error, exit code and stderr tail) as an annotation:
-              # the run page shows it to anyone, while the job log needs a token.
-              $line = "$serve" -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
-              Write-Output "::error title=windows-serve-selftest ($scope) exited $LASTEXITCODE::$line"
-              throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve"
-            }
+            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
             $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
             if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
           }

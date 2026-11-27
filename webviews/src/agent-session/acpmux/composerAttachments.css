@@ -265,7 +265,7 @@
   color: var(--agent-muted);
   text-align: center;
 }
-/* An image that cannot be drawn (attachmentIntake.tsx BrokenImageChip): the glyph and the note fit the tile. */
+/* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
 .acpmux-attachment-image-failed {
   gap: 4px;
 }
@@ -305,7 +305,7 @@
   min-width: 48px;
   max-width: 128px;
 }
-/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, SHAPE_WAIT_MS at most, inside the drop's frame): held
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
    zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
 :is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
   visibility: hidden;
@@ -345,8 +345,8 @@
   flex: none;
 }
 /* A file that could not be attached (composer/attachmentIntake.tsx PendingChip): its shape kept,
-   its kind's glyph (and a file's name) and its ×; why is in its tooltip. A failed upload is no
-   such tile: it keeps loading and is asked again on its own (composer/uploadRetry.ts). Never an empty tile with an underlined "Retry" (Leo, 2026-10-31: "video attachments (big
+   its kind's glyph (and a file's name), one small retry button and its ×; why is in its tooltip.
+   Never an empty tile with an underlined "Retry" (Leo, 2026-10-31: "video attachments (big
    attachments?) still sucks"). */
 .acpmux-attachment-failed {
   display: flex;
@@ -374,6 +374,30 @@
   min-width: 0;
   max-width: none;
 }
+/* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
+   button on the composer's own surface, like the tile's × beside it. */
+.acpmux-attachment-retry,
+.acpmux-attachment-original-retry {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ds-surface-inset);
+  color: var(--agent-text);
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-attachment-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-attachment-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 /* A file streaming to the chat's machine: a ring that fills on its tile (PendingChip UploadProgress). */
 .acpmux-attachment-progress {
   flex: none;
@@ -388,22 +412,27 @@
   stroke-linecap: round;
   transition: stroke-dashoffset var(--agent-motion-in, 120ms) linear;
 }
-/* A staged image whose original could not be saved: its preview still sends, the original is
-   saved again on its own, and once that has lasted a small mark in its corner says so; its tooltip
-   says why (attachmentIntake.tsx). No button: there is nothing to decide. In the thumbnail's corner,
-   the size of its × in the other corner: the middle stays the image's (a click there opens it). */
-.acpmux-attachment-original-still {
+/* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
+   corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
+/* In the thumbnail's corner, the size of its × in the other corner: the middle stays the image's
+   (a click there opens it). */
+.acpmux-attachment-original-retry {
   position: absolute;
   bottom: 4px;
   left: 4px;
-  display: grid;
-  place-items: center;
   width: 16px;
+  height: auto;
   aspect-ratio: 1;
   border-radius: 8px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.6);
-  pointer-events: none;
+}
+.acpmux-attachment-original-retry:hover {
+  background: rgb(0 0 0 / 0.75);
+}
+.acpmux-attachment-original-retry:focus-visible {
+  outline: 1.5px solid #fff; /* theme-fixed: on its own black scrim over media */
+  outline-offset: 1px;
 }
 .acpmux-attachment-file {
   display: flex;

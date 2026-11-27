@@ -62,8 +62,6 @@ echo "Pre-flight checks passed"
 # --- Build GhosttyKit ---
 echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
-# Ghostty's packages from our mirror, with bounded retries, before the build.
-scripts/cmux-next/zig-fetch-all.sh ghostty || echo "warning: Ghostty Zig package prefetch failed; the build fetches what it lacks" >&2
 (
   cd ghostty
   zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast

@@ -990,7 +990,7 @@ fn check_inner(
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", channel::local_platform()));
+        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -1117,7 +1117,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", channel::local_platform()));
+        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,

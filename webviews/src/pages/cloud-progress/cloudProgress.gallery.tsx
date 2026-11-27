@@ -74,7 +74,6 @@ export default componentEntry<Props>({
       props: { state: sampleState("connecting", { elapsedMs: 6 * 60_000 }) },
     },
     failed: {
-      // retry-prompt-ok: Retry starts a Cloud machine again (a cost), so it stays a button.
       note: "The link closed at Starting the machine: the reason, Retry, Copy Error and Dismiss, in the room they kept.",
       props: { state: sampleState("failed", { step: 2 }) },
     },

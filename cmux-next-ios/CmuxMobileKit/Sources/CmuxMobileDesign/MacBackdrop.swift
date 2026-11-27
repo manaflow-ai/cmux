@@ -2,9 +2,8 @@
 import SwiftUI
 
 /// The ground of the sidebar and Home: the plain background, black in dark and white in light.
-/// The Mac's wallpaper is not drawn behind those shell surfaces for now (2026-11-25: every
-/// background black; the options were PR #53342); the agent chat draws its own picture through
-/// ``CmuxMobileChatBackdrop`` and ``CmuxMobileMacTheme/wallpaper`` still carries it.
+/// The Mac's wallpaper is not drawn on the phone for now (2026-11-25: every background black; the
+/// options were PR #53342); ``CmuxMobileMacTheme/wallpaper`` still carries it.
 public struct CmuxMobileBackdrop: View {
     /// The ground's color; nil is the chrome's background.
     private let background: Color?

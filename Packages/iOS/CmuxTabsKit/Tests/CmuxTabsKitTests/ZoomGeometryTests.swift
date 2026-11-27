@@ -43,11 +43,7 @@ struct ZoomGeometryTests {
         let start = ZoomRectPath(full: screen, card: grid.zoomScaled(cell, shown: 0))
         #expect(start.rect(progress: 0) == screen)
         let end = ZoomRectPath(full: screen, card: grid.zoomScaled(cell, shown: 1))
-        // Within 1e-9, not ==: Linux's libm rounds the zoom scale's height one ulp from Darwin's (276.06101694915264
-        // against 276.0610169491526 on 2026-11-26), a difference no frame can show.
-        let landed = end.rect(progress: 1)
-        #expect(abs(landed.minX - cell.minX) < 1e-9 && abs(landed.minY - cell.minY) < 1e-9)
-        #expect(abs(landed.width - cell.width) < 1e-9 && abs(landed.height - cell.height) < 1e-9)
+        #expect(end.rect(progress: 1) == cell)
     }
 
     /// The cell end is where the grid draws the cell under its zoom scale,

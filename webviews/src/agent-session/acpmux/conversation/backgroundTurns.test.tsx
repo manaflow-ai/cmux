@@ -55,17 +55,9 @@ const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date")
 
 test("a quiet background turn is one closed line that opens to its rows", () => {
   const rows = transcript({ quiet: true });
-  // The person's reply-only turn keeps its Worked for line (turns.ts `holdsHeader`, #51896).
-  expect(ids(turnView(rows, new Set()))).toEqual([
-    "prompt",
-    "worked-prompt",
-    "reply",
-    "summary",
-    backgroundTurnRowId("bg"),
-  ]);
+  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", backgroundTurnRowId("bg")]);
   expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual([
     "prompt",
-    "worked-prompt",
     "reply",
     "summary",
     backgroundTurnRowId("bg"),
@@ -84,7 +76,6 @@ test("a background turn that is not quiet folds its work and draws its reply, wi
   // (backgroundTurnFooter.test.ts).
   expect(ids(turnView(rows, new Set()))).toEqual([
     "prompt",
-    "worked-prompt",
     "reply",
     "summary",
     "worked-backgroundTurn-bg",

@@ -11,7 +11,7 @@ import { inlineCopyParent, thumbnail, type ComposerAttachment } from "../attachm
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { readLinkedImage } from "../chips/host";
 import { linkedImagePath } from "../conversation/userBubbleModel";
-import { Close, FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -45,7 +45,6 @@ import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { intl } from "../../../ui/intl";
-import { useLasting } from "../../../ui/lasting";
 
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
@@ -57,6 +56,7 @@ export function AttachmentStrip({
   onExpand,
   onKeepFile,
   onCancel,
+  onRetry,
   onReorder,
   originalFailures,
   selected = false,
@@ -64,8 +64,8 @@ export function AttachmentStrip({
   attachments: readonly ComposerAttachment[];
   /// The prompt's whole draft is selected (Select All): the chips are in it, and show so.
   selected?: boolean;
-  /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): it is saved
-  /// again on its own while its preview still sends, and its chip says so once that lasts.
+  /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): its chip
+  /// shows Retry (`onRetry`) while its preview still sends.
   originalFailures?: Readonly<Record<string, string>>;
   /// A staged chip dragged (or moved with Option-Left/Right) to `index`; unset, chips stay put.
   onReorder?(id: string, index: number): void;
@@ -73,6 +73,8 @@ export function AttachmentStrip({
   pending?: readonly PendingAttachment[];
   /// A pending chip's ×; unset, the chip has none.
   onCancel?(id: string): void;
+  /// A failed chip's Retry; unset, the chip has none.
+  onRetry?(id: string): void;
   error?: string;
   codex?: boolean;
   onRemove(id: string): void;
@@ -149,12 +151,14 @@ export function AttachmentStrip({
             onRemove={onRemove}
             {...(onExpand ? { onExpand } : {})}
             {...(onKeepFile ? { onKeepFile } : {})}
-            {...(originalFailures?.[attachment.id] ? { originalFailed: originalFailures[attachment.id] } : {})}
+            {...(onRetry && originalFailures?.[attachment.id]
+              ? { onRetry, originalFailed: originalFailures[attachment.id] }
+              : {})}
           />
         </div>
       ))}
       {pending.map((chip) => (
-        <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} />
+        <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} {...(onRetry ? { onRetry } : {})} />
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
       {onReorder && attachments.length > 1 && (
@@ -170,16 +174,22 @@ export function AttachmentStrip({
 }
 
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
-/// name, with a spinner and a × that cancels it. One that could not be attached says why, with only
-/// its ×. One whose upload failed keeps loading while it is asked again on its own, and says "Still
-/// trying to upload…" (with the host's words) once that lasts, never with a Retry.
-export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCancel?(id: string): void }) {
+/// name, with a spinner and a × that cancels it. One that could not be attached says why, with
+/// Retry.
+export function PendingChip({
+  chip,
+  onCancel,
+  onRetry,
+}: {
+  chip: PendingAttachment;
+  onCancel?(id: string): void;
+  onRetry?(id: string): void;
+}) {
   const t = useT();
   const look = usePasteLoadingLook();
   const ratio = useDraftRatio(chip[localDraftShape]);
-  const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
-  const still = useStillUploading(chip, name);
   if (ratio === 0) return null;
+  const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
       type="button"
@@ -211,15 +221,17 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
         data-paste-look={failed || chip.resolvingPath ? undefined : look}
-        {...(still ? { "data-still-trying": "" } : {})}
-        /* tooltip-allow: the tile shows no reason; the tooltip says why it failed or is still trying */
-        title={chip.failed ?? still}
+        /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
           file={{ name, size: chip.fileSize }}
           remove={remove}
-          {...(failed ? { failure: failed } : still ? { failure: still } : {})}
-          {...(failed ? {} : { statusIcon: indicator })}
+          {...(failed ? { failure: failed } : {})}
+          statusIcon={
+            failed
+              ? onRetry && chip.retryable && <RetryButton reason={failed} onRetry={() => onRetry(chip.id)} />
+              : indicator
+          }
         />
       </div>
     );
@@ -232,9 +244,9 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
     shape || chip.preview
       ? { ...shape, ...(chip.preview ? { backgroundImage: `url("${chip.preview}")` } : {}) }
       : undefined;
-  // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name)
-  // and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments (big attachments?) still
-  // sucks", over a strip of empty tiles with only an underlined Retry).
+  // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
+  // one small retry button where a retry can work (`retryable`), and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
+  // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
   if (chip.failed)
     return (
       <div
@@ -248,6 +260,7 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
         ) : (
           <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         )}
+        {onRetry && chip.retryable && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
         {remove}
       </div>
     );
@@ -257,9 +270,6 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
       data-paste-look={chip.resolvingPath ? undefined : look}
       aria-busy="true"
       aria-label={name}
-      // tooltip-allow: the tile is a picture; once its upload has been asked again a while, the
-      // tooltip says it is still trying and why.
-      {...(still ? { "data-still-trying": "", title: still } : {})}
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
       // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
       {...(chip.image && shape ? { "data-sized": "" } : {})}
@@ -285,18 +295,36 @@ export function InstantPreview({ src }: { src: string }) {
   );
 }
 
-/// A loading chip whose upload failed and is asked again on its own (PendingAttachment `retrying`),
-/// once that has lasted the house deadline (lasting.ts; the gallery's zero grace shows it at once):
-/// its one quiet line, "Still trying to upload {name}…" over the host's words, for its tooltip.
-/// Undefined before, and for any other chip.
-export function useStillUploading(
-  chip: Pick<PendingAttachment, "retrying" | "failed">,
-  name: string,
-): string | undefined {
+/// A failed attachment's one retry control: a small round button with the retry glyph, the same in
+/// the strip and in the text; its tooltip says why it failed.
+export function RetryButton({
+  label,
+  reason,
+  onRetry,
+  className = "acpmux-attachment-retry",
+}: {
+  /// What it does, for assistive technology (its tile is named for the file); "Retry" by default.
+  label?: string;
+  reason?: string;
+  onRetry(): void;
+  className?: string;
+}) {
   const t = useT();
-  const lasting = useLasting(Boolean(chip.retrying) && !chip.failed);
-  if (!lasting || !chip.retrying) return undefined;
-  return `${t(ATTACHMENT_LABELS.stillUploading, { name })}\n${chip.retrying}`;
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={label ?? t(ATTACHMENT_LABELS.retryAttachment)}
+      /* tooltip-allow: the button is a glyph; the tooltip says what failed and why */
+      title={reason ? `${t(ATTACHMENT_LABELS.retryAttachment)}: ${reason}` : t(ATTACHMENT_LABELS.retryAttachment)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onRetry();
+      }}
+    >
+      <Retry size={12} />
+    </button>
+  );
 }
 
 /// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile. The
@@ -392,6 +420,7 @@ function AttachmentChipPreview({
   onRemove,
   onExpand,
   onKeepFile,
+  onRetry,
   originalFailed,
 }: {
   attachment: ComposerAttachment;
@@ -400,16 +429,14 @@ function AttachmentChipPreview({
   onExpand?(id: string): void;
   /// A pasted chip sent as a .txt file instead (composer/pastedChips.ts `keepAsFile`).
   onKeepFile?(id: string): void;
-  /// An image whose original failed to upload (`originalFailed`, why): it is uploaded again on its
-  /// own, and the chip says so once that lasts (lasting.ts), with no Retry.
+  /// An image whose original failed to upload (`originalFailed`, why): its Retry uploads it again.
+  onRetry?(id: string): void;
   originalFailed?: string;
 }) {
   const t = useT();
   const language = usePaneLanguage();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
-  // An original asked again for the house deadline (lasting.ts): only then the chip says so.
-  const stillSavingOriginal = useLasting(Boolean(originalFailed));
   const [thumb, setThumb] = useState<{ url: string; width: number; height: number } | undefined>(() =>
     keptThumbOf(attachment.id),
   );
@@ -551,9 +578,7 @@ function AttachmentChipPreview({
         // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
         style={localShape ?? imageShape(displayedThumb)}
         src={displayedThumb?.url ?? source}
-        // A kept thumbnail that no longer draws (its blob URL gone) falls back to the image's own
-        // bytes at once; only those failing too is a broken image.
-        onError={() => (thumb && displayedThumb === thumb ? setThumb(undefined) : setBroken(true))}
+        onError={() => setBroken(true)}
         onLoad={(event) => {
           const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
           // An image that decodes to no pixels draws nothing: it failed too.
@@ -581,24 +606,21 @@ function AttachmentChipPreview({
         ) : (
           img
         )}
-        {stillSavingOriginal && (
-          <output
-            className="acpmux-attachment-original-still"
-            aria-label={t(ATTACHMENT_LABELS.stillUploadingOriginal, { name })}
-            /* tooltip-allow: the mark is a glyph; the tooltip says what is still uploading and why */
-            title={`${t(ATTACHMENT_LABELS.stillUploadingOriginal, { name })}\n${originalFailed}`}
-          >
-            <Spinner loading size={12} />
-          </output>
+        {originalFailed && onRetry && (
+          <RetryButton
+            className="acpmux-attachment-original-retry"
+            label={t(ATTACHMENT_LABELS.retryOriginal, { name })}
+            reason={t(ATTACHMENT_LABELS.originalFailed, { name, reason: originalFailed })}
+            onRetry={() => onRetry(attachment.id)}
+          />
         )}
         {remove}
       </div>,
     );
   }
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
-  // file name; its × still removes it. Drawing the same bytes again draws nothing more, so it has no
-  // Retry (a kept thumbnail that failed falls back to the bytes themselves first: `onError` above).
-  if (embeddedImage) return menu(undefined, <BrokenImageChip remove={remove} />);
+  // file name; its × still removes it.
+  if (embeddedImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
   // A huge paste (pastedText.ts): a compact chip that opens its whole text, Edit in Prompt and Keep
   // as .txt in the opened view (PastedTextChip.tsx). Its menu keeps both too.
   if (pasted) {
@@ -709,14 +731,15 @@ function AttachmentChipPreview({
 }
 
 /// An image the engine could not draw: it says so in its slot, instead of an empty tile or a bare file
-/// name; its × still removes it. No Retry: the same bytes draw the same way again. The strip's chip
-/// and the prompt's (composer/inlineAttachments.tsx) both draw this one.
-export function BrokenImageChip({ remove }: { remove: React.ReactNode }) {
+/// name. Retry draws it again; its × still removes it. The strip's chip and the prompt's
+/// (composer/inlineAttachments.tsx) both draw this one.
+export function BrokenImageChip({ remove, onRetry }: { remove: React.ReactNode; onRetry(): void }) {
   const t = useT();
   return (
     <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
       <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
       <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
+      <RetryButton onRetry={onRetry} />
       {remove}
     </div>
   );

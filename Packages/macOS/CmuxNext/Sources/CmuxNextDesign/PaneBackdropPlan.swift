@@ -29,17 +29,9 @@ public nonisolated struct PaneBackdropPlan: Equatable, Sendable {
     /// - Parameter backdrop: The backdrop of the pane's scope (its own pick, else inherited), with
     ///   the user's Reduce Transparency already applied.
     /// - Parameter inheritedHasArt: Whether the window behind the pane shows art.
-    /// - Parameter themeArt: The theme's picture for this pane (`ThemeFlourishes.paneArt(at:)`, `appearance.paneArt.*`):
-    ///   a pane with no pick of its own draws it as its own art, as `perPane` would. Nil: the window's.
     /// - Returns: What the pane draws.
     public static func resolve(mode: PaneBackgroundMode, own: BackdropPin, tint: PaneTint?, backdrop: WindowBackdrop,
-                               inheritedHasArt: Bool, themeArt: BackdropSelection? = nil) -> PaneBackdropPlan {
-        if own == .inherit, let themeArt {
-            var themed = backdrop
-            themed.art = nil
-            themed.selection = themeArt
-            return resolve(mode: .perPane, own: own, tint: tint, backdrop: themed, inheritedHasArt: inheritedHasArt)
-        }
+                               inheritedHasArt: Bool) -> PaneBackdropPlan {
         var plan = PaneBackdropPlan(tint: tint)
         let ownsPick = own != .inherit
         if backdrop.selection != nil, !backdrop.isOpaque, mode == .perPane || ownsPick {

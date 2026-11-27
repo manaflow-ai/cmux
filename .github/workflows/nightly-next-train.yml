@@ -285,9 +285,6 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Release compile
-        env:
-          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
-          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           scripts/cmux-next/check-release-compile.sh "$derived_data"

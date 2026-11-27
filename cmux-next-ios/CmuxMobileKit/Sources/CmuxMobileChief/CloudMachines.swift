@@ -327,8 +327,6 @@ public final class CloudMachinesModel {
     }
 
     public var canAct: Bool { busyID == nil && account() != nil }
-    /// An account is signed in: a failed load is a read to try again (on its own), not a sign-in.
-    public var isSignedIn: Bool { account() != nil }
 
     public func machine(_ id: String) -> CloudMachine? { machines.first { $0.id == id } }
     public func snapshots(of machine: String) -> [CloudMachineSnapshot] { snapshots.filter { $0.machine == machine && $0.archiveOf == nil } }
@@ -350,8 +348,7 @@ public final class CloudMachinesModel {
             return
         }
         let before = phase
-        // A failed page stays as it is while it loads again (its screen retries on its own and
-        // shows a spinner until the quiet bound), so it never flickers to "Loading" on each try.
+        if machines.isEmpty, phase != .loaded { phase = .loading }
         do {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
@@ -536,10 +533,8 @@ public final class CloudMachinesModel {
         case "cloud.size.grow_only": return String(localized: "A machine can only grow.")
         case "cloud.spend_cap.reached": return String(localized: "Your team reached its spending cap.")
         case "cloud.member_budget.reached": return String(localized: "You reached your monthly Cloud budget.")
-        // retry-prompt-ok: a machine change is the person's write (costs, approvals); rate-limited, they choose to make it again
         case "cloud.rate_limited": return String(localized: "Too many changes at once. Try again in a minute.")
         case "approval.denied": return String(localized: "The request was denied.")
-        // retry-prompt-ok: the approval itself expired; asking again sends a new approval request, the person's choice
         case "approval.expired": return String(localized: "The approval expired. Try again.")
         default: return failure.description
         }

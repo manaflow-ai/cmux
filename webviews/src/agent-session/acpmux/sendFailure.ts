@@ -83,7 +83,6 @@ export function failedSendText(
     case "pane":
       // The pane's bug, not the person's: logged for its report, as errorMessage logs it.
       console.error("agent pane: the host refused a request", error);
-      // retry-prompt-ok: "Not sent. Try again.": sending the prompt again is a paid model request.
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
     case "too-large":
       return tooLargeText(attachments);

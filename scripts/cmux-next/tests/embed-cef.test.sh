@@ -24,8 +24,8 @@ if grep -q 'unbound variable' <<<"$out"; then printf 'unbound variable:\n%s\n' "
 out=$(run 0)
 grep -q 'stub ensure-cef args=\[--optional\]$' <<<"$out" || { printf 'optional mode lost --optional:\n%s\n' "$out" >&2; exit 1; }
 # The embedded CEF Libraries ship without local symbols or debug stabs
-# (strip -S -x before signing). SwiftShader (libvk_swiftshader.dylib, its ICD
-# manifest and libvulkan.dylib) is not embedded at all. Exported symbols stay.
+# (strip -S -x before signing): the stock libvk_swiftshader.dylib carries
+# 7 MiB of them. Exported symbols stay, since the Vulkan loader dlsyms them.
 # Builds a real library with the host compiler (a Mach-O dylib on macOS, an
 # ELF object on Linux CI, where `ditto` is stood in by cp) and reads it back.
 if ! { command -v cc && command -v nm && command -v strip; } >/dev/null; then
@@ -53,15 +53,15 @@ out += struct.pack("<HI", 0, off) + b"".join(b for _, b in data)
 open(sys.argv[1], "wb").write(out)'
   /usr/bin/python3 -c "$write_pak" "$fw/Resources/resources.pak" 7=fLaC-sound 8=kept
   /usr/bin/python3 -c "$write_pak" "$fw/Resources/en.lproj/locale.pak" 5=gemini-text 6=untitled-text
-  printf 'static int hidden_helper(int x) { return x * 3; }\nint sandbox_entry(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
+  printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
-    cc -g -dynamiclib -o "$fw/Libraries/libcef_sandbox.dylib" "$TMP/lib.c"
+    cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
   else
-    cc -g -O0 -shared -fPIC -o "$fw/Libraries/libcef_sandbox.dylib" "$TMP/lib.c"
+    cc -g -O0 -shared -fPIC -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
     printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$TMP/bin/ditto"
     chmod +x "$TMP/bin/ditto"
   fi
-  nm -a "$fw/Libraries/libcef_sandbox.dylib" | grep -q hidden_helper || { echo 'fixture has no local symbol' >&2; exit 1; }
+  nm -a "$fw/Libraries/libvk_swiftshader.dylib" | grep -q hidden_helper || { echo 'fixture has no local symbol' >&2; exit 1; }
   printf '{"chromium": "1.0"}\n' > "$TMP/scripts/cef-manifest.json"
   for stub in install-cef-credits.sh install-cef-license.sh sign-cef.sh; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/scripts/$stub"
@@ -75,29 +75,22 @@ echo "$TMP/shim"
 STUB
   chmod +x "$TMP/scripts/"*.sh
   printf 'precomputed cache\n' > "$fw/Resources/gpu_shader_cache.bin"
-  for swiftshader in libvk_swiftshader.dylib vk_swiftshader_icd.json libvulkan.dylib libvulkan.1.dylib; do
-    printf 'swiftshader\n' > "$fw/Libraries/$swiftshader"
-  done
   out=$(env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/build" WRAPPER_NAME=app.app \
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
-  lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libcef_sandbox.dylib"
+  lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
   pak="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/resources.pak"
   shader_cache="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/gpu_shader_cache.bin"
   if grep -q 'fLaC-sound' "$pak" || ! grep -q kept "$pak"; then
     echo 'embedded resources.pak still has the intro sound, or lost the other resource' >&2; exit 1
   fi
   [[ ! -e "$shader_cache" ]] || { echo 'embedded CEF still carries gpu_shader_cache.bin' >&2; exit 1; }
-  for swiftshader in libvk_swiftshader.dylib vk_swiftshader_icd.json libvulkan.dylib libvulkan.1.dylib; do
-    [[ ! -e "$(dirname "$lib")/$swiftshader" ]] || { echo "embedded CEF still carries $swiftshader" >&2; exit 1; }
-  done
-  [[ -e "$lib" ]] || { echo 'embedded CEF lost libcef_sandbox.dylib' >&2; exit 1; }
   locale="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/en.lproj/locale.pak"
   if grep -q gemini-text "$locale" || ! grep -q untitled-text "$locale"; then
     echo 'embedded locale.pak still has the AI assistant string, or lost the tab title' >&2; exit 1
   fi
   syms=$(nm -a "$lib")
-  grep -qE ' T _?sandbox_entry$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
+  grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
   # Apple's strip leaves one marker stab (radr://5614542) that says the file was stripped.
   if grep -v 'radr://5614542' <<<"$syms" | grep -qE ' - |hidden_helper'; then
     printf 'embedded CEF library keeps local symbols or debug stabs:\n%s\n' "$syms" >&2; exit 1

@@ -5495,9 +5495,7 @@
     "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
     "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
-    "errorGeneric": "Noe gikk galt. Prøv igjen.",
-    "errorRedirectNotAllowed": "Påloggingsadressen til denne builden er ikke tillatt på {backend}.",
-    "backendDevelopment": "utviklingsbackenden"
+    "errorGeneric": "Noe gikk galt. Prøv igjen."
   },
   "MobileRelease106": {
     "title": "Nytt i 1.0.6",

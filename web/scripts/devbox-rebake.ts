@@ -70,8 +70,6 @@ export const REBAKE_INPUTS = {
     "web/services/vms/drivers/linuxRelease.ts",
     "web/services/vms/drivers/types.ts",
     "web/services/vms/clientGrant.ts",
-    "web/services/vms/identity.ts",
-    "web/services/vms/workUser.ts",
     "web/services/vms/guest*.ts",
     "web/services/vms/guestCliDistribution.json",
     "web/services/vms/networkPolicy.ts",
@@ -82,8 +80,6 @@ export const REBAKE_INPUTS = {
     "web/scripts/devbox-image-common.ts",
     "web/scripts/cmux-vm-image/machine-health.ts",
     "web/scripts/cmux-vm-image/dns.ts",
-    "web/scripts/cmux-vm-image/machine-commands.ts",
-    "web/scripts/cmux-vm-image/metadata-guard.ts",
     "images/cmux-vm/machine-health/**",
   ],
   // Prose.

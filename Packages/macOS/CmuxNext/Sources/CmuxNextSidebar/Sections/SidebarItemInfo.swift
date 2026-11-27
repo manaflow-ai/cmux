@@ -43,11 +43,11 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
     public var iconFromShownTab = false
-    /// A pin leading the row, before its icon and title. The sidebar's own rows leave it off: a pinned workspace leads
-    /// as its list row does (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at the left").
+    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
-    /// The open workspace a workspace tile names: its row shows a workspace row's hover controls, the ✕, the ⋮ and
-    /// Unpin (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
+    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
+    /// Lawrence msg 19392). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for

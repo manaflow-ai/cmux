@@ -11,7 +11,6 @@ import { placeName } from "../place/PlaceControl";
 import type { PlaceState, PlaceKeep } from "../place/placeModel";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
-import { newTabPin, pickNewTabPin, type NewTabWhere, type NewTabWhereWrites } from "./newTabHybrid";
 import type { HybridBlockedWhy } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
 
@@ -98,19 +97,4 @@ export function useSessionInfoCloud(
       setPin: actions.setMode,
     };
   }, [place, session, say]);
-}
-
-/// The New Tab page's control, before a chat exists (newTabHybrid.ts): the page's Where pick, drawn
-/// and written through its own rows. Mounted only where AutoCloud is on (the plan and the
-/// `cloud.autoCloud` key, default off).
-export function NewTabHybridChip({ where, writes }: { where: NewTabWhere; writes: NewTabWhereWrites }) {
-  return (
-    <CloudTriToggle
-      pin={newTabPin(where)}
-      look="rainbow"
-      form="segments"
-      named
-      onChange={(pin) => pickNewTabPin(pin, writes)}
-    />
-  );
 }

@@ -7,12 +7,6 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
-## 0.1.4 (2026-11-26)
-
-`ink.shortcut` follows the key hint to `webviews/src/ui/keyHint.css`. cmux#57918 drew every web shortcut through
-`ui/KeyHint` and removed `.acpmux-permission-action-shortcut` from `acpmux/styles.css`, the token's old source;
-the key hint's ink is `var(--instrument-ink-shortcut, 62%)`. A patch: no pixel moves (62% before and after).
-
 ## 0.1.3 (2026-11-24)
 
 RFD 0116 section 9's space, elevation and ink tokens, each at the value the app draws today. A patch: no pixel

@@ -49,10 +49,10 @@ public struct SentryScrubber: Sendable {
     /// replaced regardless of the runtime home dir AND whether the path has a
     /// trailing component. An exact `/Users/buildbot` or `file:///Users/alice`
     /// is redacted, not just `/Users/alice/...`.
-    static let userHomePrefix = SentryRegexPattern(#"/Users/[^/\s"']+"#, requires: [["/users/"]])
+    static let userHomePrefix = SentryRegexPattern(#"/Users/[^/\s"']+"#)
 
     /// Matches `/home/<name>` for Linux-style paths that can appear in build-machine stack frames.
-    static let linuxHomePrefix = SentryRegexPattern(#"/home/[^/\s"']+"#, requires: [["/home/"]])
+    static let linuxHomePrefix = SentryRegexPattern(#"/home/[^/\s"']+"#)
 
     /// Matches the `userinfo@` authority of a URL (`scheme://user:pass@host`).
     ///
@@ -76,10 +76,10 @@ public struct SentryScrubber: Sendable {
     /// credential rather than stopping at the first `@` and leaking the password
     /// tail (`ss@host`). The terminators still bound each match to one URL's
     /// authority, so a later URL's host is never swallowed.
-    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#, requires: [["://"], ["@"]])
+    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#)
 
     /// Matches an email address.
-    static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#, requires: [["@"], ["."]])
+    static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
 
     /// Matches one query-string segment (a `key=value` or bare `key` between
     /// `&`/`;` separators). Used by ``scrubQueryString(_:)`` so the separators are
@@ -111,18 +111,6 @@ public struct SentryScrubber: Sendable {
     /// turn into `/Users/<redacted>ice/x`, leaking the `ice` suffix.
     private let homeDirectoryPattern: SentryRegexPattern?
 
-    /// Recent ``scrub(_:)`` results, so a string seen before costs a lookup,
-    /// not ~20 regex passes. Every crash or lag-spike event repeats most of
-    /// its strings: the same image path on each frame and debug image, the
-    /// same (already scrubbed) breadcrumbs and device context. ``scrub(_:)``
-    /// is a pure function of its input for one scrubber, so a hit returns
-    /// exactly what the regex pass would.
-    private let memo: SentryScrubMemo
-
-    /// Whether each rule's literal gate may skip its regex (``SentryLiteralProbe``); off only in the
-    /// tests that check the gate against the ungated rules.
-    private let gatesByLiterals: Bool
-
     /// Creates a scrubber bound to a home directory.
     ///
     /// The default reads the current process home. Tests inject a fixed value so
@@ -131,18 +119,8 @@ public struct SentryScrubber: Sendable {
     /// build-machine stack-frame paths (whose home differs from the runtime one)
     /// are still covered.
     ///
-    /// - Parameters:
-    ///   - homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
-    ///   - memoCapacity: How many recent results ``scrub(_:)`` keeps (0 turns the memo off).
-    public init(homeDirectory: String = NSHomeDirectory(), memoCapacity: Int = SentryScrubMemo.defaultCapacity) {
-        self.init(homeDirectory: homeDirectory, gatesByLiterals: true, memoCapacity: memoCapacity)
-    }
-
-    /// ``init(homeDirectory:memoCapacity:)`` with the literal gate on or off (off: every rule's regex
-    /// runs on every string, as before the gate).
-    init(homeDirectory: String, gatesByLiterals: Bool, memoCapacity: Int = SentryScrubMemo.defaultCapacity) {
-        self.gatesByLiterals = gatesByLiterals
-        self.memo = SentryScrubMemo(capacity: memoCapacity)
+    /// - Parameter homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
+    public init(homeDirectory: String = NSHomeDirectory()) {
         // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
         var home = homeDirectory
         while home.count > 1, home.hasSuffix("/") {
@@ -158,12 +136,8 @@ public struct SentryScrubber: Sendable {
             // Escape the home path so any regex metacharacter in a username is
             // literal, then end the match at a character that cannot continue a
             // name (`/`, `:`, `)`, whitespace, the end).
-            // An ASCII home is its own required literal; a non-ASCII one gets no gate (a text that
-            // could match it is non-ASCII too, and runs every rule).
-            let lowered = home.lowercased()
             self.homeDirectoryPattern = SentryRegexPattern(
-                NSRegularExpression.escapedPattern(for: home) + #"(?=[^A-Za-z0-9._\-]|$)"#,
-                requires: lowered.utf8.allSatisfy { $0 < 0x80 } ? [[lowered]] : []
+                NSRegularExpression.escapedPattern(for: home) + #"(?=[^A-Za-z0-9._\-]|$)"#
             )
         }
     }
@@ -189,37 +163,12 @@ public struct SentryScrubber: Sendable {
     /// - Returns: The scrubbed string.
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
-        if let remembered = memo.result(for: text) { return remembered }
-        var pass = Pass(text, gated: gatesByLiterals)
-        redactURLCredentials(in: &pass)
-        redactSecrets(in: &pass)
-        redactEmails(in: &pass)
-        redactPaths(in: &pass)
-        memo.remember(pass.text, for: text)
-        return pass.text
-    }
-
-    /// One string being scrubbed, rule by rule, and its literal probe: a rule whose required literals
-    /// the text lacks runs no regex. The probe is made again after a rule rewrites the text, so a
-    /// later rule's gate always sees the text that rule scans.
-    private struct Pass {
-        private(set) var text: String
-        private var probe: SentryLiteralProbe?
-
-        init(_ text: String, gated: Bool) {
-            self.text = text
-            self.probe = gated ? SentryLiteralProbe(text) : nil
-        }
-
-        mutating func apply(_ pattern: SentryRegexPattern, _ replacement: (SentryRegexMatch) -> String) {
-            if let probe {
-                guard let rewritten = pattern.replace(in: text, probe: probe, with: replacement) else { return }
-                text = rewritten
-                self.probe = SentryLiteralProbe(rewritten)
-            } else {
-                text = pattern.replace(in: text, with: replacement)
-            }
-        }
+        var result = text
+        result = redactURLCredentials(in: result)
+        result = redactSecrets(in: result)
+        result = redactEmails(in: result)
+        result = redactPaths(in: result)
+        return result
     }
 
     /// Replaces `user:password@` URL credentials with ``redactedSecret``,
@@ -227,8 +176,8 @@ public struct SentryScrubber: Sendable {
     /// whole `user:pass@host` authority before the email rule could match
     /// `pass@host.tld` (which would leak the username); its `>`-terminated
     /// placeholder (`<redacted-secret>@host`) is then immune to the email rule.
-    private func redactURLCredentials(in pass: inout Pass) {
-        pass.apply(Self.urlUserInfo) { match in
+    private func redactURLCredentials(in text: String) -> String {
+        Self.urlUserInfo.replace(in: text) { match in
             if let scheme = match.captureGroup(1) {
                 return "\(scheme)\(Self.redactedSecret)@"
             }
@@ -432,16 +381,18 @@ public struct SentryScrubber: Sendable {
 
     /// Replaces the injected home directory and any `/Users/<name>/` or
     /// `/home/<name>/` prefix with a redacted-user equivalent.
-    private func redactPaths(in pass: inout Pass) {
+    private func redactPaths(in text: String) -> String {
+        var result = text
         if let homeDirectoryPattern {
             // Component-bounded replace (not a raw substring replace), so a home
             // dir that is a prefix of a longer username (`/Users/al` vs.
             // `/Users/alice/x`) never corrupts the longer path and leaks its tail.
             let redacted = Self.redactedHomePath(for: homeDirectory)
-            pass.apply(homeDirectoryPattern) { _ in redacted }
+            result = homeDirectoryPattern.replace(in: result) { _ in redacted }
         }
-        pass.apply(Self.userHomePrefix) { _ in "/Users/\(Self.redactedUser)" }
-        pass.apply(Self.linuxHomePrefix) { _ in "/home/\(Self.redactedUser)" }
+        result = Self.userHomePrefix.replace(in: result) { _ in "/Users/\(Self.redactedUser)" }
+        result = Self.linuxHomePrefix.replace(in: result) { _ in "/home/\(Self.redactedUser)" }
+        return result
     }
 
     /// Returns the redacted form of an absolute home directory.
@@ -464,16 +415,17 @@ public struct SentryScrubber: Sendable {
     // MARK: - Emails
 
     /// Replaces email addresses with ``redactedEmail``.
-    private func redactEmails(in pass: inout Pass) {
-        pass.apply(Self.email) { _ in Self.redactedEmail }
+    private func redactEmails(in text: String) -> String {
+        Self.email.replace(in: text) { _ in Self.redactedEmail }
     }
 
     // MARK: - Secrets
 
     /// Replaces token / secret / key / bearer / password patterns with ``redactedSecret``.
-    private func redactSecrets(in pass: inout Pass) {
+    private func redactSecrets(in text: String) -> String {
+        var result = text
         for pattern in Self.secretPatterns {
-            pass.apply(pattern) { match in
+            result = pattern.replace(in: result) { match in
                 // Patterns with a captured prefix group (e.g. "token=") keep the
                 // prefix and redact only the value, so the field stays legible.
                 if let prefix = match.captureGroup(1) {
@@ -482,5 +434,6 @@ public struct SentryScrubber: Sendable {
                 return Self.redactedSecret
             }
         }
+        return result
     }
 }

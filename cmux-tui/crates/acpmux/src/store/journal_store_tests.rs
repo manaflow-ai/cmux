@@ -2038,13 +2038,6 @@ fn every_test_wait_on_a_hold_is_bounded() {
             "the page's reader drains the served connection's output: it ends when the \
              connection drops `output`, and no test waits on it",
         ),
-        (
-            "server/outbox.rs",
-            "out_rx",
-            "not test code: the scan reads every `outbox.rs` as a test file because \
-             `stress/mod.rs` declares `#[cfg(test)] mod outbox;`. `attempt_once` awaits it in a \
-             `select!` against `sleep_until(quiet.end())`, which bounds it",
-        ),
     ];
     fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
         let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));

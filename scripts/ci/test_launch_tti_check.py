@@ -109,22 +109,5 @@ class UpdaterOff(unittest.TestCase):
             self.assertEqual(M.launch_env(env, root / "probe.csv", path)["CMUX_DISABLE_AUTO_UPDATE"], "1")
 
 
-class NewProcessFound(unittest.TestCase):
-    """`open` starts the copy at its resolved path: a copy under /tmp runs as /private/tmp/... in ps, and a match on the
-    path as given alone found no new process on every `open` round (nightly dogfood launch tti, 2026-11-26)."""
-
-    def test_a_process_at_the_resolved_path_counts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            real = Path(tmp) / "real"
-            (real / "cmux NIGHTLY.app" / "Contents" / "MacOS").mkdir(parents=True)
-            link = Path(tmp) / "link"
-            link.symlink_to(real)
-            executable = link / "cmux NIGHTLY.app" / "Contents" / "MacOS" / "cmux"
-            resolved = os.path.realpath(executable)
-            self.assertNotEqual(resolved, str(executable))
-            ps = f"  101 {resolved}\n  102 /Applications/Other.app/Contents/MacOS/cmux\n  103 {executable}\n"
-            self.assertEqual(M.pids_running(ps, M.executable_paths(executable)), {101, 103})
-
-
 if __name__ == "__main__":
     unittest.main()

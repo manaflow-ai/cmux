@@ -156,9 +156,8 @@ test("a started agent keeps its icon and name link, with visible status controll
   expect(line.querySelector(".is-chevron")).toBeNull();
   const name = line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
   const status = line.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
-  // Working is the spinner alone; hover and VoiceOver keep the word.
-  expect(status.textContent).toBe("");
-  expect(status.querySelector("[title]")?.getAttribute("title")).toBe("Working");
+  expect(status.textContent).toBe("Working");
+  expect(status.hasAttribute("aria-label")).toBe(false);
   expect(status.getAttribute("aria-expanded")).toBe("false");
   expect(status.tabIndex).toBe(0);
   await act(async () => name.click());

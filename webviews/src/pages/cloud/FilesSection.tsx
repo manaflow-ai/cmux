@@ -2,8 +2,7 @@
 // click; a file click previews a small text file, which Edit turns into a field that Save writes back.
 // Delete, Upload and Download go to the host (native confirmation or file panel); the page never
 // calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
-// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry
-// (retry-prompt-ok: it runs the push or pull again, which opens the host's file panel again). A
+// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
 // machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
@@ -471,7 +470,6 @@ export function FilesSection({
           </button>
         )}
       </div>
-      {/* retry-prompt-ok: nothing ran; running it again opens the host's native file panel, so it is the person's. */}
       {files.busy && (
         <p className="cloud-muted cloud-transfer-busy">
           {t(L.transferBusy)}{" "}

@@ -171,7 +171,7 @@ def main() -> int:
     args = parser.parse_args()
     app, out = Path(args.app), Path(args.out)
     cli = (app / hot.BIN / "cmux").resolve()
-    receipt: dict = {**hot.app_commit_receipt(app), "sha": args.sha, "checks": {}}
+    receipt: dict = {"app_commit": hot.app_commit(app), "sha": args.sha, "checks": {}}
     t0 = time.monotonic()
     app_pid = int(Path(args.pid_file).read_text().strip())
     # A fresh copy starts its terminal daemon with its first terminal. A new workspace opens on the

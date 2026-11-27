@@ -488,7 +488,7 @@ impl Hub {
             let made = if target.is_some() {
                 // Onto another harness: its agent reads the subagent's turns (`rehydrate`), not
                 // the copy, which no one resumes.
-                let _ = crate::home_fs::remove_file(&copy.file);
+                let _ = std::fs::remove_file(&copy.file);
                 Made::Fresh
             } else {
                 Made::Copy(copy.copy.clone())
@@ -594,22 +594,22 @@ impl Hub {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
             Made::ClaudeResume
-        } else if !offers_fork(session.meta().agent_capabilities.as_ref())
-            || !self.offers_fork_once_started(session).await?
-        {
-            // An agent that does not offer session/fork (pi, Kimi, DeepSeek) is not asked: the
-            // fork gets a new agent session that reads the chat's transcript, idle or working
-            // (#50089), as a working chat's fork always did.
-            if parent_meta.turn_count == 0 && !working {
-                return Err(RpcError::invalid_params(NOTHING_TO_FORK));
-            }
-            note = Some(no_fork_note(&parent_meta.harness, working));
+        } else if working && !offers_fork(session.meta().agent_capabilities.as_ref()) {
+            note = Some(fresh_note(&parent_meta.harness));
             Made::Fresh
         } else {
             // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
             self.touch(session);
             let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
+            // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
+            // with a bare internal error: refuse with the reason instead.
+            if !offers_fork(session.meta().agent_capabilities.as_ref()) {
+                return Err(RpcError::invalid_params(format!(
+                    "{} cannot fork a chat: its agent does not offer session/fork",
+                    parent_meta.harness
+                )));
+            }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             // Codex's answer for the person's own `cmux` entry, asked once for this fork, off the
@@ -888,7 +888,6 @@ impl Hub {
             wait_start: false,
             throwaway: false,
             create_key: None,
-            placed_by: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
             close: None,
@@ -1021,25 +1020,18 @@ impl Hub {
                 // A fork onto another harness: its agent is told it was forked from the chat, and
                 // whose the earlier replies are (Leo, 2026-11-11: "ChatGPT can have, like, a small
                 // little briefing of, like, you were forked from this chat").
-                let briefing = if let Some(c) = sub_copy.as_ref().filter(|_| target.is_some()) {
+                if let Some(c) = sub_copy.as_ref().filter(|_| target.is_some()) {
                     let who = c.name.as_deref().unwrap_or(&c.subagent_id);
-                    format!(
+                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
                         "this chat was forked from {}'s subagent {who} in chat {} ({}) when the person switched to you; the subagent's conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
                         parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
-                    )
+                    ));
                 } else if new.meta().harness != parent_meta.harness {
-                    format!(
+                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
                         "this chat was forked from {} chat {} ({}) when the person switched to you; the conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
                         parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
-                    )
-                } else {
-                    // Its own harness, whose agent could not fork the chat itself (#50089).
-                    format!(
-                        "this chat was forked from chat {} ({}); the conversation so far is below and the earlier replies are yours; carry on from where it ended; tool state was not restored",
-                        parent_meta.name, session.id
-                    )
-                };
-                *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(briefing);
+                    ));
+                }
                 new.rehydrate.store(true, Ordering::SeqCst)
             }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
@@ -1456,35 +1448,6 @@ fn note_open_tool(open_tools: &mut Vec<(String, String)>, e: &EventRecord) {
             open_tools.retain(|(c, _)| c != call);
         }
         _ => {}
-    }
-}
-
-impl Hub {
-    /// Whether the chat's agent offers `session/fork`, starting it to learn so when its
-    /// capabilities are not known yet (it never started here).
-    async fn offers_fork_once_started(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-    ) -> Result<bool, RpcError> {
-        if session.meta().agent_capabilities.is_some() {
-            return Ok(true);
-        }
-        self.touch(session);
-        self.child_for(session).await?;
-        Ok(offers_fork(session.meta().agent_capabilities.as_ref()))
-    }
-}
-
-/// What a fork of a chat whose agent offers no `session/fork` says of itself (its `forked` note).
-fn no_fork_note(harness: &str, working: bool) -> String {
-    if working {
-        format!(
-            "{harness} cannot fork a chat mid-turn, so this fork's agent starts from the chat's transcript"
-        )
-    } else {
-        format!(
-            "{harness} cannot fork a chat, so this fork's agent starts from the chat's transcript"
-        )
     }
 }
 

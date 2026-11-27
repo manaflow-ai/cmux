@@ -322,7 +322,7 @@ public final class SettingsModels {
     /// A sign-in page in the app's own browser (``SettingsHarnesses/openSignInPage``), so the person
     /// never leaves cmux; the person's browser when there is none.
     func openInAppSignIn(_ url: URL) async {
-        if let open = harnesses?.openSignInPage, await open(url, []) != nil { return }
+        if let open = harnesses?.openSignInPage, await open(url) != nil { return }
         openURL(url)
     }
 

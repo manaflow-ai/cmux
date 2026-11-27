@@ -52,11 +52,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// greyed email: "but does this not mean it's already connected?"). The teams are Switch Active Team's own values
     /// (`openTeamPicker`'s `cloudTeams`), each with its icon (a person for the person's own team, people for a shared
     /// one), the active one checked, so the team in effect reads as a choice (Leo, 2026-11-09).
-    ///
-    /// `signInBackend` is what Sign In signs in to ("Signs in to cmux.com"): Sign In's second line where
-    /// the system draws one (macOS 14.4), else a line of its own under it.
-    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
-                               signInBackend: String? = nil) {
+    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) {
         defer { Self.keepOneTextColumn(menu) }
         let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: auth) {
@@ -64,7 +60,6 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             // In Help's section, as the Codex menu's Log out; else a section of its own.
             if let last = menu.items.last, last.identifier?.rawValue != "profileMenu.help" { menu.addItem(.separator()) }
             menu.addItem(item)
-            if who == nil, let signInBackend { Self.addBackendLine(signInBackend, to: item, in: menu) }
         }
         guard let who, let name = who.first else { return }
         // The profile's own options move into who it is's submenu, under the teams: one account row.
@@ -75,18 +70,6 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         let person = personRow(name: name, email: who.count > 1 ? who[1] : nil, avatar: avatar, options: options, accounts: spec.accounts)
         menu.insertItem(person, at: 0)
-    }
-
-    /// Sign In's backend line: its subtitle on macOS 14.4, else a disabled row under it.
-    private static func addBackendLine(_ line: String, to item: NSMenuItem, in menu: NSMenu) {
-        if #available(macOS 14.4, *) {
-            item.subtitle = line
-            return
-        }
-        let row = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-        row.isEnabled = false
-        row.identifier = NSUserInterfaceItemIdentifier("profileMenu.signInBackend")
-        menu.addItem(row)
     }
 
     /// Who is signed in: one row, the email as its second line where the system draws one (macOS 14.4), opening the

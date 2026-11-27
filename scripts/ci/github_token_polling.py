@@ -166,10 +166,13 @@ def shell_words(text: str) -> list[tuple[str, int]]:
             current, quoted, i = current + text[i + 1:end], True, end + 1
             continue
         if c == '"':
-            j, depth = i + 1, 0
+            j, depth, bodies = i + 1, 0, []
             while j < n and (text[j] != '"' or depth):
                 if text[j] == "\\":
                     j += 2
+                    continue
+                if depth and (skipped := heredoc_skip(text, j, bodies)) != j:
+                    j = skipped
                     continue
                 if text.startswith("$(", j):
                     depth += 1
@@ -208,10 +211,37 @@ def shell_words(text: str) -> list[tuple[str, int]]:
     return words
 
 
+HEREDOC_START = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_]\w*)\2")
+
+
+def heredoc_skip(text: str, j: int, bodies: list[tuple[str, bool]]) -> int:
+    """Inside a `$(...)`: past a heredoc opener (noted in bodies), or at its line's end past the bodies, whose
+    quotes and parentheses are text, not shell (`since="$(python3 - <<'PY'` in cmux-next-base-linux.yml); else j."""
+    if text[j] == "\n" and bodies:
+        i = j + 1
+        for delimiter, strip in bodies:
+            while i < len(text):
+                end = text.find("\n", i)
+                end = len(text) if end < 0 else end
+                line, i = text[i:end], end + 1
+                if (line.lstrip("\t") if strip else line) == delimiter:
+                    break
+        bodies.clear()
+        return min(i, len(text))
+    m = HEREDOC_START.match(text, j) if not text.startswith("<<<", j) else None
+    if m:
+        bodies.append((m.group(3), m.group(1) == "-"))
+        return m.end()
+    return j
+
+
 def nested_substitution(text: str, at: int) -> list[tuple[str, int]]:
     """The words of the `$(...)` that starts at `at`, offsets kept."""
-    depth, j = 0, at
+    depth, j, bodies = 0, at, []
     while j < len(text):
+        if (skipped := heredoc_skip(text, j, bodies)) != j:
+            j = skipped
+            continue
         if text.startswith("$(", j):
             depth += 1
             j += 2

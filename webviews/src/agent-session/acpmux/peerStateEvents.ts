@@ -3,18 +3,10 @@ import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
 import type { PeerLinkState } from "./protocol/generated/types";
 
 /// Every state acpmux sends (peer_link.rs `PeerState::as_str`). Notes carry the protocol's
-/// `PeerLinkState`; `_acpmux/peers` also says `restarting` during a restart and `idle` when the
-/// peer will dial on use. Keep both in the authoritative snapshot for the machine picker.
-type LinkState = PeerLinkState | "restarting" | "idle";
-const STATES = new Set<unknown>([
-  "connecting",
-  "connected",
-  "degraded",
-  "reconnecting",
-  "restarting",
-  "offline",
-  "idle",
-]);
+/// `PeerLinkState`; `_acpmux/peers` also says `restarting` while the peer's daemon restarts, and a
+/// snapshot that dropped that row would leave the picker no state, so it would read the peer as ready.
+type LinkState = PeerLinkState | "restarting";
+const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
 /// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `downReason`, `since`, `nextRetryAt`, `status`), what the pane
 /// draws (linkState.ts); `state` stays the older word every other reader compares.
 type Link = {

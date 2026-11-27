@@ -48,8 +48,8 @@ import Testing
 
     private func approve(_ wire: Wire) async throws {
         let approvals = CloudApprovalAnswer(call: { _, body in try await wire.answer(body) })
-        _ = try await approvals.approve(request: "apr_1", op: "cloud.machine.create",
-                                        params: JSONSerialization.data(withJSONObject: ["name": "dev"]), team: "team_a")
+        try await approvals.approve(request: "apr_1", op: "cloud.machine.create",
+                                    params: JSONSerialization.data(withJSONObject: ["name": "dev"]), team: "team_a")
     }
 
     @Test func theRequestAndTheOpenItemsAreReadTogether() async throws {

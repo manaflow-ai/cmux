@@ -53,6 +53,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
+        var outstandingBytes = 0
         var closed: AgentPaneTransportClose?
         var closeDelivered = false
         /// Told the queue's length after each enqueue (tests wait on it instead of a clock).
@@ -630,10 +631,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Nil when the frame was handed to the socket.
     func send(_ text: String) -> AgentPaneTransportError? {
         if let wire { return send(text, on: wire) }
+        let bytes = text.utf8.count
         let outcome = state.withLock { state -> Result<URLSessionWebSocketTask, AgentPaneTransportError> in
             guard state.closed == nil, let task = state.task, state.opened else { return .failure(.closed) }
-            guard state.outstanding < limits.maximumOutstandingSends else { return .failure(.outboundOverflow) }
+            guard state.outstanding < limits.maximumOutstandingSends,
+                  state.outstandingBytes + bytes <= limits.maximumOutstandingBytes else { return .failure(.outboundOverflow) }
             state.outstanding += 1
+            state.outstandingBytes += bytes
             return .success(task)
         }
         switch outcome {
@@ -641,31 +645,34 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         case .success(let task):
             task.send(.string(text)) { [weak self] error in
                 guard let self else { return }
-                self.state.withLock { $0.outstanding -= 1 }
+                self.state.withLock { state in
+                    state.outstanding -= 1
+                    state.outstandingBytes -= bytes
+                }
                 if error != nil { self.daemonClosed(code: 1006, reason: "") }
             }
             return nil
         }
     }
 
-    /// Tests: fills the outbound bound, so the next send is refused with
-    /// ``AgentPaneTransportError/outboundOverflow`` whatever sends are still in flight.
-    func fillOutboundForTests() {
-        state.withLock { $0.outstanding += limits.maximumOutstandingSends }
-    }
-
     /// The wire's send, under the same outstanding bounds as the WebSocket's.
     private func send(_ text: String, on wire: any AcpmuxPaneWire) -> AgentPaneTransportError? {
+        let bytes = text.utf8.count
         let refusal = state.withLock { state -> AgentPaneTransportError? in
             guard state.closed == nil, state.opened else { return .closed }
-            guard state.outstanding < limits.maximumOutstandingSends else { return .outboundOverflow }
+            guard state.outstanding < limits.maximumOutstandingSends,
+                  state.outstandingBytes + bytes <= limits.maximumOutstandingBytes else { return .outboundOverflow }
             state.outstanding += 1
+            state.outstandingBytes += bytes
             return nil
         }
         if let refusal { return refusal }
         wire.send(text) { [weak self] sent in
             guard let self else { return }
-            self.state.withLock { $0.outstanding -= 1 }
+            self.state.withLock { state in
+                state.outstanding -= 1
+                state.outstandingBytes -= bytes
+            }
             if !sent { self.daemonClosed(code: 1006, reason: "") }
         }
         return nil

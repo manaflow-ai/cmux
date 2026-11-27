@@ -82,8 +82,6 @@ import CmuxNextDesign
     private func reloadNotice() -> NSView {
         let text = PageInfoStyle.label(PageInfoStrings.reloadToApply, font: PageInfoStyle.captionFont,
                                        color: PageInfoStyle.secondaryText, wraps: true)
-        // retry-prompt-ok: reloading throws away what the page holds (typed text, scroll, a playing video); the person
-        // picks when (Chrome's Page Info reload infobar).
         let button = PageInfoRowView(symbol: "arrow.clockwise", title: PageInfoStrings.reload, identifier: "pageInfo.reload")
         button.onActivate = { send(.reload) }
         return stack([padded(text), button], spacing: 2)
@@ -156,12 +154,12 @@ import CmuxNextDesign
         return header
     }
 
-    /// The menu separator: a hairline in `Palette.separator` (clear under appearance.borders
-    /// none), 15 in from the bubble's edges, in a 9-point row, as every cmux menu draws it.
+    /// A one-point rule in `Palette.separator` (clear under
+    /// appearance.borders none); `NSBox.separator` ignores theme and switch.
     func separator() -> NSView {
-        let line = GlassMenuSeparatorView()
+        let line = HairlineView()
         line.translatesAutoresizingMaskIntoConstraints = false
-        line.heightAnchor.constraint(equalToConstant: MenuMetrics.separatorHeight).isActive = true
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return line
     }
 
@@ -169,17 +167,17 @@ import CmuxNextDesign
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(view)
+        let inset = PageInfoStyle.rowInset
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PageInfoStyle.textLeading),
-            view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PageInfoStyle.trailingInset),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PageInfoStyle.iconColumn + inset),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -inset),
             view.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
-            view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -PageInfoStyle.iconGap),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -inset),
         ])
         return container
     }
 
-    /// Rows touch, as a menu's do: the 28 rows and 9-point separators carry the rhythm.
-    func stack(_ views: [NSView], spacing: CGFloat = 0) -> NSStackView {
+    func stack(_ views: [NSView], spacing: CGFloat = 2) -> NSStackView {
         let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.alignment = .leading

@@ -119,21 +119,6 @@ impl Output {
 /// Runs one argv on this host and waits for it (the host agent's loop is synchronous).
 pub trait HostRunner {
     fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String>;
-
-    /// [`Self::run`] with these variables added to the child's environment, for a secret the
-    /// argv only names (`systemd-run --setenv=NAME`). A runner that cannot set them refuses
-    /// rather than run without them.
-    fn run_env(
-        &self,
-        argv: &[String],
-        stdin: &[u8],
-        env: &[(&str, &str)],
-    ) -> Result<Output, String> {
-        if env.is_empty() {
-            return self.run(argv, stdin);
-        }
-        Err("this host runner cannot hand a pod environment variables".to_owned())
-    }
 }
 
 /// [`HostRunner`] by `cmux_process`: each child is owned, and ends with its handle.
@@ -141,20 +126,10 @@ pub struct ProcessRunner;
 
 impl HostRunner for ProcessRunner {
     fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
-        self.run_env(argv, stdin, &[])
-    }
-
-    fn run_env(
-        &self,
-        argv: &[String],
-        stdin: &[u8],
-        env: &[(&str, &str)],
-    ) -> Result<Output, String> {
         use std::io::Write as _;
         let (program, args) = argv.split_first().ok_or("empty argv")?;
         let mut child = Command::new(program)
             .args(args)
-            .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -176,11 +151,6 @@ pub struct PodSlots<X> {
     init: (String, Vec<String>),
     /// Environment for the init (the pod's `HOME` is always set to its root).
     env: Vec<(String, String)>,
-    /// Variables the init takes from the caller's environment by name, so a value (a
-    /// model token) never sits in an argv that `ps` shows.
-    pass_env: Vec<String>,
-    /// Host paths every pod sees read-only at their own path.
-    binds: Vec<String>,
 }
 
 impl<X: HostRunner> PodSlots<X> {
@@ -190,23 +160,7 @@ impl<X: HostRunner> PodSlots<X> {
             pods_dir: pods_dir.into().trim_end_matches('/').to_owned(),
             init: ("sleep".to_owned(), vec!["infinity".to_owned()]),
             env: Vec::new(),
-            pass_env: Vec::new(),
-            binds: Vec::new(),
         }
-    }
-
-    /// Hand these variables of the caller's environment to each pod's init, by name
-    /// (`systemd-run --setenv=NAME`). One the caller does not have is left unset.
-    pub fn with_pass_env(mut self, names: Vec<String>) -> Self {
-        self.pass_env = names;
-        self
-    }
-
-    /// Show these host paths to every pod read-only, at their own path: a harness under a
-    /// home, which the system dirs leave out. A path the host lacks is skipped.
-    pub fn with_binds(mut self, paths: Vec<String>) -> Self {
-        self.binds = paths;
-        self
     }
 
     /// What each pod boots: for a guest, its own `acpmux` daemon.
@@ -231,12 +185,6 @@ impl<X: HostRunner> PodSlots<X> {
 
     /// The argv that boots a slot's init in its slice.
     pub fn boot_argv(&self, slot: &Slot) -> Vec<String> {
-        self.boot_argv_with(slot, &[])
-    }
-
-    /// [`Self::boot_argv`] that also hands the init these variables of the runner's own
-    /// environment by name: their values never sit in the argv.
-    pub fn boot_argv_with(&self, slot: &Slot, names: &[&str]) -> Vec<String> {
         let root = self.root(slot);
         let mut out = argv(&[
             "systemd-run",
@@ -251,21 +199,8 @@ impl<X: HostRunner> PodSlots<X> {
         for (key, value) in &self.env {
             out.push(format!("--setenv={key}={value}"));
         }
-        for name in &self.pass_env {
-            out.push(format!("--setenv={name}"));
-        }
-        for name in names {
-            out.push(format!("--setenv={name}"));
-        }
         out.push("--".to_owned());
-        out.extend(bwrap_argv(
-            &self.pods_dir,
-            &root,
-            &root,
-            &self.binds,
-            &self.init.0,
-            &self.init.1,
-        ));
+        out.extend(bwrap_argv(&self.pods_dir, &root, &root, &self.init.0, &self.init.1));
         out
     }
 
@@ -298,8 +233,7 @@ impl<X: HostRunner> PodSlots<X> {
         self.ok(&argv(&["systemctl", "--user", verb, unit]), &[])
     }
 
-    /// The slot's state, or `None` when this pods dir has no root for it. Liveness is the
-    /// holder's (a slice stays active after its init dies); the pause is the slice's freezer.
+    /// The slot's state, or `None` when this pods dir has no root for it.
     pub fn state(&self, slot: &Slot) -> Result<Option<SlotState>, String> {
         let out = self.ok(
             &argv(&[
@@ -307,17 +241,13 @@ impl<X: HostRunner> PodSlots<X> {
                 "--user",
                 "show",
                 "--property=ActiveState,FreezerState",
-                &slot.holder(),
                 &slot.slice(),
             ]),
             &[],
         )?;
         let text = out.text();
-        let mut blocks = text.split("\n\n");
-        let (holder, slice) = (blocks.next().unwrap_or(""), blocks.next().unwrap_or(""));
-        let prop = |block: &str, name: &str| {
-            block
-                .lines()
+        let prop = |name: &str| {
+            text.lines()
                 .find_map(|l| l.strip_prefix(name).and_then(|v| v.strip_prefix('=')))
                 .unwrap_or("")
                 .to_owned()
@@ -326,8 +256,8 @@ impl<X: HostRunner> PodSlots<X> {
         if !exists {
             return Ok(None);
         }
-        if prop(holder, "ActiveState") == "active" {
-            return Ok(Some(if prop(slice, "FreezerState").starts_with("frozen") {
+        if prop("ActiveState") == "active" {
+            return Ok(Some(if prop("FreezerState").starts_with("frozen") {
                 SlotState::Paused
             } else {
                 SlotState::Running
@@ -346,56 +276,14 @@ impl<X: HostRunner> PodSlots<X> {
     }
 
     fn boot(&self, slot: &Slot, size: SlotSize) -> Result<SlotState, String> {
-        self.boot_with(slot, size, &[])
-    }
-
-    /// Boot with `env` set in the init's environment only, by name: the values go to the
-    /// runner's child (`systemd-run`), never into an argv.
-    fn boot_with(
-        &self,
-        slot: &Slot,
-        size: SlotSize,
-        env: &[(&str, &str)],
-    ) -> Result<SlotState, String> {
-        let names: Vec<&str> = env.iter().map(|(k, _)| *k).collect();
-        let argv = self.boot_argv_with(slot, &names);
-        let out = self.runner.run_env(&argv, &[], env)?;
-        if out.code != 0 {
-            return Err(format!(
-                "systemd-run exited {}: {}",
-                out.code,
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
+        self.ok(&self.boot_argv(slot), &[])?;
         self.ok(&Self::size_argv(slot, size), &[])?;
         Ok(SlotState::Running)
     }
 
-    /// Make and boot the slot's pod; an existing slot is left as it is. A root that no
-    /// `create` made (no meta beside it) is refused: booting into it would hand a pod files it
-    /// never owned, and leaving it would read `Stopped` with nothing said.
+    /// Make and boot the slot's pod; an existing slot is left as it is.
     pub fn create(&self, slot: &Slot, size: SlotSize) -> Result<SlotState, String> {
-        self.create_with_env(slot, size, &[])
-    }
-
-    /// [`Self::create`] whose first boot also hands the init `env` (a one-time join token),
-    /// by name, so no value shows in an argv. A slot that exists already is left as it is
-    /// and `env` is not used; a later boot (`resume` after a disk pause) does not have it.
-    pub fn create_with_env(
-        &self,
-        slot: &Slot,
-        size: SlotSize,
-        env: &[(&str, &str)],
-    ) -> Result<SlotState, String> {
         if let Some(state) = self.state(slot)? {
-            let made = self.runner.run(&argv(&["cat", "--", &self.meta(slot)]), &[])?.code == 0;
-            if !made {
-                return Err(format!(
-                    "pod root {} already exists but no create made it ({} is missing): remove it or pick another slot",
-                    self.root(slot),
-                    self.meta(slot)
-                ));
-            }
             return Ok(state);
         }
         let meta = serde_json::to_vec(&size).map_err(|e| e.to_string())?;
@@ -403,17 +291,14 @@ impl<X: HostRunner> PodSlots<X> {
             &argv(&[
                 "sh",
                 "-c",
-                // The root is the pod's HOME. It and the pods dir are owner-only, or the pod's
-                // acpmux refuses a writable ancestor of its state dir.
-                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" \\
-                 && chmod 0700 -- \"$(dirname -- \"$1\")\" \"$1\" && cat > \"$2\"",
+                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && cat > \"$2\"",
                 "sh",
                 &self.root(slot),
                 &self.meta(slot),
             ]),
             &meta,
         )?;
-        self.boot_with(slot, size, env)
+        self.boot(slot, size)
     }
 
     pub fn pause(&self, slot: &Slot, mode: PauseMode) -> Result<SlotState, String> {
@@ -508,24 +393,19 @@ mod tests {
                     self.slices.borrow_mut().insert(slice.to_owned(), false);
                     ok(String::new())
                 }
-                ["systemctl", "--user", "show", _, _holder, unit] => {
-                    let block = match self.slices.borrow().get(*unit) {
-                        Some(true) => "ActiveState=active\nFreezerState=frozen\n",
-                        Some(false) => "ActiveState=active\nFreezerState=running\n",
-                        None => "ActiveState=inactive\nFreezerState=running\n",
-                    };
-                    ok(format!("{block}\n{block}"))
+                ["systemctl", "--user", "show", _, unit] => {
+                    ok(match self.slices.borrow().get(*unit) {
+                        Some(true) => "ActiveState=active\nFreezerState=frozen\n".into(),
+                        Some(false) => "ActiveState=active\nFreezerState=running\n".into(),
+                        None => "ActiveState=inactive\nFreezerState=running\n".into(),
+                    })
                 }
                 ["systemctl", "--user", "freeze", unit] => {
-                    if let Some(f) = self.slices.borrow_mut().get_mut(*unit) {
-                        *f = true;
-                    }
+                    self.slices.borrow_mut().get_mut(*unit).map(|f| *f = true);
                     ok(String::new())
                 }
                 ["systemctl", "--user", "thaw", unit] => {
-                    if let Some(f) = self.slices.borrow_mut().get_mut(*unit) {
-                        *f = false;
-                    }
+                    self.slices.borrow_mut().get_mut(*unit).map(|f| *f = false);
                     ok(String::new())
                 }
                 ["systemctl", "--user", "stop", unit] => {
@@ -583,95 +463,16 @@ mod tests {
         assert_eq!(Slot::from_unit("user.slice"), None);
     }
 
-    /// The real shell and filesystem; systemd's calls answer as an empty user manager.
-    struct RealFs;
-
-    impl HostRunner for RealFs {
-        fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
-            match argv.first().map(String::as_str) {
-                Some("systemd-run" | "systemctl") => Ok(Output::default()),
-                _ => ProcessRunner.run(argv, stdin),
-            }
-        }
-    }
-
-    #[test]
-    fn a_dead_init_reads_stopped_though_its_slice_stays_active() {
-        // systemd keeps a slice active after its holder exits; `ls` must not say Running.
-        struct DeadInit;
-        impl HostRunner for DeadInit {
-            fn run(&self, argv: &[String], _stdin: &[u8]) -> Result<Output, String> {
-                let stdout = match argv.first().map(String::as_str) {
-                    Some("systemctl") => {
-                        "ActiveState=failed\nFreezerState=running\n\nActiveState=active\nFreezerState=running\n"
-                    }
-                    _ => "",
-                };
-                Ok(Output { code: 0, stdout: stdout.into(), stderr: Vec::new() })
-            }
-        }
-        let pods = PodSlots::new(DeadInit, "/srv/pods");
-        let slot = Slot::parse("a").unwrap();
-        assert_eq!(pods.state(&slot).unwrap(), Some(SlotState::Stopped));
-    }
-
-    #[test]
-    fn a_root_no_create_made_is_refused_with_the_reason() {
-        // Seen live: a root left from before read `Stopped`, and the pod never booted.
-        let host = FakeHost::default();
-        host.dirs.borrow_mut().insert("/srv/pods/a".into());
-        let pods = PodSlots::new(&host, "/srv/pods");
-        let err = pods.create(&slot("a"), SlotSize::default()).unwrap_err();
-        assert!(err.contains("/srv/pods/a already exists but no create made it"), "{err}");
-        assert!(!host.calls.borrow().iter().any(|c| c[0] == "systemd-run"));
-        // Once create made it, a second create is a no-op that reads its state.
-        host.dirs.borrow_mut().clear();
-        assert_eq!(pods.create(&slot("a"), SlotSize::default()).unwrap(), SlotState::Running);
-        assert_eq!(pods.create(&slot("a"), SlotSize::default()).unwrap(), SlotState::Running);
-    }
-
-    #[test]
-    fn a_host_bind_is_read_only_at_its_own_path_in_every_pod() {
-        // A native harness under a home (`~/.local/share/claude`) is outside the system dirs.
-        let host = FakeHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods")
-            .with_binds(vec!["/home/u/.local/share/claude".into()]);
-        let boot = pods.boot_argv(&slot("a")).join(" ");
-        assert!(
-            boot.contains("--ro-bind-try /home/u/.local/share/claude /home/u/.local/share/claude"),
-            "{boot}"
-        );
-        assert!(!boot.contains("--bind /home/u"), "{boot}");
-    }
-
-    #[test]
-    fn create_makes_the_root_and_pods_dir_owner_only_whatever_the_umask() {
-        use std::os::unix::fs::PermissionsExt as _;
-        // Without the chmod, mkdir gives the host's umask (002 on our VMs: drwxrwxr-x),
-        // and the pod's acpmux refuses a writable ancestor of its state dir.
-        let dir = std::env::temp_dir().join(format!("cmux-pool-pod-mode-{}", std::process::id()));
-        let pods = PodSlots::new(RealFs, dir.to_str().unwrap());
-        let size = SlotSize { vcpus: 1, memory_mib: 256 };
-        assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
-        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        let (root, pods_dir) = (mode(&dir.join("a")), mode(&dir));
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!((root, pods_dir), (0o700, 0o700), "{root:o} {pods_dir:o}");
-    }
-
     #[test]
     fn create_boots_the_init_in_bwrap_with_home_at_the_root() {
         let host = FakeHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods/")
-            .with_init(
-                "acpmux",
-                vec!["daemon".into()],
-                vec![("ACPMUX_HUB".into(), "https://hub".into())],
-            )
-            .with_pass_env(vec!["ANTHROPIC_AUTH_TOKEN".into()]);
+        let pods = PodSlots::new(&host, "/srv/pods/").with_init(
+            "acpmux",
+            vec!["daemon".into()],
+            vec![("ACPMUX_HUB".into(), "https://hub".into())],
+        );
         let boot = pods.boot_argv(&slot("a")).join(" ");
-        // A passed variable goes by name only: its value never reaches the argv.
-        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub --setenv=ANTHROPIC_AUTH_TOKEN -- bwrap "), "{boot}");
+        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub -- bwrap "), "{boot}");
         assert!(boot.ends_with("--tmpfs /srv/pods --bind /srv/pods/a /srv/pods/a --setenv CMUX_POD_ROOT /srv/pods/a --chdir /srv/pods/a -- acpmux daemon"), "{boot}");
         let size = SlotSize { vcpus: 3, memory_mib: 2048 };
         assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
@@ -681,75 +482,6 @@ mod tests {
             host.files.borrow()["/srv/pods/.meta/a.json"],
             br#"{"vcpus":3,"memoryMib":2048}"#
         );
-    }
-
-    #[test]
-    fn a_create_env_goes_to_the_runner_by_name_and_never_into_the_argv() {
-        /// Records the env each call was given; the rest as [`FakeHost`].
-        #[derive(Default)]
-        struct EnvHost {
-            host: FakeHost,
-            env: RefCell<Vec<(String, Vec<(String, String)>)>>,
-        }
-        impl HostRunner for &EnvHost {
-            fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
-                (&self.host).run(argv, stdin)
-            }
-            fn run_env(
-                &self,
-                argv: &[String],
-                stdin: &[u8],
-                env: &[(&str, &str)],
-            ) -> Result<Output, String> {
-                let pairs = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-                self.env.borrow_mut().push((argv[0].clone(), pairs));
-                (&self.host).run(argv, stdin)
-            }
-        }
-        let host = EnvHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods");
-        let size = SlotSize { vcpus: 1, memory_mib: 256 };
-        let env = [("CMUX_JOIN_TOKEN", "cmj_secret"), ("CMUX_JOIN_HUB", "https://hub")];
-        assert_eq!(pods.create_with_env(&slot("a"), size, &env).unwrap(), SlotState::Running);
-        let calls = host.host.calls.borrow();
-        let boot = calls.iter().find(|c| c[0] == "systemd-run").unwrap().join(" ");
-        assert!(
-            boot.contains("--setenv=CMUX_JOIN_TOKEN --setenv=CMUX_JOIN_HUB -- bwrap"),
-            "{boot}"
-        );
-        assert!(calls.iter().all(|c| !c.join(" ").contains("cmj_secret")));
-        let sent = host.env.borrow();
-        assert_eq!(sent.len(), 1, "only the boot gets the env");
-        assert_eq!(sent[0].0, "systemd-run");
-        assert_eq!(sent[0].1[0], ("CMUX_JOIN_TOKEN".to_owned(), "cmj_secret".to_owned()));
-        drop((calls, sent));
-        // An existing slot is left as it is: no second boot, so the env is not handed again.
-        assert_eq!(pods.create_with_env(&slot("a"), size, &env).unwrap(), SlotState::Running);
-        assert_eq!(host.env.borrow().len(), 1);
-    }
-
-    #[test]
-    fn a_runner_that_cannot_set_env_refuses_rather_than_boot_without_it() {
-        let host = FakeHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods");
-        let size = SlotSize { vcpus: 1, memory_mib: 256 };
-        let err = pods.create_with_env(&slot("a"), size, &[("X", "y")]).unwrap_err();
-        assert!(err.contains("cannot hand a pod environment"), "{err}");
-        // With no env the same runner boots as before.
-        assert_eq!(pods.create(&slot("b"), size).unwrap(), SlotState::Running);
-    }
-
-    #[test]
-    fn the_process_runner_sets_the_env_on_its_child_only() {
-        let out = ProcessRunner
-            .run_env(
-                &argv(&["sh", "-c", "printf %s \"$CMUX_TEST_POD_ENV\""]),
-                &[],
-                &[("CMUX_TEST_POD_ENV", "v1")],
-            )
-            .unwrap();
-        assert_eq!(out.stdout, b"v1");
-        assert!(std::env::var_os("CMUX_TEST_POD_ENV").is_none());
     }
 
     #[test]

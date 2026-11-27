@@ -235,39 +235,6 @@ pub struct HeartbeatReply {
     pub ttl_seconds: u64,
 }
 
-/// A joined machine's free capacity (cmux-platform `POST /v1/machines/joined/heartbeat`, RFD 0004
-/// step 3): what its team's placement reads to pick it for a session. The hub keys it by the
-/// machine id of the credential that sent it, whatever `host_id` says, and drops it two minutes
-/// after the last one.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Capacity {
-    pub host_id: String,
-    pub region: String,
-    pub capabilities: CapacityLimits,
-    pub free_vcpu: f64,
-    pub free_mem_gib: f64,
-    pub free_disk_gib: f64,
-    pub sessions_running: u64,
-    pub load: f64,
-    pub state: String,
-}
-
-/// What a [`Capacity`] machine is and the most one session there can have.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CapacityLimits {
-    pub memory_pause: bool,
-    pub fork: bool,
-    pub gpu: bool,
-    /// `arm64` or `x86_64`.
-    pub arch: String,
-    /// `linux` or `macos`.
-    pub os: String,
-    pub max_vcpu: f64,
-    #[serde(rename = "maxMemGiB")]
-    pub max_mem_gib: f64,
-}
-
 /// Whom a message is for: a session id, or a name (with `host` when several hosts have it); a
 /// daemon (`daemonId`, or `host` alone) for a control message. The hub fills what it resolved.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -693,11 +660,6 @@ pub trait MeshHub: Send + Sync {
         _wait: Duration,
     ) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.receipt(message_id)
-    }
-    /// Report this joined machine's free capacity to its team's placement. A hub that takes no
-    /// report refuses it.
-    fn capacity<'a>(&'a self, _report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
-        Box::pin(async { Err(HubError::refused("this hub takes no capacity report")) })
     }
 }
 

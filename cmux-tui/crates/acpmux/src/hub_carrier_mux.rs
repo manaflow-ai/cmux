@@ -199,11 +199,6 @@ impl Mux {
         self.streams.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
-    /// How long since a record of any kind came in on this circuit.
-    pub(crate) fn heard_age(&self) -> Duration {
-        self.heard().elapsed()
-    }
-
     /// Whether the circuit ended under its dialer, not by the dialer's choice: the carrier opens
     /// it again rather than leave the next dial a whole new handshake.
     pub(crate) fn wants_reopen(&self) -> bool {
@@ -438,9 +433,6 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
-            Ok(CircuitService::Echo) => {
-                self.carry_admitted(id, super::echo_stream(), events, credit).await
-            }
             Ok(CircuitService::LaneGhBroker) => {
                 match broker::open(incoming.carrier.lane_gh_broker_gate(), from).await {
                     Ok(local) => self.carry_admitted(id, local, events, credit).await,
@@ -830,20 +822,6 @@ impl KeptCircuits {
             .get(&(daemon.to_owned(), lane))
             .cloned()?;
         slot.try_lock().ok()?.live.clone().filter(|mux| !mux.is_closed())
-    }
-
-    /// Every live kept circuit with the path it runs on and how long it has carried no stream:
-    /// what [`super::saved`] writes down so a restart of this daemon opens them again.
-    pub(crate) fn kept_now(&self) -> Vec<(String, Lane, super::Path, Duration)> {
-        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
-        by_machine
-            .iter()
-            .filter_map(|((daemon, lane), slot)| {
-                let kept = slot.try_lock().ok()?;
-                let mux = kept.live.as_ref().filter(|mux| !mux.is_closed())?;
-                Some((daemon.clone(), *lane, kept.path?, mux.quiet_for()))
-            })
-            .collect()
     }
 
     /// The live kept circuits to `daemon` open now, cheap first.

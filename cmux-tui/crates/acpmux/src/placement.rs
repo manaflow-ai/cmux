@@ -678,9 +678,6 @@ struct Weighed {
     why: String,
     /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
     ram_free: Option<f64>,
-    /// Its AutoCloud enrollment block from the reading (`autocloud_enroll.rs`), as it said it;
-    /// null from a machine on an older build: `place_mode`'s enrolled tier.
-    auto_cloud: Value,
 }
 
 impl Weighed {
@@ -735,7 +732,6 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         cap: CapState::Unknown,
         why: String::new(),
         ram_free: None,
-        auto_cloud: h.get("autoCloud").cloned().unwrap_or(Value::Null),
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -953,8 +949,6 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "why": w.why,
             // Free RAM in bytes (null without a reading): place_mode's chip.
             "ramFree": w.ram_free,
-            // Its AutoCloud enrollment (null: an older build, not enrolled): `place_mode`.
-            "autoCloud": w.auto_cloud,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

@@ -145,8 +145,6 @@ struct SessionInfoScreen: View {
                 } message: {
                     Text("\(store.summary.agentName) asks again before each change in this chat.")
                 }
-            // retry-prompt-ok: re-sends a permission answer (a signed approval); the error after it
-            // can be a refusal, not a lost reply, so the person decides to send it again (the Mac's command).
             Button("Check and Retry Permission", systemImage: "arrow.clockwise") {
                 store.checkAndRetryPermission()
                 Task { await reloadPermissions() }
@@ -346,7 +344,6 @@ struct EventInspectorDetail: View {
 struct ReplayConversationScreen: View {
     let store: AgentChatStore
     @State private var player = ChatReplayPlayer()
-    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -363,24 +360,13 @@ struct ReplayConversationScreen: View {
                     CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
                         .placeholderBound("chat.history.loading", .milliseconds(2000))
                 }
-            case .unavailable(let message):
+            case .failed(let message):
                 ContentUnavailableView {
                     Label("Couldn't load this chat's history.", systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
-                }
-            case .failed(let message):
-                // Read again on its own (AutoRetry): the spinner stays, then one quiet line.
-                if autoRetry.isQuietLineShown {
-                    ContentUnavailableView {
-                        Label("Couldn't load this chat's history.", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        AutoRetryQuietLine(autoRetry)
-                    }
-                } else {
-                    CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } actions: {
+                    Button("Try Again") { Task { await player.load(store) } }
                 }
             case .empty:
                 ContentUnavailableView("Nothing to replay yet.", systemImage: "arrow.counterclockwise")
@@ -403,7 +389,6 @@ struct ReplayConversationScreen: View {
         .navigationTitle("Replay")
         .navigationBarTitleDisplayMode(.inline)
         .task { await player.load(store) }
-        .autoRetry(autoRetry, failing: player.state.isFailed) { await player.load(store) }
         .onDisappear { player.pause() }
     }
 }
@@ -412,16 +397,7 @@ struct ReplayConversationScreen: View {
 @MainActor
 @Observable
 final class ChatReplayPlayer {
-    /// `failed`: a transient failure (the link dropped), read again on its own;
-    /// `unavailable`: the chat has no recording (or the Mac said no), said once.
-    enum State: Equatable {
-        case loading, failed(String), unavailable(String), empty, ready
-
-        var isFailed: Bool {
-            if case .failed = self { return true }
-            return false
-        }
-    }
+    enum State: Equatable { case loading, failed(String), empty, ready }
 
     static let speeds: [Double] = [0.5, 1, 2, 4, 8, 16]
 
@@ -475,15 +451,12 @@ final class ChatReplayPlayer {
         if let shown {
             apply(shown)
             play()
-        } else if state != .ready, !state.isFailed { // a retry keeps the failed view (no flash)
+        } else if state != .ready {
             state = .loading
         }
         let read: AgentReplayRecording
         do {
             read = try await chat.source.replayRecording()
-        } catch let error as AgentFeatureUnavailable where !chat.source.isOffline {
-            state = .unavailable(error.message)
-            return
         } catch {
             // The kept recording stays on screen; only a replay with none says it failed.
             if state != .ready { state = .failed(SessionInfoScreen.message(error)) }

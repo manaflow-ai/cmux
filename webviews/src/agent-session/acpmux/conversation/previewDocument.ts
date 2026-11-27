@@ -45,15 +45,13 @@ export function previewPolicy(nonce: string | undefined): string {
 }
 
 /// The frame's own script, the first to run in it: it reports the document's height to the parent
-/// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame;
-/// a height equal to the last one sent is not sent again: a pane drag changes the document's width,
-/// firing the observer every frame, while its height moves only when the text rewraps),
+/// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame),
 /// and keeps the frame on its document: every link click is refused, and a `#fragment` scrolls to its
 /// target here (in srcdoc a `#x` resolves against the parent page, so following it would leave). With
 /// `inertDocument` that leaves no way for markup without script to navigate the frame; a frame that
 /// leaves its document anyway is torn down by the parent (InlinePreview.tsx counts its loads), since
 /// the policy is the document's and a page the frame navigated to would run without it.
-const REPORTER = `(()=>{let last=-1;const post=()=>{const height=Math.ceil(document.documentElement.scrollHeight);if(height===last)return;last=height;parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height},"*");};new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(!link)return;event.preventDefault();const href=link.getAttribute("href")||"";if(href.length>1&&href.startsWith("#")){const id=decodeURIComponent(href.slice(1));(document.getElementById(id)||document.getElementsByName(id)[0])?.scrollIntoView();}},true);})();`;
+const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(!link)return;event.preventDefault();const href=link.getAttribute("href")||"";if(href.length>1&&href.startsWith("#")){const id=decodeURIComponent(href.slice(1));(document.getElementById(id)||document.getElementsByName(id)[0])?.scrollIntoView();}},true);})();`;
 
 /// A link attribute and its value; the character before it keeps it an attribute boundary (text that
 /// merely reads `href=` is renamed too, which only changes what the preview shows).

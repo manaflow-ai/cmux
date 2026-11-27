@@ -212,40 +212,14 @@ pub fn web_engine(bundle_id: Option<&str>) -> WebEngine {
     if chromium { WebEngine::Chromium } else { WebEngine::Other }
 }
 
-/// Apps that draw Chromium pages inside their own windows and build those
-/// pages' accessibility trees only while a client asks, by bundle id: an
-/// exact id, or a prefix ending in `.` (any case). cmux draws its agent
-/// chats in Chromium (CEF): until `AXManualAccessibility` or
-/// `AXEnhancedUserInterface` is set on its application element
-/// (`CmuxApplication`, `CEFAccessibility` in the app), a chat page shows
-/// nothing to accessibility, so get_ui_tree saw no message or composer.
-pub const CHROMIUM_EMBEDDERS: &[&str] = &["com.cmuxterm.app", "com.cmuxterm.app."];
-
-/// Whether the app with `bundle_id` embeds Chromium pages ([`CHROMIUM_EMBEDDERS`]).
-pub fn embeds_chromium(bundle_id: Option<&str>) -> bool {
-    bundle_id.is_some_and(|id| {
-        let id = id.to_ascii_lowercase();
-        CHROMIUM_EMBEDDERS.iter().any(|p| {
-            let p = p.to_ascii_lowercase();
-            if p.ends_with('.') { id.starts_with(&p) } else { id == p }
-        })
-    })
-}
-
 /// The app attribute that makes an app show its web content to
-/// accessibility, if it needs one. A Chromium browser builds its pages'
-/// accessibility trees only for an assistive client that sets
-/// `AXEnhancedUserInterface` (Chrome 157 on macOS 26.6 and 27.0.1: no page
-/// elements without it, the page within 2 s with it; it refuses
-/// `AXManualAccessibility`). An app that embeds Chromium
-/// ([`embeds_chromium`]: cmux) takes `AXManualAccessibility`, the automation
-/// driver's attribute, which leaves the app's own behavior for screen readers
-/// alone. WebKit shows its pages to any client.
-pub fn web_accessibility_attribute(bundle_id: Option<&str>) -> Option<&'static str> {
-    if embeds_chromium(bundle_id) {
-        return Some("AXManualAccessibility");
-    }
-    match web_engine(bundle_id) {
+/// accessibility, if it needs one: Chromium builds its pages' accessibility
+/// trees only for an assistive client that sets `AXEnhancedUserInterface`
+/// (Chrome 157 on macOS 26.6 and 27.0.1: no page elements without it, the
+/// page within 2 s with it; it refuses `AXManualAccessibility`). WebKit
+/// shows its pages to any client.
+pub fn web_accessibility_attribute(engine: WebEngine) -> Option<&'static str> {
+    match engine {
         WebEngine::Chromium => Some("AXEnhancedUserInterface"),
         WebEngine::Other => None,
     }

@@ -23,9 +23,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
-    /// A failed refresh is retried on its own (reconnect, then read again): no Retry. Its row
-    /// shows only past the quiet bound, and Dismiss stops the retries.
-    @State private var autoRetry = AutoRetry()
     /// Bounces the caught-up seal each time that state appears.
     @State private var caughtUpBounce = 0
     @Environment(AppStore.self) private var appStore
@@ -59,7 +56,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     )
                     .ignoresSafeArea(.container, edges: .vertical)
                 }
-            .autoRetry(autoRetry, failing: store.refreshError != nil) { await store.retry(reconnect: reconnect) }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .overlay(alignment: .top) { newPill }
             .background(Color.cmuxMobileBackground)
@@ -159,15 +155,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(autoRetry.isQuietLineShown)", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
     }
 
     /// The filter chips, a refresh error and an empty or connecting state, above the events.
     private var header: some View {
         VStack(spacing: 0) {
             chips
-            // Retried on its own (`autoRetry`): a short failure shows nothing.
-            if let refreshError = store.refreshError, autoRetry.isQuietLineShown {
+            if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
             switch FeedEmptyBody.resolve(isEmpty: store.visibleItems.isEmpty, sync: store.syncState,
@@ -231,11 +226,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     private func refreshErrorRow(_ message: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message).font(.footnote).foregroundStyle(.secondary)
-                AutoRetryQuietLine(autoRetry)
-            }
+            Text(message).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 8)
+            RetryButton { await store.retry(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.retry")
             Button {
                 store.clearRefreshError()
             } label: {
@@ -247,7 +241,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("feed.refreshError")
     }
 
     @ViewBuilder

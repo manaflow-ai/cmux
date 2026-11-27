@@ -1032,7 +1032,6 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         targets: &["machine"],
         cli_name: "cloud set-idle-pause",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1069,7 +1068,6 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1084,7 +1082,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "cloud diagnostics",
         main_menu: Some("help"),
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1113,7 +1110,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedOut"],
         cli_name: "cloud sign-in",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1127,7 +1123,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedIn"],
         cli_name: "cloud sign-out",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

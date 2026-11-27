@@ -8,7 +8,8 @@ import Observation
 
 /// The page of a `MachineBrowserRecord` tab while the machine's browser is
 /// not ready (cx-2cob slice 1): why, the address the person typed (it
-/// waits) and Open Locally Instead (slice 1a); no Retry: it checks again by itself while shown (``AutoRetry``).
+/// waits), Open Locally Instead (this Mac's tab at that address, slice 1a)
+/// and Retry. A native view, no engine, like `RemoteViewPageTab`.
 @MainActor
 @Observable
 final class MachineBrowserPageTab: BrowserTab {
@@ -25,13 +26,12 @@ final class MachineBrowserPageTab: BrowserTab {
     @ObservationIgnored private let view: MachineBrowserStateView
     @ObservationIgnored private let currentState: @MainActor () -> MachineBrowserState
     @ObservationIgnored private let openLocallyHandler: @MainActor (URL?) -> Void
-    /// Starts the machine's browser (each check, and once at creation); unset: a check only rereads the state.
+    /// Starts the machine's browser (Retry, and once at creation); unset: Retry only rereads the state.
     @ObservationIgnored var onStart: (@MainActor () -> Void)?
     /// A start in progress or its failure, over the machine's state.
     @ObservationIgnored var phase: MachineBrowserState? {
-        didSet { settle() }
+        didSet { view.show(phase ?? currentState(), queued: queuedURL) }
     }
-    @ObservationIgnored private let retry = AutoRetry(owner: "machineBrowserPage")
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
@@ -54,8 +54,8 @@ final class MachineBrowserPageTab: BrowserTab {
         self.state = tabState
         view = MachineBrowserStateView()
         view.onOpenLocally = { [weak self] in self?.openLocally() }
-        retry.setAttempt { [weak self] in self?.reload() }
-        settle()
+        view.onRetry = { [weak self] in self?.reload() }
+        view.show(state(), queued: record.initialURL)
     }
 
     private var isStarting: Bool {
@@ -71,28 +71,16 @@ final class MachineBrowserPageTab: BrowserTab {
         guard !MachineBrowserRecord.matches(url) else { return reload() }
         queuedURL = url
         state.url = url
-        draw()
+        view.show(phase ?? currentState(), queued: url)
     }
 
-    /// Reload and each automatic check: checks the machine again and starts its browser when it can.
+    /// Retry: checks the machine again and starts its browser when it can.
     func reload() {
-        if let onStart, !isStarting { onStart() } else { settle() }
-    }
-    /// Shows the state and arms the next check while not ready and shown (``retry``).
-    private func settle() {
-        switch phase ?? currentState() {
-        case .ready: retry.succeeded()
-        case .starting: break
-        case .unavailable: retry.stop() // for good
-        case .notConnected, .notInstalled, .tooOld, .failed: retry.failed()
+        if let onStart, !isStarting {
+            onStart()
+        } else {
+            view.show(phase ?? currentState(), queued: queuedURL)
         }
-        draw()
-    }
-    /// A failed start reads as starting until the quiet bound.
-    private func draw() {
-        let shown = phase ?? currentState()
-        if case let .failed(name, _) = shown, !retry.showsNotice { return view.show(.starting(name), queued: queuedURL) }
-        view.show(shown, queued: queuedURL)
     }
     func goBack() {}
     func goForward() {}
@@ -105,8 +93,7 @@ final class MachineBrowserPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
-        if visible { draw() }
-        retry.setInSight(visible)
+        if visible { view.show(phase ?? currentState(), queued: queuedURL) }
     }
 
     func snapshot() async throws -> CGImage {
@@ -122,15 +109,17 @@ final class MachineBrowserPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() { retry.stop() }
+    func close() {}
 }
 
-/// The not-ready message, the waiting address and Open Locally Instead.
+/// The not-ready message, the waiting address and the two buttons.
 final class MachineBrowserStateView: NSView {
     private let message = ThemedLabel(wrappingLabelWithString: "")
     private let queued = ThemedLabel(wrappingLabelWithString: "")
     let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
+    private let retryButton = ThemedBezelButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
+    var onRetry: (() -> Void)?
     /// The message shown (tests, debug).
     var messageText: String { message.stringValue }
 
@@ -147,7 +136,12 @@ final class MachineBrowserStateView: NSView {
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
         openLocallyButton.keyHint = .return
-        let stack = NSStackView(views: [message, queued, openLocallyButton])
+        retryButton.target = self
+        retryButton.action = #selector(retryPressed)
+        let buttons = NSStackView(views: [retryButton, openLocallyButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        let stack = NSStackView(views: [message, queued, buttons])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 12
@@ -171,6 +165,7 @@ final class MachineBrowserStateView: NSView {
     }
 
     @objc private func openLocallyPressed() { onOpenLocally?() }
+    @objc private func retryPressed() { onRetry?() }
 }
 
 /// Strings of machine browser tabs (Resources/Remote.xcstrings).
@@ -193,7 +188,7 @@ nonisolated enum MachineBrowserStrings {
     }
     static func tooOld(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.tooOld",
-                              defaultValue: "cmux on %@ is too old for browser tabs. Once it is updated there, this tab opens.",
+                              defaultValue: "cmux on %@ is too old for browser tabs. Update it, then try again.",
                               table: "Remote", bundle: .module.inAppLanguage), machine)
     }
     static func starting(_ machine: String) -> String {
@@ -218,5 +213,8 @@ nonisolated enum MachineBrowserStrings {
     /// The This Mac chip's menu item.
     static func openOn(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.openOn", defaultValue: "Open on %@", table: "Remote", bundle: .module.inAppLanguage), machine)
+    }
+    static var retry: String {
+        String(localized: "remote.machineBrowser.retry", defaultValue: "Retry", table: "Remote", bundle: .module.inAppLanguage)
     }
 }

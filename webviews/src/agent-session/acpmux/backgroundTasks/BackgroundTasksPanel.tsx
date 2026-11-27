@@ -761,7 +761,6 @@ function StopSlot({
   if (!target && state !== "idle") setState("idle");
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
-  // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">

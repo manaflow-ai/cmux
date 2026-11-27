@@ -299,9 +299,6 @@ struct State {
     sheds: bool,
     /// Who reads it, for the log: origin, client name, connection id.
     who: String,
-    /// The bulk lane's bytes the transport's channel may hold: [`BULK_WINDOW`], or a peer
-    /// link's own ([`Outbound::set_window`]).
-    window: usize,
 }
 
 impl Drop for State {
@@ -661,16 +658,6 @@ impl Outbound {
         state.sheds = sheds;
     }
 
-    /// Bounds the bulk lane's bytes in the transport's channel at `bytes` (at least one line)
-    /// instead of [`BULK_WINDOW`]: a peer link's send window (`ACPMUX_PEER_SEND_WINDOW_KB`, off
-    /// by default, `requests/initialize.rs`). Lines past it wait here, where a read's answer goes
-    /// ahead of them and a newer row of a watched chat replaces its queued one ([`Row`]),
-    /// instead of in the transport's buffers on a lossy link, where nothing passes them.
-    pub(super) fn set_window(&self, bytes: usize) {
-        self.shared.lock().window = bytes.max(1);
-        self.shared.wake.notify_one();
-    }
-
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -750,13 +737,11 @@ impl Drop for Pump {
 }
 
 impl Pump {
-    /// Takes the read lane's lines, then the bulk lane's that fit its window ([`BULK_WINDOW`]
-    /// unless [`Outbound::set_window`] set one, [module docs](self)), into `batch`, waiting until
-    /// there is one; false once there is nothing more to send (every handle is gone and both
-    /// lanes are empty, or it overran).
+    /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
+    /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
+    /// to send (every handle is gone and both lanes are empty, or it overran).
     pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
-        let window = self.shared.lock().window;
-        self.take_within(batch, window).await
+        self.take_within(batch, BULK_WINDOW).await
     }
 
     pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
@@ -950,7 +935,6 @@ fn start_with(
             ended: false,
             sheds: false,
             who: String::new(),
-            window: BULK_WINDOW,
         }),
         wake: Notify::new(),
         closed,

@@ -107,7 +107,6 @@ test("a folded usage section stays present without ranking until it opens", () =
 const imessageView = (status: IMessageView["data"]["status"] = "not_connected"): IMessageView => ({
   data: { ...IMESSAGE_INITIAL, status },
   busy: false,
-  stillTrying: false,
   expanded: false,
   toggle: () => {},
   perform: async () => {},

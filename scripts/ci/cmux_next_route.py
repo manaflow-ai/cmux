@@ -181,7 +181,6 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
-    "cmux-tui/crates/cmux-acpmux-remote-wire/",
     "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
@@ -193,9 +192,6 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
-    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
-    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
-    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -329,6 +325,8 @@ BUNDLE_INPUTS = (
     "schemas/type-scale/scene-type.json",
     # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    # The peek pin the composer status imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -409,6 +407,8 @@ NATIVE_SCRIPT_INPUTS = (
     # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
     # ensure-cef.sh wraps its CEF download in.
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
+    # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
+    "scripts/ci/lan_cache_fetch.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")

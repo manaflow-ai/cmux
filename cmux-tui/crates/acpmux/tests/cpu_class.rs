@@ -387,7 +387,7 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     let sid = new.unwrap()["sessionId"].as_str().unwrap().to_owned();
     // The start is over (as `ensure_child` ends it).
     agent.set_run_class(CpuClass::Background);
-    assert!(agent.enter_run_class(false).await, "the running harness was not lowered");
+    assert!(agent.enter_run_class().await, "the running harness was not lowered");
     let running = class_priority(harness);
     let out = dir.join("tool.json");
     let text = format!("class-probe: {}", out.display());

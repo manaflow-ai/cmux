@@ -60,14 +60,6 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
-    ("relay-tls.yml", "jobs.system-keychain.runs-on"): (
-        "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
-        "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
-    ),
-    ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
-        "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
-        "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
-    ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).

@@ -14,6 +14,13 @@ enum QuitAgents {
         BenchSpans.measure("agents.environment") { AcpmuxEnvironment.app(build: services.environment.build, mock: services.environment.showcase) }
     }
 
+    /// Whether `environment` is attached to the daemon of `home`.
+    static func isAttached(_ environment: AcpmuxEnvironment?, to home: URL) -> Bool {
+        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        guard let environment, environment.isAttached else { return false }
+        return canonical(environment.home) == canonical(home)
+    }
+
     /// The quit's view of one end: only proof is success (an ended
     /// daemon, or no daemon and no agent host left). A shutdown in progress
     /// or agents still running is the error state ("agents may still be

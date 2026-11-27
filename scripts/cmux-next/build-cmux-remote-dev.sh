@@ -4,9 +4,7 @@
 # docs/cmux-remote.md): the cmux-remote executable (Packages/macOS/CmuxRemote:
 # host, Computer Use worker, Screen Sharing worker), the cmux Computer Use
 # engine libcmux_computer_use.dylib (cmux-tui/crates/cmux-computer-use-ffi,
-# MIT, built here with cargo for arm64, or CMUX_CU_DYLIB: a prebuilt copy), the
-# screen stream's rules libcmux_rd_screen.dylib (cmux-tui/crates/cmux-rd-screen-ffi,
-# GPL-3.0-or-later, built the same way, or CMUX_RD_SCREEN_LIB: a prebuilt copy),
+# MIT, built here with cargo for arm64, or CMUX_CU_DYLIB: a prebuilt copy),
 # WebRTC (as a plain dylib), the SwiftPM resource bundles and the cmux Remote
 # icon (Resources/CmuxRemote.icon, exported with Icon Composer's ictool). Every
 # library sits in Contents/Frameworks as a plain dylib, never a nested
@@ -37,21 +35,14 @@ cmp -s "$repo_root/cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_u
   "$package/Sources/CCmuxComputerUse/include/cmux_computer_use.h" ||
   { echo "error: Packages/macOS/CmuxRemote/Sources/CCmuxComputerUse/include/cmux_computer_use.h differs from the crate's header" >&2; exit 1; }
 engine="${CMUX_CU_DYLIB:-}"
-screen_rules="${CMUX_RD_SCREEN_LIB:-}"
-crates=()
-[[ -n "$engine" ]] || crates+=(-p cmux-computer-use-ffi)
-[[ -n "$screen_rules" ]] || crates+=(-p cmux-rd-screen-ffi)
-if (( ${#crates[@]} )); then
+if [[ -z "$engine" ]]; then
   export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
   export CARGO_TARGET_DIR="${CMUX_CU_CARGO_TARGET_DIR:-$repo_root/.build/cmux-computer-use-target}"
-  (cd "$repo_root/cmux-tui" && cargo build --release --locked "${crates[@]}" --target aarch64-apple-darwin)
-  engine="${engine:-$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libcmux_computer_use_ffi.dylib}"
-  screen_rules="${screen_rules:-$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libcmux_rd_screen_ffi.dylib}"
+  (cd "$repo_root/cmux-tui" && cargo build --release --locked -p cmux-computer-use-ffi --target aarch64-apple-darwin)
+  engine="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libcmux_computer_use_ffi.dylib"
 fi
 [[ -f "$engine" ]] || { echo "error: no libcmux_computer_use dylib at $engine" >&2; exit 1; }
 lipo -info "$engine" | grep -q arm64 || { echo "error: $engine has no arm64 slice" >&2; exit 1; }
-[[ -f "$screen_rules" ]] || { echo "error: no libcmux_rd_screen dylib at $screen_rules" >&2; exit 1; }
-lipo -info "$screen_rules" | grep -q arm64 || { echo "error: $screen_rules has no arm64 slice" >&2; exit 1; }
 
 (cd "$package" && swift build -c release --arch arm64 --product "$EXECUTABLE")
 bin_dir="$(cd "$package" && swift build -c release --arch arm64 --show-bin-path)"
@@ -59,7 +50,7 @@ CMUX_SWIFT_BIN_PATH="$bin_dir" "$SCRIPT_DIR/compile-string-catalogs.sh"
 
 source_tree="$(cd "$repo_root" && { find Packages/macOS/CmuxRemote Packages/Shared/CmuxAgentCursor Packages/Shared/CmuxDeviceHub \
   Packages/Shared/CmuxVNCWebRTC Packages/Shared/CmuxVNC Resources/CmuxRemote.icon cmux-tui/crates/cmux-computer-use \
-  cmux-tui/crates/cmux-computer-use-ffi cmux-tui/crates/cmux-rd-screen cmux-tui/crates/cmux-rd-screen-ffi -type f -not -path '*/.build/*' -not -path '*/.swiftpm/*'; } |
+  cmux-tui/crates/cmux-computer-use-ffi -type f -not -path '*/.build/*' -not -path '*/.swiftpm/*'; } |
   LC_ALL=C sort | while IFS= read -r f; do printf '%s\n' "$f"; shasum -a 256 "$f" | awk '{print $1}'; done | shasum -a 256 | awk '{print $1}')"
 engine_sha="$(shasum -a 256 "$engine" | awk '{print $1}')"
 version="1.0.${source_tree:0:7}"
@@ -71,10 +62,6 @@ for bundle in "$bin_dir"/*.bundle; do cp -R "$bundle" "$app/Contents/Resources/"
 cp "$engine" "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 chmod 755 "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 install_name_tool -id "@rpath/libcmux_computer_use.dylib" "$app/Contents/Frameworks/libcmux_computer_use.dylib"
-# The Screen Sharing worker's rules (ScreenRules.bundled in Packages/Shared/CmuxVNCWebRTC opens it).
-cp "$screen_rules" "$app/Contents/Frameworks/libcmux_rd_screen.dylib"
-chmod 755 "$app/Contents/Frameworks/libcmux_rd_screen.dylib"
-install_name_tool -id "@rpath/libcmux_rd_screen.dylib" "$app/Contents/Frameworks/libcmux_rd_screen.dylib"
 # The WebRTC binary target SwiftPM linked (a dynamic framework), shipped as a plain dylib: a fleet
 # cross build re-signs every nested .framework ad hoc, which would break this bundle's seal (and
 # its Accessibility and Screen Recording grants); nested dylibs are left alone.
@@ -91,14 +78,13 @@ otool -L "$app/Contents/MacOS/$EXECUTABLE" | grep -q "@rpath/libWebRTC.dylib" ||
 # and on a Mac with that Xcode it would load toolchain code: nightly-next run
 # 43864670865 failed on it. Remove every such rpath before signing
 # (strip-toolchain-rpaths.sh). Only a Swift back-deployment library loaded through @rpath would need that
-# directory; cmux Remote ships none (the signer takes exactly the three dylibs), so
+# directory; cmux Remote ships none (the signer takes exactly the two dylibs), so
 # naming one is an error here rather than a launch failure on macOS 14.
 if otool -L "$app/Contents/MacOS/$EXECUTABLE" | awk '{print $1}' | grep -E '^@rpath/libswift'; then
   echo "error: cmux-remote loads a Swift back-deployment library through @rpath; raise its floor or ship it" >&2; exit 1
 fi
 "$SCRIPT_DIR/strip-toolchain-rpaths.sh" "$app/Contents/MacOS/$EXECUTABLE" \
-  "$app/Contents/Frameworks/libWebRTC.dylib" "$app/Contents/Frameworks/libcmux_computer_use.dylib" \
-  "$app/Contents/Frameworks/libcmux_rd_screen.dylib"
+  "$app/Contents/Frameworks/libWebRTC.dylib" "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 if otool -l "$app/Contents/MacOS/$EXECUTABLE" "$app"/Contents/Frameworks/*.dylib | grep -A2 LC_RPATH | grep -E '^ +path /' | grep -v ' /usr/lib/swift '; then
   echo "error: an absolute rpath outside the system is left in cmux Remote" >&2; exit 1
 fi
@@ -124,9 +110,7 @@ is licensed under the GNU General Public License, version 3 or later.
 
 It loads the cmux Computer Use engine (libcmux_computer_use.dylib,
 cmux-tui/crates/cmux-computer-use and cmux-computer-use-ffi), MIT licensed:
-see LICENSE-cmux-computer-use, the screen stream's rules (libcmux_rd_screen.dylib,
-cmux-tui/crates/cmux-rd-screen and cmux-rd-screen-ffi), GPL-3.0-or-later as above,
-and WebRTC (https://webrtc.org, BSD-3-Clause,
+see LICENSE-cmux-computer-use, and WebRTC (https://webrtc.org, BSD-3-Clause,
 built by github.com/stasel/WebRTC).
 TXT
 /usr/bin/python3 -I - "$app/Contents/Info.plist" "$APP_NAME" "$BUNDLE_ID" "$EXECUTABLE" "$version" "$source_tree" "$engine_sha" <<'PY'
@@ -151,7 +135,6 @@ plistlib.dump({
 PY
 codesign --force --sign - "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 codesign --force --sign - "$app/Contents/Frameworks/libWebRTC.dylib"
-codesign --force --sign - "$app/Contents/Frameworks/libcmux_rd_screen.dylib"
 codesign --force --sign - "$app"
 mkdir -p "$out"
 asset="cmux-remote-dev-unsigned-macos-arm64.zip"

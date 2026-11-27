@@ -396,18 +396,8 @@ export function MakeItYoursStep({
             </label>
           ))}
         </div>
-        {/* Every location's sentence sits in the one cell, only the chosen one shown, so a pick never
-            moves the rows under it (intro walk: 14 px when the two sentences wrapped differently). */}
         <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-run-in-detail">
-          {RUN_INS.filter((where) => where !== choices.chatsRunIn).map((where) => (
-            <span
-              key={where}
-              className="onb-make-run-in-detail__size"
-              aria-hidden="true"
-              data-label={strings.t(RUN_IN_KEYS[where].detail)}
-            />
-          ))}
-          <span>{strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}</span>
+          {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
         </p>
       </Group>
     );

@@ -11,8 +11,6 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
-    /// What that Sign In signs in to ("Signs in to cmux.com"), the line under it.
-    public var signInBackend: String?
     /// Start the same guided Share This Mac action used by the sidebar and Devices.
     public var shareThisMac: () -> Void = {}
 

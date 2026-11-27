@@ -5,7 +5,7 @@ export const L = {
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",
-  stillOpening: "page.stillOpening",
+  retry: "page.retry",
   saved: "status.saved",
   edited: "status.edited",
   saving: "status.saving",

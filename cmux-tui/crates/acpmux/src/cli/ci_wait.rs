@@ -509,7 +509,7 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
     }
     let repo = match args.repo {
         Some(repo) => repo,
-        None => run_bounded("git", &["config", "--get", "remote.origin.url"], Some(Path::new(".")))
+        None => run_bounded("git", &["remote", "get-url", "origin"], Some(Path::new(".")))
             .await
             .as_deref()
             .and_then(repo_from_remote)

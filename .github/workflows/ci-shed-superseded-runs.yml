@@ -44,7 +44,7 @@ jobs:
     permissions:
       actions: write
       contents: read
-    runs-on: cmux-gcp-pr-control-jit-x64
+    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
     timeout-minutes: 30
     steps:
       - name: Check out the shed script

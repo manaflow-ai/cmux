@@ -49,8 +49,6 @@ jobs:
           sparse-checkout: |
             Packages/macOS/CmuxNext/Sources
             cmux-tui/crates/acpmux/spec/acpmux-protocol.json
-            cmux-tui/crates/cmux-agent-pane-policy/policy.json
-            scripts/cmux-next/gen-agent-pane-policy-swift.py
             scripts/ci
             tests/test_check_swift_acpmux_protocol.py
             .gitmodules

@@ -22,11 +22,6 @@ on:
       cells:
         description: comma-separated cells (cloud-chat-matrix.ts --list); default every app-start cell
         default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start,antigravity-app-start
-  # A lane that cannot dispatch runs it by landing a change to this file on feat-cmux-next: its last line is the cells.
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - .github/cloud-harness-matrix/request
 
 permissions:
   contents: read
@@ -54,9 +49,7 @@ jobs:
           ref: refs/heads/feat-cmux-next
           submodules: recursive
       - name: Install Linux cmux-tui build dependencies
-        run: |
-          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
-          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then echo "clang libclang-dev pkg-config: already installed"; else sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config; fi
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
@@ -102,10 +95,6 @@ jobs:
           CELLS: ${{ inputs.cells }}
         run: |
           set -uo pipefail
-          if [ -z "$CELLS" ] && [ -f .github/cloud-harness-matrix/request ]; then
-            CELLS=$(grep -v '^[[:space:]]*#' .github/cloud-harness-matrix/request | grep -v '^[[:space:]]*$' | tail -n 1 | tr -d '[:space:]')
-          fi
-          if [ -z "$CELLS" ]; then echo "no cells: give the cells input or a cells line in .github/cloud-harness-matrix/request" >&2; exit 2; fi
           out="$RUNNER_TEMP/cloud-harness-matrix"
           bun scripts/cmux-next/cloud-chat-matrix.ts --backend staging --cells "$CELLS" --out "$out"
           code=$?

@@ -791,9 +791,9 @@ impl Peer {
     ) -> Result<Opened, DialError> {
         let mut restarted = false;
         loop {
-            // A first connect with nothing read: the tunnel logs in first and the read rides its
-            // master (`peer_ssh_master.rs`). A later one (a redial, a restarted remote that may not
-            // listen yet) opens its tunnel after the read, as one with kept tokens has none.
+            // A first connect with nothing read: the tunnel logs in while the read does, so the
+            // read costs no time of its own. A later one (a redial, a restarted remote that may
+            // not listen yet) opens its tunnel after the read, as one with kept tokens has none.
             let reading = tokio::time::Instant::now();
             let mut early = if ssh_tokens.is_none()
                 && self.read_tokens.get().is_none()
@@ -894,8 +894,6 @@ impl Peer {
                 }
             }
             let reason = errors.finish().await;
-            // A WebSocket timeout can be specific to one remote daemon. OpenSSH's
-            // transport keepalives retire a dead master without ending healthy siblings.
             self.note_ssh_failure(reason);
             // ssh's own failure class says more than the upgrade's error over its tunnel.
             let fail = ssh_errors::dial_fail(reason).or(error.fail);
@@ -1141,7 +1139,7 @@ impl Peer {
                 let (token, peer_token) = self
                     .direct_credentials(None)
                     .ok_or_else(|| "no token for the peer yet".to_owned())?;
-                let (child, stream, remote_port, errors) = self.spawn_tunnel().await?;
+                let (child, stream, remote_port, errors) = self.spawn_tunnel()?;
                 let req = self.ws_request(
                     &format!("ws://127.0.0.1:{remote_port}"),
                     Some(&token),

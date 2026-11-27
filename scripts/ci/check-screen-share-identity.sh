@@ -49,24 +49,15 @@ done
 for helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$helper" ]] && helpers+=("$helper")
 done
-other="$APP_PATH/Contents/Library/cmux Computer Use.app"
-[[ ! -e "$other" ]] || fail "$other ships beside the Screen Sharing helper: a second Screen Recording holder asks the person twice"
-
 # Without a helper the app asks for Screen Recording itself (MacScreenShareHost.requestInApp): the
-# app becomes a second holder, and granting it needs the app to relaunch. A nightly that explicitly
-# enables component decoupling may carry no helper; regular signed builds and NIGHTLY_COMPONENT_GATES=block
-# keep the identity hold.
-if [[ ${#helpers[@]} -eq 0 ]]; then
-  if [[ ${NIGHTLY_COMPONENT_GATES+x} ]] && [[ "$NIGHTLY_COMPONENT_GATES" != block ]]; then
-    echo "::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"
-    exit 0
-  fi
-  fail "$APP_PATH holds 0 Screen Sharing helpers, not 1"
-fi
+# app becomes a second holder, and granting it needs the app to relaunch.
 [[ ${#helpers[@]} -eq 1 ]] || fail "$APP_PATH holds ${#helpers[@]} Screen Sharing helpers, not 1"
 helper="${helpers[0]}"
 [[ "$helper" == *" Helper.app" ]] \
   || fail "$(basename "$helper") has the name from before the rename; bundle-screen-sharing-helper.sh --stamp names it '<app> Helper.app'"
+
+other="$APP_PATH/Contents/Library/cmux Computer Use.app"
+[[ ! -e "$other" ]] || fail "$other ships beside $(basename "$helper"): a second Screen Recording holder asks the person twice"
 
 helper_id="$("$PLISTBUDDY" -c "Print :CFBundleIdentifier" "$helper/Contents/Info.plist")"
 # One helper id per channel: every DEV build shares one (bundle-screen-sharing-helper.sh helper_id_for).

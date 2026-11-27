@@ -146,16 +146,7 @@ pub struct State {
 impl State {
     pub fn new(cfg: Config) -> Result<Arc<Self>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        // Every upstream this server reaches is its operator's config (the --upstream, --edge, --peer,
-        // --crates-index and --crates-dl flags, or the defaults the operator ran with), so each is a named host.
-        for host in [&cfg.upstream, &cfg.crates_index, &cfg.crates_dl]
-            .into_iter()
-            .chain(cfg.edge.iter())
-            .chain(&cfg.peers)
-        {
-            cmux_egress::allow_named(host);
-        }
-        let http = cmux_egress::client_builder("cmux_git_cache::server")
+        let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent("git/cmux-git-cache")

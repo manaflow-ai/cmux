@@ -16,8 +16,6 @@
 
 use std::fmt;
 
-pub mod handoff;
-
 pub mod mint;
 
 use serde::{Deserialize, Serialize};

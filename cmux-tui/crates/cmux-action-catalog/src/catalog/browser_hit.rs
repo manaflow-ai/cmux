@@ -179,7 +179,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::URL_3],
         targets: &["tab"],
         cli_name: "action browser-image-copy",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

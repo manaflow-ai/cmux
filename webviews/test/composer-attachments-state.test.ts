@@ -8,14 +8,14 @@ import { composerAttachmentsState } from "../src/agent-session/acpmux/composerAt
 
 const page = (html: string) => new JSDOM(`<!doctype html><div class="acpmux-composer">${html}</div>`).window.document;
 
-test("lists loading, uploading, still trying, failed and staged tiles in the strip and in the prompt", () => {
+test("lists loading, uploading, failed and staged tiles in the strip and in the prompt", () => {
   const doc = page(`
     <div class="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending" aria-busy="true" aria-label="a.mov"></div>
     <div class="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending" aria-busy="true" aria-label="b.mov">
       <progress aria-label="b.mov" max="100" value="42"></progress>
     </div>
-    <div class="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending" aria-busy="true" aria-label="c.mov"
-      data-still-trying title="Still trying to upload c.mov…&#10;The upload timed out: the app did not answer."></div>
+    <div class="acpmux-attachment acpmux-attachment-image acpmux-attachment-failed" aria-label="c.mov"
+      title="The upload timed out: the app did not answer."><button class="acpmux-attachment-retry"></button></div>
     <div class="acpmux-attachment acpmux-attachment-image acpmux-attachment-video" title="d.mov"></div>
     <span class="acpmux-md-inline-chip" data-state="loading" aria-busy="true" aria-label="e.mov"></span>
     <span class="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
@@ -26,16 +26,11 @@ test("lists loading, uploading, still trying, failed and staged tiles in the str
   expect(composerAttachmentsState(doc)).toEqual([
     { name: "a.mov", state: "loading" },
     { name: "b.mov", state: "loading", percent: 42 },
-    {
-      name: "c.mov",
-      state: "loading",
-      reason: "Still trying to upload c.mov…\nThe upload timed out: the app did not answer.",
-      stillTrying: true,
-    },
+    { name: "c.mov", state: "failed", reason: "The upload timed out: the app did not answer.", retry: true },
     { name: "d.mov", state: "staged" },
     { name: "e.mov", state: "loading" },
     { name: "g.zip", state: "staged" },
-    { name: "f.mov", state: "failed", reason: "The app refused the agent connection." },
+    { name: "f.mov", state: "failed", reason: "The app refused the agent connection.", retry: false },
   ]);
 });
 

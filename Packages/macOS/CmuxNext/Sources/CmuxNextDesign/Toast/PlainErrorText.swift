@@ -98,22 +98,17 @@ public nonisolated struct PlainErrorText {
     public static func words(_ kind: Kind) -> String {
         switch kind {
         case .offline:
-            // retry-prompt-ok: plain text of an action the person ran; re-running it has its side effects
             String(localized: "error.plain.offline", defaultValue: "You're offline. Check your network, then try again.", bundle: .localizedModule)
         case .timedOut:
-            // retry-prompt-ok: plain text of an action the person ran; re-running it has its side effects
             String(localized: "error.plain.timedOut", defaultValue: "The connection timed out. Check your network, then try again.",
                    bundle: .localizedModule)
         case .unreachable:
-            // retry-prompt-ok: plain text of an action the person ran; re-running it has its side effects
             String(localized: "error.plain.unreachable", defaultValue: "cmux couldn't reach the server. Check your network, then try again.",
                    bundle: .localizedModule)
         case .secureConnection:
-            // retry-prompt-ok: plain text of an action the person ran; re-running it has its side effects
             String(localized: "error.plain.secureConnection", defaultValue: "cmux couldn't make a secure connection. Try again later.",
                    bundle: .localizedModule)
         case .noSpace:
-            // retry-prompt-ok: the person frees disk space
             String(localized: "error.plain.noSpace", defaultValue: "The disk is full. Free some space, then try again.", bundle: .localizedModule)
         case .readOnly:
             String(localized: "error.plain.readOnly", defaultValue: "The disk is read-only.", bundle: .localizedModule)
@@ -128,7 +123,6 @@ public nonisolated struct PlainErrorText {
 
     /// The line for an error cmux has no words for.
     public static var generic: String {
-        // retry-prompt-ok: plain text of an action the person ran; re-running it has its side effects
         String(localized: "error.plain.generic", defaultValue: "Something went wrong. Try again.", bundle: .localizedModule)
     }
 }

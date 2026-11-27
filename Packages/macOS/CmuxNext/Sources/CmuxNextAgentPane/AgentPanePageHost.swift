@@ -15,10 +15,7 @@ enum AgentPanePageHost {
         let chatRows = AgentPaneChatRows(model: chatModel)
         var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider),
                       PageRoute(prefix: AgentPaneChatRows.prefix, provider: chatRows)]
-        // App panels add their mounts' visible slices (`cmux.page.visibleSlice`).
-        if let panels = panelProvider as? AppsPanelsPageProvider { routes += panels.routes } else if let panelProvider {
-            routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider))
-        }
+        if let panelProvider { routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider)) }
         // The Customize bar's verbs (`cmux.customize.run`): the bundled CLI's, on this Mac.
         routes.append(PageRoute(prefix: CustomizeChatPage.namespace, provider: CustomizeChatPage.shared))
         // The app sections' bundle images (`__appbundle/`), for this page's own mounts.

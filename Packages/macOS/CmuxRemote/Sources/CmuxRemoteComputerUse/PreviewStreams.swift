@@ -19,7 +19,6 @@ final class PreviewStreams: @unchecked Sendable { // crash-allow: `streams` is t
         var windows: [String]
         var longSide: Int
         var fps: Int
-        var generation: UInt64
 
         init?(json: Data) {
             guard let object = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
@@ -27,21 +26,18 @@ final class PreviewStreams: @unchecked Sendable { // crash-allow: `streams` is t
             self.windows = windows
             longSide = max(64, min((object["long_side"] as? Int) ?? 960, 4096))
             fps = max(1, min((object["fps"] as? Int) ?? 12, 60))
-            generation = (object["generation"] as? NSNumber).map(\.uint64Value) ?? 0
         }
     }
 
-    private let frame: @Sendable (String, UInt64, Data) -> Void
-    private let closed: @Sendable (String, UInt64) -> Void
+    private let frame: @Sendable (String, Data) -> Void
+    private let closed: @Sendable (String) -> Void
     private let lock = NSLock()
     private var streams: [String: WindowStream] = [:]
-    private var generation: UInt64 = 0
 
     /// - Parameters:
-    ///   - frame: A new JPEG frame of a window and its stream generation (any thread).
+    ///   - frame: A new JPEG frame of a window (any thread).
     ///   - closed: A window's stream ended because the window went away (any thread).
-    init(frame: @escaping @Sendable (String, UInt64, Data) -> Void,
-         closed: @escaping @Sendable (String, UInt64) -> Void) {
+    init(frame: @escaping @Sendable (String, Data) -> Void, closed: @escaping @Sendable (String) -> Void) {
         self.frame = frame
         self.closed = closed
     }
@@ -50,19 +46,12 @@ final class PreviewStreams: @unchecked Sendable { // crash-allow: `streams` is t
     func set(_ json: Data) {
         guard let request = Request(json: json) else { return }
         let (stop, start) = lock.withLock { () -> ([WindowStream], [WindowStream]) in
-            // Stream requests can be delivered out of order because the
-            // engine does not call the host while holding its state lock.
-            // Never let an older request resurrect a stream we replaced.
-            guard request.generation >= generation else { return ([], []) }
-            let replaces = request.generation != generation
-            generation = request.generation
             let wanted = Set(request.windows)
-            let stop = streams.filter { !wanted.contains($0.key) || replaces || $0.value.generation != request.generation }.map(\.value)
+            let stop = streams.filter { !wanted.contains($0.key) }.map(\.value)
             for gone in stop { streams.removeValue(forKey: gone.window) }
             var start: [WindowStream] = []
             for window in request.windows where streams[window] == nil {
-                let stream = WindowStream(window: window, generation: request.generation,
-                                          longSide: request.longSide, fps: request.fps,
+                let stream = WindowStream(window: window, longSide: request.longSide, fps: request.fps,
                                           frame: frame, ended: { [weak self] stream in self?.ended(stream) })
                 streams[window] = stream
                 start.append(stream)
@@ -80,7 +69,7 @@ final class PreviewStreams: @unchecked Sendable { // crash-allow: `streams` is t
             streams.removeValue(forKey: stream.window)
             return true
         }
-        if current { closed(stream.window, stream.generation) }
+        if current { closed(stream.window) }
     }
 
     func stopAll() {
@@ -95,10 +84,9 @@ final class PreviewStreams: @unchecked Sendable { // crash-allow: `streams` is t
 /// One window's ScreenCaptureKit stream: frames only when the window changes, each as JPEG.
 final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable { // crash-allow: `stream`/`stopped` are touched only under `lock`
     let window: String
-    let generation: UInt64
     private let longSide: Int
     private let fps: Int
-    private let frame: @Sendable (String, UInt64, Data) -> Void
+    private let frame: @Sendable (String, Data) -> Void
     private let ended: @Sendable (WindowStream) -> Void
     private let lock = NSLock()
     private var stream: SCStream?
@@ -106,11 +94,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     private let queue = DispatchQueue(label: "remote-cu-preview-frames", qos: .utility)
     private static let logger = Logger(subsystem: "com.cmuxterm.remote", category: "computer-use-preview")
 
-    init(window: String, generation: UInt64, longSide: Int, fps: Int,
-         frame: @escaping @Sendable (String, UInt64, Data) -> Void,
+    init(window: String, longSide: Int, fps: Int, frame: @escaping @Sendable (String, Data) -> Void,
          ended: @escaping @Sendable (WindowStream) -> Void) {
         self.window = window
-        self.generation = generation
         self.longSide = longSide
         self.fps = fps
         self.frame = frame
@@ -166,7 +152,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid, Self.isComplete(sampleBuffer),
               let pixels = sampleBuffer.imageBuffer, let jpeg = Self.jpeg(pixels) else { return }
-        frame(window, generation, jpeg)
+        frame(window, jpeg)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pick the macOS pool the unsigned iOS jobs land on.
 
-test-ios.yml (ios-simulator-build, ios-simulator) and
+test-ios.yml (mobile-core-package, ios-simulator-build, ios-simulator) and
 ios-screenshots.yml (screenshots) run this in a `runner` job, the way
 test-e2e.yml runs e2e_runner_pool.py, and every macOS job of the run reads its
 outputs.
@@ -195,11 +195,10 @@ path reads the runs' jobs instead; see Live capacity.)
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
-(`runs_on`); the plain pool label alone never reaches them. `package_runs_on`
-(the pool label alone) is for a job that runs SwiftPM tests on the host and needs
-no simulator; test-ios.yml has none now that its packages test on Linux
-(mobile-core-linux). glaeda knows these jobs (the build job is an isolated
-job, the simulator jobs hold its per-mini simulator token),
+(`runs_on`); the plain pool label alone never reaches them. mobile-core-package
+runs SwiftPM tests on the host and needs no simulator, so it takes the pool
+label alone (`package_runs_on`). glaeda knows these jobs (the build and package
+jobs are isolated jobs, the simulator jobs hold its per-mini simulator token),
 so unlike an E2E run they never take the root label. Neither label appears in
 workflow text (tests/test_ci_self_hosted_guard.sh refuses `glaeda-` there):
 runs-on reads the JSON this prints.
@@ -213,9 +212,8 @@ would wait for good), or CI_OWNED_POOL_SLOTS gives SIM_LABEL no machines. It
 also refuses what auto refuses: an `ios_version`, an upload, a release call
 and `seed_cache`. CI_IOS_OWNED is not required, so a proof run can precede it.
 
-A `swift_package` run of test-ios.yml runs only mobile-core-linux, on Linux: it
-needs no SIM_LABEL capacity, and is still charged one machine (run_jobs()), an
-over-count for a rare manual dispatch.
+A `swift_package` run of test-ios.yml runs mobile-core-package alone: one
+machine and no simulator, so it needs no SIM_LABEL capacity.
 
 A job left queued on the owned labels, or refused by glaeda at job start, is
 re-run by ci-owned-pool-rescue.yml, which watches the run through the marker
@@ -319,8 +317,8 @@ class Lane:
 
 
 LANES = {
-    # ios-simulator-build, then the simulator matrix (iPhone, iPad) that
-    # follows it: two at once.
+    # mobile-core-package and ios-simulator-build run side by side; the
+    # simulator matrix (iPhone, iPad) follows the build, two again.
     "test-ios": Lane(jobs=2, measured=True),
     # One capture or CmuxMobileKit job.
     "screenshots": Lane(jobs=1, measured=False),
@@ -386,8 +384,6 @@ class Route:
     build_label: str = ""
     # A granted default (see Granted default): every label of runs_on, GRANT_LABEL first, SIM_LABEL included.
     grant_labels: tuple[str, ...] = ()
-    # The picker read the simulator Macs and found none free for the run (see Granted default): it stays put.
-    starved: bool = False
 
     @property
     def runs_on(self) -> str:
@@ -408,7 +404,7 @@ class Route:
 
     @property
     def package_runs_on(self) -> str:
-        """runs-on as JSON for a host-only SwiftPM job, which needs no simulator."""
+        """runs-on as JSON for mobile-core-package, which needs no simulator."""
         if self.grant_labels:
             return json.dumps([label for label in self.grant_labels if label != SIM_LABEL])
         return json.dumps(self.label)
@@ -422,11 +418,6 @@ def ephemeral(label: str) -> Route:
     return Route(label, label, False)
 
 
-def starved(label: str) -> Route:
-    """The default, kept because the picker measured no free simulator Mac for the run (see Granted default)."""
-    return Route(label, label, False, starved=True)
-
-
 def retry_label(default: str) -> str:
     """A Blacksmith pool for re-runs: the default when it is one, else the 6vcpu macOS 26 pool."""
     return default if default.startswith(pr_runner_pool.EPHEMERAL_PREFIX) else SMALL_RUNNER
@@ -437,7 +428,7 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     if lane in ("screenshots", "kit", "phone-cells", "billing", "pipeline"):
         return 1
     if (swift_package or "").strip():
-        # mobile-core-linux alone, on Linux.
+        # mobile-core-package alone: SwiftPM tests on the host.
         return 0
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
@@ -572,7 +563,7 @@ def resolve(
             return Route(sim_first, retry_label(default), True)
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; {load.live.sim_first} {sim_first or 'sim-first'} free; staying on {default}")
-        return starved(default)
+        return ephemeral(default)
     # Simulator jobs take the first owned pool only, as the live path above
     # routes them, since SIM_LABEL is on that pool's runners. The replay of
     # newer runs still spreads over the whole order.
@@ -587,10 +578,10 @@ def resolve(
         return ephemeral(default)
     if not pr_runner_pool.persistent(choice.runner):
         log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
-        return starved(default)
+        return ephemeral(default)
     if needed and free < needed:
         log(f"{SIM_LABEL}: {free} of {capacity} free, {needed} needed; staying on {default}")
-        return starved(default)
+        return ephemeral(default)
     log(f"{choice.reason} -> {choice.runner} with {SIM_LABEL} ({free} of {capacity} free, {needed} needed)")
     return Route(choice.runner, retry_label(default), True)
 
@@ -967,7 +958,7 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     `${CI_OVERFLOW_MAC or 'cmux-mac'}` instead, as other own-branch Mac workflows do (vars.CI_OVERFLOW_MAC ||
     'cmux-mac'), with SIM_LABEL and xcode-<version>: the shared glaeda runners carrying all three take it, and
     the CI controller grants it to any free Mac whose asker reports that Xcode and an iOS simulator runtime
-    (cmuxterm-hq build-fleet/internal/sched/grant.go). package_runs_on drops SIM_LABEL. Its Xcode is the
+    (cmuxterm-hq build-fleet/internal/sched/grant.go). mobile-core-package drops SIM_LABEL. Its Xcode is the
     lane's vars.CMUX_CI_XCODE_APP_PR, else the macOS 26 row of xcode-pins.txt, which select-ci-xcode.sh picks
     on such a Mac (CMUX_CI_XCODE_APP stays empty off a glaeda- label).
 
@@ -983,17 +974,8 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     xcode-26.6 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
     later base push run of the workflow pending or cancelled with no jobs, so the base had no kit result. A push,
     dispatch or schedule run keeps the Blacksmith default, which always serves.
-
-    A starved route (the picker read the simulator Macs, live or from the snapshot, and found none free for the
-    run) keeps its default too, so the labels match the "staying on" the picker logged. On 2026-11-25 cmux#53546's
-    ios job 139577184055 logged "staying on blacksmith-6vcpu-macos-26" and still took cmux-mac + glaeda-ios-sim +
-    xcode-26.6, where it waited 39 min and its re-run 41 min; the Mac queue was 80 of the head's 151 min (48 of
-    68.7 min on cmux#55016). Blacksmith always serves. A route the picker did not measure is still granted.
     """
     if fork or owner != OWNER or route.persistent or blocker:
-        return route
-    if route.starved:
-        log(f"the picker found no free simulator Mac; staying on {route.label}, not {GRANT_LABEL}")
         return route
     if (event or "").strip() not in ("", "pull_request", "pull_request_target"):
         log(f"a {event.strip()} run has no re-run off a starved grant; staying on {route.label}")

@@ -100,7 +100,7 @@ pub async fn sweep() {
     let Ok(client) = crate::daemon::connect(false).await else {
         // No daemon: no session can use them; the files go, the route files stay until next time.
         for id in &stale {
-            let _ = crate::home_fs::remove_file(token_path(id));
+            let _ = std::fs::remove_file(token_path(id));
         }
         return;
     };
@@ -125,12 +125,12 @@ pub fn renew(id: &str, route: &ModelRoute) -> Result<(), HandError> {
     // new token, never a half-written file.
     let tmp = dir().join(format!(".{id}.token.tmp"));
     super::config::write_private(&tmp, route.token.as_bytes())
-        .and_then(|()| crate::home_fs::rename(&tmp, &path).map_err(Into::into))
+        .and_then(|()| std::fs::rename(&tmp, &path).map_err(Into::into))
         .and_then(|()| {
             super::config::write_private(&expiry_path(id), route.expires_at.to_string().as_bytes())
         })
         .map_err(|e| {
-            let _ = crate::home_fs::remove_file(&tmp);
+            let _ = std::fs::remove_file(&tmp);
             HandError::new("agent.bad_route", format!("{e:#}"))
         })
 }
@@ -143,11 +143,11 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
     let id = format!("cmux-gateway-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
     let path = token_path(&id);
     let dir = path.parent().map(PathBuf::from).unwrap_or_default();
-    crate::home_fs::create_dirs(&dir).map_err(|e| HandError::io(&dir, e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| HandError::io(&dir, e))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = crate::home_fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
     super::config::write_private(&path, route.token.as_bytes())
         .and_then(|()| {
@@ -170,8 +170,8 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
         )
         .await;
     if let Err(e) = added {
-        let _ = crate::home_fs::remove_file(&path);
-        let _ = crate::home_fs::remove_file(expiry_path(&id));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(expiry_path(&id));
         return Err(HandError::new("agent.route_failed", format!("{e:#}")));
     }
     Ok(id)
@@ -179,8 +179,8 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
 
 /// Removes the run's route (and its chat bindings) and its token file.
 pub async fn remove(client: &Client, id: &str) {
-    let _ = crate::home_fs::remove_file(token_path(id));
-    let _ = crate::home_fs::remove_file(expiry_path(id));
+    let _ = std::fs::remove_file(token_path(id));
+    let _ = std::fs::remove_file(expiry_path(id));
     let _ = client.request(method::MUX_ROUTE_REMOVE, json!({ "id": id })).await;
 }
 
@@ -189,8 +189,8 @@ pub async fn remove_fresh(id: &str) {
     match crate::daemon::connect(false).await {
         Ok(client) => remove(&client, id).await,
         Err(_) => {
-            let _ = crate::home_fs::remove_file(token_path(id));
-            let _ = crate::home_fs::remove_file(expiry_path(id));
+            let _ = std::fs::remove_file(token_path(id));
+            let _ = std::fs::remove_file(expiry_path(id));
         }
     }
 }

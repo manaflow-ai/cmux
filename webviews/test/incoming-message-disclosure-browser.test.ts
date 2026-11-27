@@ -15,7 +15,6 @@
 // The page is the pane's dev entry (vite.config.acpmux-pane.mjs) talking JSON-RPC over a WebSocket
 // to a stand-in acpmux daemon (as agent-pane-suggested-tasks.test.ts). Real Chromium from
 // Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
@@ -272,10 +271,8 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
       // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
-      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(ROW_METRIC.height);
-      expect(await row.locator(".cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(
-        ROW_METRIC.height,
-      );
+      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
+      expect(await row.locator(".cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
       expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",

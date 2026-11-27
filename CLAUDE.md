@@ -1,8 +1,6 @@
 # cmux agent notes
 
-Rules for every session; detail is on the linked pages ([map](#where-the-rest-lives)): read one before changing its area.
-Maintainers' notes live in private docs; the commands below describe the contributor workflow, while maintainer
-agents use the equivalent private workflow.
+Rules for every session; detail is on the linked pages ([map](#where-the-rest-lives)): read one before changing its area. Maintainers' notes: their private docs.
 
 **On your own machine** (any contributor's agent; all rules apply):
 - Build on your own Mac, a tagged build, never over the installed cmux: `./scripts/setup.sh` once, then `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>`. Python in `scripts/`, `tests/` runs directly; `cmux-tui/` takes a focused `cargo test`.

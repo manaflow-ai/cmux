@@ -77,7 +77,6 @@ jobs:
           sparse-checkout: |
             scripts/ci/nightly_next_train.py
             scripts/ci/nightly_next_canary_latency.py
-            scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
             scripts/ci/nightly-next-guard.py
             scripts/ci/nightly_next_ring.py

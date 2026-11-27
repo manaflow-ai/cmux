@@ -19,14 +19,6 @@ runs:
     #
     # Probe first: a pool VM keeps what an earlier job installed, and an image that bakes the packages
     # (scripts/ci/playwright-apt-deps.sh names them) has them all, so neither restores anything.
-    # Before the install's apt-get: needrestart lists the services holding a replaced library instead of restarting
-    # them, so a oneshot unit (cmux-git-mirror.service) no longer holds the install for its whole run (900 s in 6 of 17
-    # react-apps-check (1) pull request jobs, 2026-11-25). CI_APT_NO_SERVICE_RESTARTS=0 leaves needrestart alone.
-    - name: Keep apt from restarting services
-      if: runner.os == 'Linux'
-      shell: bash
-      run: '"$GITHUB_ACTION_PATH/../../../scripts/ci/apt-no-service-restarts.sh"'
-
     - name: Check for Playwright's packages
       id: probe
       if: runner.os == 'Linux'

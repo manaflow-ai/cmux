@@ -37,13 +37,6 @@ ACPMUX = "webviews/src/agent-session/acpmux"
 # (file, event): why this file listens. Each is a review decision; the exit plan is in
 # shared-projections.md section 6.
 ALLOWED_LISTENERS = {
-    (f"{ACPMUX}/autoRetry.ts", "visibilitychange"): "asks again, as the page shows, only a read that is "
-    "failing now (its retry was held while hidden); a switch away and back with nothing failing reads "
-    "nothing (Leo, 2026-11-22: \"vacuous decisions like that should be just done\")",
-    (f"{ACPMUX}/composer/attachmentIntakeModel.ts", "visibilitychange"): "wakes the failing upload "
-    "chips' retry loops (autoRetry.ts) as the page shows; no failing chip, no read",
-    (f"{ACPMUX}/subagents/retryState.ts", "visibilitychange"): "wakes a subagent retry that was "
-    "answered busy (`retry.busy`, untilNotBusy) as the page shows; it lives only while that ask waits",
     (f"{ACPMUX}/launchSettle.ts", "visibilitychange"): "ends the launch settle watch when the page hides "
     "(no report: a hidden page draws no frames); it reads nothing",
     (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",
@@ -58,8 +51,6 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
-    (f"{ACPMUX}/composer/useEmojiCompletion.tsx", "focus"): "the `:` emoji list shows again when the "
-    "window gets the keyboard back with the prompt still focused (`document.activeElement`); it reads nothing",
     (f"{ACPMUX}/newtab/NewTabClock.tsx", "visibilitychange"): "the New Tab clock re-reads only `Date.now()` when shown again, so the time is not a minute stale after a hide; no server or projection read",
     (f"{ACPMUX}/focusVisibleMark.ts", "focus"): "re-checks whether focus-visible is inside the "
     "composer or dock as the window regains focus (`data-focused`); it reads the DOM's focus, no data",

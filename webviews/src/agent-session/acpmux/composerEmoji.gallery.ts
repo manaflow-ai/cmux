@@ -26,16 +26,6 @@ async function typeToMenu(ctx: PlayContext, text: string) {
   await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
 }
 
-/** Leo's draft shape: two lines, then `:plead` on the third (it opened no menu before). */
-async function typeToLaterLine(ctx: PlayContext) {
-  await ctx.focus({ selector: PROMPT });
-  await ctx.type("1. perfect it.");
-  await ctx.press("Shift+Enter");
-  await ctx.type("2. such a nice animation");
-  await ctx.press("Shift+Enter");
-  await typeToMenu(ctx, ":plead");
-}
-
 const promptText = (ctx: PlayContext) => ctx.document.querySelector(PROMPT)?.textContent ?? "";
 
 const variant = (note: string, play: AgentPaneVariant["play"]): AgentPaneVariant => ({ note, snapshot, play });
@@ -119,73 +109,11 @@ export default agentPaneEntry({
           throw new Error(`no row highlighted after typing back: ${prompt.getAttribute("aria-activedescendant")}`);
       },
     ),
-    // Leo, 2026-11-22: "we need to actually improve the ergonomics and lifecycle of that".
-    "escape-sticky": variant(
-      "Play: Esc on `:smi`, then `l`: the list stays closed for that token; Esc never changes the text.",
-      async (ctx) => {
-        await typeToMenu(ctx, "Hey :smi");
-        await ctx.press("Escape");
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
-        await ctx.type("l");
-        await ctx.waitFor(() => promptText(ctx).endsWith(":smil"));
-        if (ctx.document.querySelector(ROW)) throw new Error("the list came back on the token Esc closed");
-      },
-    ),
-    "caret-away": variant(
-      "Play: the caret moved to the line's start closes the list; End brings it back.",
-      async (ctx) => {
-        await typeToMenu(ctx, "aw :plead");
-        await ctx.press("Home");
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
-        await ctx.press("End");
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
-      },
-    ),
-    "focus-away": variant(
-      "Play: focus leaving the prompt closes the list; back in it, the list shows again.",
-      async (ctx) => {
-        await typeToMenu(ctx, "aw :plead");
-        (ctx.document.activeElement as HTMLElement | null)?.blur();
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
-        await ctx.focus({ selector: PROMPT });
-        await ctx.type("i");
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) !== null);
-      },
-    ),
     "type-past": variant("Play: typing on past `:pl` (a space) closes the menu and keeps the text.", async (ctx) => {
       await typeToMenu(ctx, "aw :pl");
       await ctx.type(" ok");
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("aw :pl ok")) throw new Error(`typing on changed the text: ${promptText(ctx)}`);
-    }),
-    // Leo, 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here": his
-    // `:plead` sat on a later line of the draft, where the menu read no caret.
-    "later-line": variant("Play: Leo's draft of 2026-11-22: `:plead` on the third line lists 🥺 over it.", (ctx) =>
-      typeToLaterLine(ctx),
-    ),
-    "later-line-return": variant(
-      "Play: `:plead` on the third line, then Return writes 🥺 and a space and never sends.",
-      async (ctx) => {
-        await typeToLaterLine(ctx);
-        await ctx.press("Enter");
-        await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
-        if (!promptText(ctx).includes("🥺")) throw new Error(`Return on a later line wrote no 🥺: ${promptText(ctx)}`);
-      },
-    ),
-    "closing-colon": variant(
-      "Play: typing the closing `:` of `:pleading_face:` writes 🥺 at once, no menu left.",
-      async (ctx) => {
-        // The list showing first: the table is in (it loads at an idle moment after focus).
-        await typeToMenu(ctx, "aw :pleading_face");
-        await ctx.type(":");
-        await ctx.waitFor(() => promptText(ctx).includes("aw 🥺"));
-        if (ctx.document.querySelector(ROW)) throw new Error("the menu stayed after the closing colon");
-      },
-    ),
-    "skin-tone": variant("Play: Slack's `:wave::skin-tone-4:` writes 👋🏽.", async (ctx) => {
-      await typeToMenu(ctx, "hi :wav");
-      await ctx.type("e::skin-tone-4:");
-      await ctx.waitFor(() => promptText(ctx).includes("hi 👋🏽"));
     }),
     "no-trigger": variant("Play: a time (10:30) and a URL open no menu.", async (ctx) => {
       await ctx.focus({ selector: PROMPT });

@@ -43,7 +43,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Qualité d’image et débit quand vous regardez un autre Mac"
+            "value" : "Qualité d’image et bande passante quand vous regardez un autre Mac"
           }
         },
         "it" : {
@@ -91,7 +91,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Качество изображения и трафик при просмотре другого Mac"
+            "value" : "Качество изображения и пропускная способность при просмотре другого Mac"
           }
         },
         "th" : {
@@ -103,13 +103,13 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Başka bir Mac'i görüntülerken kalite ve bant genişliği"
+            "value" : "Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Якість зображення і трафік під час перегляду іншого Mac"
+            "value" : "Якість зображення і пропускна здатність під час перегляду іншого Mac"
           }
         },
         "vi" : {

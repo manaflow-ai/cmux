@@ -80,7 +80,6 @@ enum HomeChiefOnboardingStrings {
         String(localized: "home.chiefOnboarding.managed", defaultValue: "Your organization sets this.", bundle: .localizedModule)
     }
     static var writeFailed: String {
-        // retry-prompt-ok: the person's own answer, saved again only when they choose
         String(localized: "home.chiefOnboarding.writeFailed",
                defaultValue: "That didn’t save. Try again, or change it in Settings.", bundle: .localizedModule)
     }

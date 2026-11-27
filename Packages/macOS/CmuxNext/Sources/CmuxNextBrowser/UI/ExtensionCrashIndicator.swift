@@ -7,7 +7,6 @@ import CmuxNextIcons
 /// reloads every crashed extension.
 @MainActor
 final class ExtensionCrashIndicator {
-    // retry-prompt-ok: an accessibility identifier; the crash button reloads a crashed extension only on a click (crash loop)
     static let identifier = "browser.extensions.crashed"
     private let trampoline = MenuTrampoline()
     private weak var store: BrowserExtensionStore?
@@ -19,8 +18,6 @@ final class ExtensionCrashIndicator {
     }()
 
     init() {
-        // retry-prompt-ok: an extension that crashed may crash again; reloading it by itself could loop a crashing
-        // background process (Chrome also waits for the click).
         trampoline.action = { [weak self] in self?.reloadCrashed() }
     }
 

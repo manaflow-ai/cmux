@@ -77,17 +77,6 @@ class CheckTreeTest(unittest.TestCase):
         problems, pinned = vendored.check_tree(tree({"pkg/simdutf/vendor/s.h": b"s"}), {"pkg/simdutf": entry})
         self.assertEqual((problems, pinned), ([], [("pkg/simdutf", "simdutf")]))
 
-    def test_reviewed_entry_stays_pinned_when_upstream_adds_a_license(self) -> None:
-        # vt-1.0.1 added pkg/simdutf/vendor/LICENSE-*; the pinned texts (with the PyTorch notice) keep shipping.
-        entry = {"covered_by": "pinned:simdutf", "files": {"vendor/s.h": sha(b"s"), "vendor/LICENSE-MIT": sha(b"m")}, "note": "simdutf"}
-        files = {"pkg/simdutf/vendor/s.h": b"s", "pkg/simdutf/vendor/LICENSE-MIT": b"m"}
-        self.assertEqual(vendored.check_tree(tree(files), {"pkg/simdutf": entry}), ([], [("pkg/simdutf", "simdutf")]))
-        changed = {**files, "pkg/simdutf/vendor/LICENSE-MIT": b"other"}
-        problems, _ = vendored.check_tree(tree(changed), {"pkg/simdutf": entry})
-        self.assertIn("LICENSE-MIT: content", problems[0])
-        # An unreviewed directory with its own license file still needs no entry.
-        self.assertEqual(vendored.check_tree(tree({"pkg/x/LICENSE": b"l", "pkg/x/a.c": b"a"}), {}), ([], []))
-
 
 class ValidateEntriesTest(unittest.TestCase):
     PACKAGES = {"simdutf": {}}

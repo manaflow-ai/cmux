@@ -12,19 +12,17 @@ import { $prose } from "@milkdown/kit/utils";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import {
   findHeading,
-  githubSlug,
   hasHeading,
+  headingAnchorsBetween,
   headingTargets,
-  indexHeadings,
+  keepHeadings,
   parseLink,
   pastedURL,
   relativeLinkPaths,
-  stepHeadings,
   type ResolvedLink,
 } from "./links";
-import { BlockIndex } from "./headingIndex";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
-import { changedBlocks, decorateAll, mergeRanges, redecorate, SLICE_META } from "./redecorate";
+import { blocksAround, changedBlocks, decorateAll, redecorate } from "./redecorate";
 import type { LinkBubbleState, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
@@ -67,28 +65,6 @@ export interface LinkHost {
 
 const linkKey = new PluginKey<DecorationSet>("cmuxMarkdownLinks");
 
-/**
- * Each top-level block with anchor links, by each anchor they could name (the anchor, and its
- * `githubSlug`, as `hasHeading` tries them), with the block's size: an edit that adds or removes a
- * heading's anchor redraws only the blocks linking to it.
- */
-const anchorLinks = new BlockIndex<number>({
-  find: (block) => {
-    const anchors = new Set<string>();
-    block.descendants((node) => {
-      for (const mark of node.marks) {
-        if (mark.type.name !== "link") continue;
-        const link = parseLink(String(mark.attrs.href ?? ""));
-        if (link.kind !== "anchor") continue;
-        anchors.add(link.anchor.trim());
-        anchors.add(githubSlug(link.anchor.trim()));
-      }
-      return true;
-    });
-    return [...anchors].map((key) => ({ offset: 0, key, value: block.nodeSize }));
-  },
-});
-
 /** Marks links whose target is missing (`md-link-broken`) and asks the host about new ones. */
 export function brokenLinkPlugin(host: LinkHost) {
   return $prose(() => {
@@ -110,34 +86,52 @@ export function brokenLinkPlugin(host: LinkHost) {
     return new Plugin<DecorationSet>({
       key: linkKey,
       state: {
-        init: (_config, state) => {
-          indexHeadings(state.doc);
-          anchorLinks.entries(state.doc);
-          return whole(state.doc);
-        },
+        init: (_config, state) => whole(state.doc),
         apply: (tr, previous) => {
-          if (!tr.docChanged) return tr.getMeta(linkKey) ? whole(tr.doc) : previous;
-          // Both indexes are carried on each edit, so the next one reads only its own blocks.
-          const anchors = stepHeadings(tr.before, tr.doc);
-          anchorLinks.step(tr.before, tr.doc);
-          if (tr.getMeta(linkKey) || !anchors) return whole(tr.doc);
+          if (tr.getMeta(linkKey)) return whole(tr.doc);
+          if (!tr.docChanged) return previous;
           const changed = changedBlocks(tr);
-          const redraw = (ranges: typeof changed) =>
-            redecorate(previous, tr, ranges, (from, to) => decorate(tr.doc, from, to));
-          // A slice of a load draws nothing until its last, which draws all of it.
-          if (tr.getMeta(SLICE_META) || !anchors.size) return redraw(changed);
-          // An anchor link anywhere is broken or not by the headings: the blocks with links to an
-          // anchor the edit added or removed are checked again.
-          const linked = [...changed];
-          for (const anchor of anchors)
-            for (const link of anchorLinks.group(tr.doc, anchor))
-              linked.push({ from: link.pos, to: link.pos + link.value });
-          return redraw(mergeRanges(linked));
+          if (changed.length) {
+            // An anchor link anywhere is broken or not by the headings: when they change, every link is checked.
+            if (!headingsKept(tr)) return whole(tr.doc);
+            keepHeadings(tr.before, tr.doc);
+          }
+          return redecorate(previous, tr, changed, (from, to) => decorate(tr.doc, from, to));
         },
       },
       props: { decorations: (state) => linkKey.getState(state) },
     });
   });
+}
+
+/**
+ * Whether `tr` kept the document's heading anchors, in order: each step's blocks hold the same
+ * ones before and after it (the rest of the document is the same nodes). Walks only those blocks;
+ * a walk of every heading on each keystroke grew with the file.
+ */
+function headingsKept(tr: Transaction): boolean {
+  for (let index = 0; index < tr.steps.length; index++) {
+    let oldFrom = Infinity;
+    let oldTo = -Infinity;
+    let newFrom = Infinity;
+    let newTo = -Infinity;
+    tr.mapping.maps[index]!.forEach((fromA, toA, fromB, toB) => {
+      oldFrom = Math.min(oldFrom, fromA);
+      oldTo = Math.max(oldTo, toA);
+      newFrom = Math.min(newFrom, fromB);
+      newTo = Math.max(newTo, toB);
+    });
+    // A mark or attribute step changes no heading's text.
+    if (oldFrom > oldTo) continue;
+    const before = tr.docs[index]!;
+    const after = tr.docs[index + 1] ?? tr.doc;
+    const old = blocksAround(before, oldFrom, oldTo);
+    const now = blocksAround(after, newFrom, newTo);
+    const removed = headingAnchorsBetween(before, old.from, old.to);
+    const added = headingAnchorsBetween(after, now.from, now.to);
+    if (removed.length !== added.length || removed.some((anchor, at) => anchor !== added[at])) return false;
+  }
+  return true;
 }
 
 /** Re-checks link decorations (the host answered a resolve batch). */

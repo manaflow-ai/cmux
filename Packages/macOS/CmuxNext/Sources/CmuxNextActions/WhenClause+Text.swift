@@ -11,7 +11,7 @@ nonisolated extension WhenClause {
         case .or(let clauses): clauses.map(\.text).joined(separator: " || ")
         case .equals(let key, let value): "\(key) == \(Self.text(value))"
         case .notEquals(let key, let value): "\(key) != \(Self.text(value))"
-        case .matches(let key, let pattern): "\(key) =~ \(Self.regex(pattern.text))"
+        case .matches(let key, let pattern): "\(key) =~ \(Self.regex(pattern))"
         case .isIn(let key, let listKey): "\(key) in \(listKey)"
         }
     }

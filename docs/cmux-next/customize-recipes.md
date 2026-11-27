@@ -561,7 +561,7 @@ Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 | Close a pane | Command-\ | |
 | Keyboard shortcuts | Command-/ opens them | |
 | Worktree per session | New Git Worktree in the palette | No "work in a worktree" switch under the composer |
-| Side chat, cycle the view | | No side chat action and no action that cycles `agentPane.display.detail` (Chat Detail) |
+| Side chat, cycle the view | | No side chat action and no action that cycles `agentPane.display.transcriptView` |
 
 ### Claude Code notification levels
 

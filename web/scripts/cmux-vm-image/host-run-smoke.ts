@@ -17,7 +17,7 @@
  * The clone is recorded in the ledger at create and deleted by its exact id at the end.
  */
 import path from "node:path";
-import { cmuxTuiWebsocketSmokeCommand } from "./machine-commands";
+import { cmuxTuiWebsocketSmokeCommand } from "../devbox-image-common";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { HOST_CLI, HOST_UNIT } from "./host-agent";
 

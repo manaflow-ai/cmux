@@ -50,7 +50,6 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",
- "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -80,14 +79,6 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
- "serde_json",
-]
-
-[[package]]
-name = "cmux-share-approval"
-version = "0.1.0"
-dependencies = [
- "serde",
  "serde_json",
 ]
 

@@ -186,8 +186,6 @@ export function readPushDone(result: unknown): PushDone | undefined {
 
 /// The localized line for a failed Commit or Push. Every reason the session host names has its
 /// own text; one it adds later reads as the op's generic failure.
-// retry-prompt-ok: every "Retry" / "Refresh and try again" below follows a failed git commit or push, a write
-// the person runs again (GitActions.tsx's Retry and Refresh), so these instructions stay.
 const COMMIT_REASONS: Record<string, StringKey> = {
   nothing_to_commit: "git.commit.nothingToCommit",
   head_moved: "git.headMoved",

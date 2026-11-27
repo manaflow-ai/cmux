@@ -49,9 +49,8 @@ import json, sys
 path = sys.argv[1]
 data = json.load(open(path, encoding="utf-8"))
 row = data["lists"][0]["rows"][0]
-# Flip whatever the default is (#58129 made it false), so the test follows the product default.
-assert row["key"] == "agents.cacheCompact.enabled" and isinstance(row["default"], bool), row
-row["default"] = not row["default"]
+assert row["key"] == "agents.cacheCompact.enabled" and row["default"] is True, row["key"]
+row["default"] = False
 json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
 PY
 set +e; run --check 2>"$tmp/stale"; code=$?; set -e
@@ -59,18 +58,16 @@ set +e; run --check 2>"$tmp/stale"; code=$?; set -e
 grep -qx "stale: schemas/settings/settings-schema.json" "$tmp/stale" || fail "settings-schema.json not listed stale: $(cat "$tmp/stale")"
 grep -qx "stale: docs/mdm/com.manaflow.cmux.plist" "$tmp/stale" || fail "the MDM manifest not listed stale: $(cat "$tmp/stale")"
 run >/dev/null
-python3 -I - "$repo" "$tmp/agent-cache.json" <<'PY'
+python3 -I - "$repo" <<'PY'
 import json, os, sys
 root = sys.argv[1]
-original = json.load(open(sys.argv[2], encoding="utf-8"))["lists"][0]["rows"][0]["default"]
-flipped = not original
 rows = json.load(open(os.path.join(root, "schemas/settings/settings-schema.json")))["rows"]
 row = next(r for r in rows if r["key"] == "agents.cacheCompact.enabled")
-assert row["default"] is flipped, row["default"]
+assert row["default"] is False, row["default"]
 manifest = open(os.path.join(root, "docs/mdm/com.manaflow.cmux.plist")).read()
 at = manifest.index("<string>agents.cacheCompact.enabled</string>")
 entry = manifest[manifest.rfind("<dict>", 0, at):manifest.index("</dict>", at)]
-assert "<key>pfm_default</key>\n\t\t\t<%s/>" % ("true" if flipped else "false") in entry, entry
+assert "<key>pfm_default</key>\n\t\t\t<false/>" in entry, entry
 PY
 cp "$tmp/agent-cache.json" "$repo/schemas/settings/source/agent-cache.json"
 run --check 2>/dev/null && fail "the reverted source should leave the written exports stale"

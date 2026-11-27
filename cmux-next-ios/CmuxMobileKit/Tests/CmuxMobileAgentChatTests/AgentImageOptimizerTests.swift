@@ -12,26 +12,9 @@ import UniformTypeIdentifiers
         let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
         let original = try encode(image, type: UTType.jpeg.identifier as CFString, quality: 1)
         let optimized = AgentImageOptimizer.optimize(original)
-        print("AgentImageOptimizer JPEG data bytes: \(original.count) -> \(optimized.count)")
 
         #expect(optimized.count < original.count)
         #expect(AgentAttachment(kind: .image, name: "photo", data: optimized).imageMIMEType == "image/jpeg")
-        let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
-        let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-        #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)
-    }
-
-    @Test func shrinksLargeJPEGFromURL() throws {
-        let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
-        let original = try encode(image, type: UTType.jpeg.identifier as CFString, quality: 1)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-attachment-\(UUID().uuidString).jpg")
-        try original.write(to: url, options: .atomic)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let optimized = try #require(AgentImageOptimizer.optimize(fileURL: url, byteCount: original.count))
-        print("AgentImageOptimizer JPEG URL bytes: \(original.count) -> \(optimized.count)")
-        #expect(optimized.count < original.count, "URL optimization must reduce the transfer copy")
         let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
         let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)

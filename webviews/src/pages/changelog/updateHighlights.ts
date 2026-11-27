@@ -53,9 +53,6 @@ export interface UpdateHighlights {
   /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
   rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
-  /** "What's in this build": the pull requests merged after the installed build through this one,
-      by area (the host's BuildPullRequests). Absent from an older host and before they load. */
-  pullRequests?: BuildPullRequests | null;
   /** The Updated card's way back: the build Go back takes (the one this Mac came from, kept), its
       words ("nightly 4288034 from Nov 10") and the entry's title. Absent with none kept, and on
       the update-ready surfaces. */
@@ -107,21 +104,4 @@ export interface UpdateSurfaceActions {
   goBack?(build?: string): Promise<string | null>;
   /** The recent builds for "Other builds": `cmux.changelog.surface.builds`. */
   builds?(): Promise<RecentBuildRow[]>;
-}
-
-/** One pull request of a build span. */
-export interface BuildPullRequest {
-  pr: number;
-  title: string;
-  author?: string | null;
-  url: string;
-  /** The build whose notes list it. */
-  build: string;
-}
-
-/** A span's pull requests by area; `area` null is "Other", always last. */
-export interface BuildPullRequests {
-  groups: { area?: string | null; items: BuildPullRequest[] }[];
-  /** CI and tooling-only pull requests, counted and not listed. */
-  internalCount: number;
 }

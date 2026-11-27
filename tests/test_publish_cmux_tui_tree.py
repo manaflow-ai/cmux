@@ -308,9 +308,6 @@ ACPMUX_TREE_NAMES = (
     "cmux-tui-rd-aarch64-unknown-linux-gnu",
     "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md",
     "cmux-tui-rd-notices-aarch64-unknown-linux-gnu.md",
-    # The opt-in login prereader, carried only when the commit manifest attests it.
-    "cmux-tui-launch-preread-aarch64-apple-darwin",
-    "cmux-tui-launch-preread-x86_64-apple-darwin",
 )
 
 
@@ -332,7 +329,7 @@ def _uploaded(tmp_path: Path) -> dict[str, str]:
     return {item["key"].rsplit("/", 1)[-1]: item["text"] for item in uploads}
 
 
-def test_list_acpmux_companions_names_acpmux_rd_and_login_preread() -> None:
+def test_list_acpmux_companions_names_the_unix_acpmux_and_linux_cmux_rd() -> None:
     assert publisher.ACPMUX_NAMES == ACPMUX_TREE_NAMES
     result = subprocess.run([sys.executable, str(SCRIPT), "--list-acpmux-companions"],
                             text=True, capture_output=True, check=True)
@@ -393,7 +390,7 @@ def test_a_tree_published_before_acpmux_keeps_its_completion_bytes(tmp_path: Pat
     by_key = _uploaded(again)
     assert by_key["completion.json"] == earlier
     assert not set(ACPMUX_TREE_NAMES) & set(digests)
-    assert not any(name.startswith(("cmux-tui-acpmux-", "cmux-tui-launch-preread-")) for name in by_key)
+    assert not any(name.startswith("cmux-tui-acpmux-") for name in by_key)
 
 
 def test_a_tree_published_with_acpmux_republishes_the_same_completion(tmp_path: Path) -> None:

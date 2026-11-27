@@ -802,10 +802,6 @@ impl H264Encoder for OpenH264 {
         self.name.clone()
     }
 
-    fn constrained_baseline(&self) -> bool {
-        true
-    }
-
     fn idr_cause(&self) -> Option<&'static str> {
         self.idr_cause
     }

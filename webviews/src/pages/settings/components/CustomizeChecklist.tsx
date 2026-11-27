@@ -5,8 +5,7 @@
 // writes through `store.set`, the ToggleEditor path, and is locked exactly where SettingRow locks it;
 // a library entry or an installed look runs the library card's own `on`/`off`. A look that is not
 // installed has no host op that installs it yet: its click opens the Customize chat with the
-// install drafted (`store.askCmux`). A sidebar look (`sidebar.look`'s choices) is one switch each:
-// on picks it, off resets the key to the default look. Opened by `#/settings/customize`.
+// install drafted (`store.askCmux`). Opened by `#/settings/customize`.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import { Input } from "../../../ui/Input";
@@ -16,8 +15,6 @@ import {
   checklistGroups,
   filterGroups,
   setupEntryName,
-  SIDEBAR_LOOK_KEY,
-  sidebarLookOf,
   toggleRowsByGroup,
   type ChecklistGroup,
   type ChecklistGroupId,
@@ -59,14 +56,14 @@ export function CustomizeChecklistCard() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const devBuild = state.host?.dev_build === true;
-  const rows = useMemo(() => {
-    const shown = (row: (typeof schema.rows)[number]) => {
-      const home = homes.get(row.key);
-      return home !== undefined && (devBuild || !categoryById(home.category).devOnly);
-    };
-    const look = schema.rows.find((row) => row.key === SIDEBAR_LOOK_KEY);
-    return { ...toggleRowsByGroup(schema.rows, shown), sidebarLook: look && shown(look) ? look : null };
-  }, [devBuild]);
+  const rows = useMemo(
+    () =>
+      toggleRowsByGroup(schema.rows, (row) => {
+        const home = homes.get(row.key);
+        return home !== undefined && (devBuild || !categoryById(home.category).devOnly);
+      }),
+    [devBuild],
+  );
   const groups = checklistGroups({
     rows,
     value: (key) => valueOf(state, key),
@@ -79,7 +76,6 @@ export function CustomizeChecklistCard() {
     library: library.data?.library ?? null,
     libraryLocked: busy ? t("settingsPage.customizeChecklist.busy") : null,
     looks: shippedLooks(),
-    sidebarLook: rows.sidebarLook,
     standup: standup.data ?? null,
   });
   // The library card's run: drop a list read on its way before and after the change, so an older
@@ -102,9 +98,6 @@ export function CustomizeChecklistCard() {
   };
   const looks = shippedLooks();
   const onToggle = (item: ChecklistItem, on: boolean) => {
-    const sidebarLook = sidebarLookOf(item);
-    if (sidebarLook !== null)
-      return void (on ? store.set(SIDEBAR_LOOK_KEY, sidebarLook) : store.reset(SIDEBAR_LOOK_KEY));
     if (item.group === "library" || item.group === "code")
       return void runLibrary({ verb: on ? "on" : "off", name: item.id.slice(8) });
     if (item.group === "looks") {

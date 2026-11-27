@@ -2045,21 +2045,13 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
         return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
-        # One install and one strings pass per package, then every rerun side by side with run_checks' slots: on
-        # 2026-11-26 a webviews pull request over a base red on 13 checks ran them here one at a time, each after its
-        # own `bun install`, 128 s of the fast gates' 290 s job (job 139919568161), when the head's 37 ran at once.
-        ready: dict[str, bool] = {}
-        reruns: list[Result] = []
         for result in failed:
-            if result.label not in plan.script_pieces and result.label not in ready:  # a lone piece needs no install
-                ready[result.label] = ensure_deps(base_tree, result.label) is None
-                if ready[result.label]:
-                    compare.generate_strings(base_tree / result.label)
-            if ready.get(result.label, True):  # else no base to compare with: the red stays this change's
-                reruns.append(result)
-        agains = run_checks(base_tree, plan, [(r.label, r.command, base_tree / r.label,
-                                               package_env(base_tree, r.label)) for r in reruns])
-        for result, again in zip(reruns, agains):
+            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
+            if whole and ensure_deps(base_tree, result.label):
+                continue  # no base to compare with: the red stays this change's
+            if whole:
+                compare.generate_strings(base_tree / result.label)
+            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))

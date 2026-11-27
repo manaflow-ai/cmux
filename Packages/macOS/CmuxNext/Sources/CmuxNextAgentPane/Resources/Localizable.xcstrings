@@ -10827,127 +10827,258 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتعطل لوحة الوكيل باستمرار. سيعيد cmux تحميلها قريبًا."
+            "value": "تعطلت لوحة الوكيل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta se stalno ruši. cmux će ga uskoro ponovo učitati."
+            "value": "Panel agenta se srušio."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet bliver ved med at gå ned. cmux indlæser det igen om lidt."
+            "value": "Agentpanelet gik ned."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agentenbereich stürzt immer wieder ab. cmux lädt ihn gleich neu."
+            "value": "Der Agentenbereich ist abgestürzt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent pane keeps crashing. cmux will load it again shortly."
+            "value": "The agent pane crashed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El panel del agente se sigue bloqueando. cmux lo volverá a cargar en breve."
+            "value": "El panel del agente se bloqueó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le panneau de l’agent plante sans cesse. cmux va le recharger sous peu."
+            "value": "Le panneau de l’agent a planté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il pannello dell’agente continua ad arrestarsi. cmux lo ricaricherà a breve."
+            "value": "Il pannello dell’agente si è arrestato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントペインがクラッシュを繰り返しています。cmux がまもなく再読み込みします。"
+            "value": "エージェントペインがクラッシュしました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ទាំងភ្នាក់ងារគាំងជាបន្តបន្ទាប់។ cmux នឹងផ្ទុកវាឡើងវិញក្នុងពេលឆាប់ៗ។"
+            "value": "ផ្ទាំងភ្នាក់ងារបានគាំង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 패널이 계속 충돌합니다. cmux가 곧 다시 로드합니다."
+            "value": "에이전트 패널이 충돌했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet krasjer gang på gang. cmux laster det inn på nytt om litt."
+            "value": "Agentpanelet krasjet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta wciąż ulega awarii. cmux wkrótce załaduje go ponownie."
+            "value": "Panel agenta uległ awarii."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O painel do agente continua travando. O cmux vai recarregá-lo em breve."
+            "value": "O painel do agente travou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента постоянно аварийно завершается. cmux скоро загрузит её снова."
+            "value": "Панель агента аварийно завершилась."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บานหน้าต่างเอเจนต์ขัดข้องซ้ำ ๆ cmux จะโหลดใหม่ในอีกสักครู่"
+            "value": "บานหน้าต่างเอเจนต์ขัดข้อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan bölmesi sürekli çöküyor. cmux birazdan yeniden yükleyecek."
+            "value": "Ajan bölmesi çöktü."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента постійно аварійно завершується. cmux незабаром завантажить її знову."
+            "value": "Панель агента аварійно завершилася."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ngăn tác tử liên tục gặp sự cố. cmux sẽ sớm tải lại."
+            "value": "Ngăn tác tử đã gặp sự cố."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格反复崩溃。cmux 稍后会重新载入它。"
+            "value": "代理窗格已崩溃。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格反覆當機。cmux 稍後會重新載入。"
+            "value": "代理窗格已當機。"
+          }
+        }
+      }
+    },
+    "agentPane.crashed.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu laden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 로드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Załaduj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新载入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入"
           }
         }
       }

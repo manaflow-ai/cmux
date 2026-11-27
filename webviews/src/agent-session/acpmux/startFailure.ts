@@ -147,15 +147,6 @@ export function logStartFailure(harness: string, sessionId: string | undefined, 
 /// nothing more there (sendFailure.ts `host-away`, Leo 2026-11-12); the log still has it.
 const HOST_AWAY = new Set(["native.timed_out", ...SERVICE_UNREACHABLE]);
 
-/// Whether a failed start clears by itself when asked again: it never reached the agent because the
-/// page's line to acpmux was down (`HOST_AWAY`), so starting again is the only answer and is no
-/// one's decision. The pane starts it again on its own (App.tsx, autoRetry.ts `useAutoRetry`) and
-/// draws no card for it, only "Still trying to start <agent>…" once it has lasted (Leo, 2026-11-22:
-/// "vacuous decisions like that should be just done").
-export function startFailureClearsByItself(code: string | undefined): boolean {
-  return code !== undefined && HOST_AWAY.has(code);
-}
-
 /// A sessionless chat's start that another chat's selection (or the page closing) overtook
 /// (direct.ts `ensureSession`): no failure of the chat now shown.
 export function isStartSuperseded(error: unknown): boolean {
@@ -187,7 +178,6 @@ export function startFailureNotice(t: Translate, harness: string | undefined, er
   const known = knownRefusalText(error, "transport.intentInvalidStart");
   if (!harness) {
     const reason = known ?? plainReason(startErrorMessage(error));
-    // retry-prompt-ok: a start that failed for its own reason; Retry starts the agent again.
     return reason ? t("switch.failedUnnamed", { reason }) : t("chat.newFailed");
   }
   const name = agentName(harness);
@@ -205,8 +195,6 @@ export function startFailureNotice(t: Translate, harness: string | undefined, er
 
 function startFailureSentence(t: Translate, switching: StartFailure): StartFailureView {
   if (switching.code && SERVICE_UNREACHABLE.has(switching.code))
-    // SwitchNotice does not show this one: the pane starts the agent again on its own and says only
-    // "Still trying to start…" (startFailureClearsByItself). newtab/StartFailure still shows it.
     return { sentence: t("switch.serviceUnreachable", { agent: switching.name }) };
   if (switching.code === SIGN_IN_REQUIRED) return signInView(t, switching);
   if (switching.code === HARNESS_MISSING) return missingView(t, switching);

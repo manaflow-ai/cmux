@@ -2,7 +2,7 @@
 // Settings > Server > This Mac on Your Tailnet (TailnetCard): this Mac's own tailnet node, signed in
 // and out through acpmux, under the Server card. The layouts it was picked from are settings.tailnet-layouts.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { TailnetState, HostLists } from "./ops";
+import type { HostLists, TailnetState } from "./ops";
 
 const shown: PageFixtureStep = { selector: '[data-card="tailnet"]', action: "wait" };
 const variant = (tailnet: TailnetState, note: string, steps: PageFixtureStep[] = [shown]): SettingsPageVariant => ({
@@ -50,7 +50,6 @@ export default settingsPageEntry({
     ),
     error: variant(
       { state: "error", error: "tailnet start was superseded" },
-      // retry-prompt-ok: the tailnet Try Again starts its sign-in again.
       "A failed start: acpmux's own text, and Try Again.",
     ),
     "cloud-off": {

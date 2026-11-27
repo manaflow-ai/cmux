@@ -91,13 +91,7 @@ def press(pid: int, element: dict) -> dict:
 
 
 def outline(pid: int) -> list:
-    """The page's elements a failed step saw, the menu bar left out (it alone filled the old 150 rows), after the
-    copy's windows (id, title, bounds), so a miss shows what was on screen."""
-    windows = [f"window {w.get('window_id')} | {w.get('title', '')} | {w.get('bounds')}"
-               for w in lkr.cua("list_windows", {"pid": pid}).get("windows") or [] if isinstance(w, dict)]
-    rows = [f"{e.get('role')} | {label_of(e)}"[:100] for e in ax_elements(pid)
-            if not str(e.get("role", "")).startswith("AXMenu")]
-    return windows + rows[:150]
+    return [f"{e.get('role')} | {label_of(e)}"[:100] for e in ax_elements(pid)][:150]
 
 
 def open_settings(sock: str, pid: int) -> dict:

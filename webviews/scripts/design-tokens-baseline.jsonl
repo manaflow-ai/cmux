@@ -73,12 +73,13 @@
 {"file":"agent-session/acpmux/composer/SourceBadge.gallery.tsx","kind":"spacing","property":"margin-top","values":{"28px":1}}
 {"file":"agent-session/acpmux/composer/SourceBadge.gallery.tsx","kind":"spacing","property":"padding","values":{"20px":1}}
 {"file":"agent-session/acpmux/composer/TextAttachmentCard.gallery.tsx","kind":"spacing","property":"padding","values":{"20px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"background","values":{"rgb(0 0 0 / 0.55)":1,"rgb(0 0 0 / 0.6)":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"background","values":{"rgb(0 0 0 / 0.55)":1,"rgb(0 0 0 / 0.6)":1,"rgb(0 0 0 / 0.75)":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"color","values":{"#fff":2}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"filter","values":{"drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent)) drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16))":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"outline","values":{"1.5px solid #fff":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"radius","property":"border-radius","values":{"3px":1,"1px":1,"7px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"radius","property":"border-radius","values":{"10px":1,"3px":1,"1px":1,"7px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":1,"13px":1,"2px 6px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"inset","values":{"18px 4px 5px":1,"92px 24px 32px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"left","values":{"17px":1}}
@@ -87,7 +88,7 @@
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"right","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"top","values":{"7px":1,"38px":1,"20px":2,"6px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"token-copy","property":"gap","values":{"2px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"token-copy","property":"outline","values":{"1.5px":7}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"token-copy","property":"outline","values":{"1.5px":9}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"easing","property":"animation","values":{"acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
@@ -532,7 +533,7 @@
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"min-height","values":{"22px":1}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"token-copy","property":"outline","values":{"1.5px":1}}
 {"file":"agent-session/guest/guest.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
-{"file":"agent-session/guest/guest.css","kind":"token-copy","property":"outline","values":{"1.5px":3}}
+{"file":"agent-session/guest/guest.css","kind":"token-copy","property":"outline","values":{"1.5px":4}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"radius","property":"border-radius","values":{"3px":1}}
 {"file":"gallery/fixtures/SubagentTrayMotionStage.tsx","kind":"spacing","property":"gap","values":{"6px":1}}

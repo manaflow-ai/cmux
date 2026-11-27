@@ -145,8 +145,12 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
     let mut managed = ManagedPreferences::default();
     managed.forced.insert("updates.checkAutomatically".into(), json!(false));
     let file = json!({"updates": {"automatic": "download"}});
-    let merged =
-        cmux_config::EffectiveSettings::merge(&file, &managed, &TeamPolicyLayer::default(), schema);
+    let merged = cmux_config::EffectiveSettings::merge(
+        &file,
+        &managed,
+        &TeamPolicyLayer::default(),
+        &schema,
+    );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
     assert!(merged.managed_keys.contains_key("updates.automatic"), "{:?}", merged.managed_keys);
 
@@ -156,7 +160,7 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
         &json!({}),
         &ManagedPreferences::default(),
         &team,
-        schema,
+        &schema,
     );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("notify")));
     assert!(merged.managed_keys.contains_key("updates.automatic"));
@@ -165,8 +169,12 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
     let mut team = TeamPolicyLayer::default();
     team.defaults.insert("updates.automatic".into(), json!("idle"));
     let file = json!({"updates": {"checkAutomatically": false}});
-    let merged =
-        cmux_config::EffectiveSettings::merge(&file, &ManagedPreferences::default(), &team, schema);
+    let merged = cmux_config::EffectiveSettings::merge(
+        &file,
+        &ManagedPreferences::default(),
+        &team,
+        &schema,
+    );
     assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
 }
 

@@ -108,10 +108,6 @@ pub struct Transcript {
     /// `capacityWait`): acpmux holds the cut turn and goes on by itself. A client draws that
     /// turn's error as a calm wait, never red. Set by the TUI from the row; None otherwise.
     pub capacity_wait: Option<Value>,
-    /// The turn's own subagents still running (`_meta.acpmux.subagents`, `subagents.rs`), by id,
-    /// each with the wall-clock ms it started: what the working row's "waiting on N subagents"
-    /// counts and times. One that outlives its turn (`background`) is never waited on.
-    pub subagents_running: std::collections::BTreeMap<String, u64>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -291,7 +287,6 @@ impl Transcript {
     }
 
     fn apply_update_inner(&mut self, params: &Value) {
-        self.note_subagents(params);
         let Some(update) = params.get("update") else { return };
         // A subagent's words are its own view's, never the chat's reply.
         if crate::subagents::is_subagents(params) && is_words(update) {
@@ -639,7 +634,6 @@ impl Transcript {
                     self.activity = None;
                     self.active_tools = 0;
                     self.active_terminals = 0;
-                    self.subagents_running.clear();
                 }
             }
             "claude.system.api_retry" => {
@@ -662,7 +656,6 @@ impl Transcript {
                 self.activity = None;
                 self.active_tools = 0;
                 self.active_terminals = 0;
-                self.subagents_running.clear();
                 if let Some(last) = self.turn_times.last_mut()
                     && last.2.is_none()
                 {
@@ -1043,56 +1036,6 @@ fn exited_text(msg: &Value) -> String {
         text.push_str("; the next message resumes it");
     }
     text
-}
-
-impl Transcript {
-    /// Track the turn's own running subagents from an update's `_meta.acpmux.subagents`: each by
-    /// id with the wall-clock ms it started (its first sighting less the `elapsedMs` it names).
-    fn note_subagents(&mut self, params: &Value) {
-        let Some(list) = params.pointer("/_meta/acpmux/subagents").and_then(Value::as_array) else {
-            return;
-        };
-        let now = wall_ms();
-        for s in list {
-            let Some(id) = s.get("id").and_then(Value::as_str) else { continue };
-            let own = s.get("parent").is_none_or(Value::is_null);
-            let waited = s.get("state").and_then(Value::as_str) == Some("running")
-                && s.get("background").and_then(Value::as_bool) != Some(true);
-            if own && waited {
-                let elapsed = s.get("elapsedMs").and_then(Value::as_u64).unwrap_or(0);
-                self.subagents_running.entry(id.to_owned()).or_insert(now.saturating_sub(elapsed));
-            } else {
-                self.subagents_running.remove(id);
-            }
-        }
-    }
-
-    /// "waiting on N subagents 2m 5s" while the turn's own subagents run: the time is the wait's
-    /// own, from the first one's start, never the turn's whole clock (GUI cmux#48009). None when
-    /// none runs; one that outlives the turn (`background`) is never waited on.
-    pub fn subagent_wait(&self, now_ms: u64) -> Option<String> {
-        let n = self.subagents_running.len();
-        let since = *self.subagents_running.values().min()?;
-        let s = if n == 1 { "" } else { "s" };
-        let ms = now_ms.saturating_sub(since);
-        let time = if ms >= 1000 { format!(" {}", short_duration(ms)) } else { String::new() };
-        Some(format!("waiting on {n} subagent{s}{time}"))
-    }
-}
-
-fn wall_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
-
-fn short_duration(ms: u64) -> String {
-    let s = ms / 1000;
-    match s {
-        0..=59 => format!("{s}s"),
-        60..=3599 => format!("{}m {}s", s / 60, s % 60),
-        _ => format!("{}h {}m", s / 3600, (s % 3600) / 60),
-    }
 }
 
 /// A message or thought chunk: the words a reader of the chat's own text keeps.

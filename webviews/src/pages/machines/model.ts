@@ -160,8 +160,7 @@ export function dialText(phase: JoinedDialPhase, name: string, strings: Strings)
   return strings.format(`machines.dial.${phase}`, name);
 }
 
-/** Whether the row offers Retry: the ask stopped and nothing asks again by itself.
- * retry-prompt-ok: a Retry puts a consent card on the other Mac's screen and opens a workspace there. */
+/** Whether the row offers Retry: the ask stopped and nothing asks again by itself. */
 export const dialStopped = (phase: JoinedDialPhase | undefined) =>
   phase === "declined" || phase === "unanswered" || phase === "update" || phase === "failed";
 

@@ -48,10 +48,7 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
-      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
-      # No render reads Markdown (as on pull requests below).
-      - "!**/*.md"
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -61,11 +58,7 @@ on:
       - "webviews/src/pages/shared/desktop.css"
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
-      # Prose renders no gallery state: a docs-only pull request starts no capture (tests/test_ci_docs_only_prs.py).
-      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
-      # No render reads Markdown: a docs-only pull request starts nothing here (tests/test_ci_docs_only_prs.py).
-      - "!**/*.md"
   workflow_dispatch:
 
 permissions:

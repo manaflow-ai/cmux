@@ -205,9 +205,6 @@ REACT_EXACT = {
     "scripts/ci/guards_new_reds.py",
     # and the base's flake history that keeps a test flipping there a warning.
     "scripts/ci/webviews_test_history.py",
-    # A feat-cmux-next pull request's run on the fleet (ci/steps.toml's react-apps-check) and the rule both sides ask.
-    "scripts/ci/react-apps-check-fleet.sh",
-    "scripts/ci/react_apps_fleet.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
@@ -216,11 +213,6 @@ REACT_EXACT = {
     # The generated agent pane page, its build and regenerate scripts, and
     # the merge driver that keeps it mergeable: react-apps-check verifies
     # the page and runs the driver's test.
-    # The relay's params rule and its Rust mirror: webviews/test/agent-pane-relay-params-contract.test.ts
-    # checks every key the page sends against both, so a relay-only PR runs it too (cmux#46563).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
-    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
     "scripts/cmux-next/build-agent-pane-web.sh",
@@ -256,21 +248,8 @@ CHAT_FLOW_PREFIXES = (
 # A cmux-tui/ path routes the real-daemon lane through acpmux_build_input (below), not by prefix.
 AGENT_PANE_PREFIXES = (
     ".github/actions/setup-cmux-tui-rust/",
-    # Inputs of `cargo build -p acpmux --bin acpmux` outside cmux-tui/ (the same set as ci/steps.toml's
-    # agent-pane-real-acpmux inputs): the real-daemon lane only, the chat-flow lane builds no Rust.
-    ".cargo/",
-    "skills/",
-    "persisted-formats/",
-    "Resources/sidebar-looks/",
-    "Resources/theme-files/",
     *CHAT_FLOW_PREFIXES,
 )
-ACPMUX_BUILD_EXACT = {
-    "ghostty-next",
-    "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
-    "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
-    "docs/remote-agents-and-cloud.md",
-}
 
 # agent-pane-real-acpmux builds one Rust binary, `cargo build -p acpmux --bin acpmux`: of cmux-tui/crates/, only
 # the crates in its build (its [dependencies] and [build-dependencies] by path, transitively) and the crates their
@@ -382,18 +361,6 @@ def web_bundle_input_matcher(root: str):
         return key.pathspec_matcher(key.INPUTS)
 
 
-def is_react_input(path: str, repo_root: Path) -> bool:
-    """True when a change to `path` runs react-apps-check: the one test classify_paths applies, so a content-addressed
-    key over these paths (react_shard_receipt.py) names exactly the files whose change the router already runs the
-    check for."""
-    if path in ALL_SUBAREA_INPUTS or path in REACT_EXACT or path.startswith(REACT_PREFIXES):
-        return True
-    matcher = web_bundle_input_matcher(str(repo_root.resolve()))
-    if matcher is None:
-        raise RuntimeError("web bundle inputs unavailable")
-    return bool(matcher(path))
-
-
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
     root = Path.cwd() if repo_root is None else repo_root
     db = False
@@ -447,7 +414,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
 
         if path in AGENT_PANE_EXACT or path.startswith(CHAT_FLOW_PREFIXES):
             agent_pane = chat_flow = True
-        if path in ACPMUX_BUILD_EXACT or path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
+        if path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
             agent_pane = True
 
         if path in UNIT_TESTS_EXACT or (

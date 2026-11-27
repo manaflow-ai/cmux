@@ -120,5 +120,116 @@ fn map_io(error: std::io::Error) -> LinkError {
 }
 
 #[cfg(test)]
-#[path = "stream_tests.rs"]
-mod tests;
+mod tests {
+    use std::io;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Context, Poll};
+
+    use super::*;
+
+    /// A writer that counts the writes it gets, each one a separate send
+    /// (a segment on a no-delay TCP socket, a packet on a QUIC stream).
+    struct CountingWriter {
+        writes: Arc<AtomicUsize>,
+        bytes: Vec<u8>,
+    }
+
+    impl AsyncWrite for CountingWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.writes.fetch_add(1, Ordering::Relaxed);
+            self.bytes.extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// A reader over bytes already there that counts the reads it serves.
+    struct CountingReader {
+        reads: Arc<AtomicUsize>,
+        data: io::Cursor<Vec<u8>>,
+    }
+
+    impl AsyncRead for CountingReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            Pin::new(&mut self.data).poll_read(cx, buf)
+        }
+    }
+
+    fn framed(frames: &[&[u8]]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for frame in frames {
+            out.extend_from_slice(&(frame.len() as u32).to_be_bytes());
+            out.extend_from_slice(frame);
+        }
+        out
+    }
+
+    /// A keystroke's frame goes out in one write: its length and payload as
+    /// two writes put a 4-byte segment or packet on the wire ahead of every
+    /// frame of the phone's link.
+    #[tokio::test]
+    async fn a_frame_is_one_write() {
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writer = CountingWriter { writes: writes.clone(), bytes: Vec::new() };
+        let reader = io::Cursor::new(Vec::new());
+        let link = LengthDelimitedLink::new("test", 1 << 20, reader, writer);
+        for key in [b"a".as_slice(), b"bc", b"\r"] {
+            link.send(Bytes::copy_from_slice(key)).await.unwrap();
+        }
+        assert_eq!(writes.load(Ordering::Relaxed), 3, "one write per frame");
+        let guard = link.writer.lock().await;
+        let written = &guard.as_ref().unwrap().bytes;
+        assert_eq!(written, &framed(&[b"a", b"bc", b"\r"]));
+    }
+
+    /// A burst of small frames already on the stream (echoes, acks) costs
+    /// one read, not a read for each length and each payload.
+    #[tokio::test]
+    async fn queued_small_frames_are_read_in_one_read() {
+        let payloads: Vec<Vec<u8>> = (0..32u8).map(|n| vec![n; 3]).collect();
+        let refs: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let reader = CountingReader { reads: reads.clone(), data: io::Cursor::new(framed(&refs)) };
+        let link = LengthDelimitedLink::new("test", 1 << 20, reader, tokio::io::sink());
+        for payload in &payloads {
+            let frame = link.receive().await.unwrap().unwrap();
+            assert_eq!(frame.as_ref(), payload.as_slice());
+        }
+        assert!(
+            reads.load(Ordering::Relaxed) <= 2,
+            "{} reads for {} queued frames",
+            reads.load(Ordering::Relaxed),
+            payloads.len()
+        );
+        assert!(link.receive().await.unwrap().is_none());
+    }
+
+    /// A frame larger than the read buffer still arrives whole.
+    #[tokio::test]
+    async fn a_large_frame_arrives_whole() {
+        let big = vec![7u8; 3 * 64 * 1024 + 5];
+        let reads = Arc::new(AtomicUsize::new(0));
+        let reader = CountingReader { reads, data: io::Cursor::new(framed(&[&big, b"x"])) };
+        let link = LengthDelimitedLink::new("test", 1 << 20, reader, tokio::io::sink());
+        assert_eq!(link.receive().await.unwrap().unwrap().as_ref(), big.as_slice());
+        assert_eq!(link.receive().await.unwrap().unwrap().as_ref(), b"x");
+    }
+}

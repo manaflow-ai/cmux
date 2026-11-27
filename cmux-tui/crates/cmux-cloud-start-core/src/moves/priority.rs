@@ -139,14 +139,20 @@ fn borrowing(chat: &Chat) -> bool {
     chat.priority == Priority::Normal && chat.pin == Pin::Auto && chat.at == At::Cloud
 }
 
-fn slot_indices(slots: u32, chats: &[Chat]) -> Vec<(usize, &Chat)> {
-    let mut lit: Vec<(usize, &Chat)> =
-        chats.iter().enumerate().filter(|(_, chat)| lit_intent(chat)).collect();
-    lit.sort_by_key(|&(index, chat)| (lit_time(chat), index));
+fn slot_indices(slots: u32, chats: &[Chat]) -> Vec<usize> {
+    let mut lit: Vec<usize> = chats
+        .iter()
+        .enumerate()
+        .filter_map(|(index, chat)| lit_intent(chat).then_some(index))
+        .collect();
+    lit.sort_by_key(|&index| (lit_time(&chats[index]), index));
 
-    let mut borrowers: Vec<(usize, &Chat)> =
-        chats.iter().enumerate().filter(|(_, chat)| borrowing(chat)).collect();
-    borrowers.sort_by_key(|&(index, chat)| (chat.active_at_ms, index));
+    let mut borrowers: Vec<usize> = chats
+        .iter()
+        .enumerate()
+        .filter_map(|(index, chat)| borrowing(chat).then_some(index))
+        .collect();
+    borrowers.sort_by_key(|&index| (chats[index].active_at_ms, index));
 
     lit.extend(borrowers);
     lit.truncate(slots as usize);
@@ -167,29 +173,31 @@ pub fn admit(slots: u32, chats: &[Chat], session: &str) -> Admit {
         return Admit::NoCloud;
     }
 
-    let target = chats.iter().enumerate().find(|(_, chat)| chat.session == session);
-    if target.is_some_and(|(_, chat)| lit_intent(chat)) {
+    let target = chats.iter().position(|chat| chat.session == session);
+    if target.is_some_and(|index| lit_intent(&chats[index])) {
         return Admit::Lit;
     }
 
     let selected = slot_indices(slots, chats);
-    if selected.len() < slots as usize
-        || target.is_some_and(|(index, _)| selected.iter().any(|&(held, _)| held == index))
-    {
+    if selected.len() < slots as usize || target.is_some_and(|index| selected.contains(&index)) {
         return Admit::Lit;
     }
 
-    let mut borrowers: Vec<(usize, &Chat)> =
-        selected.iter().copied().filter(|(_, chat)| borrowing(chat)).collect();
-    borrowers.sort_by_key(|&(index, chat)| (chat.active_at_ms, index));
-    if let Some((_, chat)) = borrowers.first() {
-        return Admit::LitAfterReturn { returns: vec![chat.session.clone()] };
+    let mut borrowers: Vec<usize> =
+        selected.iter().copied().filter(|&index| borrowing(&chats[index])).collect();
+    borrowers.sort_by_key(|&index| (chats[index].active_at_ms, index));
+    if let Some(index) = borrowers.first() {
+        return Admit::LitAfterReturn { returns: vec![chats[*index].session.clone()] };
     }
 
     let holders = selected
         .iter()
-        .filter(|(_, chat)| lit_intent(chat))
-        .map(|(_, chat)| Holder { session: chat.session.clone(), title: chat.title.clone() })
+        .copied()
+        .filter(|&index| lit_intent(&chats[index]))
+        .map(|index| Holder {
+            session: chats[index].session.clone(),
+            title: chats[index].title.clone(),
+        })
         .collect();
     Admit::Full { holders }
 }
@@ -200,59 +208,59 @@ pub fn leave_order(slots: u32, chats: &[Chat]) -> Leave {
         chats.iter().filter(|chat| chat.at == At::Cloud && holds_slot(chat)).count() as u32;
     used = used.min(slots);
 
-    let mut lit_local: Vec<(usize, &Chat)> = chats
+    let mut lit_local: Vec<usize> = chats
         .iter()
         .enumerate()
-        .filter(|(_, chat)| chat.at == At::Local && lit_intent(chat))
+        .filter_map(|(index, chat)| (chat.at == At::Local && lit_intent(chat)).then_some(index))
         .collect();
-    lit_local.sort_by(|&(left, left_chat), &(right, right_chat)| {
-        right_chat
+    lit_local.sort_by(|&left, &right| {
+        chats[right]
             .has_work
-            .cmp(&left_chat.has_work)
-            .then_with(|| lit_time(left_chat).cmp(&lit_time(right_chat)))
+            .cmp(&chats[left].has_work)
+            .then_with(|| lit_time(&chats[left]).cmp(&lit_time(&chats[right])))
             .then_with(|| left.cmp(&right))
     });
 
     let mut moves = Vec::new();
-    let mut moved = std::collections::BTreeSet::new();
-    for (index, chat) in lit_local {
+    let mut moved = vec![false; chats.len()];
+    for index in lit_local {
         if used >= slots {
             break;
         }
-        used = used.saturating_add(1);
-        moved.insert(index);
-        moves.push(chat.session.clone());
+        used += 1;
+        moved[index] = true;
+        moves.push(chats[index].session.clone());
     }
 
-    let mut auto_local: Vec<(usize, &Chat)> = chats
+    let mut auto_local: Vec<usize> = chats
         .iter()
         .enumerate()
-        .filter(|(index, chat)| {
-            chat.at == At::Local
+        .filter_map(|(index, chat)| {
+            (chat.at == At::Local
                 && chat.priority == Priority::Normal
                 && chat.pin == Pin::Auto
                 && chat.has_work
-                && !moved.contains(index)
+                && !moved[index])
+                .then_some(index)
         })
         .collect();
-    auto_local.sort_by(|&(left, left_chat), &(right, right_chat)| {
-        right_chat.active_at_ms.cmp(&left_chat.active_at_ms).then_with(|| left.cmp(&right))
+    auto_local.sort_by(|&left, &right| {
+        chats[right].active_at_ms.cmp(&chats[left].active_at_ms).then_with(|| left.cmp(&right))
     });
-    for (index, chat) in auto_local {
+    for index in auto_local {
         if used >= slots {
             break;
         }
-        used = used.saturating_add(1);
-        moved.insert(index);
-        moves.push(chat.session.clone());
+        used += 1;
+        moved[index] = true;
+        moves.push(chats[index].session.clone());
     }
 
     let pauses = chats
         .iter()
         .enumerate()
         .filter_map(|(index, chat)| {
-            (chat.at == At::Local && chat.has_work && !moved.contains(&index))
-                .then_some(chat.session.clone())
+            (chat.at == At::Local && chat.has_work && !moved[index]).then_some(chat.session.clone())
         })
         .collect();
     Leave { moves, pauses }
@@ -260,27 +268,29 @@ pub fn leave_order(slots: u32, chats: &[Chat]) -> Leave {
 
 /// Chats to return when pooled hours are spent, in return order.
 pub fn return_order(chats: &[Chat]) -> Vec<String> {
-    let mut auto: Vec<(usize, &Chat)> = chats
+    let mut auto: Vec<usize> = chats
         .iter()
         .enumerate()
-        .filter(|(_, chat)| {
-            chat.at == At::Cloud && chat.priority == Priority::Normal && chat.pin == Pin::Auto
+        .filter_map(|(index, chat)| {
+            (chat.at == At::Cloud && chat.priority == Priority::Normal && chat.pin == Pin::Auto)
+                .then_some(index)
         })
         .collect();
-    auto.sort_by_key(|&(index, chat)| (chat.active_at_ms, index));
+    auto.sort_by_key(|&index| (chats[index].active_at_ms, index));
 
-    let mut high: Vec<(usize, &Chat)> = chats
+    let mut high: Vec<usize> = chats
         .iter()
         .enumerate()
-        .filter(|(_, chat)| {
-            chat.at == At::Cloud && chat.priority == Priority::High && chat.pin == Pin::Auto
+        .filter_map(|(index, chat)| {
+            (chat.at == At::Cloud && chat.priority == Priority::High && chat.pin == Pin::Auto)
+                .then_some(index)
         })
         .collect();
-    high.sort_by(|&(left, left_chat), &(right, right_chat)| {
-        lit_time(right_chat).cmp(&lit_time(left_chat)).then_with(|| left.cmp(&right))
+    high.sort_by(|&left, &right| {
+        lit_time(&chats[right]).cmp(&lit_time(&chats[left])).then_with(|| left.cmp(&right))
     });
 
-    auto.into_iter().chain(high).map(|(_, chat)| chat.session.clone()).collect()
+    auto.into_iter().chain(high).map(|index| chats[index].session.clone()).collect()
 }
 
 /// Chats pinned to Cloud pause in place when pooled hours are spent.
@@ -295,9 +305,10 @@ pub fn pauses_in_place(chats: &[Chat]) -> Vec<String> {
 
 /// The button state for one chat, or none when the session is not present.
 pub fn view(slots: u32, chats: &[Chat], session: &str) -> Option<View> {
-    let (index, chat) = chats.iter().enumerate().find(|(_, chat)| chat.session == session)?;
+    let index = chats.iter().position(|chat| chat.session == session)?;
     let selected = slot_indices(slots, chats);
-    let selected_here = selected.iter().any(|&(held, _)| held == index);
+    let chat = &chats[index];
+    let selected_here = selected.contains(&index);
     Some(View {
         priority: chat.priority,
         pin: chat.pin,

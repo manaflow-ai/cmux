@@ -58,13 +58,6 @@ class PercentileTests(unittest.TestCase):
         self.assertIsNone(cell["p95_ms"])
         self.assertIn("under 5", cell["refused"])
 
-    def test_a_busy_round_is_left_out_though_its_load_read_quiet(self):
-        # --load busy starts its `yes` processes after the quiet wait, so the round's load_per_core reads quiet; the
-        # round still ran loaded and must not post a p50/p95.
-        busy = [dict(r, load="busy") for r in rounds([9000] * 5)]
-        cell = T.percentiles(rounds([1000] * 5) + busy, 0.5, 5)["cold_install_terminal"]
-        self.assertEqual((cell["n"], cell["over_load"], cell["p95_ms"]), (5, 5, 1000))
-
     def test_a_round_without_a_key_counts_as_unmeasured(self):
         rows = rounds([1000] * 5) + rounds([None])
         cell = T.percentiles(rows, 0.5, 5)["cold_install_terminal"]

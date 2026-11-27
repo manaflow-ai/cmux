@@ -53,16 +53,11 @@ pub enum MachineLink {
     /// A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud
     /// carrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.
     Paused,
-    /// Not dialed, on purpose: nothing has used it since this daemon started, or its link closed
-    /// after it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last
-    /// linked, unless it is `offline` instead. Folded to `connected` for an older app, which then
-    /// lets a person pick it, and the pick connects it.
-    Idle,
 }
 
 impl MachineLink {
     /// Every state, in the order of the enum: a renderer's table test walks it.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Connected,
         Self::Connecting,
         Self::Reconnecting,
@@ -72,13 +67,12 @@ impl MachineLink {
         Self::AuthFailed,
         Self::UpdateRequired,
         Self::Paused,
-        Self::Idle,
     ];
 
     /// Its `state` for an app that knows only the five older words.
     pub fn folded(self) -> PeerLinkState {
         match self {
-            Self::Connected | Self::Idle => PeerLinkState::Connected,
+            Self::Connected => PeerLinkState::Connected,
             Self::Connecting => PeerLinkState::Connecting,
             Self::Reconnecting | Self::Restarting => PeerLinkState::Reconnecting,
             Self::Degraded => PeerLinkState::Degraded,
@@ -100,7 +94,6 @@ impl MachineLink {
             Self::AuthFailed => "authFailed",
             Self::UpdateRequired => "updateRequired",
             Self::Paused => "paused",
-            Self::Idle => "idle",
         }
     }
 }
@@ -366,7 +359,6 @@ mod tests {
         }
         assert_eq!(MachineLink::Restarting.folded(), PeerLinkState::Reconnecting);
         assert_eq!(MachineLink::AuthFailed.folded(), PeerLinkState::Offline);
-        assert_eq!(MachineLink::Idle.folded(), PeerLinkState::Connected);
     }
 
     /// Every reason has one wire word (the design's kebab-case words) and its own action.

@@ -21,15 +21,6 @@ import QuartzCore
 /// The main thread only asks the scheduler, steps the pointer and packs the Frame uniform;
 /// the drawable, the encode and the commit run on the render queue (``LiveWallpaperRenderer``),
 /// and the Metal program is built once per wallpaper off the main thread (``LiveWallpaperPrograms``).
-///
-/// A motion scene (plans/cmux-next/motion-scenes.md) draws with the one scene engine program and a
-/// scene player of its own (``LiveWallpaperScenePlayer``): each frame the player steps the keyframes and
-/// physics and packs the Scene block, bound at fragment buffer 1 with the badge at texture 0. A scene
-/// with nothing moving is at rest and the scheduler holds it (`at_rest`, hold reason 13) with the link
-/// gone. Every press and release over the backdrop is stepped into the player at once, with no draw
-/// (a move only while it rests), and a held view asks again: a press on the badge wakes its physics, and
-/// it runs. The physics runs on the pointer's monotonic clock (`CACurrentMediaTime`). Presses are watched
-/// by a local monitor that never consumes them, and only while a scene shows.
 public final class BackdropLiveView: NSView {
     /// The wallpaper shown, nil for none.
     public private(set) var wallpaper: LiveWallpaper?
@@ -75,28 +66,6 @@ public final class BackdropLiveView: NSView {
     /// GPU seconds and frames drawn since shown (`debug.themes`, the wallpaper-cost bench).
     private(set) var gpuSeconds: Double = 0
     private(set) var framesDrawn = 0
-    /// The last frame's GPU milliseconds (the wallpaper-cost bench's per-frame number).
-    private var lastGPUMilliseconds: Double = 0
-
-    /// Who a scene's badge shows: the app sets the signed-in account's; this Mac's user by default.
-    public var badgeIdentity: LiveWallpaperBadgeIdentity = .macUser {
-        didSet { if badgeIdentity != oldValue { refreshBadge() } }
-    }
-    /// A motion scene's player (its keyframes and physics world); nil for a program wallpaper.
-    private var scene: LiveWallpaperScenePlayer?
-    /// The Scene block, reused frame to frame (``LiveWallpaperScenePlayer/floats`` floats).
-    private var sceneBlock: [Float] = []
-    /// The badge for the scene's image slot, drawn once per identity and colors; nil until drawn.
-    private var badgeImage: LiveWallpaperSceneImage?
-    private var badgeKey: String?
-    private var badgeLoad: Task<Void, Never>?
-    /// A press that began over the backdrop (not on a pane or a control), held down: the scene's button.
-    private var sceneButtonDown = false
-    private var pressMonitor: Any?
-    /// Seconds spent in the scene's evaluate since shown, and the last call's microseconds (the
-    /// wallpaper-cost bench's Rust evaluate number).
-    private(set) var evaluateSeconds: Double = 0
-    private var lastEvaluateMicros: Double = 0
 
     /// A view that builds its programs in `programs` (the app's, ``BackdropImageStore/livePrograms``).
     public init(frame frameRect: NSRect, programs: LiveWallpaperPrograms) {
@@ -142,21 +111,12 @@ public final class BackdropLiveView: NSView {
         self.wallpaper = wallpaper
         isHidden = wallpaper == nil
         (hasFrame, time, frameNumber, strikes, gpuSeconds, framesDrawn) = (false, 0, 0, 0, 0, 0)
-        (evaluateSeconds, lastEvaluateMicros, lastGPUMilliseconds) = (0, 0, 0)
         scale = wallpaper?.scale ?? 1
         lastActivity = CACurrentMediaTime()
         cmux_wallpaper_pointer_reset(&pointer)
         cmux_wallpaper_trail_reset(&trail)
-        // A scene gets a player of its own (a fresh physics world); the badge is drawn again for it.
-        scene = wallpaper?.makeScenePlayer()
-        sceneBlock = []
-        sceneButtonDown = false
-        badgeLoad?.cancel()
-        (badgeLoad, badgeImage, badgeKey) = (nil, nil, nil)
         updateTracking()
         updateKeyMonitor()
-        updatePressMonitor()
-        refreshBadge()
         guard let wallpaper else { return stopCoverage() }
         // task-owner: one program load per shown wallpaper; a new show cancels it
         pipelineLoad = Task { [weak self, programs] in
@@ -175,30 +135,7 @@ public final class BackdropLiveView: NSView {
         guard fresh != colors else { return }
         colors = fresh
         hasFrame = false
-        refreshBadge()
         noteActivity()
-    }
-
-    /// Draws the scene's badge (the person's picture or initials, and name) in the theme's colors
-    /// off the main thread and uploads it once; a held scene that is seen draws once with it. Nothing
-    /// for a scene without an image slot or a program wallpaper.
-    private func refreshBadge() {
-        guard let scene, scene.hasImage, window != nil else { return }
-        let palette = colors ?? LiveWallpaperColors(themeTokens)
-        let key = "\(badgeIdentity.key)|\(palette.key)"
-        guard key != badgeKey else { return }
-        badgeKey = key
-        badgeLoad?.cancel()
-        let badge = LiveWallpaperBadge(identity: badgeIdentity, colors: palette)
-        let shown = wallpaper
-        // task-owner: one badge draw per shown scene, identity and colors; a newer one cancels it
-        badgeLoad = Task { [weak self] in
-            let image = await badge.sceneImage()
-            guard !Task.isCancelled, let self, self.wallpaper == shown, self.badgeKey == key else { return }
-            self.badgeImage = image
-            self.hasFrame = false
-            self.update()
-        }
     }
 
     // MARK: The scheduler
@@ -253,8 +190,6 @@ public final class BackdropLiveView: NSView {
         input.interactive = wallpaper.interactive
         input.idle_after_s = wallpaper.idleAfter
         input.has_frame = hasFrame
-        // A scene with nothing moving holds at rest; a press wakes it (``feedScene(press:)``).
-        input.at_rest = scene?.atRest ?? false
         return input
     }
 
@@ -295,35 +230,15 @@ public final class BackdropLiveView: NSView {
         drawFrame(at: CACurrentMediaTime())
     }
 
-    /// Draws one frame now: the pointer stepped to `now`, the uniform packed (and a scene's block),
-    /// the encode queued.
-    // perf-hot: 1ms live-wallpaper-frame (the per-frame draw on the main thread: no wait, no allocation but the uniform and a scene's block)
+    /// Draws one frame now: the pointer stepped to `now`, the uniform packed, the encode queued.
+    // perf-hot: 1ms live-wallpaper-frame (the per-frame draw on the main thread: no wait, no allocation but the uniform)
     private func drawFrame(at now: CFTimeInterval) {
-        guard let pipeline, let renderer, let frame = makeFrame(at: now) else { return }
-        var sceneInputs: LiveWallpaperSceneInputs?
-        if scene != nil {
-            guard evaluateScene(frame, now: now) else { return }
-            sceneInputs = LiveWallpaperSceneInputs(block: sceneBlock, image: badgeImage)
-        }
-        let size = CGSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
-        let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), scene: sceneInputs, pipeline: pipeline, drawableSize: size) { [weak self] milliseconds in
-            MainDelivery().run { self?.frameCompleted(milliseconds) }
-        }
-        // The last frame is still on the GPU: this tick draws nothing, and time does not move.
-        guard drawn else { return }
-        time += frame.delta
-        frameNumber += 1
-        hasFrame = true
-        lastFrameAt = link == nil ? nil : now
-        framesDrawn += 1
-    }
-
-    /// The frame for `now`: the pointer stepped to it, time continued from the last drawn frame (a
-    /// frame after a hold continues from where the last one stopped). Nil without a wallpaper or window.
-    private func makeFrame(at now: CFTimeInterval) -> LiveWallpaperFrame? {
-        guard let wallpaper, let window else { return nil }
+        guard let wallpaper, let pipeline, let renderer, let window else { return }
         let backing = Float(window.backingScaleFactor)
         let pixelsPerPoint = backing * scale
+        let width = max(1, (Float(bounds.width) * pixelsPerPoint).rounded())
+        let height = max(1, (Float(bounds.height) * pixelsPerPoint).rounded())
+        // A frame after a hold continues from where the last one stopped.
         let delta = lastFrameAt.map { Float(min(max(now - $0, 0), 0.25)) } ?? 0
         cmux_wallpaper_pointer_advance(&pointer, now)
         let palette = colors ?? LiveWallpaperColors(themeTokens)
@@ -332,8 +247,8 @@ public final class BackdropLiveView: NSView {
         frame.time = time + delta
         frame.delta = delta
         frame.number = frameNumber
-        frame.width = max(1, (Float(bounds.width) * pixelsPerPoint).rounded())
-        frame.height = max(1, (Float(bounds.height) * pixelsPerPoint).rounded())
+        frame.width = width
+        frame.height = height
         frame.pixelsPerPoint = pixelsPerPoint
         frame.seed = seed
         // The pointer is kept in backing pixels; the program sees rendered pixels.
@@ -341,41 +256,24 @@ public final class BackdropLiveView: NSView {
         frame.velocity = SIMD2(pointer.vx, pointer.vy) * scale
         frame.presence = pointer.presence
         frame.sinceMoved = cmux_wallpaper_pointer_since_moved(&pointer, now)
-        // A scene's button is a press that began over the backdrop, never one on a pane.
-        frame.buttonDown = scene != nil ? sceneButtonDown : pointer.inside && NSEvent.pressedMouseButtons != 0
+        frame.buttonDown = pointer.inside && NSEvent.pressedMouseButtons != 0
         frame.params = wallpaper.params
-        return frame
-    }
-
-    /// Steps the scene's physics to `now` (the pointer's monotonic clock) with `frame`'s pointer and
-    /// button, and packs its block into ``sceneBlock``, timing the call.
-    // perf-hot: 50us scene-evaluate (every drawn motion scene frame, each press and release, and each move while it rests)
-    private func evaluateScene(_ frame: LiveWallpaperFrame, now: CFTimeInterval) -> Bool {
-        guard let scene else { return false }
-        let start = CACurrentMediaTime()
-        let evaluated = scene.evaluate(frame, now: now, into: &sceneBlock)
-        let spent = CACurrentMediaTime() - start
-        evaluateSeconds += spent
-        lastEvaluateMicros = spent * 1_000_000
-        return evaluated
-    }
-
-    /// Pointer input for a scene, with no draw: a press or a release is stepped in at once (the
-    /// physics sees the button's edges only through evaluate, so a click between two frames is not
-    /// missed, and a press on a draggable body wakes it); a move only while the scene is held at
-    /// rest (a running scene gets it with the next frame). The caller then asks the scheduler again.
-    /// One evaluate per event, and nothing while no input comes.
-    private func feedScene(press: Bool) {
-        guard scene != nil, press || (link == nil && decision.hold_reason == HoldReason.atRest) else { return }
-        let now = CACurrentMediaTime()
-        guard let frame = makeFrame(at: now) else { return }
-        _ = evaluateScene(frame, now: now)
+        let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), pipeline: pipeline, drawableSize: CGSize(width: CGFloat(width), height: CGFloat(height))) {
+            [weak self] milliseconds in
+            MainDelivery().run { self?.frameCompleted(milliseconds) }
+        }
+        // The last frame is still on the GPU: this tick draws nothing, and time does not move.
+        guard drawn else { return }
+        time += delta
+        frameNumber += 1
+        hasFrame = true
+        lastFrameAt = link == nil ? nil : now
+        framesDrawn += 1
     }
 
     /// A frame's GPU time: three over 4 ms in a row halve the scale at the next ask.
     private func frameCompleted(_ milliseconds: Double?) {
         guard let milliseconds else { return }
-        lastGPUMilliseconds = milliseconds
         gpuSeconds += milliseconds / 1000
         strikes = cmux_wallpaper_gpu_strikes(strikes, Float(milliseconds))
     }
@@ -406,9 +304,8 @@ public final class BackdropLiveView: NSView {
     }
 
     /// The pointer over the window, in backing pixels from the top left; it wakes an idle
-    /// interactive wallpaper. `press`: a scene's press or release (``scenePress(_:)``), stepped into the
-    /// scene at once, after which a held wallpaper asks the scheduler again (a press on the badge wakes it).
-    private func pointerMoved(_ event: NSEvent, press: Bool = false) {
+    /// interactive wallpaper.
+    private func pointerMoved(_ event: NSEvent) {
         guard let wallpaper, let window else { return }
         let point = convert(event.locationInWindow, from: nil)
         let backing = Float(window.backingScaleFactor)
@@ -417,51 +314,7 @@ public final class BackdropLiveView: NSView {
         cmux_wallpaper_pointer_update(&pointer, x, y, now)
         cmux_wallpaper_trail_update(&trail, x, y, now)
         lastPointerMove = now
-        feedScene(press: press)
-        if link == nil, wallpaper.interactive || press { update() }
-    }
-
-    /// Watches presses for a scene (a drag of its badge): a local monitor that hands every event on
-    /// unchanged, installed only while a scene shows in a window.
-    private func updatePressMonitor() {
-        let wanted = scene != nil && window != nil
-        if wanted, pressMonitor == nil {
-            pressMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
-                self?.scenePress(event)
-                return event
-            }
-        } else if !wanted, let monitor = pressMonitor {
-            NSEvent.removeMonitor(monitor)
-            pressMonitor = nil
-            sceneButtonDown = false
-        }
-    }
-
-    /// A press, drag or release in this window: the scene's button goes down only for a press over the
-    /// backdrop itself, and its drag moves the pointer (a tracking area sends no moves while a button is down).
-    private func scenePress(_ event: NSEvent) {
-        guard scene != nil, let window, event.window === window else { return }
-        switch event.type {
-        case .leftMouseDown:
-            guard pressReachesBackdrop(event, in: window) else { return }
-            sceneButtonDown = true
-        case .leftMouseUp:
-            guard sceneButtonDown else { return }
-            sceneButtonDown = false
-        default:
-            guard sceneButtonDown else { return }
-        }
-        pointerMoved(event, press: event.type != .leftMouseDragged)
-    }
-
-    /// Whether a press lands where the backdrop shows: the deepest view under it is no control and
-    /// takes no first responder (a terminal, a page, a field or a button does). The press still goes to
-    /// that view; this only decides whether the scene sees it too.
-    private func pressReachesBackdrop(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard let content = window.contentView else { return false }
-        let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-        guard let hit = content.hitTest(point) else { return true }
-        return !(hit is NSControl) && !hit.acceptsFirstResponder
+        if link == nil, wallpaper.interactive { update() }
     }
 
     /// A key press in this window or a window it owns (a page, a panel) is activity.
@@ -520,10 +373,8 @@ public final class BackdropLiveView: NSView {
         super.viewDidMoveToWindow()
         signals.watch(window)
         stopLink()
-        sceneButtonDown = false
         updateTracking()
         updateKeyMonitor()
-        updatePressMonitor()
         guard window != nil else { return stopCoverage() }
         colors = nil
         hasFrame = false
@@ -578,35 +429,21 @@ public final class BackdropLiveView: NSView {
 
     /// What the view does now: `live` (the wallpaper id), `live_state` (`run` or `hold:<reason>`),
     /// `live_fps`, `live_scale`, `live_frames`, `live_gpu_s` (GPU seconds since shown),
-    /// `live_strikes` and `live_pointer_settled`; empty with no wallpaper. The cost bench's per-frame
-    /// numbers: `live_gpu_ms` (the last frame's GPU milliseconds), and for a motion scene `live_scene`
-    /// ("true"), `live_at_rest`, `live_eval_us` (the last Rust evaluate, microseconds) and `live_eval_s`
-    /// (evaluate seconds since shown; over `live_frames` it is the mean).
+    /// `live_strikes` and `live_pointer_settled`; empty with no wallpaper.
     var debugState: [String: String] {
         guard let wallpaper else { return [:] }
         let state = link != nil ? "run" : "hold:\(HoldReason.name(decision.hold_reason))"
-        var values = ["live": wallpaper.id, "live_state": pipeline == nil ? "loading" : state, "live_fps": String(linkFPS),
-                      "live_scale": String(scale), "live_frames": String(framesDrawn), "live_gpu_s": String(format: "%.4f", gpuSeconds),
-                      "live_gpu_ms": String(format: "%.3f", lastGPUMilliseconds), "live_strikes": String(strikes),
-                      "live_pointer_settled": cmux_wallpaper_pointer_settled(&pointer) ? "true" : "false"]
-        if let scene {
-            values["live_scene"] = "true"
-            values["live_at_rest"] = scene.atRest ? "true" : "false"
-            values["live_eval_us"] = String(format: "%.1f", lastEvaluateMicros)
-            values["live_eval_s"] = String(format: "%.6f", evaluateSeconds)
-            values["live_badge"] = scene.hasImage ? (badgeImage == nil ? "loading" : "shown") : "none"
-        }
-        return values
+        return ["live": wallpaper.id, "live_state": pipeline == nil ? "loading" : state, "live_fps": String(linkFPS),
+                "live_scale": String(scale), "live_frames": String(framesDrawn), "live_gpu_s": String(format: "%.4f", gpuSeconds),
+                "live_strikes": String(strikes), "live_pointer_settled": cmux_wallpaper_pointer_settled(&pointer) ? "true" : "false"]
     }
 }
 
 /// The scheduler's hold reasons (`CmuxWallpaperDecision.hold_reason`).
 private nonisolated enum HoldReason {
     static let covered: UInt8 = 2
-    /// A motion scene at rest.
-    static let atRest: UInt8 = 13
     private static let names = ["", "occluded", "covered", "minimized", "app-hidden", "screens-asleep", "session-inactive",
-                                "low-power", "thermal", "reduce-motion", "animations-off", "too-heavy", "idle", "at-rest"]
+                                "low-power", "thermal", "reduce-motion", "animations-off", "too-heavy", "idle"]
 
     static func name(_ reason: UInt8) -> String {
         Int(reason) < names.count ? names[Int(reason)] : String(reason)

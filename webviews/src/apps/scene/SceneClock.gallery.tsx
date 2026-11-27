@@ -44,16 +44,8 @@ function roundedTime(): Node {
     text("November 16", { font: 15, weight: "semibold", fontDesign: "rounded", color: "secondary" }),
     node("Spacer"),
     node("HStack", { alignment: "firstTextBaseline", spacing: 2 }, [
-      // Sized to a small tile's 138 pt content width: 9:41 and AM side by side, never wrapped.
-      text("9:41", { font: 44, weight: "heavy", fontDesign: "rounded", lineLimit: 1, fixedSize: "horizontal" }),
-      text("AM", {
-        font: 17,
-        weight: "bold",
-        fontDesign: "rounded",
-        color: "secondary",
-        lineLimit: 1,
-        fixedSize: "horizontal",
-      }),
+      text("9:41", { font: 56, weight: "heavy", fontDesign: "rounded", lineLimit: 1, fixedSize: "horizontal" }),
+      text("AM", { font: 17, weight: "bold", fontDesign: "rounded", color: "secondary" }),
     ]),
   ]);
 }
@@ -65,8 +57,7 @@ function ticking(): Node {
     text("", {
       date: now,
       dateStyle: "time",
-      font: 28,
-      lineLimit: 1,
+      font: 34,
       weight: "heavy",
       fontDesign: "rounded",
       contentTransition: "numericText",
@@ -145,13 +136,11 @@ function bar(): Node {
 /** Apple's large Calendar day: an hour grid, two overlapping events sharing the width and the now
  * line, every one placed on the grid with ZStack `position` (the SDK's Timeline draws the same). */
 function calendarDay(): Node {
-  const [start, end, hourHeight, labelWidth, width] = [8, 13, 52, 40, 332];
+  const [start, end, hourHeight, labelWidth, width] = [8, 13, 52, 34, 332];
   const grid = width - labelWidth;
   const y = (hour: number) => (hour - start) * hourHeight;
   const rows = Array.from({ length: end - start + 1 }, (_, i) =>
-    // The row and its Line take the grid's width: a frameless Line is its parent's width, and a row
-    // that only wraps its content would leave it none (and squeeze the hour label out).
-    node("HStack", { spacing: 4, alignment: "top", frame: { width, height: i === end - start ? 1 : hourHeight } }, [
+    node("HStack", { spacing: 4, alignment: "top", frame: { height: i === end - start ? 1 : hourHeight } }, [
       text(`${(start + i) % 12 || 12} ${start + i < 12 ? "AM" : "PM"}`, {
         font: 11,
         color: "tertiary",
@@ -159,7 +148,7 @@ function calendarDay(): Node {
         frame: { width: labelWidth - 4 },
         offset: { y: -6 },
       }),
-      node("Line", { stroke: "separator", frame: { width: grid } }),
+      node("Line", { stroke: "separator" }),
     ]),
   );
   const event = (title: string, from: number, to: number, lane: number, lanes: number, tint: string) => {
@@ -177,10 +166,7 @@ function calendarDay(): Node {
       },
       [
         text(title, { font: 11, weight: "semibold", color: tint, lineLimit: 1 }),
-        text(`${Math.floor(from)}:${String(Math.round((from % 1) * 60)).padStart(2, "0")}`, {
-          font: 11,
-          color: "secondary",
-        }),
+        text(`${from}:00`, { font: 11, color: "secondary" }),
       ],
     );
   };

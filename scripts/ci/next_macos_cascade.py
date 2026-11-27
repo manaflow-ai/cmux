@@ -261,7 +261,7 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
 
 # The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-26.6 had 76 jobs
 # queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
-# Only a cmux-next.yml pull_request run, or a dispatch gating one, honors it (pr_rescue()): its placement takes Blacksmith macOS once the
+# Only a cmux-next.yml pull_request run honors it (pr_rescue()): its placement takes Blacksmith macOS once the
 # owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
 # MAX_PER_RUN caps as `on`. A re-run attempt takes Blacksmith only through that placement's retry label, which is
 # empty for a dead or stalled label (cmux#44966: a plain vars.MACOS_RUNNER_26 fallback queued re-runs on a label with
@@ -270,24 +270,12 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
 PR_RESCUE = "pr-rescue"
 RESCUE_ROUTE_MINUTES = 45.0
 RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"
-# cmux-next.yml's placement step sets this to `true` for a workflow_dispatch that gates a pull request (a pull
-# request's same-tree run or a dispatch on its branch: same_tree_origin empty or `pull_request`, and none of
-# dev_daily, tip_swift_suite, tip_daemon_suite, base_tier or no_reuse). pr_rescue() treats it as its pull request's
-# run. cmux#44673 sent such a dispatch's bot re-run off the side lane through every owned fallback; cmux#45176 cut
-# that clause so re-runs reach Blacksmith only through placement, and placement honored pull_request runs only, so
-# the dispatch kept the side lane again (cmux#44529's scheme compile, run 43879624016, cmuxterm-hq#12109).
-# owned_pool_rescue.stall_moves_dispatch() (main) reads this name in the head's cmux-next.yml before it stall-moves
-# such a dispatch.
-PULL_DISPATCH = "CMUX_NEXT_PULL_DISPATCH"
 
 
 def pr_rescue(env: Mapping[str, str]) -> bool:
-    """Whether this is a cmux-next.yml pull_request run, or a dispatch gating one (PULL_DISPATCH), with
-    BLACKSMITH_SWITCH set to PR_RESCUE."""
-    event = env.get("GITHUB_EVENT_NAME")
+    """Whether this is a cmux-next.yml pull_request run with BLACKSMITH_SWITCH set to PR_RESCUE."""
     return ((env.get(BLACKSMITH_SWITCH) or "").strip() == PR_RESCUE
-            and (event == "pull_request"
-                 or event == "workflow_dispatch" and (env.get(PULL_DISPATCH) or "").strip() == "true")
+            and env.get("GITHUB_EVENT_NAME") == "pull_request"
             and RESCUE_WORKFLOW in (env.get("GITHUB_WORKFLOW_REF") or ""))
 
 

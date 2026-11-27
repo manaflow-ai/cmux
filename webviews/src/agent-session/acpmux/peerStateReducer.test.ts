@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { environmentReady } from "./environments";
 import { PeerStateEvents } from "./peerStateEvents";
 
 const initialized = (origin = "local", features = ["peerStateEvents"]) => ({ _meta: { acpmux: { origin, features } } });
@@ -17,15 +16,6 @@ function fixture() {
   return events;
 }
 const peer = (events: PeerStateEvents) => Object.fromEntries(events.entries())["studio-mac"];
-
-test("an idle machine stays pickable through an authoritative snapshot", () => {
-  const events = fixture();
-  const read = events.readStarted();
-  events.snapshot({ peers: [{ name: "studio-mac", state: "idle", link: "idle", connected: false }] }, read);
-  const observed = peer(events)!;
-  expect(observed).toMatchObject({ state: "idle", connected: false });
-  expect(environmentReady({ id: "studio-mac", label: "Studio", kind: "ssh", ...observed })).toBe(true);
-});
 
 test("nullable and absent metadata clear a prior observation when the consumer overlays it", () => {
   const events = fixture();

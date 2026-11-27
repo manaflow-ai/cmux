@@ -111,9 +111,7 @@ test("a reconnect of a signed-in page asks for the list with the account read to
     expect(store.getSnapshot().auth?.signedIn).toBe(true);
     provider.hold();
     const before = provider.asked(CloudOps.machineList);
-    // A reconnect is a fresh session that keeps what the page shows (`readAgainLater`: stop, then start).
-    store.stop();
-    void store.start();
+    void store.retry();
     await settle();
     expect(provider.asked(CloudOps.machineList)).toBe(before + 1);
     provider.answer();

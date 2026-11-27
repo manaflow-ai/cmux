@@ -43,7 +43,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Feature checklist
 
-62 features: 25 matched, 30 partial, 7 missing.
+61 features: 24 matched, 30 partial, 7 missing.
 
 | Feature | Status | How, or the gap |
 | --- | --- | --- |
@@ -88,7 +88,6 @@ Shift-Command-F (find) are cmux's defaults already.
 | Edit an earlier prompt, quote a response, suggested next prompt | matched | Edit a prompt, quote a reply, suggested next prompt. |
 | Voice dictation (mod+shift+D) | matched | Shift-Command-D (`palette.toggleDictation`); `agentPane.showDictation`. |
 | Centered empty-thread composer (draft hero) | matched | `agentPane.emptyChatComposerPosition` `center`. |
-| Composer placeholder 'Ask for changes, send follow-ups, or attach images' | matched | `agentPane.composerPlaceholder`. |
 | Model picker with provider rail, keyboard nav, custom models | partial | Shift-Command-M; the look's `cmux.composer.model.picker/1` view adds model search; `agentPane.composerLook` `studio`. Gap: no left provider rail with arrow-key provider switching. |
 | Reasoning effort picker, plus bindable increase/decrease effort | partial | Shift-Command-E opens effort. Gap: no increase or decrease effort action. |
 | Change model or provider mid-thread (hand a Claude thread to Codex) | matched | Switch the harness or model inside a chat. |
@@ -109,7 +108,6 @@ Shift-Command-F (find) are cmux's defaults already.
 | Remote access from phone and web clients | partial | The iPhone app, remote control and cloud machines. Gap: no browser client served by the desktop app. |
 | Notifications when a thread finishes or needs input | matched | Notifications on finish and on permission asks; Shift-Command-U jumps to unread. |
 | Hover card for threads | matched | The look's `cmux.hovercard/1` view. |
-| Proportions: sidebar type size and thread column width | matched | `appearance.metrics.chromeFontSize` 12 (the app's 12 px sidebar rows; was the density default) and `agentPane.display.width` 768 (the app's max-w-3xl column; was 736). Needs a recapture to confirm. |
 
 ## Motion checklist
 

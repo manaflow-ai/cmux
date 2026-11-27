@@ -55,19 +55,6 @@ public final class PresenceListener {
     static let pingTimeout: Duration = .seconds(5)
     static let helloTimeout: Duration = .seconds(10)
 
-    /// The socket's retry after `failures` failures in a row: 2 s, 3 s, then every 5 s
-    /// for about five minutes, then the poll interval. Its hello after an outage is what
-    /// tells the links the network is back when iOS reports no path change, so it
-    /// retries as often as the links do (was 2, 4, 8, then 20 s).
-    static func retryDelay(afterFailures failures: Int) -> Duration {
-        switch failures {
-        case ..<2: .seconds(2)
-        case 2: .seconds(3)
-        case ..<60: .seconds(5)
-        default: pollInterval
-        }
-    }
-
     public convenience init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
                 onUpdate: @escaping @MainActor (Update) -> Void) {
         self.init(clock: clock,
@@ -234,7 +221,7 @@ public final class PresenceListener {
         onUpdate(.connected(false))
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1
-        let delay = Self.retryDelay(afterFailures: failures)
+        let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
         if backgrounded {
             task = timer(after: delay, generation: recoveryGeneration) { listener in
                 listener.connect()

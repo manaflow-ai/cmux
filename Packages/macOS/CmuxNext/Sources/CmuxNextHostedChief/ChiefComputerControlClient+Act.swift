@@ -24,7 +24,6 @@ extension ChiefComputerControlClient {
         guard let key = HomeChiefComputerRoute.localKey(chief), Self.actOps.contains(op) else {
             return .refused(String(localized: "cloud.chiefComputer.invalid", defaultValue: "Name the Chief's computer (chief:<id>) and one of its ops.", table: "HostedChief", bundle: .localizedModule))
         }
-        // main-actor-ok: one tool call's args (an op's point, keys, a line of text or a URL).
         let args = invocation["args"]?.stringValue.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         let body = args.merging(["op": op]) { _, new in new }
         return .applied(result: {

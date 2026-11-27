@@ -43,7 +43,7 @@ extension ScreenContentView {
         if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
-        if !moving { holdsContentForKeyResize = false; releaseLanding = false }
+        if !moving { holdsContentForKeyResize = false }
         // The motion landed with no drag left: the pane views post again.
         if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
@@ -85,11 +85,6 @@ extension ScreenContentView {
     /// The spring a pane or divider frame moves on: a keyboard resize press, the one layout change whose frames spring
     /// (`reconcile`). A structural change is one commit and springs nothing.
     static let frameSpring = MotionSpring.move
-    /// The spring a divider's release lands on (instant-splits gap row 4): the fixed motion length D every transition
-    /// moves on (`split`, about 100 ms), not `move`'s 166 ms, so a released drag settles inside the split budget.
-    static let releaseSpring = MotionSpring.split
-    /// The spring the frames move on now: the release's while a released divider lands (``releaseLanding``).
-    var currentFrameSpring: MotionSpring { releaseLanding ? Self.releaseSpring : Self.frameSpring }
 
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
@@ -97,7 +92,7 @@ extension ScreenContentView {
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
-        let frameSpring = policy.spring(currentFrameSpring), appear = policy.spring(.appear)
+        let frameSpring = policy.spring(Self.frameSpring), appear = policy.spring(.appear)
         // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
         // `Dictionary.subscript._modify`, whose coroutine frame the runtime allocates on the heap, one per spring.
         let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)

@@ -24,7 +24,6 @@ mod tests;
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "OPENAI_API_KEY",
@@ -44,12 +43,6 @@ const AUTH_ENV: &[&str] = &[
 enum Reader {
     /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
-    /// Claude Code's `settings.json`: the login and endpoint its `env` sets (`ANTHROPIC_API_KEY` from
-    /// `agent_login`'s api_key, an `ANTHROPIC_BASE_URL` gateway) and its `apiKeyHelper`. Claude reads
-    /// them at start, so a spare started before they changed talks to the old endpoint or login (a
-    /// Cloud machine pointed at a model gateway got a 401 from the spare warmed a moment before).
-    /// Not an account: it changes the key, never the account fingerprint.
-    ClaudeSettings,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
     /// OpenCode `auth.json`: each provider's type, account and key.
@@ -79,12 +72,8 @@ fn files(
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
             };
-            let store = dir.unwrap_or_else(|| home.join(".claude"));
-            vec![
-                (account, Reader::ClaudeAccount),
-                (store.join(".credentials.json"), Reader::Stat),
-                (store.join("settings.json"), Reader::ClaudeSettings),
-            ]
+            let creds = dir.unwrap_or_else(|| home.join(".claude")).join(".credentials.json");
+            vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
         }
         "codex" => {
             let dir = env("CODEX_HOME")
@@ -172,7 +161,7 @@ impl AuthCache {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
-            if !matches!(reader, Reader::Stat | Reader::ClaudeSettings) && part != 0 {
+            if reader != Reader::Stat && part != 0 {
                 named = true;
                 part.hash(&mut account);
             }
@@ -227,20 +216,6 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
                 s(&v, "/primaryApiKey"),
             )
                 .hash(&mut h);
-        }
-        Reader::ClaudeSettings => {
-            const KEYS: [&str; 6] = [
-                "ANTHROPIC_API_KEY",
-                "ANTHROPIC_AUTH_TOKEN",
-                "ANTHROPIC_BASE_URL",
-                "CLAUDE_CODE_OAUTH_TOKEN",
-                "CLAUDE_CODE_USE_BEDROCK",
-                "CLAUDE_CODE_USE_VERTEX",
-            ];
-            for k in KEYS {
-                s(&v, &format!("/env/{k}")).hash(&mut h);
-            }
-            s(&v, "/apiKeyHelper").hash(&mut h);
         }
         Reader::CodexAuth => {
             (s(&v, "/auth_mode"), s(&v, "/tokens/account_id"), s(&v, "/OPENAI_API_KEY"))

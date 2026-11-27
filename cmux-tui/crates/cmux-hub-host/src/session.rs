@@ -514,11 +514,7 @@ fn signed(kind: &str, sdp: &str, session: &str, hub: &Hub) -> Res<String> {
 
 /// The setup line `cmux-rd serve` reads first (the Mac's `Setup`).
 pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value {
-    let (stun, relays) = rd_doc::servers(&ticket.ice);
-    // `turn` stays UDP only, as every `cmux-rd serve` reads it; the TCP and TLS relays
-    // ride beside it in `turn_stream` for a link that can reach a relay without UDP.
-    let turn = rd_doc::udp_only(&relays);
-    let turn_stream: Vec<_> = relays.iter().filter(|t| !t.transport.is_udp()).collect();
+    let (stun, turn) = rd_doc::servers(&ticket.ice);
     json!({
         "session": ticket.session_id,
         "peer_key": offer.key,
@@ -526,7 +522,6 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         "scope": if view_only { "view" } else { "control" },
         "stun": stun,
         "turn": turn,
-        "turn_stream": turn_stream,
         "display": match (offer.display_id, offer.display) {
             (Some(id), _) => format!("id:{id}"),
             (None, Some(d)) => d.to_string(),
@@ -636,28 +631,6 @@ mod tests {
         for code in [1001, 1005, 1006, 1011, 1012, 1013, 1014] {
             assert!(!close_ends_session(code), "{code} is signaling loss");
         }
-    }
-
-    #[test]
-    fn setup_line_keeps_turn_udp_and_carries_tcp_and_tls_relays_beside_it() {
-        let mut p = push("host", "s1", "KEY");
-        p["ice"] = json!([{
-            "urls": ["turns:t.example:443?transport=tcp", "turn:t.example:3478",
-                     "turn:t.example:80?transport=tcp"],
-            "username": "u", "credential": "p"
-        }]);
-        let line = setup_line(&Ticket::from_push(&p).unwrap(), &RdDocument::default(), false);
-        assert_eq!(
-            line["turn"],
-            json!([{"addr": "t.example:3478", "username": "u", "password": "p"}])
-        );
-        assert_eq!(
-            line["turn_stream"],
-            json!([
-                {"addr": "t.example:80", "username": "u", "password": "p", "transport": "tcp"},
-                {"addr": "t.example:443", "username": "u", "password": "p", "transport": "tls"}
-            ])
-        );
     }
 
     #[test]

@@ -16,10 +16,5 @@ public enum VisibleRowsBaseline {
     public static let knownFailures: [String: Known] = [
         "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
             + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
-        "sidebar chats": Known("the page draws a row for every chat in its block: rows alive grow until the page windows "
-            + "against the slice (macOS SidebarChatHistoryHost streams cmux.page.visibleSlice; fix: visible-only-pages)"),
-        "sidebar priority": Known("draws only the rows in view, but each change hands the whole ranked list, which the panel "
-            + "compares and reindexes (two cheap passes over every chat; macOS SidebarPriorityPanelView.show; fix: a row patch "
-            + "from SidebarPriorityFeed, visible-only-macos-lists)", only: "items walked"),
     ]
 }

@@ -1492,11 +1492,6 @@ def asc_findings(path: Path) -> list[dict]:
             # 45615832158 read 1.0.0 WAITING_FOR_REVIEW as one, so readiness
             # stayed red for the whole review.
             blocking = False
-        where = str(c.get("resource") or c.get("resourceId") or "")
-        if where in RETIRED_SUBSCRIPTIONS and code.startswith("subscriptions."):
-            # A retired subscription App Store Connect cannot delete is never
-            # sold, so nothing on it blocks a review (RETIRED_SUBSCRIPTIONS).
-            blocking = False
         finding = {
             "rule": f"asc.{code or 'check'}",
             "guideline": guideline_for_asc(code),
@@ -1515,15 +1510,6 @@ def asc_findings(path: Path) -> list[dict]:
 
 
 ASC_EDITABLE = "version.state.editable"
-# Subscriptions on the App Store record that are retired: App Store Connect
-# cannot delete a subscription, these are never sold (no paywall offers them),
-# so asc's findings on them (no promotional image, READY_TO_SUBMIT) are notes,
-# never blockers. Run 45748224089 counted two such blockers on the trial.
-# cmux-next-ios/AppStoreReview/subscriptions/records.json lists the same ids
-# under "retired", and asc_subscription_records.py never writes them.
-RETIRED_SUBSCRIPTIONS = {
-    "6822947304": "com.cmux.app.pro.trial.monthly",
-}
 # A version in one of these states is submitted: Apple has it, nothing on it
 # can be edited, and asc's editable-state check only says so.
 SUBMITTED_STATES = frozenset({

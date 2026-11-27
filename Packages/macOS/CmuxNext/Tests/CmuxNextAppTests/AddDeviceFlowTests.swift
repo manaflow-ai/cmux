@@ -232,24 +232,6 @@ import Testing
         #expect(listing.invites.map(\.id) == ["tk_1"])
     }
 
-    /// The CLI's newer fields (`pools`, a parked peer's `parked`) are not read here, and a listing
-    /// that carries them still parses.
-    @Test func aListingWithPoolsAndAParkedPeerParses() throws {
-        let json = """
-        {"network":{"kind":"tailscale","up":true},
-         "devices":[{"id":"peer:old-box","name":"old-box","kind":"computer","roles":["runs-agents"],"state":"offline",
-                     "via":[{"store":"peer","name":"old-box"}],"parked":true,
-                     "detail":"Not reachable for over a day; tried again hourly."}],
-         "available":[{"name":"studio","address":"studio.ts.net","os":"macOS","mine":true}],
-         "pools":[{"stem":"ci-linux-pool","count":3}],
-         "invites":[]}
-        """
-        let listing = try DeviceListing.parse(Data(json.utf8))
-        #expect(listing.devices.map(\.state) == ["offline"])
-        #expect(listing.devices.first?.detail == "Not reachable for over a day; tried again hourly.")
-        #expect(listing.available.map(\.name) == ["studio"])
-    }
-
     // MARK: - Settings > Devices
 
     final class FakeCLI {
@@ -297,23 +279,6 @@ import Testing
         let page = try #require(try JSONSerialization.jsonObject(with: directory.pageData(phones: [])) as? [String: Any])
         #expect(page["remove_confirm_title"] as? String == "Remove for Good")
         #expect((page["rows"] as? [[String: Any]])?.count == 2)
-    }
-
-    @Test func peerChangesShareOneSpacedReadAndEndOnTheLastState() async throws {
-        let cli = FakeCLI()
-        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) })
-        directory.peerReadEvery = .milliseconds(300)
-        let lists = { cli.calls.filter { $0 == ["device", "list", "--json"] }.count }
-        for _ in 0..<20 { directory.refreshForPeerChange() }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(lists() == 1, "a burst of peer changes starts one read")
-        for _ in 0..<20 { directory.refreshForPeerChange() }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(lists() == 1, "changes inside the window wait for the trailing read")
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(lists() == 2, "the trailing read runs once the window ends")
-        await directory.refresh()
-        #expect(lists() == 3, "a person's own refresh reads at once")
     }
 
     @Test func removeGoesThroughOnePathAndReadsAgain() async {

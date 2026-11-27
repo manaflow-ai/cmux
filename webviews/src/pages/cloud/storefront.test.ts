@@ -93,7 +93,7 @@ describe("Cloud storefront", () => {
     unsubscribe();
   });
 
-  test("a failed plan read is marked failed; the next read (the storefront asks on its own) clears it", async () => {
+  test("a failed plan read shows as failed, and Retry reads it again", async () => {
     const provider = new MockCloudProvider();
     provider.failNext = CloudOps.planGet;
     const { store, unsubscribe } = await started(provider);

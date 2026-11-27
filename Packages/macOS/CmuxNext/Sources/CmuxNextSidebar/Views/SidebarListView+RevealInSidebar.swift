@@ -22,6 +22,7 @@ extension SidebarListViewComponents {
                 if workspace.isArchived { folds.insert(list.of(.archived)) }
                 if workspace.taskStatus == .done { folds.insert(list.of(.done)) }
                 if model.settlesFinished, model.settledChats().contains(id) { folds.insert(list.of(.settled)) }
+                if model.automaticSessions().contains(id) { folds.insert(list.of(.automatic)) }
             }
             if !folds.isSubset(of: openDoneFolds) {
                 openDoneFolds.formUnion(folds)

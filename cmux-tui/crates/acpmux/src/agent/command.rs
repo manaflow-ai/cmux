@@ -81,9 +81,6 @@ pub(crate) async fn harness_command_ready(
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
 /// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
 pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
-/// Where `lane-gh` finds its broker's socket (its default: the `ssh -R` forward's `broker.sock`).
-#[cfg(unix)]
-const LANE_GH_SOCKET_ENV: &str = "LANE_GH_SOCKET";
 
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
@@ -319,15 +316,6 @@ fn build_harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::person_tokens::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
-        // RFD 0060 Weft move 3 (`laneGhCarrier`, off by default): lane-gh over the carrier forward
-        // this daemon holds, while one of its owners is healthy; a profile's own value wins.
-        #[cfg(unix)]
-        if let Some(socket) = crate::cli::host_broker_forward::healthy_held_socket()
-            && !cmd.as_std().get_envs().any(|(k, _)| k == LANE_GH_SOCKET_ENV)
-            && !env.contains_key(LANE_GH_SOCKET_ENV)
-        {
-            cmd.env(LANE_GH_SOCKET_ENV, socket);
-        }
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
         if let Some(bin) = crate::cli_caller::own_bin() {

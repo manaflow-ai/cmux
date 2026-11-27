@@ -420,13 +420,10 @@ public final class SettingsController {
     /// preferences and the active theme file. The launch awaits it before its first window and passes it to
     /// ``appliedAtLaunch(_:)``, so the main thread reads no settings file before its first frame.
     public static func startLaunchRead(buildDefaults: SettingsBuildDefaults) -> Task<LaunchRead, Never> {
-        let valid = validValues
+        let (valid, reader) = (validValues, ManagedPreferenceLocation.defaultReader())
         // concurrency-allow: the launch's settings file read runs detached, off the main actor, while AppKit starts.
-        // The managed reader is made there too: `defaultReader()` lists every published key, and its first use builds
-        // `SettingsSchema.all` (a lazy static, ~41 ms), which this call, in AppDelegate's init, paid on the main thread
-        // before the Dock stops bouncing (CMUX-631).
         return Task.detached(priority: .userInitiated) {
-            launchRead(file: CmuxConfigFile.launchFile(), managedReader: ManagedPreferenceLocation.defaultReader(), buildDefaults: buildDefaults, valid: valid)
+            launchRead(file: CmuxConfigFile.launchFile(), managedReader: reader, buildDefaults: buildDefaults, valid: valid)
         }
     }
 

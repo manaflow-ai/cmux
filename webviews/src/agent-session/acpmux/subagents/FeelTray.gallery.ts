@@ -9,9 +9,6 @@ import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 
-// These variants check the carded head's columns (icon, time, chevron); the one-line head (trayFoldHead
-// `line`, the default since Leo, 2026-11-25) draws none while tucked, so they pin the carded `groups` head.
-const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
 const HUGE =
   "Walk every surface that draws the hat (the bottom stack, a pinned chat, a split pane, the floating chat and the iPhone mirror) and check each keeps its height through a reload, a theme switch and a font size change";
 
@@ -66,16 +63,14 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/trayResize.ts"],
   variants: {
-    one: { experiments: CARD_HEAD, note: "One command.", play: opened, snapshot: snapshot(1) },
-    five: { experiments: CARD_HEAD, note: "Five commands.", play: opened, snapshot: snapshot(5) },
+    one: { note: "One command.", play: opened, snapshot: snapshot(1) },
+    five: { note: "Five commands.", play: opened, snapshot: snapshot(5) },
     fifty: {
-      experiments: CARD_HEAD,
       note: "Fifty commands: the list scrolls in place under the cap.",
       play: opened,
       snapshot: snapshot(50),
     },
     huge: {
-      experiments: CARD_HEAD,
       note: "Five commands of huge text: each cut at the row's edge.",
       play: opened,
       snapshot: snapshot(5, true),

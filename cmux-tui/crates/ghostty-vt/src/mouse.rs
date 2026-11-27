@@ -315,7 +315,7 @@ impl MouseEncoder {
         }
         let track_last_cell = true;
         unsafe {
-            sys::ghostty_mouse_encoder_set(
+            sys::ghostty_mouse_encoder_setopt(
                 encoder,
                 sys::GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL,
                 &track_last_cell as *const _ as *const c_void,
@@ -334,7 +334,7 @@ impl MouseEncoder {
     }
 
     fn sync_from_raw_terminal(&mut self, terminal: sys::GhosttyTerminal) {
-        unsafe { sys::ghostty_mouse_encoder_set_from_terminal(self.encoder, terminal) };
+        unsafe { sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal) };
     }
 
     /// Force the tracking mode to "normal" so a press encodes regardless of
@@ -343,7 +343,7 @@ impl MouseEncoder {
     fn force_normal_tracking(&mut self) {
         let tracking: sys::GhosttyMouseTrackingMode = sys::GHOSTTY_MOUSE_TRACKING_NORMAL;
         unsafe {
-            sys::ghostty_mouse_encoder_set(
+            sys::ghostty_mouse_encoder_setopt(
                 self.encoder,
                 sys::GHOSTTY_MOUSE_ENCODER_OPT_EVENT,
                 &tracking as *const _ as *const c_void,
@@ -387,14 +387,14 @@ impl MouseEncoder {
                     cell_height: cell_size.1,
                     ..Default::default()
                 };
-                sys::ghostty_mouse_encoder_set(
+                sys::ghostty_mouse_encoder_setopt(
                     self.encoder,
                     sys::GHOSTTY_MOUSE_ENCODER_OPT_SIZE,
                     &size as *const _ as *const c_void,
                 );
                 self.size = Some(size_key);
             }
-            sys::ghostty_mouse_encoder_set(
+            sys::ghostty_mouse_encoder_setopt(
                 self.encoder,
                 sys::GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED,
                 &input.any_button_pressed as *const _ as *const c_void,

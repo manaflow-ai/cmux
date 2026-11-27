@@ -36,28 +36,11 @@ import Testing
         #expect(HistoryRead(entries: [Self.closed], pending: [.agent]).status(HistoryQuery())?.id == "history.status.pending")
         // A search, too: its "No Results" would be wrong while the kind is not complete.
         #expect(HistoryRead(entries: [], pending: [.agent]).status(HistoryQuery(text: "zzz", kinds: [.agent]))?.id == "history.status.pending")
-        // An owner that did not answer is the stronger fact; the palette reads again by itself, with no Try Again.
+        // An owner that did not answer is the stronger fact (Try Again).
         #expect(HistoryRead(entries: [], unavailable: true, pending: [.agent]).status(agents)?.id == "history.status.unavailable")
-        let failed = try #require(HistoryRead(entries: [], unavailable: true).status(agents))
-        #expect(!HistoryPalettePages.statusItem(failed).isEnabled, "a failed read's row is no Try Again")
-        #expect(HistoryPalettePages.statusItem(failed).subtitle == nil, "and no hint that names one")
         // A complete list is as before.
         #expect(HistoryRead(entries: [Self.closed]).status(HistoryQuery()) == nil)
         #expect(HistoryRead(entries: []).status(HistoryQuery(kinds: [.closed]))?.id == "history.status.empty")
-    }
-
-    @Test func aFailedReadLooksStillLoadingInsideTheQuietBoundThenSaysItFailed() {
-        var now = ContinuousClock.now
-        let failing = HistoryFailingSince(now: { now })
-        let agents = HistoryQuery(kinds: [.agent])
-        let failed = HistoryRead(entries: [], unavailable: true)
-        #expect(failing.shown(failed, kinds: [.agent]).status(agents)?.id == "history.status.pending", "the first failure stays quiet")
-        now += .seconds(9)
-        #expect(failing.shown(failed, kinds: [.agent]).status(agents)?.id == "history.status.pending")
-        now += .seconds(1)
-        #expect(failing.shown(failed, kinds: [.agent]).status(agents)?.id == "history.status.unavailable", "past the bound it says so")
-        #expect(failing.shown(HistoryRead(entries: [Self.closed]), kinds: [.agent]).status(HistoryQuery()) == nil, "an answer ends the stretch")
-        #expect(failing.shown(failed, kinds: []).status(HistoryQuery())?.id == "history.status.pending", "a new stretch starts quiet")
     }
 
     /// The app's History owner as the page reaches it, answering `answer`.

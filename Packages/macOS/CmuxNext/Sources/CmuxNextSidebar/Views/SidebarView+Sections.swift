@@ -53,8 +53,6 @@ extension SidebarViewComponents {
             region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
-        // The launch stops waiting for the document (it came, or never will): the bands lay out again.
-        model.onAwaitsDocumentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
         SidebarPinDrops.install(self)
         // A Shift range runs from the tiles pinned above the list into its rows (#27701).
         list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
@@ -76,7 +74,6 @@ extension SidebarViewComponents {
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
         region.workspacePin = { [weak self] in self?.model.workspacePin }
-        region.onCloseWorkspace = { [weak self] id in self?.model.send(.close([id])) }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
@@ -167,9 +164,7 @@ extension SidebarViewComponents {
         let bottomApps = model.layout.appSections(in: .bottom, room: model.activeProfileID?.rawValue)
             .presenting(hidingItems: hidden, apps: apps) + (appSections?.providedSections ?? [])
         // Without the document the list draws no blocks: the apps after it take the band below it.
-        // A launch whose saved sidebar drew the document waits for its blocks (`awaitsDocument`): the apps after the
-        // list draw once, in the list, rather than in the band and then in the list.
-        let bandApps = (model.docDrag == nil && !model.awaitsDocument ? appsAfterList : []) + bottomApps
+        let bandApps = (model.docDrag == nil ? appsAfterList : []) + bottomApps
         belowRegion.update(content(bandApps), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.

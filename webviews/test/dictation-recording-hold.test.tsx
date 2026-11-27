@@ -4,8 +4,7 @@
 // drop shows (composer/attachmentIntake.tsx attachLater). A send made meanwhile (Return, the Send
 // button, dictation's auto-send) waits for it, as it waits for a file still being read, so the
 // recording is never lost from the prompt; its × lets the send go without it, and a failed upload
-// keeps the chip loading while the host is asked to make it again on its own, with no Retry (Leo,
-// 2026-11-22: "vacuous decisions like that should be just done"; composer/uploadRetry.ts). Leo, 2026-10-25: "Attachments take arbitrarily large
+// leaves the chip with its note and Retry. Leo, 2026-10-25: "Attachments take arbitrarily large
 // files of any type".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -14,7 +13,6 @@ import type { Root } from "react-dom/client";
 import { type ComposerAttachment, remoteRecordingAttachment } from "../src/agent-session/acpmux/attachments";
 import { useAttachmentIntake, useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { teardownDom } from "./support/domTeardown";
-import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;
@@ -145,24 +143,21 @@ test("the pending recording's x lets the waiting send go without it", async () =
   expect(intake.pending).toEqual([]);
 });
 
-test("a failed upload keeps the waiting send blocked with the chip loading; the answer asked again lets it go with the audio", async () => {
+test("a failed upload keeps the waiting send blocked with the failed chip; Retry's answer lets it go with the audio", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
   // The stager refuses the recording (Cloud's `upload_refused` at begin, a peer's `too_large`).
   await act(async () => host.refuse(Object.assign(new Error("refused"), { code: "upload_refused" })));
-  // The send does not go without its audio: it waits, and the chip keeps loading with why (its tile
-  // says "Still trying" once that lasts), never failed.
+  // The send does not go without its audio: it waits, and the chip says why, with Retry.
   expect(sent).toEqual([]);
-  expect(intake.pending).toMatchObject([{ name: "Recording.wav", retrying: FAILED }]);
-  expect(intake.pending[0]?.failed).toBeUndefined();
-  // A send pressed again meanwhile waits too.
+  expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
+  // A send pressed again while the chip shows its failure waits too.
   await act(async () => send());
   expect(sent).toEqual([]);
-  // The host is asked again on its own after the first backoff (0.5-1 s, autoRetry.ts); its answer
-  // becomes the chip, and the waiting send goes with it, once.
-  await until(() => host.asked.length >= 2, actTurn);
+  // Retry asks the host again; its answer becomes the chip, and the waiting send goes with it, once.
+  await act(async () => intake.retry(intake.pending[0]!.id));
   expect(host.asked).toHaveLength(2);
   expect(intake.pending[0]?.failed).toBeUndefined();
   expect(sent).toEqual([]);
@@ -171,20 +166,17 @@ test("a failed upload keeps the waiting send blocked with the chip loading; the 
   expect(sent).toEqual([[remote]]);
 });
 
-test("the failing recording's x lets the waiting send go with the text alone, and ends its asks", async () => {
+test("the failed recording's x lets the waiting send go with the text alone", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
   await act(async () => host.answer(null));
   expect(sent).toEqual([]);
-  expect(intake.pending).toMatchObject([{ name: "Recording.wav", retrying: FAILED }]);
+  expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
   await act(async () => intake.cancel(intake.pending[0]!.id));
   expect(sent).toEqual([[]]);
   expect(intake.pending).toEqual([]);
-  // fixed-wait: past the first backoff steps: the host is not asked again for a chip that left.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
-  expect(host.asked).toHaveLength(1);
 });
 
 // Review of #26953 at 06aa3fc4: a switch that carries the prompt (a harness switch) moved the

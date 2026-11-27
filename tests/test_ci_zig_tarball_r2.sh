@@ -46,9 +46,7 @@ ZIG_TARBALL_R2_URL='' bash "$SCRIPT" restore "$TMP/off" | grep -q "no cache URL"
 if env -u AWS_ACCESS_KEY_ID RUNNER_ARCH=ARM64 ZIG_TARBALL_R2_URL="http://127.0.0.1:$port" bash "$SCRIPT" seed "$TMP/seed" 2>/dev/null; then
   fail "seed ran without credentials"
 fi
-# seed exits at once when the bucket holds the key (and the patched tree's key, when this checkout has one).
-tree_key="$(ZIG_PRINT_TREE_KEY=1 ZIG_FORCE_LOCAL_INSTALL=1 bash "$ROOT/scripts/install-zig-ci.sh" 2>/dev/null || true)"
-[[ -z "$tree_key" ]] || cp "$TMP/bucket/v1/Linux-X64/objects/$key.tar.gz" "$TMP/bucket/v1/Linux-X64/objects/$tree_key.tar.gz"
+# seed exits at once when the bucket holds the key.
 ZIG_TARBALL_R2_URL="http://127.0.0.1:$port" bash "$SCRIPT" seed "$TMP/seed2" | grep -q "already holds $key" || fail "seed did not see the held key"
 
 # The daemon tests job restores before it installs, and inits ghostty-next through the cache.

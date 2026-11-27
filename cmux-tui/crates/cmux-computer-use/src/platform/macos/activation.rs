@@ -25,7 +25,7 @@
 //! Gated: the records are undocumented (layout from cua-driver's
 //! `skylight.rs`, MIT, read as a reference) and the make-key pair uses the
 //! mouse-down/up record kinds, so the scope runs only on the macOS majors it
-//! was verified on live ([`VERIFIED`]: 26.6+ and 27.0+) and never when
+//! was verified on live ([`VERIFIED`]: 26.6+ and 27.0.1+) and never when
 //! `CMUX_CU_BG_ACTIVATE=0` (in the worker's environment, or set for the user
 //! with `launchctl setenv CMUX_CU_BG_ACTIVATE 0` and then a cmux restart).
 //! Off, disabled background menu items are refused with the reason.
@@ -57,12 +57,8 @@ struct Calls {
 /// focus record plus the make-key pair validated the menus in 0.8-0.9 s and
 /// either alone did not within 5 s; nothing the person sees changed. Per
 /// major, the first verified version (major, minor, patch): earlier ones run
-/// with the scope off. 27.0 itself (build 26A425, a fleet Mac): the same
-/// records enabled TextEdit's Format > Make Rich Text in 1.03-1.05 s on four
-/// runs, the front app stayed the same, and the item read disabled again
-/// after the focus-out record; with 27.0 gated off, every background menu
-/// command that needs a key window was refused there.
-pub(super) const VERIFIED: &[(u32, u32, u32)] = &[(26, 6, 0), (27, 0, 0)];
+/// with the scope off.
+pub(super) const VERIFIED: &[(u32, u32, u32)] = &[(26, 6, 0), (27, 0, 1)];
 
 /// The environment variable that sets the scope: `0` off, `1` on; unset,
 /// [`DEFAULT_ON`].

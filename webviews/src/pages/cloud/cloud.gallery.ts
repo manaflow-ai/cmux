@@ -1,8 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots, sampleSurge } from "./mockData";
-import type { PoolStanding } from "./pool";
-import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward, CloudUsage } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, CloudUsage, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const surgeDone = sampleSurge(25);
@@ -50,8 +49,6 @@ const samplePorts: PortForward[] = [
     port: 3000,
     host: "127.0.0.1",
     localPort: 49152,
-    scheme: "http",
-    url: "http://127.0.0.1:49152/",
     generation: 1,
     state: "up",
     reason: null,
@@ -207,29 +204,6 @@ const gapUsage: CloudUsage = {
   payment_method: { attached: false },
 };
 
-// The plan's pool (RFD 0081; cmux-platform PoolLimit.ts poolStanding): Plus's 375 hours of a 4 vCPU machine and
-// $0.02 a vCPU-hour past them, the standing for `hours` used and a `limit` in USD, computed like the platform does.
-const POOL_MINUTES = 375 * 4 * 60;
-function poolAt(hours: number, limit = 0): PoolStanding {
-  const used = hours * 4 * 60;
-  const past = Math.max(0, used - POOL_MINUTES);
-  const overage = Math.floor((past / 60) * 0.02 * 1e6) / 1e6;
-  const percent = Math.floor((used * 100) / POOL_MINUTES);
-  return {
-    included_minutes: POOL_MINUTES,
-    used_minutes: used,
-    percent,
-    warning: percent >= 100 ? 100 : percent >= 80 ? 80 : null,
-    overage_minutes: past,
-    overage_usd: overage,
-    spend_limit_usd: limit,
-    may_run: used < POOL_MINUTES || overage < limit,
-    period_end: PERIOD_END,
-    overage_vcpu_hour_usd: 0.02,
-    machine_vcpus: 4,
-  };
-}
-
 export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
@@ -252,7 +226,6 @@ export default cloudPageEntry({
     "pages/cloud/Storefront.tsx",
     "pages/cloud/ArchiveList.tsx",
     "pages/cloud/spendCap.ts",
-    "pages/cloud/PoolPanel.tsx",
   ],
   variants: {
     machines: {
@@ -321,7 +294,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "creating-snapshots-failed": {
-      note: "The create sheet when the snapshot list stays down: Base image stays; the sheet reads the list again on its own and, once that lasts, says so in one quiet line with no button.",
+      note: "The create sheet when the snapshot list fails: Base image stays, with Retry.",
       action: "create",
       snapshotsFail: true,
       machines,
@@ -346,34 +319,6 @@ export default cloudPageEntry({
       note: "A paused machine with the paused rate staging sends: the row and detail say what the pause costs a month.",
       action: "select-machine",
       machines: [stagingPaused, apiDev!],
-      snapshots,
-    },
-    "pool-under": {
-      note: "RFD 0081 spend limit (switch on): 41 of 375 hours used on Plus, limit $0, no warning.",
-      planId: "next_plus",
-      pool: poolAt(41),
-      machines,
-      snapshots,
-    },
-    "pool-near": {
-      note: "RFD 0081: past 80% of the pool, the warning says machines pause at the end and offers the limit.",
-      planId: "next_plus",
-      pool: poolAt(310),
-      machines,
-      snapshots,
-    },
-    "pool-overage": {
-      note: "RFD 0081: the pool is used up and machines run on the person's $10 limit: $3.20 spent, 125 hours bought.",
-      planId: "next_plus",
-      pool: poolAt(415, 10),
-      machines,
-      snapshots,
-    },
-    "pool-paused": {
-      note: "RFD 0081: the pool is used up at the default $0 limit: machines paused with memory kept, nothing deleted.",
-      planId: "next_plus",
-      pool: poolAt(375),
-      machines: capPausedMachines,
       snapshots,
     },
     "spend-cap-near": {
@@ -457,7 +402,7 @@ export default cloudPageEntry({
       snapshots: [],
     },
     error: {
-      note: "The Cloud owner keeps answering an error at startup: the page reads again on its own and, once that lasts, shows one quiet line with no button.",
+      note: "The Cloud owner returns a network error during startup.",
       mode: "error",
       error: { code: "cmux.cloud.upstream_error", message: "The Cloud service did not answer." },
       machines,

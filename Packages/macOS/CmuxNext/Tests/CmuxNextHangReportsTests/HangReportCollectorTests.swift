@@ -90,26 +90,6 @@ struct HangReportCollectorTests {
         #expect(jobs.withLock { $0.count } == 1, "a stall after the job ended starts the next")
     }
 
-    /// hq#18810: the default job starts from a dispatch source made at init (the main thread allocates
-    /// no task at a stall's end) and still resolves every waiting stall; a snapshot is a copy of its own.
-    @Test func theDefaultJobResolvesOffTheMainThread() async throws {
-        let collector = HangReportCollector(resolve: { _ in [.other] })
-        collector.setEnabled(true)
-        for ms in [300, 400, 500] {
-            collector.noteStall(durationNanos: Self.nanos(ms), cpuNanos: 0, addresses: [1])
-        }
-        let deadline = ContinuousClock.now + .seconds(10)
-        while collector.snapshot().stalls.count < 3, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        let snapshot = collector.snapshot()
-        #expect(snapshot.stalls.map(\.durationMs) == [500, 400, 300])
-        #expect(snapshot.stalls.allSatisfy { $0.frames == [.other] })
-        collector.noteStall(durationNanos: Self.nanos(100), cpuNanos: 0, addresses: [])
-        #expect(collector.snapshot().counts != snapshot.counts, "the snapshot kept its own counts")
-        #expect(collector.snapshot().stalls == snapshot.stalls)
-    }
-
     @Test func coarseCountsAreBuckets() {
         #expect([0, 1, 2, 5, 6, 10, 11, 30, 31, 100, 101, 5_000].map(CoarseCounts.bucket)
             == ["0", "1", "2-5", "2-5", "6-10", "6-10", "11-30", "11-30", "31-100", "31-100", "101+", "101+"])

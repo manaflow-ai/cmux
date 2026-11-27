@@ -10,7 +10,7 @@ import Testing
         "main_start": 41.25, "did_finish_launching_start": 120.5, "daemon_connected": 180,
         "dfl.windows": 300, "launch_snapshot_shown": 260.04, "first_window_frame_committed": 512.04,
         "cef.ready": 700, "home.first_page": 830.66, "agent_pane.painted": 790, "window_usable": 900,
-        "terminal_echo": 640, "reveal.home": 830.7, "browser_pane.first_paint": 760,
+        "terminal_echo": 640, "reveal.home": 830.7,
     ]
 
     @Test func everyStageIsTheEarliestOfItsMarks() {
@@ -18,7 +18,7 @@ import Testing
         #expect(spans == [
             "premain": 41.25, "did_finish_launching": 120.5, "daemon_connected": 180,
             "first_window_shown": 260.04, "first_frame": 512.04, "webview_ready": 700,
-            "first_chat_paint": 790, "first_browser_paint": 760, "first_interaction": 640,
+            "first_chat_paint": 790, "first_interaction": 640,
         ])
     }
 
@@ -32,7 +32,7 @@ import Testing
         let stages = LaunchStages.table.map(\.stage)
         #expect(stages == ["dyld", "premain", "main_setup", "did_finish_launching", "daemon_connected", "first_window_shown",
                            "first_frame", "webview_ready", "first_page_navigation", "first_page_dom_content_loaded",
-                           "first_page_contentful_paint", "first_chat_paint", "first_browser_paint", "first_interaction"])
+                           "first_page_contentful_paint", "first_chat_paint", "first_interaction"])
         #expect(Set(stages).count == stages.count)
     }
 

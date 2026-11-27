@@ -26,15 +26,6 @@ public final class DeviceDirectory {
     /// Remove takes the computer out of the sidebar as well (HQ #4877 break 8). Nil: nothing more.
     @ObservationIgnored private let peerRemoved: ((String) async -> Void)?
     @ObservationIgnored private var reading = false
-    /// The pending read a peer link change asked for (``refreshForPeerChange()``); nil when none waits.
-    @ObservationIgnored private var peerRead: Task<Void, Never>?
-    /// When the last peer-change read started.
-    @ObservationIgnored private var lastPeerRead: ContinuousClock.Instant?
-    /// The least time between two reads that peer link changes start. One read costs `cmux-tui device list`
-    /// (which runs `tailscale status`, and on a Mac with Tailscale's app that runs `lsof`) and `device audit`.
-    /// On a busy Mac (2026-11-26), with a dozen cloud machines' links coming and going, the NIGHTLY
-    /// started 38 `device list` and 18 `lsof -c IPNExtension` a minute this way.
-    public var peerReadEvery: Duration = .seconds(15)
 
     /// - Parameters:
     ///   - run: The app's own `cmux-tui` run (tests pass fixture JSON).
@@ -79,26 +70,6 @@ public final class DeviceDirectory {
         }
         if let data = await run(["device", "audit", "--json", "--limit", "8"]), let entries = try? DeviceActivity.parse(data) {
             activity = entries
-        }
-    }
-
-    /// The read a peer that connects, drops or is added asks for: at most one per ``peerReadEvery``, and
-    /// changes inside that window share one trailing read, so the list still ends on the last state. A
-    /// person's own asks (Settings opening, an add or a remove) read at once through ``refresh()``.
-    public func refreshForPeerChange() {
-        guard peerRead == nil else { return }
-        let since = lastPeerRead.map { ContinuousClock.now - $0 }
-        let wait = since.map { $0 < peerReadEvery ? peerReadEvery - $0 : .zero } ?? .zero
-        // task-owner: the one pending peer-change read, held in `peerRead` and cleared when it starts.
-        peerRead = Task { [weak self] in
-            if wait > .zero {
-                // wakeup-allow: one bounded delay (at most peerReadEvery) that only a peer change starts.
-                try? await Task.sleep(for: wait)
-            }
-            guard let self else { return }
-            self.peerRead = nil
-            self.lastPeerRead = ContinuousClock.now
-            await self.refresh()
         }
     }
 

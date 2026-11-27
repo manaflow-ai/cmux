@@ -48,7 +48,6 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
-import { approveInOneCall, liveApproveDeps, type ApproveOutcome, type ApproveParams } from "./integrations/approve-one-call.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -121,7 +120,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /**
  * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
@@ -315,14 +314,6 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
-        // G8 in one call (approve-one-call.ts): the checks, the feed answer and the approved run's reply; staging flag.
-        if (payload.op === "integration.approval.approve") {
-          const reply = (r: ApproveOutcome) => ({ ok: r.ok, op: payload.op, ...(r.ok ? { value: r.value } : { error: { code: r.code, message: r.message, retryable: r.retryable, ...(r.details === undefined ? {} : { details: r.details }) } }), transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `feed:${principal.user ?? ""}`, sequence: 0 })
-          if (requestEnv().CLOUD_APPROVE_ONE_CALL !== "1") return reply({ ok: false, code: "approval.one_call_off", message: "answer through feed.answer on this deployment", retryable: false })
-          const resolved = yield* principalFor("cloud:ConnectionDO", principal)
-          const p = (payload.params ?? {}) as ApproveParams
-          return reply(yield* Effect.tryPromise({ try: () => approveInOneCall(liveApproveDeps(requestEnv(), resolved), principal, p, frame.idempotency_key), catch: unreachable }))
-        }
         if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(requestEnv(), principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete") return withGitHubNextForComplete(yield* externalOp(principal, frame), payload.params)
@@ -462,12 +453,6 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }
-        // Synced app storage (storage:synced) runs on UserDO's `appkv:` stream (user-appkv.ts).
-        if (payload.op.startsWith("appkv.")) {
-          const p = yield* principalFor(def.owner, principal)
-          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(userStub(p.user!).submitAppKv(p.user!, p, { t: "op", ...frame })), catch: unreachable })
-          return toResponse(payload.op, r.frames)
-        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -568,7 +553,6 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const r = yield* Effect.tryPromise({
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(requestEnv(), reader, payload.op, payload.params) as Promise<ReadResult>
-            if (payload.op.startsWith("appkv.")) return rpc<ReadResult>(userStub(reader.user!).readAppKv(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op === "user.teams.list") return listUserTeams(requestEnv(), shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)

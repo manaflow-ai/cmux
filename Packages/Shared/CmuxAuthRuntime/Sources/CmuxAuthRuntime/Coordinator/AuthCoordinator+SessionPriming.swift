@@ -127,7 +127,7 @@ extension AuthCoordinator {
         let generation = sessionGeneration
         let storeWriteHighWater = tokenStoreWriteHighWater
 
-        var cachedUser = loadCachedUser()
+        let cachedUser = loadCachedUser()
         // The keychain token store (AfterFirstUnlock protection) becomes
         // readable exactly once per boot, at the first unlock, and never
         // regresses while this process lives; an unavailable report can only
@@ -144,13 +144,12 @@ extension AuthCoordinator {
         // generation after. A timeout preserves the cached identity instead of
         // leaving launch behind "Restoring session".
         let hasStoredTokens: Bool
-        let storedAccessToken: String?
         do {
             let client = self.client
-            (hasStoredTokens, storedAccessToken) = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                let accessToken = await client.accessToken()
+            hasStoredTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                let hasAccessToken = await client.accessToken() != nil
                 let hasRefreshToken = await client.refreshToken() != nil
-                return (accessToken != nil || hasRefreshToken, accessToken)
+                return hasAccessToken || hasRefreshToken
             }
         } catch {
             guard generation == sessionGeneration else { return }
@@ -193,9 +192,6 @@ extension AuthCoordinator {
 
         if hasStoredTokens {
             sessionCache.setHasTokens(true)
-            if let cached = cachedUser, dropCachedUserNotNamedBy(accessToken: storedAccessToken, cached: cached) {
-                cachedUser = nil
-            }
             if currentUser == nil, let cachedUser {
                 currentUser = cachedUser
             }
@@ -276,25 +272,6 @@ extension AuthCoordinator {
                 : "launch restore found no session",
             preservePendingCode: true
         )
-    }
-
-    /// Drops the cached user, and the published one primed from it, when the stored access token was issued
-    /// to another account (its `sub` claim, read locally without trusting the signature: it only decides
-    /// whether to discard the cache). The token store and the user cache are written apart, so another
-    /// sign-in can leave B's tokens beside A's cached user; an install bound to A with B's token is refused as
-    /// "the cmux API answered for another user". Validation then publishes the token's real user, and a
-    /// validation that fails keeps no stale identity (``preserveCachedSessionAfterValidationFailure()``).
-    /// The tokens stay: they are the session. True when it dropped.
-    func dropCachedUserNotNamedBy(accessToken: String?, cached: CMUXAuthUser) -> Bool {
-        guard let subject = AccessTokenClaims.subject(accessToken), subject != cached.id else { return false }
-        authLog.error("Cached user does not match the stored access token's account; dropping the cached user")
-        userCache.clear()
-        if currentUser?.id == cached.id {
-            currentUser = nil
-            isAuthenticated = false
-            publishAuthenticatedSessionIdentity()
-        }
-        return true
     }
 
     /// Backoff before each retry of a launch token read that failed with a

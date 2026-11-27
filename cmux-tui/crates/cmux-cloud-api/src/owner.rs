@@ -119,12 +119,9 @@ pub(crate) async fn run(
                     .await?;
             harness_login_copy(&body)
         }
-        "owner.github_app" => github_app(http, args).await,
+        "owner.github_app" => github_app(http, text(args, "team")?).await,
         "owner.github_repos" => github_repos(http, args).await,
         "owner.github_connect" => github_connect(http, args).await,
-        "owner.github_complete" => github_complete(http, args).await,
-        "owner.github_list" => github_list(http).await,
-        "owner.github_clone_token" => github_clone_token(http, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
 }
@@ -308,11 +305,8 @@ pub(crate) fn harness_login_copy(body: &Value) -> Result<Value, Failure> {
 /// `GET /v1/integrations/github/status?team=` with the person's session and no team header (the
 /// team in the query is no secret): whether `team`'s Cloud machines can use the cmux GitHub App.
 /// Never fails: an answer that says nothing usable is `unknown`, and the app falls back to the
-/// machine's own GitHub sign-in. Answers `{state}` ([`github_app_state`]); with `raw: true` (the
-/// Mac app's own status readers, whose parsers read more of it) also the route's `status` and its
-/// JSON `body` (null when it is not JSON) when the route answered.
-async fn github_app(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let team = text(args, "team")?;
+/// machine's own GitHub sign-in. Answers `{state}` ([`github_app_state`]).
+async fn github_app(http: &Http, team: &str) -> Result<Value, Failure> {
     // Only a team id reaches the URL.
     let id = team.strip_prefix("team_").unwrap_or_default();
     if !(team.starts_with("team_") && all(id, 120, id_byte)) {
@@ -323,14 +317,11 @@ async fn github_app(http: &Http, args: &Map<String, Value>) -> Result<Value, Fai
     let reply = http
         .send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments))
         .await;
-    let Ok(reply) = reply else { return Ok(json!({ "state": "unknown" })) };
-    let mut answer = Map::new();
-    answer.insert("state".into(), json!(github_app_state(reply.status, &reply.body)));
-    if args.get("raw").and_then(Value::as_bool) == Some(true) {
-        answer.insert("status".into(), json!(reply.status));
-        answer.insert("body".into(), reply.json().unwrap_or(Value::Null));
-    }
-    Ok(Value::Object(answer))
+    let state = match reply {
+        Ok(reply) => github_app_state(reply.status, &reply.body),
+        Err(_) => "unknown",
+    };
+    Ok(json!({ "state": state }))
 }
 
 /// `team` when it is a team id (`team_` and up to 120 letters, digits, `_` or `-`): the only
@@ -383,238 +374,60 @@ async fn github_repos(http: &Http, args: &Map<String, Value>) -> Result<Value, F
     }
 }
 
-/// The repository list route's answer (`{repos, truncated}`, an older Worker's `cursor`), or none
-/// when it has no `repos` list. A row that does not name `owner/name` ([`is_full_name`]) is
-/// dropped, so no other text reaches the page; `private` is true unless the row says otherwise; a
-/// default branch that is empty or past 255 bytes is null, as is a `size_kb` that is not a size.
+/// The repository list route's answer, each row checked (`owner/name`, a boolean `private`, a
+/// default branch or null), or none when it is not one.
 pub(crate) fn github_repo_list(body: &Value) -> Option<Value> {
     let rows = body.get("repos")?.as_array()?;
-    let repos: Vec<Value> = rows
-        .iter()
-        .filter_map(|row| {
-            let name = row.get("full_name")?.as_str().filter(|n| is_full_name(n))?;
-            let branch = row
-                .get("default_branch")
-                .and_then(Value::as_str)
-                .filter(|b| !b.is_empty() && b.len() <= 255);
-            let size = row
-                .get("size_kb")
-                .and_then(Value::as_f64)
-                .filter(|n| (0.0..f64::from(i32::MAX)).contains(n))
-                .map(|n| n as i64);
-            Some(json!({
-                "full_name": name,
-                "private": row.get("private").and_then(Value::as_bool).unwrap_or(true),
-                "default_branch": branch, "size_kb": size,
-            }))
-        })
-        .collect();
-    let cursor = body.get("cursor").and_then(Value::as_str);
-    let truncated = body.get("truncated").and_then(Value::as_bool).unwrap_or(cursor.is_some());
+    let mut repos = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name = row.get("full_name")?.as_str()?;
+        let (owner, repo) = name.split_once('/')?;
+        if owner.is_empty() || repo.is_empty() || repo.contains('/') || name.len() > 200 {
+            return None;
+        }
+        let branch = match row.get("default_branch") {
+            None | Some(Value::Null) => Value::Null,
+            Some(Value::String(b)) if !b.is_empty() => json!(b),
+            Some(_) => return None,
+        };
+        repos.push(json!({
+            "full_name": name, "private": row.get("private")?.as_bool()?, "default_branch": branch,
+        }));
+    }
+    let cursor = match body.get("cursor") {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::String(c)) => json!(c),
+        Some(_) => return None,
+    };
+    let truncated = body.get("truncated").and_then(Value::as_bool).unwrap_or(!cursor.is_null());
     Some(json!({ "repos": repos, "truncated": truncated, "cursor": cursor }))
-}
-
-/// GitHub's `owner/name`: an owner of 1 to 39 letters, digits and `-` that neither starts nor ends
-/// with `-`, and a name of 1 to 100 letters, digits, `.`, `_` and `-` that is not `.`, `..` or `.git`.
-pub(crate) fn is_full_name(text: &str) -> bool {
-    let Some((owner, name)) = text.split_once('/') else { return false };
-    let owner_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'-';
-    let name_byte = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_');
-    all(owner, 39, owner_byte)
-        && !owner.starts_with('-')
-        && !owner.ends_with('-')
-        && all(name, 100, name_byte)
-        && !matches!(name, "." | ".." | ".git")
-}
-
-/// An op's idempotency key: letters, digits, `_`, `-`, `:` and `.`, at most 128 bytes (the app's
-/// keys: a UUID, `<uuid>:plain`, `complete:<state tail>`).
-fn is_op_key(key: &str) -> bool {
-    all(key, 128, |b| id_byte(b) || b == b':' || b == b'.')
-}
-
-/// A Connect GitHub's return link: `<scheme>://integration/complete`, the scheme a letter then up to
-/// 63 letters, digits, `+`, `.` or `-` (`CloudGitHubCompletion.link(scheme:)`).
-fn is_return_link(link: &str) -> bool {
-    link.strip_suffix("://integration/complete").is_some_and(|scheme| {
-        scheme.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
-            && all(scheme, 64, |b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'.' | b'-'))
-    })
 }
 
 /// `POST /v1/ops` `integration.connect {provider: "github"}` in the team the team header names:
 /// the GitHub App's install page for the person to open. `idempotencyKey` keeps a retry on the same
-/// pending connection; `returnTo` ([`is_return_link`]) asks GitHub's redirect back to the app;
-/// `repo` ([`is_full_name`], a Cloud start's Connect GitHub card) lets the API reuse an active
-/// connection that covers it, or answer GitHub's authorize page for an owner the App is already
-/// installed on (#55104). Answers `{authorize_url, connection}`, or `{connected: true, connection}`
-/// when a connection already covers `repo`; a deployment without the app answers the Worker's
-/// `integration.not_configured`.
+/// pending connection. Answers `{authorize_url, connection}`; a deployment without the app answers
+/// the Worker's `integration.not_configured`.
 async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
     let key = match optional_text(args, "idempotencyKey") {
-        Some(key) if is_op_key(key) => key.to_owned(),
+        Some(key) if all(key, 128, id_byte) => key.to_owned(),
         Some(_) => return Err(Failure::Transport("not an idempotency key".into())),
         None => uuid::Uuid::new_v4().to_string(),
     };
-    let mut params = Map::new();
-    params.insert("provider".into(), json!("github"));
-    match optional_text(args, "returnTo") {
-        Some(link) if is_return_link(link) => {
-            params.insert("return_to".into(), json!(link));
-        }
-        Some(_) => return Err(Failure::Transport("not a return link".into())),
-        None => {}
-    }
-    match optional_text(args, "repo") {
-        Some(repo) if is_full_name(repo) => {
-            params.insert("repo".into(), json!(repo));
-        }
-        Some(_) => return Err(Failure::Transport("not a repository".into())),
-        None => {}
-    }
     let body = json!({
-        "op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key,
+        "op": "integration.connect", "params": { "provider": "github" },
+        "origin": "user", "idempotency_key": key,
     });
     let segments = ["v1", "ops"];
     let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(20)).await?;
     let url =
         value.get("authorize_url").and_then(Value::as_str).filter(|u| u.starts_with("https://"));
-    let connection =
-        value.pointer("/connection/id").and_then(Value::as_str).filter(|c| !c.is_empty());
-    let connected = value.get("connected").and_then(Value::as_bool) == Some(true);
+    let connection = value.pointer("/connection/id").and_then(Value::as_str);
     match (url, connection) {
-        (_, Some(connection)) if connected => {
-            Ok(json!({ "connected": true, "connection": connection }))
-        }
         (Some(url), Some(connection)) => {
             Ok(json!({ "authorize_url": url, "connection": connection }))
         }
         _ => Err(Failure::Decoding(format!("{}: no install page", path_text(&segments)))),
     }
-}
-
-/// `POST /v1/ops` `integration.complete` in the team the team header names, under the key
-/// `idempotencyKey` the console's callback also sends: finishes the GitHub install the app was handed
-/// back (`params`: the signed `state` and what GitHub gave, each a string). 15 s, as the app's.
-/// Answers the route's `status` and JSON `body` as sent (null when it is not JSON): the app reads
-/// connected, refused or no answer, and a refusal's words, from them (`CloudGitHubCompletion`).
-async fn github_complete(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let key = text(args, "idempotencyKey")?;
-    if !is_op_key(key) {
-        return Err(Failure::Transport("not an idempotency key".into()));
-    }
-    let params = args
-        .get("params")
-        .and_then(Value::as_object)
-        .filter(|p| {
-            p.contains_key("state")
-                && p.values().all(|v| v.as_str().is_some_and(|t| t.len() <= 4096))
-        })
-        .ok_or_else(|| Failure::Transport("not a completion's params".into()))?;
-    let body = json!({
-        "op": "integration.complete", "params": params, "origin": "user", "idempotency_key": key,
-    });
-    let segments = ["v1", "ops"];
-    let url = http.url(&segments, &[]);
-    let reply = http
-        .send(
-            Method::POST,
-            url,
-            Some(Body::Json(body)),
-            None,
-            Duration::from_secs(15),
-            &path_text(&segments),
-        )
-        .await?;
-    Ok(json!({ "status": reply.status, "body": reply.json().unwrap_or(Value::Null) }))
-}
-
-/// `POST /v1/read` `integration.list` in the team the team header names: whether a GitHub
-/// connection the person sees is pending (Settings' Connect, another launch's). Answers `{pending}`;
-/// a reply that is not `{value: {connections: [...]}}` is the route's refusal, or no list.
-async fn github_list(http: &Http) -> Result<Value, Failure> {
-    let segments = ["v1", "read"];
-    let url = http.url(&segments, &[]);
-    let body = json!({ "op": "integration.list", "params": {} });
-    let path = path_text(&segments);
-    let reply = http
-        .send(Method::POST, url, Some(Body::Json(body)), None, Duration::from_secs(15), &path)
-        .await?;
-    let object = reply.json();
-    if !reply.ok() || object.as_ref().and_then(|o| o.get("ok")) == Some(&Value::Bool(false)) {
-        return Err(worker_error(reply.status, object.as_ref()));
-    }
-    let rows = object
-        .as_ref()
-        .and_then(|o| o.pointer("/value/connections"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| Failure::Decoding(format!("{path}: no connection list")))?;
-    let pending = rows.iter().any(|row| {
-        row.get("provider").and_then(Value::as_str) == Some("github")
-            && row.get("status").and_then(Value::as_str) == Some("pending")
-    });
-    Ok(json!({ "pending": pending }))
-}
-
-/// What a clone token may read: the repository's contents and metadata, nothing more.
-const CLONE_PERMISSIONS: [&str; 2] = ["contents", "metadata"];
-
-/// `POST /v1/integrations/github/token` with the install's own token (the call's credential) and no
-/// team header: a GitHub App token for git on this Mac to clone `repo` (`owner/name`) in `team`,
-/// scoped to reading it, labeled `cmux-local-clone` in Cloud's ledger. 20 s, as the app's. Answers
-/// `{token}` only when it is an installation token (`ghs_`, [`is_installation_token`]) for that
-/// repository with read permissions alone; any other answer names no part of its body.
-async fn github_clone_token(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let team = team_id(text(args, "team")?)?;
-    let repo = text(args, "repo")?;
-    if !is_full_name(repo) {
-        return Err(Failure::Transport("not a repository".into()));
-    }
-    let body = json!({
-        "team": team, "repo": repo, "label": "cmux-local-clone",
-        "permissions": { "contents": "read", "metadata": "read" },
-    });
-    let segments = ["v1", "integrations", "github", "token"];
-    let path = path_text(&segments);
-    let url = http.url(&segments, &[]);
-    let reply = http
-        .send(Method::POST, url, Some(Body::Json(body)), None, Duration::from_secs(20), &path)
-        .await?;
-    let object = reply.json();
-    if !reply.ok() {
-        return Err(worker_error(reply.status, object.as_ref()));
-    }
-    clone_token(object.as_ref(), repo)
-        .map(|token| json!({ "token": token }))
-        .ok_or_else(|| Failure::Decoding(format!("{path}: no clone token for that repository")))
-}
-
-/// The token route's 2xx answer `{token, repo, permissions?}`: its token when it is an installation
-/// token for `repo` (any case) whose granted permissions are each a read of [`CLONE_PERMISSIONS`].
-pub(crate) fn clone_token<'a>(body: Option<&'a Value>, repo: &str) -> Option<&'a str> {
-    let body = body?;
-    let token = body.get("token")?.as_str().filter(|t| is_installation_token(t))?;
-    let named = body.get("repo")?.as_str()?;
-    if !named.eq_ignore_ascii_case(repo) {
-        return None;
-    }
-    if let Some(granted) = body.get("permissions").and_then(Value::as_object) {
-        let read = |(name, level): (&String, &Value)| {
-            CLONE_PERMISSIONS.contains(&name.as_str()) && level.as_str() == Some("read")
-        };
-        if !granted.iter().all(read) {
-            return None;
-        }
-    }
-    Some(token)
-}
-
-/// GitHub's installation token: `ghs_` and letters, digits or `_`, at most 255 bytes.
-pub(crate) fn is_installation_token(token: &str) -> bool {
-    token.len() <= 255
-        && token
-            .strip_prefix("ghs_")
-            .is_some_and(|tail| tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
 /// The status route's answer (`{configured, app_slug, allowed?, connection: {status} | null}`,

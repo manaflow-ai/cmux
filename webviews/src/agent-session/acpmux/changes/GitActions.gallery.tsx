@@ -14,8 +14,6 @@ const fakeGit = (state?: GitWriteState, statusFailed = false, manyNewFiles = fal
   available: true,
   status: { branch: "feat/commit-push", upstream: "origin/feat/commit-push", detached: false, ahead: 2, behind: 0 },
   statusFailed,
-  // A failed status read is read again on its own; the gallery shows the quiet line it ends in.
-  statusStillTrying: statusFailed,
   state,
   commit: async () => true,
   listNewFiles: async () => ({
@@ -117,12 +115,7 @@ export default componentEntry<Props>({
       note: "A commit in flight: the form and buttons wait.",
       props: { formOpen: true, state: { phase: "busy", op: "commit" } },
     },
-    "status-still-reading": {
-      note: "A branch status read that keeps failing is read again on its own: one quiet Still reading line, no Refresh button.",
-      props: { formOpen: false, statusFailed: true },
-    },
     "push-refused": {
-      // retry-prompt-ok: Retry runs the push again (a write); Refresh re-reads before the person's next write.
       note: "A refused push with git's output, Retry and Refresh.",
       props: {
         formOpen: false,

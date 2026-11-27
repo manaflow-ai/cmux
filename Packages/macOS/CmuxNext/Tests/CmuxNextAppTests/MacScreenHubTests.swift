@@ -221,7 +221,7 @@ struct MacScreenHubCardTests {
                                "too many requests; wait a minute"))
         #expect(said.contains("too many requests; wait a minute"))
         #expect(MacScreenCardView.refusedBody(.other(reason: nil), host: "Studio")
-            == L.t("macScreen.hub.otherBody", "The device hub could not start the session."))
+            == L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again."))
         // A known code keeps its own step.
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
@@ -523,21 +523,6 @@ struct MacScreenHubViewerTests {
     @Test func notFoundOffersNoRetry() {
         #expect(!MacScreenHubRefusal.notFound.canRetry)
         #expect(MacScreenHubRefusal.hostOffline.canRetry && MacScreenHubRefusal.notShared.canRetry)
-    }
-
-    /// The pane asks again on its own only after a failure, a drop or an outage, never after a person's own end, and
-    /// only while the host's permission grants the scope with no one asked (an Ask would prompt the host's person).
-    @Test func retriesOnItsOwnOnlyWhatNobodyMustAnswer() {
-        for reason: MacScreenEndReason in [.failed, .peerOffline, .signedOut, .approveFailed, .other] {
-            #expect(reason.retriesOnItsOwn, "\(reason)")
-        }
-        for reason: MacScreenEndReason in [.viewerDisconnected, .hostStopped, .sharingOff, .moved, .expired, .consentRequired,
-                                           .permissionRevoked, .accessChanged, .hostRemoved, .viewerRemoved, .deviceRemoved] {
-            #expect(!reason.retriesOnItsOwn, "\(reason)")
-        }
-        #expect(MacScreenPaneModel.grants(.full, .full) && MacScreenPaneModel.grants(.full, .view))
-        #expect(MacScreenPaneModel.grants(.view, .view) && !MacScreenPaneModel.grants(.view, .full))
-        #expect(!MacScreenPaneModel.grants(.ask, .view) && !MacScreenPaneModel.grants(.none, .view) && !MacScreenPaneModel.grants(nil, .view))
     }
 
     /// The host's reason wins over a stream that dropped a moment before it arrived (View scope too).

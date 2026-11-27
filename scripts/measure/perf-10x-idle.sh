@@ -10,9 +10,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
 #     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
-#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app] [--arg=app=nightly|https://...dmg]
-# app=nightly: measure the newest published NIGHTLY (nightly-next appcast DMG) instead of building this checkout;
-# app=URL: that DMG. Nothing is built, so a run starts in minutes and measures what people run.
+#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -64,11 +62,10 @@ measure=60
 agents=""
 infinite="" days=3 soak="" soak_every=10 soak_agents=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
-published_app="" reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
+reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
-    app=nightly|app=https://*) published_app="${arg#app=}" ;;
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
@@ -99,23 +96,6 @@ work="$root/.build/perf-idle"
 rm -rf "$work"
 mkdir -p "$work"
 echo "PERF-IDLE-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
-if [[ -n "$published_app" ]]; then
-  if [[ "$published_app" == nightly ]]; then
-    published_app="$(curl -fsSL --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-      | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
-    [[ -n "$published_app" ]] || { echo "perf-10x-idle: no DMG in the nightly-next appcast" >&2; exit 3; }
-  fi
-  echo "PERF-IDLE-APP dmg $published_app"
-  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/app.dmg" "$published_app" || { echo "perf-10x-idle: download failed" >&2; exit 3; }
-  mkdir -p "$work/mnt" "$work/published"
-  hdiutil attach -nobrowse -readonly -noverify -mountpoint "$work/mnt" "$work/app.dmg" >/dev/null
-  dmg_app="$(ls -d "$work"/mnt/*.app | head -n 1)"
-  ditto "$dmg_app" "$work/published/${dmg_app##*/}"
-  hdiutil detach "$work/mnt" >/dev/null 2>&1 || hdiutil detach -force "$work/mnt" >/dev/null 2>&1 || true
-  rm -f "$work/app.dmg"
-  app="$work/published/${dmg_app##*/}"
-  echo "PERF-IDLE-APP version $(defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null) build $(defaults read "$app/Contents/Info" CFBundleVersion 2>/dev/null)"
-else
 # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
 # Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
 for sub in ghostty ghostty-next; do
@@ -132,7 +112,6 @@ tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-10x-idle: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
-fi
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0

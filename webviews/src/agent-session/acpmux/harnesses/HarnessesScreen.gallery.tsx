@@ -201,7 +201,6 @@ export default componentEntry<Props>({
       props: { acpmux: thisMac, signedOut: ["codex"] },
     },
     "sign-in-launch-failed": {
-      // retry-prompt-ok: a sign-in.
       note: "Opening the sign-in terminal fails; the row keeps the failure and a Sign In retry.",
       props: { acpmux: thisMac, signedOut: ["codex"], signInFails: true },
       play: signIn,
@@ -219,7 +218,6 @@ export default componentEntry<Props>({
       props: { acpmux: thisMac, signedOut: ["codex"], authMissing: ["grok"] },
     },
     "chat-launch-failed": {
-      // retry-prompt-ok: Start Chat starts a chat.
       note: "A rejected Start Chat keeps the setup page open with the error and a retry.",
       props: { acpmux: thisMac, signedOut: [], launchFailure: "chat.new" },
       play: failedLaunch("grok"),
@@ -243,7 +241,6 @@ export default componentEntry<Props>({
       play: installOpenCode,
     },
     "install-failed": {
-      // retry-prompt-ok: Retry runs the install again.
       note: "The install failed: the row says why and offers Retry, then the setup guide.",
       props: { acpmux: thisMac, signedOut: [], install: "fails" },
       play: installOpenCode,
@@ -254,13 +251,11 @@ export default componentEntry<Props>({
       play: installOpenCode,
     },
     "install-network-dropped": {
-      // retry-prompt-ok: Retry runs the install again.
       note: "The install failed on a dropped network: plain words, Retry first, the raw line only in the tooltip.",
       props: { acpmux: thisMac, signedOut: [], install: "dropped" },
       play: installOpenCode,
     },
     "install-terminal-advice": {
-      // retry-prompt-ok: Retry runs the install again.
       note: 'The installer failed with advice for a terminal ("--force"): the row never shows it, it offers Retry.',
       props: { acpmux: thisMac, signedOut: [], install: "advice" },
       play: installOpenCode,

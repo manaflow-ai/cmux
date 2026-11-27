@@ -138,11 +138,9 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
             RefusalStrings.format("handlers.refusal.agentRemoteStart.agentServiceDown",
                                   "The agent service on %@ did not start.", machine)
         case "agent_session.limit":
-            // retry-prompt-ok: starting an agent chat on another machine starts a paid agent session
             RefusalStrings.format("handlers.refusal.agentRemoteStart.busy",
                                   "%@ is starting other agent chats. Try again in a moment.", machine)
         case "agent_session.timeout":
-            // retry-prompt-ok: starting an agent chat on another machine starts a paid agent session
             RefusalStrings.format("handlers.refusal.agentRemoteStart.timeout",
                                   "%@ did not start the agent in time. Try again.", machine)
         case Self.signInRequiredCode where signInExpired:

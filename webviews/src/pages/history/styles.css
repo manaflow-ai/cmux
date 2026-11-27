@@ -160,7 +160,7 @@
   align-items: center;
   gap: 9px;
   padding: 4px 8px;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
 }
 
 .history-row:hover {
@@ -274,12 +274,12 @@
 .history-sheet-row:focus-visible {
   outline: 2px solid var(--cmux-focus-ring-color, var(--page-selection));
   outline-offset: -2px;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
 }
 
 .history-sheet-row[data-popup-open] {
   background: var(--page-hover);
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
 }
 
 .history-sheet-title {
@@ -333,7 +333,7 @@
 
 .history-sheet-done {
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   padding: 4px 12px;
   background: var(--page-selection);
   color: var(--page-text);

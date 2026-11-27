@@ -109,7 +109,6 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var importColors: String { String(localized: "importSuggestions.button.importColors", defaultValue: "Import Colors", table: "ImportSuggestions", bundle: .localizedModule) }
     static var notNow: String { String(localized: "importSuggestions.button.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .localizedModule) }
     static var resume: String { String(localized: "importSuggestions.button.resume", defaultValue: "Resume", table: "ImportSuggestions", bundle: .localizedModule) }
-    // retry-prompt-ok: running an import again reads another app's data and may ask for Full Disk Access or a keychain password
     static var retry: String { String(localized: "importSuggestions.button.retry", defaultValue: "Try Again", table: "ImportSuggestions", bundle: .localizedModule) }
     static var more: String { String(localized: "importSuggestions.button.more", defaultValue: "More Options…", table: "ImportSuggestions", bundle: .localizedModule) }
     static var showAgain: String { String(localized: "importSuggestions.button.showAgain", defaultValue: "Show Again", table: "ImportSuggestions", bundle: .localizedModule) }

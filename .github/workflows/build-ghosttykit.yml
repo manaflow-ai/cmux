@@ -118,12 +118,6 @@ jobs:
           set -euo pipefail
           ./scripts/install-zig-ci.sh
 
-      # Every package from our mirror before any zig build below, with bounded
-      # retries: no step fetches from deps.files.ghostty.org (a failed TLS
-      # handshake there failed nightly-next run 45594076083's helper build).
-      - name: Seed Ghostty's Zig packages from the mirror
-        run: bash scripts/cmux-next/zig-fetch-all.sh ghostty
-
       - name: Test Ghostty OS opener stderr reader
         run: |
           set -euo pipefail

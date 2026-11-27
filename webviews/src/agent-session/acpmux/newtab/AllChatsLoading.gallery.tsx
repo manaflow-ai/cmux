@@ -48,7 +48,7 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
       props: { ...props, load: async () => ({ chats: [], ready: true }) },
     },
     failed: {
-      note: "A first read that keeps failing is asked again on its own; past the deadline one quiet line says the chats are still loading, with no button.",
+      note: "A failed read keeps the existing error and Try again action.",
       props: { ...props, load: async () => undefined },
     },
   },

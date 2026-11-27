@@ -181,14 +181,12 @@ class RealTree(unittest.TestCase):
     def test_no_shipped_package_target_lives_under_tests(self):
         # Packages/*/Tests is excluded. A non-test target there must be test support only; review a
         # new one before adding it here (the app must not link it).
-        test_support = {"CmuxNextTestExitTrace", "CmuxNextTestSupport", "CmuxHomeCoreTestSupport", "CmuxUpdaterTestSupport"}
+        test_support = {"CmuxNextTestExitTrace", "CmuxNextTestSupport", "CmuxHomeCoreTestSupport"}
         found = set()
         for manifest in ROOT.glob("Packages/**/Package.swift"):
             text = manifest.read_text()
             for match in re.finditer(r'\.(target|executableTarget)\(\s*name:\s*"([^"]+)"(.*?)\n\s*\)', text, re.S):
-                # A one-line target ends before the next one starts; the lazy match must not borrow its path.
-                own = re.split(r'\.(?:target|executableTarget|testTarget)\(', match.group(3), maxsplit=1)[0]
-                if re.search(r'path:\s*"Tests[/"]', own):
+                if re.search(r'path:\s*"Tests[/"]', match.group(3)):
                     found.add(match.group(2))
         self.assertLessEqual(found, test_support, f"package targets under Tests/: {sorted(found - test_support)}")
 

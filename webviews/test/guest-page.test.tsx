@@ -5,7 +5,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
-import { actTurn, until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -136,8 +135,7 @@ test("a link without its secret says so and keeps Join off", async () => {
   await page.unmount();
 });
 
-test("the owner offline: the page joins again on its own, the same attempt, saying nothing at first", async () => {
-  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+test("the owner offline: the page says so, and Join again is the same attempt", async () => {
   const storage = new Map<string, string>();
   const tab = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -154,11 +152,14 @@ test("the owner offline: the page joins again on its own, the same attempt, sayi
   });
   await typeName(page.host, "Ana");
   await submit(page.host);
-  expect(page.host.querySelector("[role=alert]")).toBeNull();
-  expect(joinButton(page.host).textContent).toBe(translate("guest.join.joining"));
-  await until(() => asked.length >= 2, actTurn);
-  expect(asked.length).toBeGreaterThanOrEqual(2);
-  expect(asked[0]).toEqual({ attempt_id: asked[1]!.attempt_id, secret: "c2VjcmV0LWFiY2RlZmdo", name: "Ana" });
+  expect(page.host.querySelector("[role=alert]")?.textContent).toBe(translate("guest.join.hostOffline"));
+  await submit(page.host);
+  expect(asked.length).toBe(2);
+  expect(asked[0]).toEqual({
+    attempt_id: asked[1]!.attempt_id,
+    secret: "c2VjcmV0LWFiY2RlZmdo",
+    name: "Ana",
+  });
   await page.unmount();
 });
 
@@ -342,6 +343,7 @@ for (const [error, shown] of [
   ["share.not_invited", "guest.invite.notInvited"],
   ["share.unverified", "guest.invite.unverified"],
   ["share.unauthorized", "guest.invite.signIn"],
+  ["share.host_offline", "guest.join.hostOffline"],
 ] as const)
   test(`an invite accept answered ${error} says so, and Join stays to try again`, async () => {
     const page = await mount({
@@ -430,10 +432,9 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
 });
 
 // The transcript is its own chunk (GuestTranscript.tsx). A load that fails (a dropped connection)
-// is tried again on its own, says nothing at first and has no Retry (Leo, 2026-11-22: "vacuous
-// decisions like that should be just done"), keeps the composer where it is, and the snapshot that
-// came meanwhile draws once a later load lands.
-test("a transcript chunk that fails to load is tried again on its own and the chat draws", async () => {
+// says so with Retry, keeps the composer where it is, and the snapshot that came meanwhile draws
+// once Retry loads it.
+test("a transcript chunk that fails to load says so; Retry loads it and the chat draws", async () => {
   let fail = true;
   let asked = 0;
   const loadTranscript = () => {
@@ -445,26 +446,27 @@ test("a transcript chunk that fails to load is tried again on its own and the ch
     role: "talk",
     openSocket: fakeRoom(joinFrames(workingRecords())),
     loadTranscript,
-    reloadPage: () => undefined,
   });
   await roomFrames();
-  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
-  expect(page.host.querySelector(".guest-live__transcript button")).toBeNull();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
   expect(page.host.textContent).not.toContain("bun test src/upload.test.ts --rerun-each 5");
   expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
   fail = false;
-  await until(() => asked >= 2, actTurn);
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
   await roomFrames();
   expect(asked).toBe(2);
+  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
   expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
   await page.unmount();
 });
 
-// The browser may keep a failed module fetch for the page's life (#38101 F1): a load that failed
-// twice reloads the page once instead of asking the same failed import again, and not again soon.
-test("a chunk load that fails twice reloads the page once", async () => {
+// The browser may keep a failed module fetch for the page's life (#38101 F1): a Retry whose load
+// fails too reloads the page instead of asking the same failed import again.
+test("a Retry whose load fails too reloads the page", async () => {
   let reloads = 0;
-  dom.window.sessionStorage.removeItem("cmux.guest.chunkReloadAt");
   const page = await mount({
     guestId: "g1",
     role: "talk",
@@ -473,12 +475,15 @@ test("a chunk load that fails twice reloads the page once", async () => {
     reloadPage: () => void (reloads += 1),
   });
   await roomFrames();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
   expect(reloads).toBe(0);
-  await until(() => reloads >= 1, actTurn);
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
   await roomFrames();
   expect(reloads).toBe(1);
   await page.unmount();
-  dom.window.sessionStorage.removeItem("cmux.guest.chunkReloadAt");
 });
 
 const signedIn = (avatarUrl?: string) => async () =>

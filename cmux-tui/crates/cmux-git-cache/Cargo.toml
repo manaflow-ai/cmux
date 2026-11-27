@@ -11,7 +11,6 @@ description = "Per-machine git smart-HTTP cache: an agent's plain `git clone htt
 workspace = true
 
 [dependencies]
-cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
 axum.workspace = true

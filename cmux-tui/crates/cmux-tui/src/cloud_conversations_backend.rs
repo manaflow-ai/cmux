@@ -555,7 +555,3 @@ pub(crate) fn install(mux: &Arc<Mux>) {
 #[cfg(test)]
 #[path = "cloud_conversations_backend_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "cloud_conversations_backend_seeded_tests.rs"]
-mod seeded_tests;

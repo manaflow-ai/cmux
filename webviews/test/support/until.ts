@@ -9,14 +9,3 @@
 export async function until(holds: () => boolean, turn?: () => Promise<unknown>): Promise<void> {
   while (!holds()) await (turn ? turn() : new Promise((resolve) => setTimeout(resolve, 0)));
 }
-
-/**
- * One turn of the event loop inside React's `act`, for `until` while a real timer (an auto-retry's
- * backoff) has to fire: `act(async () => {})` alone settles in microtasks and never lets it run.
- */
-export async function actTurn(): Promise<void> {
-  const { act } = await import("react");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}

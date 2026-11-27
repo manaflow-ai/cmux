@@ -14,13 +14,13 @@ import {
   CloudOps,
   isUnsupported,
   type ActionRunResult,
+  type BillingStatus,
+  CloudActions,
   type CloudPlan,
+  type CloudUsage,
   type CloudTeam,
   type MigrationStarted,
   type MigrationStatus,
-  type BillingStatus,
-  CloudActions,
-  type CloudUsage,
 } from "./ops";
 
 /** `cloud.billing.off` as the Cloud app server names it. */
@@ -173,7 +173,7 @@ export class AccountReader {
       this.host.set({ plan, planFailed: false, ...(lifted ? { refusal: undefined } : {}) });
     } catch {
       // The plan shown stays; the next change or page open reads it again. Without one, the
-      // storefront reads it again on its own (Storefront.tsx, useAutoRetry).
+      // storefront shows the failure and Retry.
       if (session === this.host.session() && !this.host.get().plan) this.host.set({ planFailed: true });
     }
   }

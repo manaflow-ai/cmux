@@ -124,7 +124,7 @@ fn now_ns() -> u128 {
 const FILES: usize = 1500;
 
 fn agent_files(side: &Side, at: &Path) {
-    repo(side, at);
+    super::repo(side, at);
     for n in 0..FILES {
         write(&at.join(format!("p/d{n}/f")), &format!("file {n}\n"));
     }
@@ -270,7 +270,7 @@ fn paused_under_an_agent(
     for first in &first_reads_ms {
         let first = first.expect("no read worked after a resume");
         assert!(
-            first < (carrier_delay + AWAY_WAIT).as_millis(),
+            u128::from(first) < (carrier_delay + AWAY_WAIT).as_millis(),
             "the first read took {first} ms after the resume"
         );
     }

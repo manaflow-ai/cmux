@@ -131,9 +131,8 @@ hot.on("dev-loop:frames", ({ count }: { count: number }) => {
 
 // The apply floor: import an already transformed copy of the edited component (served by measure.mjs; its
 // $RefreshReg$ names the component's own file, so React Refresh takes it as the same component family),
-// then the refresh plugin-react runs on an update, without its batching (its batch is taken and run at once),
-// to the commit that writes the copy's probe value. The batch is the stock runtime's 16 ms `setTimeout`, or the
-// `queueMicrotask` webviews/dev-server/refreshNow.ts puts in its place; whichever the runtime calls is taken.
+// then the refresh plugin-react runs on an update, without its 16 ms debounce (its batch timer is taken and
+// run at once), to the commit that writes the copy's probe value.
 type Runtime = {
   validateRefreshBoundaryAndEnqueueUpdate(id: string, prev: object, next: object): string | undefined;
 };
@@ -146,21 +145,16 @@ const apply = async (url: string, value: string, id: string) => {
     const next = (await import(/* @vite-ignore */ url)) as object;
     const imported = now();
     const setTimeoutBefore = window.setTimeout;
-    const queueMicrotaskBefore = window.queueMicrotask;
     let batch: (() => unknown) | null = null;
     window.setTimeout = ((fn: () => unknown) => {
       batch = fn;
       return 0;
     }) as typeof window.setTimeout;
-    window.queueMicrotask = (fn: () => unknown) => {
-      batch = fn;
-    };
     let refused: string | undefined;
     try {
       refused = runtime.validateRefreshBoundaryAndEnqueueUpdate(id, next, next);
     } finally {
       window.setTimeout = setTimeoutBefore;
-      window.queueMicrotask = queueMicrotaskBefore;
     }
     if (refused || !batch) return reply("apply", { value, error: refused ?? "React Refresh queued no update" });
     await (batch as () => unknown)();

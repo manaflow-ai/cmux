@@ -10,8 +10,6 @@
 // remove the "ask parent to retry" if we haven't already").
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
-import type { ConnectionQuietKeys } from "../../../ui/lasting";
-import { AutoRetryLoop, type AutoRetryOptions } from "../autoRetry";
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
 import type { Subagent } from "./subagent";
@@ -163,32 +161,6 @@ export function retryLabel(t: Translate, retry: RetryState): string {
   return t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
 }
 
-/// Whether a row's retry has waited out the shared bound, by the row's key: `useConnectionQuietKeys`
-/// (ui/lasting.ts) in the component that draws it. A retry heals on its own and offers nothing to do,
-/// so for its first `CONNECTION_QUIET_MS` the row reads as running, as it will once the retry runs
-/// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
-export type RetryQuiet = ConnectionQuietKeys;
-
-/// The key a subagent's retry waits under (``RetryQuiet``), the same on every surface.
-export const subagentRetryKey = (agent: Pick<Subagent, "id">) => `agent:${agent.id}`;
-
-/// The key a sub-session's retry waits under (``RetryQuiet``), the same on every surface.
-export const sessionRetryKey = (sessionId: string) => `session:${sessionId}`;
-
-/// A row's state words while acpmux retries it: "Retrying (2/4) after a capacity error" once the
-/// retry has lasted the bound (``RetryQuiet``), the running word before; undefined when no retry
-/// waits. Every draw of the row asks, retrying or not, so a retry that ends is forgotten.
-export function retryWords(
-  t: Translate,
-  retry: RetryState | undefined,
-  key: string,
-  connectionQuiet: RetryQuiet,
-): string | undefined {
-  const lasting = connectionQuiet(key, retry !== undefined);
-  if (!retry) return undefined;
-  return lasting ? retryLabel(t, retry) : t("subagents.state.running");
-}
-
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the
 /// person's: its provenance is `auto_resume` (a turn's retry, automatic or manual) or
 /// `subagent_retry` (a subagent resumed by its agent id) or `subagent_resume` (the row's Resume,
@@ -305,51 +277,3 @@ export async function runRetry(agent: RetryTarget, chat: string, deps: RetryDeps
 }
 
 export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id">;
-
-/// A Retry or Resume the person chose, asked of acpmux until it is not refused `retry.busy`. acpmux
-/// refuses a person's retry while a turn runs (or a Resume is already out) and never queues it
-/// (hub/mod.rs `no_queue`); "Busy, try again shortly" asked the person to click again for what they
-/// already chose (Leo, 2026-11-22: "vacuous decisions like that should be just done"). So the row
-/// stays busy and asks again on its own (autoRetry.ts: jittered backoff from 1 s to 30 s, only while
-/// the page is visible), until acpmux takes it or answers anything else. `stop` ends the wait (the
-/// row went away): its answer is then never given.
-export function untilNotBusy(
-  attempt: () => Promise<RetryNote | undefined>,
-  options: AutoRetryOptions = {},
-): { answer: Promise<RetryNote | undefined>; stop: () => void } {
-  let stopped = false;
-  let loop: AutoRetryLoop | undefined;
-  const onVisibility = () => loop?.wake();
-  const end = () => {
-    loop?.dispose();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
-  };
-  const answer = new Promise<RetryNote | undefined>((resolve, reject) => {
-    const ask = () => {
-      loop?.pause();
-      attempt().then(
-        (note) => {
-          if (stopped) return;
-          if (note === "retry.busy") return loop?.fail();
-          end();
-          resolve(note);
-        },
-        (error: unknown) => {
-          if (stopped) return;
-          end();
-          reject(error);
-        },
-      );
-    };
-    loop = new AutoRetryLoop(ask, options);
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
-    ask();
-  });
-  return {
-    answer,
-    stop: () => {
-      stopped = true;
-      end();
-    },
-  };
-}

@@ -9,8 +9,6 @@
 // store leaves each page its own list, as before. With `agent.pageHost` on each page has its own
 // store, so this is each page's own list again.
 import { useSyncExternalStore } from "react";
-import { experimentSwitchOn } from "../../../experiments/switches";
-import { pageLanes } from "../schedule";
 import type { AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -297,29 +295,12 @@ export function publishSessions(
   pending = { sessions: snapshot.sessions, at, windowed: snapshot.sessionsWindowed === true };
   // A write went out less than `PUBLISH_MS` ago: this list goes when the window ends.
   if (windowTimer !== undefined) return;
-  scheduleWrite();
+  writePending();
 }
 
 function endWindow(): void {
   windowTimer = undefined;
-  if (pending && current && pending.at < current.at) pending = undefined;
-  if (pending) scheduleWrite();
-}
-
-/// Settings > Advanced > Experiments > Prioritize Chat Input (`experiments.chatInstantUnderLoad`, off
-/// by default; docs/design/chat-instant-under-load.md, "idle: ... session-list
-/// publishing"). On, a store that already holds a list takes a changed list from the page's idle
-/// lane, so serializing every chat never shares a task with a key or a transcript frame; the first
-/// list still goes at once so a new tab draws it, the newest list still wins, and a page that hides
-/// still writes what it holds at once (`pagehide`, `visibilitychange`). Off, the list goes at once, as before.
-function scheduleWrite(): void {
-  if (current?.sessions.length && experimentSwitchOn("chatInstantUnderLoad")) {
-    pageLanes().idle("new-tab-chat-list", () => {
-      if (windowTimer === undefined) flushPending();
-    });
-    return;
-  }
-  writePending();
+  flushPending();
 }
 
 /// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:

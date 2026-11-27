@@ -26,6 +26,4 @@ tokio.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
-# Seeded-secret tests: gated clients send to a local capture server.
-cmux-egress = { workspace = true, features = ["capture"] }
 tempfile = "3"

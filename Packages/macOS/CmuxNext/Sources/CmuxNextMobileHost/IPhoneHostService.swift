@@ -147,8 +147,6 @@ public final class IPhoneHostService {
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
     /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
     public internal(set) var servesPhones = false
-    /// What the card's Sign In signs in to ("Signs in to cmux.com"), the line under it; set by `wire`.
-    public internal(set) var signInBackend: String?
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).

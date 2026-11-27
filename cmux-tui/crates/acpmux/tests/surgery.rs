@@ -88,9 +88,7 @@ async fn surgery_masks_old_tool_output_and_resumes_the_chat_on_the_copy() {
     let root = std::env::temp_dir().join(format!("acpmux-surgery-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(root.join("claude")).unwrap();
     let settings = root.join("cmux-next.json");
-    // Surgery is off by default: this chat turns it on.
-    std::fs::write(&settings, r#"{"agents": {"harnessMagic": {"surgery": {"enabled": true}}}}"#)
-        .unwrap();
+    std::fs::write(&settings, "{}").unwrap();
     // SAFETY: the only test in this binary; set before any session starts.
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);

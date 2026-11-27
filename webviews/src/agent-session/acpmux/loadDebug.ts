@@ -272,9 +272,6 @@ export type LoadToolsOptions = {
   gap_ms?: number;
   /// Leave the turn running after them (the next `loadTools` adds to it); false ends it.
   keep_open?: boolean;
-  /// The turn's closing answer, marked the final one, so the rows only a concluded turn draws take
-  /// part (a tagged ask card, a walkthrough). Empty: the turn ends on its calls, as before.
-  reply?: string;
 };
 
 /// `debug.agent_pane load_tools`: short tool calls arrive in the open chat's running turn, each its
@@ -292,7 +289,6 @@ export async function loadTools(
     count: Math.max(0, Math.floor(options.count ?? 10)),
     gapMs: Math.max(0, options.gap_ms ?? 60),
     keepOpen: options.keep_open ?? false,
-    ...(options.reply ? { reply: options.reply } : {}),
   });
   return { ...added, rows_before: before };
 }

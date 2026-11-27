@@ -78,9 +78,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
          "topRightLayout": .string(topRightLayout.rawValue),
          "version": CmuxNextSettings.JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null,
-         // main-actor-ok: one chat's place, a fixed-shape object (`{mode, at, cloudName?, move?}`) of a few hundred bytes.
          "place": placeData.flatMap { try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: $0) } ?? .null,
-         // main-actor-ok: one fixed-shape object (`{direction, chats, startedMs, elapsedMs, canBringBack}`).
          "evacuate": evacuateData.flatMap { try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: $0) } ?? .null]
     }
 }

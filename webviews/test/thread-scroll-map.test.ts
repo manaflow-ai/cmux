@@ -42,33 +42,12 @@ test("every prompt and reply draws at its place, top to bottom, within the rail"
   expect(marks.at(-2)!.y / 400).toBeCloseTo(3600 / 4000, 1);
 });
 
-test("prompts and replies a few px apart on a long chat draw one mark of each per band", () => {
+test("replies a few px apart on a long chat draw as one mark; prompts never merge", () => {
   const { rows, layout } = chat(2000);
   const turns = minimapTurns(rows).turns;
   const marks = mapMarks(rows, turns, layout, 500);
-  const users = marks.filter((mark) => mark.kind === "user");
-  // 2,000 prompts on 500 px: one per 3 px band at most.
-  expect(users.length).toBeLessThanOrEqual(Math.ceil(500 / 3) + 1);
-  expect(users.length).toBeGreaterThan(100);
-  expect(marks.filter((mark) => mark.kind === "agent").length).toBeLessThanOrEqual(Math.ceil(500 / 3) + 1);
-  // Each drawn prompt is its own turn's, in order, and the first prompt draws.
-  for (const mark of users) expect(turns[mark.turn]!.index).toBe(mark.row);
-  expect(users[0]!.turn).toBe(0);
-  for (let index = 1; index < marks.length; index += 1)
-    expect(marks[index]!.y).toBeGreaterThanOrEqual(marks[index - 1]!.y);
-});
-
-test("a kept prompt draws in a band another prompt draws for", () => {
-  const { rows, layout } = chat(2000);
-  const turns = minimapTurns(rows).turns;
-  const drawn = new Set(mapMarks(rows, turns, layout, 500).map((mark) => mark.row));
-  const hidden = turns.find((turn) => !drawn.has(turn.index))!;
-  const kept = mapMarks(rows, turns, layout, 500, undefined, [hidden.index]);
-  expect(kept.length).toBe(drawn.size + 1);
-  const mark = kept.find((each) => each.row === hidden.index)!;
-  expect(turns[mark.turn]).toBe(hidden);
-  for (let index = 1; index < kept.length; index += 1)
-    expect(kept[index]!.y).toBeGreaterThanOrEqual(kept[index - 1]!.y);
+  expect(marks.filter((mark) => mark.kind === "user")).toHaveLength(2000);
+  expect(marks.filter((mark) => mark.kind === "agent").length).toBeLessThan(400);
 });
 
 test("the bar is the view: its share of the rail and its place", () => {

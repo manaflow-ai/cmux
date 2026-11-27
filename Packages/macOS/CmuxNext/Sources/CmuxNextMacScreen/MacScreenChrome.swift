@@ -46,8 +46,6 @@ final class MacScreenChromeActions {
     var openHome: () -> Void = {}
     /// The card's Sign In: this Mac is not signed in to cmux (``MacScreenHubRefusal/notSignedIn``).
     var signIn: () -> Void = {}
-    /// What that Sign In signs in to, the line under the card's buttons.
-    var signInBackend: () -> String? = { nil }
     var selectDisplay: (Int) -> Void = { _ in }
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
@@ -88,23 +86,6 @@ enum MacScreenCard: Equatable {
     /// A Full Control session ended because the host lowered this Mac's access to View Only.
     case hubAccessLowered
     case hubEnded(MacScreenEndReason)
-
-    /// An attempt is under way (asking the hub, connecting, waiting for the first picture): a retry in flight.
-    var isAttemptInFlight: Bool {
-        switch self {
-        case .hubRequesting, .connecting, .waitingForPicture: true
-        default: false
-        }
-    }
-}
-
-/// What a Mac Screen tab shows while its pane retries a failure on its own: a Reconnecting card at first, then, once the
-/// failures have lasted the shared bound (``NoticeTiming/connectionQuiet``), the last failure's card, held steady
-/// through the attempts that follow, without its retry button.
-struct MacScreenRetryCover: Equatable {
-    var card: MacScreenCard
-    /// The failure's detail as it was when it failed (the next attempt clears the causes it is built from).
-    var detail: String
 }
 
 /// The toolbar and the card over the screen, each in the tab's theme scope.
@@ -179,17 +160,8 @@ extension MacScreenPaneModel {
     /// The card on screen: ``liveCard`` with its in-between states held back (``MacScreenCardQuiet``).
     var card: MacScreenCard? { quiet.shown(liveCard) }
 
-    /// The card the pane calls for now, held or not (the screen takes input only without one): the state's
-    /// (``stateCard``), or while the pane retries a failure on its own (``retryCover``) the cover in place of that
-    /// failure and of the attempts in flight, so no "Try Again" is asked and the retries never flash.
+    /// The card the session's state calls for now, held or not: the screen takes input only without one.
     var liveCard: MacScreenCard? {
-        let state = stateCard
-        if let cover = retryCover, let state, state.isAttemptInFlight || retriesOnItsOwn(state) { return cover.card }
-        return state
-    }
-
-    /// The card for where the session and the hub stand now.
-    var stateCard: MacScreenCard? {
         switch gate {
         case .unsupported: return .unsupported
         case .open: break
@@ -202,34 +174,6 @@ extension MacScreenPaneModel {
         case .failed: return .failed
         case .ended: return .ended
         }
-    }
-
-    /// Whether the pane answers `card` itself by asking the hub again, because the only sensible answer is yes: a stream
-    /// that failed or dropped (``MacScreenEndReason/retriesOnItsOwn``), a host that is offline or not sharing yet, a hub
-    /// that could not answer, and only while the host's permission already grants the scope (Full, or View for View), so
-    /// asking again prompts nobody on that Mac. Not signed in retries too: with no hub nothing is asked, and once signed
-    /// in it is the request the person made. Everything else is the person's choice (their own Disconnect, the host's
-    /// Stop, a share that moved, an Ask permission that would prompt the host's person again) and keeps its button.
-    func retriesOnItsOwn(_ card: MacScreenCard?) -> Bool {
-        guard let hub, let card else { return false }
-        let access = hub.accessToHost
-        let again = MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: access)
-        switch card {
-        case .failed, .ended: return Self.grants(access, again)
-        case let .hubEnded(reason): return reason.retriesOnItsOwn && Self.grants(access, again)
-        case let .hubRefused(refusal, requested):
-            switch refusal {
-            case .notSignedIn: return true
-            case .hostOffline, .notShared, .other: return Self.grants(access, requested)
-            case .permissionNone, .scopeExceeds, .notFound: return false
-            }
-        default: return false
-        }
-    }
-
-    /// The host's permission `access` lets the hub approve `scope` with no one asked.
-    static func grants(_ access: DeviceScope?, _ scope: SessionScope) -> Bool {
-        access == .full || (access == .view && scope == .view)
     }
 
     /// A device hub tab's card for `phase`; nil while it streams (the

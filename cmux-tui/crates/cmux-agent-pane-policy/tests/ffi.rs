@@ -10,8 +10,7 @@ use cmux_agent_pane_policy::ffi::{
     cmux_agent_pane_policy_abi_version, cmux_agent_pane_policy_bytes_free,
     cmux_agent_pane_policy_call, cmux_agent_pane_policy_check,
     cmux_agent_pane_policy_check_gesture, cmux_agent_pane_policy_filter_reply,
-    cmux_agent_pane_policy_free, cmux_agent_pane_policy_json_keys_verdict,
-    cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
+    cmux_agent_pane_policy_free, cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -213,7 +212,7 @@ fn c_abi_runs_the_check_corpus() {
 /// only a click passes it.
 #[test]
 fn c_abi_a_click_only_answer_passes_on_a_click_only() {
-    assert_eq!(cmux_agent_pane_policy_abi_version(), 5);
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 3);
     let pane = new();
     call(pane.0, "add", json!({"session": "s1"})).unwrap();
     let frames = [
@@ -414,22 +413,6 @@ fn c_abi_runs_the_pick_corpus() {
         json!({"digest": null})
     );
     assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
-    // The text canonical_digest hashes: keys in UTF-8 byte order, no
-    // whitespace, only quote, backslash and control characters escaped.
-    assert_eq!(
-        call(
-            none,
-            "canonical_json",
-            json!({"value": {"é": "\u{1}", "Which one?": "B", "a/b": [1, 2.0, true, null]}})
-        )
-        .unwrap(),
-        json!({"json": "{\"Which one?\":\"B\",\"a/b\":[1,2,true,null],\"é\":\"\\u0001\"}"})
-    );
-    assert_eq!(
-        call(none, "canonical_json", json!({"value": {"q": 1.5}})).unwrap(),
-        json!({"json": null})
-    );
-    assert_eq!(call(none, "canonical_json", json!({})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }
@@ -611,28 +594,4 @@ fn service_wait_says_busy_or_down() {
     let down = call(none, "service_wait", json!({"process_alive": false, "socket_accepts": false}));
     assert_eq!(down.unwrap(), json!({"state": "down", "restart": true}));
     assert_eq!(call(none, "service_wait", json!({"process_alive": true})), Err(ERR_INVALID));
-}
-
-fn keys_verdict(bytes: &[u8]) -> i32 {
-    unsafe { cmux_agent_pane_policy_json_keys_verdict(bytes.as_ptr(), bytes.len()) }
-}
-
-/// The strict duplicate-key check through the C ABI (the Swift host's only
-/// caller of src/json_keys.rs): 0 clean, 1 malformed, 2 duplicate.
-#[test]
-fn c_abi_json_keys_verdict() {
-    assert_eq!(keys_verdict(br#"{"a":1,"b":[1,{"a":2}]}"#), 0);
-    assert_eq!(keys_verdict(br#"{"a":1,"a":2}"#), 2);
-    assert_eq!(keys_verdict(br#"[{"x":{"k":1,"k":1}}]"#), 2);
-    // A composed and a decomposed accent are one key (NFC), as Swift compares them.
-    assert_eq!(keys_verdict("{\"\u{e9}\":1,\"e\u{301}\":2}".as_bytes()), 2);
-    assert_eq!(keys_verdict(br#"{"\u00e9":1,"\u0065\u0301":2}"#), 2);
-    assert_eq!(keys_verdict(br#"{"a":1,}"#), 1);
-    assert_eq!(keys_verdict(b"{\"a\":1} x"), 1);
-    assert_eq!(keys_verdict(b""), 1);
-    assert_eq!(keys_verdict(&[b'"', 0xff, b'"']), 1, "not UTF-8 is malformed");
-    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 0) }, 1);
-    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 3) }, ERR_NULL);
-    let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
-    assert_eq!(keys_verdict(deep.as_bytes()), 0, "no recursion");
 }

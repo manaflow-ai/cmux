@@ -37,8 +37,7 @@
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
-    { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" },
-    { "name": "full", "px": 999, "tailwind": false, "for": "a capsule at any height: the 999px the app's round tracks and badges draw; Tailwind's own rounded-full stays as it is" }
+    { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
   ],
   "glass": [
     { "name": "chrome", "kind": "level", "tint": 62, "darkTint": 62, "blur": "blur(20px) saturate(1.6)", "for": "chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1)" },

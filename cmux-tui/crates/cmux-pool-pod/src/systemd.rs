@@ -130,7 +130,6 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
             &self.pods_dir,
             &root,
             request.cwd.as_deref().unwrap_or(&root),
-            &[],
             &request.program,
             &request.args,
         ));
@@ -161,41 +160,23 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
     }
 }
 
-/// The host's system dirs a pod sees, read-only. Not `/` itself: `bwrap` without setuid runs in a
-/// user namespace that maps no root, so a root-owned `/` or `/home` reads as owned by
-/// another user (the overflow uid) there, and a pod's own `acpmux` refuses such an ancestor of
-/// its state dir. Every dir `bwrap` makes on its own root (`/`, the root's parents) is the pod
-/// user's instead. Users' homes stay out: a pod sees only its own root.
-pub const SYSTEM_DIRS: &[&str] = &[
-    "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/var", "/srv",
-    "/run", "/mnt", "/media", "/sys", "/nix", "/snap",
-];
-
-/// `bwrap` around one program, the pod's whole view of its host: the [`SYSTEM_DIRS`], the
-/// host's `binds` and the program read-only, its own pid and IPC namespaces, a private `/tmp`,
-/// and its own root.
+/// `bwrap` around one program, the pod's whole view of its host: everything read-only,
+/// its own pid and IPC namespaces, a private `/tmp`, and of the pods dir only its own root.
 pub fn bwrap_argv(
     pods_dir: &str,
     root: &str,
     cwd: &str,
-    binds: &[String],
     program: &str,
     args: &[String],
 ) -> Vec<String> {
-    let mut out = argv(&["bwrap", "--die-with-parent", "--unshare-pid", "--unshare-ipc"]);
-    for dir in SYSTEM_DIRS {
-        out.extend(argv(&["--ro-bind-try", dir, dir]));
-    }
-    // What the host names for every pod, at its own path: a harness installed under a home
-    // (a native `claude` in `~/.local`), which the system dirs leave out.
-    for path in binds {
-        out.extend(argv(&["--ro-bind-try", path, path]));
-    }
-    // An init under a home (a lane's own build of `acpmux`) is visible at its own path.
-    if program.starts_with('/') {
-        out.extend(argv(&["--ro-bind-try", program, program]));
-    }
-    out.extend(argv(&[
+    let mut out = argv(&[
+        "bwrap",
+        "--die-with-parent",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--ro-bind",
+        "/",
+        "/",
         "--dev",
         "/dev",
         "--proc",
@@ -206,8 +187,8 @@ pub fn bwrap_argv(
         // this pod's root alone on top of it.
         "--tmpfs",
         pods_dir,
-        // Same path inside and out, so files and exec agree; `bwrap`
-        // makes its parents, owned by the pod user.
+        // Same path inside and out: the root is read-only, so a new
+        // mount point like /pod cannot be made, and files and exec agree.
         "--bind",
         root,
         root,
@@ -218,7 +199,7 @@ pub fn bwrap_argv(
         cwd,
         "--",
         program,
-    ]));
+    ]);
     out.extend(args.iter().cloned());
     out
 }

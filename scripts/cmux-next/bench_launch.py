@@ -344,33 +344,6 @@ def start_fresh_state(tag):
         note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
 
 
-def bundle_executable(app):
-    """The main executable of bundle app: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
-    (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there; bench_idle.py and home-perf.py found "no
-    app" in every perf-budgets run on a bench build), and the first file in Contents/MacOS can be another executable;
-    only a bundle with no Info.plist falls back to those guesses. Every bench that starts or checks the app's
-    executable reads it here (test_bench_launch_executable.py refuses a hard-coded `Contents/MacOS/cmux DEV` in the
-    perf-budgets benches and the modules they load)."""
-    try:
-        with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
-            info = plistlib.load(f)
-    except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
-        info = None
-    named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
-    if named:
-        main = os.path.join(app, "Contents/MacOS", named)
-        if not os.path.exists(main):
-            raise SystemExit(f"bench-launch: {app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
-        return main
-    main = os.path.join(app, "Contents/MacOS/cmux DEV")
-    if os.path.exists(main):
-        return main
-    found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
-    if not found:
-        raise SystemExit(f"bench-launch: no executable in {app}/Contents/MacOS")
-    return found[0]
-
-
 def bundle_pids(app, inside="Contents/"):
     """PIDs of processes running an executable inside the bundle `app` (under `inside`), other than this one."""
     out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
@@ -1087,8 +1060,27 @@ class BenchApp:
 
     @property
     def binary(self):
-        """The bundle's main executable (bundle_executable)."""
-        return bundle_executable(self.app)
+        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
+        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
+        try:
+            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
+                info = plistlib.load(f)
+        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+            info = None
+        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+        if named:
+            main = os.path.join(self.app, "Contents/MacOS", named)
+            if not os.path.exists(main):
+                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+            return main
+        main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
+        if os.path.exists(main):
+            return main
+        found = [p for p in sorted(glob.glob(os.path.join(self.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+        if not found:
+            raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
+        return found[0]
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""
@@ -1298,7 +1290,7 @@ class BenchApp:
         pid = self.process.pid if self.process else None
 
         def found():
-            return crash_reports(self.launched_at - 1, name=os.path.basename(self.binary), pid=pid, binary=self.binary)
+            return crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
 
         if exit_code is None or exit_code >= 0:
             return found()
@@ -1314,7 +1306,7 @@ class BenchApp:
             while True:
                 # Each report file seen is watched before the read below, so one whose body is still being written
                 # wakes the wait when it grows; reading after the watches are armed misses nothing written meanwhile.
-                for path in crash_report_candidates(self.launched_at - 1, os.path.basename(self.binary)):
+                for path in crash_report_candidates(self.launched_at - 1):
                     events.watch_file(path)
                 reports = found()
                 left = deadline - time.monotonic()

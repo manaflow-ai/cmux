@@ -46,15 +46,15 @@
     "mobile.devices.loadFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة."}},
-        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices. Pull to retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden. Zum Wiederholen nach unten ziehen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils. Tirez pour réessayer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة. اسحب لإعادة المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos. Desliza para volver a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。下拉以重試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。下拉以重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다. 아래로 당겨 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。下に引いて再試行してください。"}}
       }
     },
     "mobile.devices.networkUnavailable": {

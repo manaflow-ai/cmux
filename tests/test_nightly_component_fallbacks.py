@@ -117,7 +117,7 @@ class ScriptTests(unittest.TestCase):
         out = run(["bash", str(STEPS / "last-good-mobile-host.sh"), "x86_64"], self.tmp, env)
         self.assertEqual((out.returncode, out.stdout), (1, ""))
 
-    def bundle_tree(self, host_status: int, screen_status: int = 0) -> Path:
+    def bundle_tree(self, host_status: int) -> Path:
         """A tree with the bundle step script and stubs: the background joins and the phase scripts."""
         tree = self.tmp / "tree"
         (tree / "scripts/ci/nightly-steps").mkdir(parents=True)
@@ -126,8 +126,7 @@ class ScriptTests(unittest.TestCase):
         for name in ("app-bundle-chief-and-mobile-host.sh", "stale-part.sh", "last-good-mobile-host.sh"):
             shutil.copy(STEPS / name, tree / "scripts/ci/nightly-steps" / name)
         (tree / "scripts/ci/background_build.py").write_text(
-            "import sys\nsys.exit({'mobile-host': %d, 'screen-sharing-helper': %d}.get(sys.argv[-1], 0))\n"
-            % (host_status, screen_status))
+            "import sys\nsys.exit(%d if sys.argv[-1] == 'mobile-host' else 0)\n" % host_status)
         for name in ("bundle-optchat-chief.sh", "bundle-mobile-host.sh", "bundle-screen-sharing-helper.sh"):
             stub = tree / "scripts/cmux-next" / name
             stub.write_text(f'#!/usr/bin/env bash\necho "{name} ${{CMUX_NEXT_MOBILE_HOST_BIN:-}}" >> "$RUNNER_TEMP/bundled"\n')
@@ -170,80 +169,13 @@ class ScriptTests(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertNotIn("bundle-mobile-host.sh", self.bundled())
 
-    def test_a_failed_screen_helper_ships_without_it(self) -> None:
-        out = self.bundle(self.bundle_tree(0, screen_status=1))
-        self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
-        self.assertIn("bundle-mobile-host.sh /host", self.bundled())
-        self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: the Screen Sharing helper failed "
-                      "to build; the nightly uses the app's in-process Screen Sharing fallback", out.stdout)
-        self.assertEqual((self.tmp / "nightly-stale-parts").read_text().split("\t")[0], "cmux-screen-sharing")
-
-    def test_block_restores_the_screen_helper_hold(self) -> None:
-        out = self.bundle(self.bundle_tree(0, screen_status=1), NIGHTLY_COMPONENT_GATES="block")
-        self.assertNotEqual(out.returncode, 0)
-        self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
-
-    def test_architecture_check_lets_a_missing_screen_helper_through(self) -> None:
-        # Execute the real step against a minimal nightly app. A text-only assertion would pass even
-        # if the guard were unreachable or the shell expansion still failed on an absent helper.
-        fixture = self.tmp / "architecture-fixture"
-        app = fixture / "build-universal/Build/Products/Release/cmux.app"
-        (app / "Contents/MacOS").mkdir(parents=True)
-        resources = app / "Contents/Resources/bin"
-        resources.mkdir(parents=True)
-        binaries = ("cmux", "ghostty", "cmux-diff-sidecar", "optchat-chief", "cmux-mobile-host")
-        for name in binaries:
-            binary = resources / name
-            binary.write_bytes(b"\0")
-            binary.chmod(0o755)
-        (app / "Contents/MacOS/cmux").write_bytes(b"\0")
-        (app / "Contents/MacOS/cmux").chmod(0o755)
-        (resources / "cmux-tui").symlink_to("cmux")
-        (resources / "acpmux").symlink_to("cmux")
-
-        # The script invokes this helper by repository-relative path while scanning for Mach-O files.
-        (fixture / "scripts").mkdir()
-        shutil.copy(ROOT / "scripts/list-macho-candidates.py", fixture / "scripts/list-macho-candidates.py")
-        fake_bin = fixture / "bin"
-        fake_bin.mkdir()
-        fake_lipo = fake_bin / "lipo"
-        fake_lipo.write_text("#!/usr/bin/env bash\nprintf '%s\\n' arm64\n")
-        fake_lipo.chmod(0o755)
-        env = {**os.environ,
-               "CHANNEL_RELEASE_TAG": "nightly-next",
-               "NIGHTLY_VARIANT": "arm64",
-               "RUNNER_OS": "Linux",
-               "PATH": f"{fake_bin}:{os.environ['PATH']}"}
-        env.pop("NIGHTLY_COMPONENT_GATES", None)
-        out = subprocess.run(
-            ["bash", str(STEPS / "prepare-verify-binary-architectures.sh")],
-            cwd=fixture, env=env, capture_output=True, text=True, check=False,
-        )
-        self.assertEqual(out.returncode, 0, f"{out.stderr}\n{out.stdout}")
-        self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper",
-                      out.stdout)
-
-        # A present helper's channel name contains spaces. Keep that path one argv entry for lipo.
-        helper_binary = app / "Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
-        helper_binary.parent.mkdir(parents=True)
-        helper_binary.write_bytes(b"\0")
-        helper_binary.chmod(0o755)
-        env.pop("NIGHTLY_COMPONENT_GATES", None)
-        out = subprocess.run(
-            ["bash", str(STEPS / "prepare-verify-binary-architectures.sh")],
-            cwd=fixture, env=env, capture_output=True, text=True, check=False,
-        )
-        self.assertEqual(out.returncode, 0, f"{out.stderr}\n{out.stdout}")
-        self.assertIn(str(helper_binary.relative_to(fixture)), out.stdout)
-
     def test_publish_gate_notes_a_red_webview_check_instead_of_refusing(self) -> None:
         text = (STEPS / "publish-final-gate.sh").read_text()
         soft = text.index('[ "${NIGHTLY_COMPONENT_GATES:-}" != block ]')
         self.assertLess(soft, text.index('refuse "${verdict:-the webview check verdict is unreadable}"'))
         self.assertIn("::warning title=Nightly stale part::webview-checks:", text)
-        # The App Store shelf no longer holds a publish (Leo, 2026-11-25); report-nightly-shelf-red files its red.
-        self.assertNotIn("App Store shelf verdict is unreadable", text)
+        # The App Store shelf still refuses: Leo, 2026-11-16, "if i click install it means it works".
+        self.assertIn('refuse "${verdict:-the App Store shelf verdict is unreadable}"', text)
 
 
 if __name__ == "__main__":

@@ -116,7 +116,7 @@ public final class AgentShareInviteSheetModel {
                 copied = false
             }
         } catch {
-            status = AgentShareStrings.sheetFailure(error)
+            status = AgentShareStrings.failure(error).message
         }
     }
 
@@ -178,7 +178,7 @@ public final class AgentShareInviteSheetModel {
                 // Typing a next account while the invite ran keeps it.
                 if self.account.trimmingCharacters(in: .whitespacesAndNewlines) == account { self.account = "" }
             } catch {
-                self.status = AgentShareStrings.sheetFailure(error)
+                self.status = AgentShareStrings.failure(error).message
             }
             await self.load()
         }
@@ -194,7 +194,7 @@ public final class AgentShareInviteSheetModel {
                 try await self.work.remove(account)
                 self.status = nil
             } catch {
-                self.status = AgentShareStrings.sheetFailure(error)
+                self.status = AgentShareStrings.failure(error).message
             }
             await self.load()
         }

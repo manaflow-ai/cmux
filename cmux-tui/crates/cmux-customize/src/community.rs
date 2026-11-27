@@ -321,8 +321,6 @@ fn theme_profile(
     let schema = Schema::embedded();
     let mut files = BTreeMap::new();
     let mut names = Vec::new();
-    // The flourishes, header and pane art as settings each theme file carries.
-    let flourishes = art::settings(art, entry);
     for path in &paths {
         let name = path
             .strip_prefix("themes/")
@@ -333,7 +331,6 @@ fn theme_profile(
             .ok_or_else(|| refuse(format!("{path}: not in the repository")))?;
         let installed = art::rewrite(&text, path, entry, art)?;
         let installed = fonts::rewrite(&installed, path, entry, fonts)?;
-        let installed = art::with_settings(&installed, path, &flourishes)?;
         // Checked as written, against the tree: its `../wallpapers/` and
         // `../fonts/` values name files beside `themes/` there.
         let themes_dir = dir.join(theme_file::FOLDER_NAME);

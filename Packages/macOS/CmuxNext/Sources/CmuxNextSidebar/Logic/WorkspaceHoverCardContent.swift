@@ -234,8 +234,12 @@ struct WorkspaceHoverCardContent: Equatable {
         if let reason = needsInputReason(workspace) {
             facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
         }
-        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): that
-        // notifications are muted.
+        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): each usage
+        // rule acpmux found broken, with its number, and that notifications are muted.
+        for warning in workspace.usageWarnings {
+            facts.append(Fact(icon: .statusNeedsinput, text: warning, mark: "exclamationmark.triangle.fill", lines: 2,
+                              kind: usageWarningKind, iconTone: .attention))
+        }
         if workspace.muted { facts.append(Fact(icon: .notification, text: Strings.notificationsMuted, mark: "bell.slash", kind: mutedKind)) }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
@@ -344,7 +348,9 @@ struct WorkspaceHoverCardContent: Equatable {
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
     /// waits and what changed since the person looked.
-    static let keptOverHistory: Set<String> = ["needsInput", mutedKind, needsYouKind, sinceLookedKind]
+    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
+    /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
+    static let usageWarningKind = "usageWarning"
     /// The workspace's notifications are muted.
     static let mutedKind = "muted"
 

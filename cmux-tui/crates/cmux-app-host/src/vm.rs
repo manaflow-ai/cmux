@@ -437,14 +437,16 @@ impl AppVm {
         Ok(vm)
     }
 
-    /// Calls `__cmuxAppInit`, then evaluates the app's main script: the app's
-    /// identity, settings (the manifest defaults under the person's values), the ops
-    /// it may call, locale and strings are set before its first line runs, so a
-    /// top-level `cmux.app.settings()` reads them, as a render does.
+    /// Evaluates the app's main script and calls `__cmuxAppInit`.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
         let main = params.main;
         let mut options = rquickjs::context::EvalOptions::default();
         options.filename = params.main_name;
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
+            return Err(VmError::Init(format!("main: {error}")));
+        }
         let init = json!({
             "app": params.app,
             "settings": params.settings,
@@ -458,16 +460,10 @@ impl AppVm {
         match self
             .enter("init", move |ctx| call_global::<_, String>(ctx, "__cmuxAppInit", (init,)))?
         {
-            Ok(result) if result.is_empty() => {}
-            Ok(result) => return Err(VmError::Init(result)),
-            Err(error) => return Err(VmError::Init(error)),
+            Ok(result) if result.is_empty() => Ok(()),
+            Ok(result) => Err(VmError::Init(result)),
+            Err(error) => Err(VmError::Init(error)),
         }
-        if let Err(error) =
-            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
-        {
-            return Err(VmError::Init(format!("main: {error}")));
-        }
-        Ok(())
     }
 
     /// Mounts an export; `Ok(None)` when it rendered, `Ok(Some(message))` when the app refused.

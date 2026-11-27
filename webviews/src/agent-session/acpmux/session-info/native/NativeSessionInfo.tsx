@@ -8,7 +8,7 @@
 import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
-import { useConnectionQuietKeys, useConnectionQuiet } from "../../../../ui/lasting";
+import { useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { postNative } from "../../native";
 import { screenSharingKind, useScreenSharing } from "../screenSharing";
@@ -196,8 +196,6 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
 
 export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const t = useT();
-  // A subagent's retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
-  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, onShowUsage } = props;
@@ -473,7 +471,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           }),
           onOpenSession: props.onOpenSession,
           now,
-          connectionQuiet,
           showAll: subagentsAll,
           onShowAll: setSubagentsAll,
           endedOpen,

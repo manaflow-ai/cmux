@@ -13,49 +13,24 @@ struct HostSizePolicyEditor: View {
     let model: HostSizePolicyModel
     /// Who is on the terminal now (the Connected Devices sheet), for names.
     var presentation: TerminalSizingPresentation?
-    /// A failed read is asked again on its own (no button): "Asking the Mac…" stays through a
-    /// short failure; past the quiet bound the section says why, with the quiet line.
-    @State private var autoRetry = AutoRetry()
-    /// A retry is out: the failure counts until it answers (`reload` shows loading meanwhile).
-    @State private var retrying = false
-
-    private var failed: Bool {
-        if case .failed = model.load { return true }
-        return false
-    }
 
     var body: some View {
-        Group {
-            switch model.load {
-            case .loading:
-                asking
-            case .failed(let message):
-                if autoRetry.isQuietLineShown {
-                    Section {
-                        Text(message).foregroundStyle(theme.colors.label2)
-                        AutoRetryQuietLine(autoRetry)
-                    }
-                    .accessibilityIdentifier("sizing.failed")
-                } else {
-                    asking
+        switch model.load {
+        case .loading:
+            Section {
+                HStack(spacing: 10) {
+                    CmuxSpinner()
+                    Text("Asking the Mac…").foregroundStyle(theme.colors.label2)
                 }
-            case .loaded(let info):
-                loaded(info)
             }
-        }
-        .autoRetry(autoRetry, failing: failed || retrying) {
-            retrying = true
-            await model.reload()
-            retrying = false
-        }
-    }
-
-    private var asking: some View {
-        Section {
-            HStack(spacing: 10) {
-                CmuxSpinner()
-                Text("Asking the Mac…").foregroundStyle(theme.colors.label2)
+        case .failed(let message):
+            Section {
+                Text(message).foregroundStyle(theme.colors.label2)
+                Button("Try Again") { Task { await model.reload() } }
+                    .accessibilityIdentifier("sizing.retry")
             }
+        case .loaded(let info):
+            loaded(info)
         }
     }
 

@@ -12,7 +12,7 @@
 //! far only a plain send is ([`plain_send`]), from this host or forwarded by a peer daemon or the
 //! mesh relay: a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
 //! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
-//! task cards, a paused pair's release, a watch's wake: [`watch_wake`]) still queue.
+//! task cards, a paused pair's release) still queue.
 //!
 //! Those still steer into a running turn, but never while one of the person's prompts waits
 //! behind it ([`persons_prompt_waits`]; `turns.rs`, checked again as the steer is written,
@@ -417,15 +417,6 @@ pub(crate) fn plain_send(
     given_provenance: bool,
 ) -> bool {
     !team && !supersede && !steer_only && !given_provenance
-}
-
-/// Whether a `session/prompt` is a watch's wake (`_meta.acpmux.watchId`, `watch_timers.rs`
-/// `delivery`): a prompt acpmux makes itself, which queues as a turn instead of going to the
-/// inbox. Its sender is the watch's owner, so the inbox filed it as that agent's message with no
-/// class, an FYI, and an FYI never wakes an idle chat: a time watch due at 15:31 ran in a turn
-/// at 16:38, when something else woke the chat. The chat asked to be woken; this is that wake.
-pub(crate) fn watch_wake(params: &Value) -> bool {
-    params.pointer("/_meta/acpmux/watchId").and_then(Value::as_str).is_some()
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
@@ -1479,9 +1470,11 @@ impl Hub {
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        // Read the catalog snapshot. Reload publishes page-rule names while holding the config
-        // writer, so inbox admission never guesses during a write and never waits on it.
-        let page_rule_on = self.page_rule_lists(&meta_now.name);
+        // Admission must reach its acceptance callback without waiting on a config writer.
+        // If a reload owns the lock, fail open as an unlisted chat and let the normal wake rules
+        // decide. The next delivery observes the new page rule.
+        let page_rule_on =
+            self.config.try_read().is_ok_and(|cfg| page_rule::listed(&cfg, &meta_now.name));
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).

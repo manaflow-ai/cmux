@@ -36,11 +36,11 @@ extension MainThreadWatchdog {
         // main-async-allow: the probe measures the main dispatch queue's own answer delay, so it must be a raw GCD hop (no scheduler between).
         DispatchQueue.main.async { [self] in
             let answeredAt = uptime()
-            let delay = answeredAt > sentAt ? answeredAt - sentAt : 0
             let cpuNow = busy.mainThreadCPUNanos()
+            probeOutstanding.store(false, ordering: .releasing)
             let cpu = cpuAt.flatMap { start in cpuNow.map { $0 > start ? $0 - start : 0 } }
-            noteProbeAnswered(sentAt: sentAt, delayNanos: delay, cpuNanos: cpu,
-                              host: { HostLoad.current() ?? host })
+            noteProbeAnswered(sentAt: sentAt, delayNanos: answeredAt > sentAt ? answeredAt - sentAt : 0, cpuNanos: cpu,
+                              host: HostLoad.current() ?? host)
         }
     }
 
@@ -48,23 +48,14 @@ extension MainThreadWatchdog {
     /// using `cpuNanos` meanwhile on a host at `host` load. A delay past the hang threshold (2 s)
     /// with a `starved` verdict is recorded: a stall record, a fault line and a hang file. A
     /// `blocked` delay is the stall path's to record, and a hang reported meanwhile already has
-    /// its record. Check for overlap at answer time so a later hang cannot suppress this one.
-    func noteProbeAnswered(sentAt: UInt64, delayNanos: UInt64, cpuNanos: UInt64?, observedAt: Date = Date(),
-                           host: @escaping @Sendable () -> HostLoad?) {
-        guard delayNanos >= hangNanos, lastHangUptime.load(ordering: .acquiring) < sentAt else {
-            probeOutstanding.store(false, ordering: .releasing)
-            return
-        }
-        probeReportQueue.async { [self] in
-            defer { probeOutstanding.store(false, ordering: .releasing) }
-            recordStarvation(sentAt: sentAt, delayNanos: delayNanos, cpuNanos: cpuNanos, observedAt: observedAt, host: host())
-        }
-    }
-
-    private func recordStarvation(sentAt: UInt64, delayNanos: UInt64, cpuNanos: UInt64?, observedAt: Date, host: HostLoad?) {
+    /// its record. Returns the record, if any. Main thread (tests call it directly).
+    @discardableResult
+    func noteProbeAnswered(sentAt: UInt64, delayNanos: UInt64, cpuNanos: UInt64?, host: HostLoad?) -> HangRecord? {
+        guard delayNanos >= hangNanos else { return nil }
         let duration = Duration.nanoseconds(Int64(clamping: delayNanos))
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
-        guard StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host) == .starved else { return }
+        guard StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host) == .starved,
+              lastHangUptime.load(ordering: .acquiring) < sentAt else { return nil }
         var details: [String: JSONValue] = ["verdict": .string(StallVerdict.starved.rawValue), "source": .string("starvation_probe")]
         if let host {
             details["host_load_1m"] = .number(host.one)
@@ -76,8 +67,9 @@ extension MainThreadWatchdog {
             // Below the nested runs' keys (which count down from the top), far above heartbeat beats.
             let key = UInt64.max / 2 - probeSequence.add(1, ordering: .relaxed).newValue
             let load = HangLoad(mainThreadCPU: cpu, host: host)
-            recorder.begin(beat: key, elapsed: duration, main: [], others: [], load: load, observedAt: observedAt)
+            recorder.begin(beat: key, elapsed: duration, main: [], others: [], load: load)
             recorder.update(beat: key, duration: duration, ongoing: false, load: load)
         }
+        return record
     }
 }

@@ -9,7 +9,8 @@ extension NSCondition {
     ///   - line: The calling code's `#line`.
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
-        blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
+        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
+        wait()
     }
 
     /// Waits for a signal until `limit`, like `wait(until:)`, as a checked blocking call
@@ -22,6 +23,7 @@ extension NSCondition {
     /// - Returns: Whether a signal came before `limit`.
     @inlinable
     public func blockingWait(until limit: Date, fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
-        return blockingCall(.syncWait, fileID: fileID, line: line) { wait(until: limit) }
+        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
+        return wait(until: limit)
     }
 }

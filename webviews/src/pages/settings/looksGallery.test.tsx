@@ -98,10 +98,7 @@ test("Appearance leads with the gallery; Install shows the consent card, then in
   expect(sheet).not.toBeNull();
   // Nothing installed yet: the stack is empty until the person confirms.
   expect(page!.provider.looks.stack).toEqual([]);
-  const confirm = sheet.querySelector<HTMLButtonElement>('[data-looks-action="confirmInstall"]')!;
-  // UI drivers find the confirm by its accessible name, as they find the tiles'.
-  expect(confirm.getAttribute("aria-label")).toBe("Install");
-  await click(confirm);
+  await click(sheet.querySelector<HTMLButtonElement>('[data-looks-action="confirmInstall"]')!);
   await settle();
   const runs = page!.provider.looksRuns;
   expect(runs.at(-1)).toEqual({

@@ -116,9 +116,9 @@ import Testing
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        await yieldUntil { !(store.turns.isEmpty) }
+        while store.turns.isEmpty { await Task.yield() }
         store.send(prompt: "go")
-        await yieldUntil { !(store.pendingPermission == nil) }
+        while store.pendingPermission == nil { await Task.yield() }
         let permission = try #require(store.pendingPermission)
         store.clientError = "Approve this on your Mac. A phone can only decline."
         store.respond(to: permission.request, option: permission.request.options.last)
@@ -138,20 +138,20 @@ import Testing
             return mock
         }
         let codex = AgentChatStore(source: session("codex"))
-        await yieldUntil { !(codex.turns.isEmpty) }
+        while codex.turns.isEmpty { await Task.yield() }
         // Everything replayed in one step: history done, the waiting turn up, its ask pending.
         #expect(codex.turns.dropLast().allSatisfy { $0.status == .completed })
         #expect(codex.turns.last?.prompt == "Resolve merge conflicts")
         let permission = try #require(codex.pendingPermission)
         codex.respond(to: permission.request, option: permission.request.options.first)
-        await yieldUntil { !(codex.isRunning) }
+        while codex.isRunning { await Task.yield() }
         #expect(codex.turns.last?.status == .completed)
 
         let claude = AgentChatStore(source: session("claude"))
-        await yieldUntil { !(claude.turns.isEmpty) }
+        while claude.turns.isEmpty { await Task.yield() }
         let question = try #require(claude.pendingQuestion)
         claude.answer(question, with: AgentQuestionAnswer(selections: ["default": .init(optionIDs: ["webrtc"])]))
-        await yieldUntil { !(claude.isRunning) }
+        while claude.isRunning { await Task.yield() }
         #expect(claude.turns.last?.status == .completed)
     }
 
@@ -162,17 +162,17 @@ import Testing
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        await yieldUntil { !(store.turns.isEmpty) }
+        while store.turns.isEmpty { await Task.yield() }
         store.send(prompt: "go")
-        await yieldUntil { !(store.pendingPermission == nil) }
+        while store.pendingPermission == nil { await Task.yield() }
         let permission = try #require(store.pendingPermission)
         store.respond(to: permission.request, option: permission.request.options.first)
-        await yieldUntil { !(store.pendingQuestion == nil) }
+        while store.pendingQuestion == nil { await Task.yield() }
         let question = try #require(store.pendingQuestion)
         store.answer(question, with: AgentQuestionAnswer(selections: [
             "default": .init(optionIDs: ["wireguard"]), "surfaces": .init(optionIDs: ["connection"]),
         ]))
-        await yieldUntil { !(store.isRunning) }
+        while store.isRunning { await Task.yield() }
         let turn = try #require(store.turns.last)
         #expect(turn.status == .completed)
         #expect(turn.changeSet?.files.count == 3)

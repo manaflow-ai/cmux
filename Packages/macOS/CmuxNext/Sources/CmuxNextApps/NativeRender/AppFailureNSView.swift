@@ -13,8 +13,6 @@ final class AppFailureNSView: NSView {
     private let title = ChromeLabel(wrappingLabelWithString: "")
     private let location = ChromeLabel(wrappingLabelWithString: "")
     private let raw = ChromeLabel(wrappingLabelWithString: "")
-    // retry-prompt-ok: Reload runs the app's script again, which may act through its grants (files, network,
-    // commands); a script error does not fix itself, and a saved edit reloads by itself.
     private let reloadButton = AppFailureNSView.linkButton()
     private let copyButton = AppFailureNSView.linkButton()
     private let detailsButton = AppFailureNSView.linkButton()

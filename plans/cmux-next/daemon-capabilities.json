@@ -4,7 +4,6 @@
     "agent-cli-app-invalidation-v1",
     "agent-cli-app-provider-v1",
     "agent-inventory-watch-admission-v1",
-    "agent-presence-replay-v1",
     "agent-session-attach-v1",
     "agent-session-attention-v1",
     "agent-session-btw-v1",

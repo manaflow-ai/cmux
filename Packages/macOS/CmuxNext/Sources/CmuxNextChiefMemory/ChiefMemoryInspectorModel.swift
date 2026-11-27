@@ -1,4 +1,3 @@
-public import CmuxNextDesign
 public import Foundation
 public import Observation
 
@@ -44,12 +43,6 @@ public final class ChiefMemoryInspectorModel {
     public private(set) var error: String?
     /// A call is running.
     public private(set) var busy = false
-    /// The last read found the Chief's memory not answering (its brain is not running yet).
-    public private(set) var unreachable = false
-    /// Reads again on its own while the memory does not answer and the tab is in sight; the line shows only once it
-    /// has stayed silent past the shared connection bound (Leo, 2026-11-22: "vacuous decisions like that should be
-    /// just done").
-    public let readRetry = AutoRetry(owner: "ChiefMemoryInspector.reload")
 
     /// Asks the person whether to delete `target`, whose current text is
     /// `text`; true deletes it.
@@ -66,10 +59,6 @@ public final class ChiefMemoryInspectorModel {
     public init(source: any ChiefMemorySource, confirmDelete: @escaping ConfirmDelete) {
         self.source = source
         self.confirmDelete = confirmDelete
-        readRetry.setAttempt { [weak self] in
-            guard let self else { return }
-            Task { await self.reload() }
-        }
     }
 
     /// Reads the counts, the view, the change list and the opened node again.
@@ -82,12 +71,6 @@ public final class ChiefMemoryInspectorModel {
                 detail = try await get("/api/node", ["name": name], as: ChiefMemoryNode.self)
             }
         }
-        if unreachable { readRetry.failed() } else { readRetry.succeeded() }
-    }
-
-    /// The error line to show: none while an unanswered read is still inside the quiet bound.
-    public var shownError: String? {
-        unreachable && !readRetry.showsNotice ? nil : error
     }
 
     /// Opens node `name` (a view line, a child, a search hit) and adds it to the trail.
@@ -188,12 +171,10 @@ public final class ChiefMemoryInspectorModel {
     private func run(_ body: () async throws -> Void) async {
         busy = true
         error = nil
-        unreachable = false
         defer { busy = false }
         do {
             try await body()
         } catch let failure as ChiefMemoryError {
-            if case .unreachable = failure { unreachable = true }
             self.error = Self.describe(failure)
         } catch {
             self.error = Self.describe(.malformed)

@@ -308,7 +308,6 @@ test("native rows retain Connect without MCP and connected contacts in reader or
   const view = {
     data: { ...IMESSAGE_INITIAL },
     busy: false,
-    stillTrying: false,
     expanded: false,
     toggle: () => {},
     perform: async (action: string) => {

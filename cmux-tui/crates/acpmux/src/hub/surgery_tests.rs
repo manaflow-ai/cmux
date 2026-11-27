@@ -164,10 +164,8 @@ fn writes_beside_the_original_and_never_over_it() {
 
 #[test]
 fn switches_and_counters() {
-    assert!(!enabled_with(None, None), "off unless turned on");
-    let on = json!({"agents": {"harnessMagic": {"surgery": {"enabled": true}}}});
-    assert!(enabled_with(Some(&on), None));
-    assert!(!enabled_with(Some(&on), Some("0")), "the kill switch beats the file");
+    assert!(enabled_with(None, None));
+    assert!(!enabled_with(None, Some("0")));
     let off = json!({"agents": {"harnessMagic": {"surgery": {"enabled": false}}}});
     assert!(!enabled_with(Some(&off), None));
     let opts = options_with(Some(

@@ -2965,7 +2965,6 @@ fn run_server(
         );
     }
     loopback_policy::install(&mux, loopback_forward_policy);
-    mux.start_terminal_warm_compact();
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]

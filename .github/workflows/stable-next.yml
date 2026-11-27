@@ -791,8 +791,6 @@ jobs:
       BUILD: ${{ needs.plan.outputs.build }}
       DMG_NAME: ${{ needs.sign.outputs.dmg_name }}
       DMG_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
-      # The new item's cmux:sourceCommit: every commit reader (install-static.sh, hot-verify, bisect) reads it.
-      SOURCE_COMMIT: ${{ needs.plan.outputs.commit }}
       PUBLISH: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'true' || 'false' }}
       NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
       NIGHTLY_NEXT_R2_PREFIX: nightly-next/stable/
@@ -843,9 +841,9 @@ jobs:
           </rss>
           EOF
           curl -fsS -A cmux-stable-next/1 -o "$RUNNER_TEMP/live.xml" "$NIGHTLY_NEXT_FEED_BASE/$STABLE_APPCAST" || : > "$RUNNER_TEMP/live.xml"
-          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT" \
+          python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --live "$RUNNER_TEMP/live.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" \
             || { echo "::notice::the live stable feed already serves build $BUILD or newer; composing against an empty feed"
-                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT"; }
+                 python3 -I scripts/ci/stable_next.py merge-feed --new "$RUNNER_TEMP/new.xml" --out "$RUNNER_TEMP/$STABLE_APPCAST"; }
           python3 -I scripts/ci/nightly-next-guard.py appcast "$RUNNER_TEMP/$STABLE_APPCAST"
           { echo "### Dry run: the stable feed it would publish (nothing written)"; echo; echo '```xml'; cat "$RUNNER_TEMP/$STABLE_APPCAST"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the DMG and write the stable feed

@@ -3433,6 +3433,138 @@
         }
       }
     },
+    "create.snapshotsFailed": {
+      "comment": "Create sheet: the snapshot list could not be read; a Retry button follows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load your snapshots."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تحميل اللقطات الخاصة بك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće učitati vaše snimke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine snapshots kunne ikke indlæses."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Snapshots konnten nicht geladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudieron cargar tus instantáneas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de charger vos instantanés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile caricare le tue istantanee."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スナップショットを読み込めませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចផ្ទុករូបថតចាប់យករបស់អ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스냅샷을 불러올 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke laste inn øyeblikksbildene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się wczytać Twoich migawek."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar seus snapshots."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось загрузить ваши снимки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหลดสแนปช็อตของคุณไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anlık görüntüleriniz yüklenemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося завантажити ваші знімки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tải các bản chụp nhanh của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法加载你的快照。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法載入你的快照。"
+          }
+        }
+      }
+    },
     "create.submit": {
       "comment": "Button",
       "extractionState": "manual",
@@ -5277,6 +5409,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法重新命名或封存預設環境。"
+          }
+        }
+      }
+    },
+    "environment.defaultMissing": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إرجاع بيئة افتراضية. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadano okruženje nije vraćeno. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke returneret noget standardmiljø. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Standardumgebung zurückgegeben. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No default environment was returned. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se devolvió ningún entorno predeterminado. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun environnement par défaut n’a été renvoyé. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato restituito alcun ambiente predefinito. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト環境が返されませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានត្រឡប់បរិស្ថានលំនាំដើម។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 환경이 반환되지 않았습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen standardmiljøer ble returnert. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zwrócono środowiska domyślnego. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum ambiente padrão foi retornado. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Среда по умолчанию не получена. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีสภาพแวดล้อมเริ่มต้นส่งกลับมา ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan ortam döndürülmedi. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Середовище за замовчуванням не повернуто. Повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có môi trường mặc định nào được trả về. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未返回默认环境。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未傳回預設環境。請重試。"
+          }
+        }
+      }
+    },
+    "environment.deriveFailed": {
+      "comment": "Cloud environment editor",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحميل برنامج الإعداد المقترح. حاول مرة أخرى أو اكتب برنامجك الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predloženu skriptu za postavljanje nije moguće učitati. Pokušajte ponovo ili napišite vlastitu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det foreslåede opsætningsscript kunne ikke indlæses. Prøv igen, eller skriv dit eget."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorgeschlagene Setup-Skript konnte nicht geladen werden. Versuche es erneut oder schreibe dein eigenes."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the suggested setup script. Try again or write your own."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el script de configuración sugerido. Inténtalo de nuevo o escribe uno propio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger le script de configuration suggéré. Réessayez ou écrivez le vôtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare lo script di configurazione suggerito. Riprova o scrivine uno personalizzato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案されたセットアップスクリプトを読み込めませんでした。もう一度お試しいただくか、自分で入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកស្គ្រីបដំឡើងដែលបានណែនាំ។ សូមព្យាយាមម្តងទៀត ឬសរសេរដោយខ្លួនឯង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안된 설정 스크립트를 불러올 수 없습니다. 다시 시도하거나 직접 작성하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn det foreslåtte oppsettskriptet. Prøv igjen eller skriv ditt eget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się załadować sugerowanego skryptu konfiguracji. Spróbuj ponownie lub napisz własny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar o script de configuração sugerido. Tente novamente ou escreva o seu próprio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить предложенный скрипт настройки. Повторите попытку или напишите свой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดสคริปต์ตั้งค่าที่แนะนำไม่ได้ ลองอีกครั้งหรือเขียนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önerilen kurulum betiği yüklenemedi. Tekrar deneyin veya kendi betiğinizi yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити запропонований скрипт налаштування. Повторіть спробу або напишіть власний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể tải tập lệnh thiết lập được đề xuất. Hãy thử lại hoặc tự viết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载建议的设置脚本。请重试或自行编写。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入建議的設定指令碼。請重試或自行編寫。"
           }
         }
       }
@@ -7521,138 +7917,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法儲存變更。你的編輯內容已保留，請重試。"
-          }
-        }
-      }
-    },
-    "environment.saveNeedsClick": {
-      "comment": "Cloud environment editor: Save was refused because the click was not the person's own (transport.gesture_required)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم الاحتفاظ بتعديلاتك لكن لم تُحفظ: الحفظ يحتاج إلى نقرتك أنت. انقر على حفظ التغييرات مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vaše izmjene su sačuvane, ali nisu spremljene: spremanje traži vaš vlastiti klik. Ponovo kliknite Spremi izmjene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine ændringer er bevaret, men ikke gemt: at gemme kræver dit eget klik. Klik på Gem ændringer igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deine Änderungen bleiben erhalten, sind aber nicht gespeichert: Speichern braucht deinen eigenen Klick. Klicke noch einmal auf Änderungen speichern."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Your edits are kept but not saved: saving needs your own click. Click Save changes again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tus cambios se conservan, pero no se guardaron: guardar requiere tu propio clic. Vuelve a hacer clic en Guardar cambios."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vos modifications sont conservées mais pas enregistrées : l’enregistrement demande votre propre clic. Cliquez à nouveau sur Enregistrer les modifications."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le modifiche sono conservate ma non salvate: il salvataggio richiede un tuo clic. Fai di nuovo clic su Salva modifiche."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "編集内容は保持されていますが、保存されていません。保存にはご自身のクリックが必要です。もう一度「変更を保存」をクリックしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការកែសម្រួលរបស់អ្នកត្រូវបានរក្សាទុក ប៉ុន្តែមិនទាន់បានរក្សាទុកទេ៖ ការរក្សាទុកត្រូវការការចុចផ្ទាល់ខ្លួនរបស់អ្នក។ ចុច រក្សាទុកការផ្លាស់ប្តូរ ម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "편집 내용은 유지되지만 저장되지 않았습니다. 저장하려면 직접 클릭해야 합니다. 변경 사항 저장을 다시 클릭하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endringene dine er beholdt, men ikke lagret: lagring krever ditt eget klikk. Klikk Lagre endringer igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Twoje zmiany są zachowane, ale niezapisane: zapis wymaga Twojego własnego kliknięcia. Kliknij ponownie Zapisz zmiany."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suas edições foram mantidas, mas não salvas: salvar exige o seu próprio clique. Clique em Salvar alterações novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваши правки сохранены в редакторе, но не записаны: для сохранения нужен ваш собственный щелчок. Нажмите «Сохранить изменения» ещё раз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแก้ไขของคุณยังอยู่แต่ยังไม่ได้บันทึก: การบันทึกต้องใช้การคลิกของคุณเอง คลิก บันทึกการเปลี่ยนแปลง อีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Düzenlemeleriniz korundu ancak kaydedilmedi: kaydetmek için kendi tıklamanız gerekir. Değişiklikleri kaydet'e yeniden tıklayın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ваші правки збережено в редакторі, але не записано: для збереження потрібне ваше власне клацання. Натисніть «Зберегти зміни» ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các chỉnh sửa của bạn vẫn được giữ nhưng chưa được lưu: việc lưu cần chính cú nhấp của bạn. Hãy nhấp Lưu thay đổi lần nữa."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你的编辑已保留但尚未保存：保存需要你本人点击。请再次点击“保存更改”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你的編輯已保留但尚未儲存：儲存需要你本人點按。請再次點按「儲存變更」。"
           }
         }
       }
@@ -17689,6 +17953,138 @@
         }
       }
     },
+    "page.disconnected": {
+      "comment": "Shown when the page cannot reach cmux",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السحابة غير متاحة حتى يعيد cmux الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oblak nije dostupan dok se cmux ponovo ne poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud er ikke tilgængelig, før cmux opretter forbindelse igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud ist erst verfügbar, wenn cmux wieder verbunden ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud is not available until cmux reconnects."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La nube no está disponible hasta que cmux se vuelva a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cloud n’est pas disponible tant que cmux n’est pas reconnecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cloud non è disponibile finché cmux non si riconnette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が再接続するまでクラウドは利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្លោដមិនអាចប្រើបានទេ រហូតដល់ cmux ភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 다시 연결될 때까지 클라우드를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sky er ikke tilgjengelig før cmux kobler til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chmura jest niedostępna, dopóki cmux nie połączy się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A nuvem não está disponível até que o cmux se reconecte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облако недоступно, пока cmux не подключится снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลาวด์จะใช้ไม่ได้จนกว่า cmux จะเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux yeniden bağlanana kadar Bulut kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмара недоступна, доки cmux не підключиться знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đám mây không khả dụng cho đến khi cmux kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 重新连接之前，云不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 重新連線之前，無法使用雲端。"
+          }
+        }
+      }
+    },
     "page.dismissError": {
       "comment": "Button that hides the error banner",
       "extractionState": "manual",
@@ -25077,6 +25473,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "每台機器建立前都需你確認，並可隨時暫停或刪除。"
+          }
+        }
+      }
+    },
+    "store.planFailed": {
+      "comment": "Storefront text when the plan could not be read; a Retry button follows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read your Cloud plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّرت قراءة خطة السحابة الخاصة بك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće učitati vaš Cloud plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din Cloud-plan kunne ikke læses."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ihr Cloud-Plan konnte nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo leer tu plan de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de lire votre forfait Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere il tuo piano Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud プランを読み込めませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអានគម្រោង Cloud របស់អ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 요금제를 읽지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lese Cloud-planen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się odczytać Twojego planu Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler seu plano do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось получить ваш тариф Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อ่านแผน Cloud ของคุณไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud planınız okunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося отримати ваш тариф Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không đọc được gói Cloud của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法读取你的 Cloud 套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法讀取你的 Cloud 方案。"
           }
         }
       }
@@ -38413,661 +38941,6 @@
         }
       }
     },
-    "page.stillTrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا تزال المحاولة جارية للوصول إلى cmux Cloud…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još uvijek pokušavamo doći do cmux Clouda…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøver stadig at nå cmux Cloud…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Versuche weiterhin, cmux Cloud zu erreichen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still trying to reach cmux Cloud…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguimos intentando conectar con cmux Cloud…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toujours en train de joindre cmux Cloud…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ancora in attesa di raggiungere cmux Cloud…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud への接続を引き続き試しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែកំពុងព្យាយាមភ្ជាប់ទៅ cmux Cloud…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud에 계속 연결을 시도하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøver fortsatt å nå cmux Cloud…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wciąż próbujemy połączyć się z cmux Cloud…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda tentando acessar o cmux Cloud…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё ещё пытаемся связаться с cmux Cloud…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังคงพยายามเชื่อมต่อ cmux Cloud…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud'a ulaşılmaya çalışılıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Досі намагаємося зв'язатися з cmux Cloud…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang cố kết nối tới cmux Cloud…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在尝试连接 cmux Cloud…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在嘗試連線至 cmux Cloud…"
-          }
-        }
-      }
-    },
-    "create.snapshotsStillTrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال تحميل لقطاتك جاريًا…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još uvijek učitavamo vaše snimke…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser stadig dine snapshots…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Snapshots werden noch geladen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still loading your snapshots…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguimos cargando tus instantáneas…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de vos instantanés en cours…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento degli snapshot ancora in corso…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スナップショットを引き続き読み込んでいます…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែកំពុងផ្ទុក snapshot របស់អ្នក…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스냅샷을 계속 불러오는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster fortsatt inn øyeblikksbildene dine…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wciąż wczytujemy Twoje migawki…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda carregando seus snapshots…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё ещё загружаем ваши снимки…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังคงโหลดสแนปช็อตของคุณ…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anlık görüntüleriniz hâlâ yükleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Досі завантажуємо ваші знімки…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang tải các bản chụp nhanh của bạn…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在加载你的快照…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在載入你的快照…"
-          }
-        }
-      }
-    },
-    "store.planStillTrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا تزال قراءة خطة Cloud الخاصة بك جارية…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još uvijek čitamo vaš Cloud plan…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Læser stadig din Cloud-plan…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dein Cloud-Tarif wird noch gelesen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still reading your Cloud plan…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguimos leyendo tu plan de Cloud…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lecture de votre forfait Cloud en cours…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lettura del piano Cloud ancora in corso…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud プランを引き続き読み込んでいます…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែកំពុងអានគម្រោង Cloud របស់អ្នក…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 요금제를 계속 읽는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leser fortsatt Cloud-planen din…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wciąż odczytujemy Twój plan Cloud…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda lendo seu plano do Cloud…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё ещё загружаем ваш тариф Cloud…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังคงอ่านแพ็กเกจ Cloud ของคุณ…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud planınız hâlâ okunuyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Досі завантажуємо ваш тариф Cloud…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang đọc gói Cloud của bạn…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在读取你的 Cloud 套餐…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在讀取你的 Cloud 方案…"
-          }
-        }
-      }
-    },
-    "environment.stillLoading": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال تحميل البيئة جاريًا…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još uvijek učitavamo okruženje…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser stadig miljøet…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Umgebung wird noch geladen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still loading the environment…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguimos cargando el entorno…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de l'environnement en cours…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento dell'ambiente ancora in corso…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "環境を引き続き読み込んでいます…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែកំពុងផ្ទុកបរិស្ថាន…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "환경을 계속 불러오는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster fortsatt inn miljøet…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wciąż wczytujemy środowisko…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda carregando o ambiente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё ещё загружаем окружение…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังคงโหลดสภาพแวดล้อม…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ortam hâlâ yükleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Досі завантажуємо середовище…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang tải môi trường…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在加载环境…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在載入環境…"
-          }
-        }
-      }
-    },
-    "environment.deriveStillTrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال تحميل سكربت الإعداد المقترح جاريًا…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Još uvijek učitavamo predloženu skriptu za postavljanje…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser stadig det foreslåede opsætningsscript…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das vorgeschlagene Einrichtungsskript wird noch geladen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Still loading the suggested setup script…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguimos cargando el script de configuración sugerido…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement du script de configuration suggéré en cours…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento dello script di configurazione suggerito ancora in corso…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提案されたセットアップスクリプトを引き続き読み込んでいます…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅតែកំពុងផ្ទុកស្គ្រីបរៀបចំដែលបានណែនាំ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "추천 설정 스크립트를 계속 불러오는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster fortsatt inn det foreslåtte oppsettskriptet…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wciąż wczytujemy sugerowany skrypt konfiguracji…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ainda carregando o script de configuração sugerido…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё ещё загружаем предложенный скрипт настройки…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังคงโหลดสคริปต์ตั้งค่าที่แนะนำ…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önerilen kurulum betiği hâlâ yükleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Досі завантажуємо запропонований скрипт налаштування…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẫn đang tải tập lệnh thiết lập được đề xuất…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在加载建议的设置脚本…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在載入建議的設定指令碼…"
-          }
-        }
-      }
-    },
     "disk.bar.label": {
       "comment": "Cloud machine disk bar: {used} is a number, {total} the disk size with its unit (\"13.2 / 20 GB\").",
       "extractionState": "manual",
@@ -40120,1722 +39993,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "{value} vCPU-h"
-          }
-        }
-      }
-    },
-    "pool.title": {
-      "comment": "Pool hours section title in Cloud settings",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الساعات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sati"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Timer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stunden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hours"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Horas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Heures"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ore"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ោង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시간"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Timer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Godziny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Horas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Часы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ชั่วโมง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saatler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Години"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Giờ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "时长"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "時數"
-          }
-        }
-      }
-    },
-    "pool.used": {
-      "comment": "Pool usage line: hours used of the plan's hours",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم استخدام {used} من {included} ساعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Iskorišteno {used} od {included} sati"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} af {included} timer brugt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} von {included} Stunden genutzt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{used} of {included} hours used"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} de {included} horas usadas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} heures utilisées sur {included}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} di {included} ore usate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{included} 時間のうち {used} 時間を使用"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បានប្រើ {used} ក្នុងចំណោម {included} ម៉ោង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{included}시간 중 {used}시간 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} av {included} timer brukt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wykorzystano {used} z {included} godzin"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{used} de {included} horas usadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Использовано {used} из {included} ч"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใช้ไป {used} จาก {included} ชั่วโมง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{included} saatin {used} saati kullanıldı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Використано {used} з {included} год"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã dùng {used}/{included} giờ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已用 {used} / {included} 小时"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已用 {used} / {included} 小時"
-          }
-        }
-      }
-    },
-    "pool.resets": {
-      "comment": "When the month's hours reset",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تتم إعادة الضبط في {date}."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Resetuje se {date}."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nulstilles {date}."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wird am {date} zurückgesetzt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resets {date}."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se reinicia el {date}."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réinitialisation le {date}."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Si azzera il {date}."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{date} にリセットされます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំណត់ឡើងវិញនៅ {date}។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{date}에 초기화됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nullstilles {date}."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odnowienie {date}."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reinicia em {date}."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Обнуляется {date}."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "รีเซ็ต {date}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{date} tarihinde sıfırlanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скидається {date}."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đặt lại vào {date}."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{date} 重置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{date} 重設。"
-          }
-        }
-      }
-    },
-    "pool.near": {
-      "comment": "Warning title at 80% of the plan's hours",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لقد استخدمت 80% من ساعاتك"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Iskoristili ste 80% svojih sati"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du har brugt 80 % af dine timer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du hast 80 % deiner Stunden genutzt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You've used 80% of your hours"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Has usado el 80 % de tus horas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vous avez utilisé 80 % de vos heures"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hai usato l'80% delle tue ore"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間の 80% を使用しました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អ្នកបានប្រើ 80% នៃម៉ោងរបស់អ្នក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시간의 80%를 사용했습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du har brukt 80 % av timene dine"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wykorzystano 80% godzin"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Você usou 80% das suas horas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вы использовали 80% часов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คุณใช้ชั่วโมงไปแล้ว 80%"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saatlerinizin %80'ini kullandınız"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ви використали 80% годин"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bạn đã dùng 80% số giờ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你已用掉 80% 的时长"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你已用掉 80% 的時數"
-          }
-        }
-      }
-    },
-    "pool.nearBody": {
-      "comment": "Body under the 80% warning",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عند نفادها تتوقف الأجهزة مؤقتًا مع الاحتفاظ بالذاكرة. عيّن حدًا للإنفاق لتستمر بعدها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kad ih ponestane, mašine se pauziraju uz sačuvanu memoriju. Postavite ograničenje potrošnje da nastavite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når de slipper op, sættes maskinerne på pause med hukommelsen bevaret. Angiv en udgiftsgrænse for at fortsætte."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sind sie aufgebraucht, pausieren die Maschinen mit erhaltenem Arbeitsspeicher. Lege ein Ausgabenlimit fest, um weiterzumachen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When they run out, machines pause with memory kept. Set a spend limit to keep going past them."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuando se acaben, las máquinas se pausan y conservan la memoria. Fija un límite de gasto para seguir."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une fois épuisées, les machines sont mises en pause avec leur mémoire conservée. Fixez une limite de dépenses pour continuer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando finiscono, le macchine vanno in pausa conservando la memoria. Imposta un limite di spesa per continuare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使い切るとマシンはメモリを保持したまま一時停止します。続けるには利用上限額を設定してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពេលអស់ ម៉ាស៊ីននឹងផ្អាកដោយរក្សាអង្គចងចាំ។ កំណត់ដែនកំណត់ចំណាយដើម្បីបន្ត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모두 쓰면 머신이 메모리를 유지한 채 일시 정지됩니다. 계속 쓰려면 지출 한도를 설정하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når de er brukt opp, settes maskinene på pause med minnet bevart. Angi en utgiftsgrense for å fortsette."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy się skończą, maszyny zostaną wstrzymane z zachowaną pamięcią. Ustaw limit wydatków, aby kontynuować."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando acabarem, as máquinas pausam com a memória mantida. Defina um limite de gastos para continuar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Когда они закончатся, машины приостановятся с сохранением памяти. Задайте лимит расходов, чтобы продолжить."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อหมด เครื่องจะหยุดชั่วคราวโดยเก็บหน่วยความจำไว้ ตั้งวงเงินใช้จ่ายเพื่อใช้งานต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bittiğinde makineler bellek korunarak duraklatılır. Devam etmek için bir harcama sınırı belirleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коли вони закінчаться, машини призупиняться зі збереженою пам'яттю. Встановіть ліміт витрат, щоб продовжити."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi hết, máy sẽ tạm dừng và giữ bộ nhớ. Đặt hạn mức chi tiêu để tiếp tục."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "用完后机器会暂停并保留内存。设置支出上限即可继续使用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "用完後機器會暫停並保留記憶體。設定支出上限即可繼續使用。"
-          }
-        }
-      }
-    },
-    "pool.paused": {
-      "comment": "Title when the plan's hours are used up and machines are paused",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نفدت ساعاتك"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vaši sati su potrošeni"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine timer er brugt op"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deine Stunden sind aufgebraucht"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your hours are used up"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se acabaron tus horas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vos heures sont épuisées"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hai esaurito le ore"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間を使い切りました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ោងរបស់អ្នកបានអស់ហើយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시간을 모두 사용했습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Timene dine er brukt opp"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Godziny zostały wykorzystane"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suas horas acabaram"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Часы закончились"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ชั่วโมงของคุณหมดแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saatleriniz bitti"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Години закінчилися"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bạn đã dùng hết số giờ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "时长已用完"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "時數已用完"
-          }
-        }
-      }
-    },
-    "pool.pausedBody": {
-      "comment": "Body when paused at the end of the hours or the limit",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الأجهزة متوقفة مؤقتًا مع الاحتفاظ بالذاكرة، ولم يُحذف شيء. ارفع حد الإنفاق أو اختر خطة أكبر لتشغيلها مجددًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mašine su pauzirane uz sačuvanu memoriju; ništa nije obrisano. Povećajte ograničenje potrošnje ili odaberite veći plan da ih ponovo pokrenete."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinerne er sat på pause med hukommelsen bevaret; intet er slettet. Hæv din udgiftsgrænse eller vælg en større plan for at starte dem igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Maschinen sind mit erhaltenem Arbeitsspeicher pausiert; nichts wurde gelöscht. Erhöhe dein Ausgabenlimit oder wähle einen größeren Plan, um sie wieder zu starten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machines are paused with memory kept; nothing is deleted. Raise your spend limit or choose a larger plan to start them again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las máquinas están en pausa con la memoria conservada; no se borra nada. Sube tu límite de gasto o elige un plan mayor para volver a iniciarlas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les machines sont en pause avec leur mémoire conservée ; rien n'est supprimé. Augmentez votre limite de dépenses ou choisissez une offre plus grande pour les relancer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le macchine sono in pausa con la memoria conservata; non viene eliminato nulla. Alza il limite di spesa o scegli un piano più grande per riavviarle."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンはメモリを保持したまま一時停止中で、何も削除されていません。再開するには利用上限額を上げるか、より大きなプランを選んでください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនត្រូវបានផ្អាកដោយរក្សាអង្គចងចាំ គ្មានអ្វីត្រូវបានលុបទេ។ បង្កើនដែនកំណត់ចំណាយ ឬជ្រើសគម្រោងធំជាងដើម្បីចាប់ផ្តើមវាឡើងវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신이 메모리를 유지한 채 일시 정지되었으며 삭제된 것은 없습니다. 다시 시작하려면 지출 한도를 올리거나 더 큰 플랜을 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinene er satt på pause med minnet bevart; ingenting er slettet. Øk utgiftsgrensen eller velg en større plan for å starte dem igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maszyny są wstrzymane z zachowaną pamięcią; nic nie zostało usunięte. Podnieś limit wydatków lub wybierz większy plan, aby je ponownie uruchomić."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As máquinas estão pausadas com a memória mantida; nada é excluído. Aumente seu limite de gastos ou escolha um plano maior para iniciá-las de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машины приостановлены с сохранением памяти, ничего не удалено. Повысьте лимит расходов или выберите тариф побольше, чтобы снова их запустить."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องหยุดชั่วคราวโดยเก็บหน่วยความจำไว้ ไม่มีอะไรถูกลบ เพิ่มวงเงินใช้จ่ายหรือเลือกแพ็กเกจที่ใหญ่ขึ้นเพื่อเริ่มใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makineler bellek korunarak duraklatıldı; hiçbir şey silinmedi. Yeniden başlatmak için harcama sınırınızı yükseltin veya daha büyük bir plan seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машини призупинено зі збереженою пам'яттю; нічого не видалено. Підвищте ліміт витрат або виберіть більший план, щоб знову їх запустити."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy đang tạm dừng và giữ bộ nhớ; không có gì bị xóa. Tăng hạn mức chi tiêu hoặc chọn gói lớn hơn để chạy lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "机器已暂停并保留内存，没有删除任何内容。提高支出上限或选择更大的方案即可重新启动。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "機器已暫停並保留記憶體，沒有刪除任何內容。提高支出上限或選擇更大的方案即可重新啟動。"
-          }
-        }
-      }
-    },
-    "pool.overage": {
-      "comment": "Spend past the plan's hours against the person's monthly limit",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بعد ساعاتك: {spent} من حدك البالغ {limit}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nakon vaših sati: {spent} od ograničenja {limit}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ud over dine timer: {spent} af din grænse på {limit}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Über deine Stunden hinaus: {spent} von deinem Limit {limit}"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Past your hours: {spent} of your {limit} limit"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tras tus horas: {spent} de tu límite de {limit}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Au-delà de vos heures : {spent} sur votre limite de {limit}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oltre le tue ore: {spent} del limite di {limit}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間超過分: 上限 {limit} のうち {spent}"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "លើសម៉ោងរបស់អ្នក៖ {spent} នៃដែនកំណត់ {limit}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시간 초과분: 한도 {limit} 중 {spent}"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etter timene dine: {spent} av grensen på {limit}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Po wykorzystaniu godzin: {spent} z limitu {limit}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Além das suas horas: {spent} do seu limite de {limit}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сверх часов: {spent} из лимита {limit}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เกินชั่วโมงของคุณ: {spent} จากวงเงิน {limit}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saatlerinizin ötesinde: {limit} sınırınızın {spent} kadarı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Понад години: {spent} з ліміту {limit}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vượt số giờ: {spent} trên hạn mức {limit}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "超出时长部分：已用 {spent}，上限 {limit}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "超出時數部分：已用 {spent}，上限 {limit}"
-          }
-        }
-      }
-    },
-    "pool.limit": {
-      "comment": "Label of the monthly spend limit field",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "حد الإنفاق الشهري"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mjesečno ograničenje potrošnje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Månedlig udgiftsgrænse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Monatliches Ausgabenlimit"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Monthly spend limit"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Límite de gasto mensual"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Limite de dépenses mensuelle"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Limite di spesa mensile"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "月間の利用上限額"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដែនកំណត់ចំណាយប្រចាំខែ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "월 지출 한도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Månedlig utgiftsgrense"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Miesięczny limit wydatków"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Limite de gastos mensal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Месячный лимит расходов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "วงเงินใช้จ่ายรายเดือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aylık harcama sınırı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Місячний ліміт витрат"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hạn mức chi tiêu hằng tháng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每月支出上限"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每月支出上限"
-          }
-        }
-      }
-    },
-    "pool.limitHint": {
-      "comment": "How the time past the plan's hours is charged, and what $0 means",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بعد ساعاتك: {rate} لكل ساعة من جهاز بأربع وحدات vCPU، تُحتسب بالثانية. عند $0 تتوقف الأجهزة مؤقتًا عند نفاد ساعاتك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nakon vaših sati: {rate} po satu mašine sa 4 vCPU, naplata po sekundi. Uz $0 mašine se pauziraju kad sati ponestane."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Efter dine timer: {rate} i timen for en maskine med 4 vCPU, afregnet pr. sekund. Ved $0 sættes maskinerne på pause, når timerne slipper op."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nach deinen Stunden: {rate} pro Stunde einer Maschine mit 4 vCPU, sekundengenau abgerechnet. Bei $0 pausieren die Maschinen, wenn deine Stunden aufgebraucht sind."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "After your hours: {rate} an hour of a 4 vCPU machine, billed by the second. At $0, machines pause when your hours run out."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tras tus horas: {rate} por hora de una máquina de 4 vCPU, facturado por segundo. Con $0, las máquinas se pausan al acabarse tus horas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Après vos heures : {rate} de l'heure pour une machine à 4 vCPU, facturé à la seconde. À $0, les machines se mettent en pause quand vos heures sont épuisées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dopo le tue ore: {rate} all'ora per una macchina da 4 vCPU, addebitato al secondo. Con $0 le macchine vanno in pausa quando le ore finiscono."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間を使い切った後は 4 vCPU マシン 1 時間あたり {rate}、秒単位で課金されます。$0 の場合、時間を使い切るとマシンは一時停止します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ទាប់ពីម៉ោងរបស់អ្នក៖ {rate} ក្នុងមួយម៉ោងសម្រាប់ម៉ាស៊ីន 4 vCPU គិតតាមវិនាទី។ នៅ $0 ម៉ាស៊ីននឹងផ្អាកពេលម៉ោងអស់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시간을 다 쓴 후: 4 vCPU 머신 1시간당 {rate}, 초 단위로 청구됩니다. $0이면 시간이 소진될 때 머신이 일시 정지됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etter timene dine: {rate} i timen for en maskin med 4 vCPU, fakturert per sekund. Ved $0 settes maskinene på pause når timene er brukt opp."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Po wykorzystaniu godzin: {rate} za godzinę maszyny z 4 vCPU, naliczane co sekundę. Przy $0 maszyny zostaną wstrzymane, gdy godziny się skończą."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Depois das suas horas: {rate} por hora de uma máquina de 4 vCPU, cobrado por segundo. Com $0, as máquinas pausam quando suas horas acabam."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сверх часов: {rate} за час машины с 4 vCPU, с посекундной оплатой. При $0 машины приостанавливаются, когда часы заканчиваются."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หลังหมดชั่วโมง: {rate} ต่อชั่วโมงสำหรับเครื่อง 4 vCPU คิดตามวินาที ที่ $0 เครื่องจะหยุดชั่วคราวเมื่อชั่วโมงหมด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saatleriniz bitince: 4 vCPU'lu makinenin saati {rate}, saniye bazında faturalanır. $0 ise saatler bittiğinde makineler duraklatılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Понад години: {rate} за годину машини з 4 vCPU, з посекундною оплатою. За $0 машини призупиняються, коли години закінчуються."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sau số giờ của bạn: {rate} mỗi giờ cho máy 4 vCPU, tính theo giây. Ở mức $0, máy sẽ tạm dừng khi hết giờ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "时长用完后：4 vCPU 机器每小时 {rate}，按秒计费。设为 $0 时，时长用完机器即暂停。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "時數用完後：4 vCPU 機器每小時 {rate}，按秒計費。設為 $0 時，時數用完機器即暫停。"
-          }
-        }
-      }
-    },
-    "pool.limitBuys": {
-      "comment": "How many more hours the typed limit buys",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نحو {hours} ساعة إضافية شهريًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oko {hours} sati više mjesečno."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Omkring {hours} timer mere om måneden."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etwa {hours} Stunden mehr im Monat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "About {hours} more hours a month."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Unas {hours} horas más al mes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Environ {hours} heures de plus par mois."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Circa {hours} ore in più al mese."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "月に約 {hours} 時間追加できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រហែល {hours} ម៉ោងបន្ថែមក្នុងមួយខែ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "매월 약 {hours}시간 더 사용할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Omtrent {hours} timer mer i måneden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Około {hours} godzin więcej miesięcznie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca de {hours} horas a mais por mês."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Примерно на {hours} ч больше в месяц."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เพิ่มประมาณ {hours} ชั่วโมงต่อเดือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ayda yaklaşık {hours} saat daha."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приблизно на {hours} год більше на місяць."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thêm khoảng {hours} giờ mỗi tháng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每月约可多用 {hours} 小时。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每月約可多用 {hours} 小時。"
-          }
-        }
-      }
-    },
-    "pool.limitInvalid": {
-      "comment": "Refusal of a typed spend limit outside $0 to $10,000",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أدخل مبلغًا من $0 إلى $10,000."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Unesite iznos od $0 do $10,000."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angiv et beløb fra $0 til $10,000."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gib einen Betrag von $0 bis $10,000 ein."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter an amount from $0 to $10,000."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Introduce un importe de $0 a $10,000."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saisissez un montant de $0 à $10,000."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Inserisci un importo da $0 a $10,000."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "$0 から $10,000 の金額を入力してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ចូលចំនួនពី $0 ដល់ $10,000។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "$0에서 $10,000 사이의 금액을 입력하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skriv inn et beløp fra $0 til $10,000."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wpisz kwotę od $0 do $10,000."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Digite um valor de $0 a $10,000."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Введите сумму от $0 до $10,000."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใส่จำนวนเงินตั้งแต่ $0 ถึง $10,000"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "$0 ile $10,000 arasında bir tutar girin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Введіть суму від $0 до $10,000."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhập số tiền từ $0 đến $10,000."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "请输入 $0 到 $10,000 之间的金额。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "請輸入 $0 到 $10,000 之間的金額。"
-          }
-        }
-      }
-    },
-    "pool.limitAdminOnly": {
-      "comment": "Refusal: only a team admin may change the spend limit",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يمكن لمسؤول الفريق فقط تغيير حد الإنفاق."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Samo administrator tima može promijeniti ograničenje potrošnje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kun en teamadministrator kan ændre udgiftsgrænsen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nur ein Team-Admin kann das Ausgabenlimit ändern."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only a team admin can change the spend limit."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo un administrador del equipo puede cambiar el límite de gasto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seul un administrateur de l'équipe peut modifier la limite de dépenses."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo un amministratore del team può modificare il limite di spesa."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "利用上限額を変更できるのはチーム管理者だけです。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះអាចប្តូរដែនកំណត់ចំណាយបាន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 관리자만 지출 한도를 변경할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bare en teamadministrator kan endre utgiftsgrensen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tylko administrator zespołu może zmienić limit wydatków."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Só um administrador da equipe pode alterar o limite de gastos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменить лимит расходов может только администратор команды."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เฉพาะผู้ดูแลทีมเท่านั้นที่เปลี่ยนวงเงินใช้จ่ายได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Harcama sınırını yalnızca ekip yöneticisi değiştirebilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Змінити ліміт витрат може лише адміністратор команди."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chỉ quản trị viên nhóm mới đổi được hạn mức chi tiêu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "只有团队管理员可以更改支出上限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "只有團隊管理員可以變更支出上限。"
           }
         }
       }

@@ -8,11 +8,11 @@ import type {
   CloudEnvironmentsState,
   HarnessesState,
   HostLists,
-  ProviderAccount,
   IntegrationRow,
+  ProviderAccount,
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
-import { minutesAgo, GALLERY_NOW } from "../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -71,7 +71,6 @@ const cmuxSignedOut: AccountsCmux = {
   status: "Signed out",
   statusKind: "attention",
   buttons: [button("cmux.signIn", "Sign In to cmux")],
-  signInBackend: "Signs in to Development backend · dev-abc.cmux.dev",
   error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
 };
 const cmuxSigningIn: AccountsCmux = {
@@ -1330,7 +1329,7 @@ Object.assign(variants, {
   "theme-app-separate": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
-    note: "An app theme apart from the terminal theme (appearance.appTheme); the one Match System Appearance switch sets both.",
+    note: "An app theme apart from the terminal theme (appearance.appTheme).",
   }),
   "theme-app-light-dark": variant("theme", {
     allThemes: true,
@@ -1341,7 +1340,7 @@ Object.assign(variants, {
         "appearance.accent": "magenta",
       },
     },
-    note: "One Theme card: one Match System Appearance for the terminal and the app theme together, then the accent.",
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
   }),
   "theme-long-name": variant("theme", {
     allThemes: true,

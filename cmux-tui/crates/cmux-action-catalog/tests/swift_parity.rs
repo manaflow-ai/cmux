@@ -581,37 +581,21 @@ fn action_list_export_matches() {
         } else {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
-        // A CLI decision awaiting the re-pin keeps the pinned app's decision in this export too.
-        let cli = action.surface_plan.cli.map_or("undeclared", |d| d.wire());
-        if field_awaits_repin(id, "/surfacePlan/cli") {
-            assert_ne!(
-                row["cli"],
-                cli,
-                "action-surfaces.json has {id}'s CLI decision: the re-pin landed, so take /surfacePlan/cli out of {} (delete the file when it is the last)",
-                marker("fields", id)
-            );
-        } else {
-            assert_eq!(row["cli"], cli, "{id}");
-        }
+        assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
         // A context-menu change awaiting the re-pin keeps the pinned app's decision in this
-        // export too; the decision follows the exemption as well as the menus.
-        if !field_awaits_repin(id, "/surfacePlan/contextMenus")
-            && !field_awaits_repin(id, "/surfacePlan/contextMenuExemption")
-        {
+        // export too.
+        if !field_awaits_repin(id, "/surfacePlan/contextMenus") {
             assert_eq!(
                 row["context_menu"],
                 action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
                 "{id}"
             );
         }
-        // MCP follows the CLI decision, so a CLI decision awaiting the re-pin holds it back too.
-        if !field_awaits_repin(id, "/surfacePlan/cli") {
-            assert_eq!(
-                row["mcp"],
-                action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
-                "{id}"
-            );
-        }
+        assert_eq!(
+            row["mcp"],
+            action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
+            "{id}"
+        );
         // A main menu placement awaiting the re-pin keeps the pinned app's menu here too; once
         // the export has the crate's menu, the marker's /mainMenu line is stale.
         if field_awaits_repin(id, "/mainMenu") {
@@ -663,18 +647,7 @@ fn action_list_export_matches() {
                 cmux_action_catalog::json::shortcut(&c.second)
             ])
         });
-        // A chord added to an action the pinned app already has waits for the re-pin like a
-        // shortcut does; once the export has it, the marker's /defaultChord line is stale.
-        if field_awaits_repin(id, "/defaultChord") {
-            assert_ne!(
-                row["default_chord"],
-                chord,
-                "action-surfaces.json has {id}'s chord: the re-pin landed, so take /defaultChord out of {}",
-                marker("fields", id)
-            );
-        } else {
-            assert_eq!(row["default_chord"], chord, "{id}");
-        }
+        assert_eq!(row["default_chord"], chord, "{id}");
         assert_eq!(
             row["palette_suggested"],
             serde_json::json!(action.palette_suggestion_rank()),
@@ -833,8 +806,9 @@ fn swift_files(dir: &Path, out: &mut Vec<PathBuf>) {
 #[test]
 fn new_rows_in_handler_coverage_categories_have_an_app_binding() {
     let sources = repo().join("Packages/macOS/CmuxNext/Sources");
-    let coverage = std::fs::read_to_string(sources.join("CmuxNextActions/HandlerCoverage.swift"))
-        .expect("HandlerCoverage.swift");
+    let coverage =
+        std::fs::read_to_string(sources.join("CmuxNextApp/Handlers/HandlerCoverage.swift"))
+            .expect("HandlerCoverage.swift");
     let line = coverage
         .lines()
         .find(|l| l.contains("static let categories"))

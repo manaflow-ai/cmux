@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: auth-refresh-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: auth-refresh-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -24,7 +24,7 @@ env:
 
 jobs:
   auth-refresh-tests:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 15
     steps:
@@ -33,13 +33,13 @@ jobs:
           persist-credentials: false
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-      # The Stack SDK's refresh transport, rejection and deadline suites run on Linux (swift-linux-packages.yml's
-      # stack-auth group): they need no Apple framework.
+      - name: Exercise shared refresh transport and deadlines without credentials
+        run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh'
       # Every other CmuxAuthRuntime suite runs on Linux (scripts/ci/swift-linux-packages.txt). These compile only
       # on Apple platforms: the two Stack boundaries need Network, the rest AuthenticationServices, Security,
-      # Darwin's URLProtocol redirects or registration (StackAuthClientTeamListTests) or the macOS debug log.
+      # Darwin's URLProtocol redirects or the macOS debug log.
       - name: Exercise the Stack refresh boundaries over loopback and the Apple-only auth suites
-        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'StackRateLimitBoundaryTests|StackTokenRefreshBoundaryTests|ASWebBrowserAuthSessionFactoryTests|KeychainStackTokenStoreTests|AuthDebugLogTests|StackAuthClientTeamListTests|ImportingTokenStoreTests/anAdoptedTokenNeverReachesTheAuthLogFile|PushRegistrationServiceTests/(sameOrigin|originChanges)'
+        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'StackRateLimitBoundaryTests|StackTokenRefreshBoundaryTests|ASWebBrowserAuthSessionFactoryTests|KeychainStackTokenStoreTests|AuthDebugLogTests|ImportingTokenStoreTests/anAdoptedTokenNeverReachesTheAuthLogFile|PushRegistrationServiceTests/(sameOrigin|originChanges)'
       # CmuxPhonePush runs on Linux too; its Keychain migrations need Security.
       - name: Exercise the phone push Keychain migrations
         run: swift test --package-path Packages/macOS/CmuxPhonePush --filter 'PhonePushSharedStateTests/(sharedPushStateIsDeviceOnly|phonePushKeyMaterialIsDeviceOnly)'

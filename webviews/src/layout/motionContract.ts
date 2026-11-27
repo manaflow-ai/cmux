@@ -41,18 +41,12 @@ export function surfaceOf(element: Element): Surface {
  * what follows them pushed straight down, and while one is a fold at the very bottom of a followed
  * transcript, what precedes it rising straight up (an expand). `once`: each box may move once under
  * this declaration (a resize lays a box out once; a second move is a bounce).
- *
- * `strict`: only the targets and what they hold. Nothing moves *because* of them, so a box pushed
- * down or pulled up by a target is a shift (the contract's `enter`, and `turn-end`: "nothing else
- * may move because of it unless another event is declared"). Without it, what follows a target
- * straight down, and what precedes a fold at the very bottom rising straight up, are covered too.
  */
 export type Declaration = {
   event: MotionEvent;
   scope: "all" | "targets";
   targets?: readonly Element[];
   once?: boolean;
-  strict?: boolean;
   /** Who declared it, for the report. */
   by?: string;
 };

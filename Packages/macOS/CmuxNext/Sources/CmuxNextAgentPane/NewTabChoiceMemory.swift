@@ -34,7 +34,6 @@ public final class NewTabChoiceMemory {
 
     public var picks: AgentPaneLastPicks? {
         _ = revision
-        // main-actor-ok: a UserDefaults blob of at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global pick.
         return defaults.data(forKey: Self.picksKey).flatMap { try? JSONDecoder().decode(AgentPaneLastPicks.self, from: $0) }
     }
 
@@ -74,7 +73,6 @@ public final class NewTabChoiceMemory {
         var picks = picks ?? AgentPaneLastPicks()
         let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
-        // main-actor-ok: at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global pick.
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
     }
 }

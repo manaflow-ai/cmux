@@ -32,7 +32,7 @@
   gap: 0.06em;
   margin: 0;
   line-height: inherit;
-  color: color-mix(in srgb, currentColor var(--instrument-ink-shortcut, 62%), transparent);
+  color: color-mix(in srgb, currentColor 62%, transparent);
 }
 .ui-key-hint-key,
 .ui-key-hint-then {

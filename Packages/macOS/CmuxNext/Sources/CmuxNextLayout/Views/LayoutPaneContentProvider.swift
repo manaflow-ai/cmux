@@ -76,8 +76,6 @@ final class LayoutViewContext {
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
     var dividerMenu: ((SplitID) -> NSMenu?)?
-    /// The divider drag's frame timing (``LayoutRootView/frameTiming``).
-    var frameTiming: TransitionFrameLog?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot

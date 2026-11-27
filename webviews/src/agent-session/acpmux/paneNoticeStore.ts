@@ -1,4 +1,4 @@
-import { viewStore } from "./paneViewStore";
+import { useSyncExternalStore } from "react";
 
 /// A notice the app raises about the chat's agent service (`paneNotices`, AgentPaneNotice.swift):
 /// another cmux install's daemon, remote approvals off there, a peer that did not count this Mac's
@@ -8,8 +8,8 @@ import { viewStore } from "./paneViewStore";
 export type PaneNotice = { id: string; title: string; detail?: string; button?: string; enabled?: boolean };
 
 const NONE: readonly PaneNotice[] = [];
-// One list a pane view (paneViewStore.ts); the page itself is the null view.
-const store = viewStore<readonly PaneNotice[]>(NONE);
+let current: readonly PaneNotice[] = NONE;
+const listeners = new Set<() => void>();
 
 /// Reads the app's push; anything malformed is left out.
 export function readPaneNotices(value: unknown): readonly PaneNotice[] {
@@ -29,14 +29,22 @@ export function readPaneNotices(value: unknown): readonly PaneNotice[] {
   return notices.length ? notices : NONE;
 }
 
-export function setPaneNotices(value: unknown, view: string | null = null): void {
-  store.set(readPaneNotices(value), view);
+export function setPaneNotices(value: unknown): void {
+  const next = readPaneNotices(value);
+  if (next === NONE && current === NONE) return;
+  current = next;
+  for (const listener of listeners) listener();
 }
 
-export function paneNotices(view: string | null = null): readonly PaneNotice[] {
-  return store.get(view);
+export function paneNotices(): readonly PaneNotice[] {
+  return current;
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
 export function usePaneNotices(): readonly PaneNotice[] {
-  return store.use();
+  return useSyncExternalStore(subscribe, paneNotices, paneNotices);
 }

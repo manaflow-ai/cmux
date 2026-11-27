@@ -4723,127 +4723,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent asked to invite this person. They’ll see the whole chat, including command output."
+            "value": "An agent or script asked to invite this account. Once they sign in, they see the chat as you do, including command output and the agent’s reasoning."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Agent möchte diese Person einladen. Sie sieht den ganzen Chat, einschließlich Befehlsausgaben."
+            "state": "translated",
+            "value": "Ein Agent oder Skript möchte dieses Konto einladen. Nach der Anmeldung sieht die Person den Chat wie du, einschließlich Befehlsausgaben und der Überlegungen des Agenten."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agent demande à inviter cette personne. Elle verra toute la conversation, y compris la sortie des commandes."
+            "state": "translated",
+            "value": "Un agent ou un script demande à inviter ce compte. Une fois connectée, la personne voit la conversation comme vous, y compris la sortie des commandes et le raisonnement de l’agent."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "طلب وكيل دعوة هذا الشخص. سيرى الدردشة كاملة، بما في ذلك مخرجات الأوامر."
+            "state": "translated",
+            "value": "طلب وكيل أو برنامج نصي دعوة هذا الحساب. بعد تسجيل الدخول سيرى الدردشة كما تراها، بما في ذلك مخرجات الأوامر وتفكير الوكيل."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agente pidió invitar a esta persona. Verá todo el chat, incluida la salida de los comandos."
+            "state": "translated",
+            "value": "Un agente o script pidió invitar a esta cuenta. Cuando inicie sesión, verá el chat como tú, incluida la salida de los comandos y el razonamiento del agente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "有代理程式要求邀請此人。對方將看到整個聊天，包括指令輸出。"
+            "state": "translated",
+            "value": "有代理程式或腳本要求邀請這個帳號。對方登入後，會看到與你相同的聊天內容，包括指令輸出與代理程式的推理過程。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "有代理请求邀请此人。对方将看到整个聊天，包括命令输出。"
+            "state": "translated",
+            "value": "有代理或脚本请求邀请此账号。对方登录后，会看到与你相同的聊天内容，包括命令输出和代理的推理过程。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 이 사람을 초대하려고 합니다. 명령 출력을 포함한 채팅 전체를 보게 됩니다."
+            "state": "translated",
+            "value": "에이전트나 스크립트가 이 계정을 초대하려고 합니다. 로그인하면 명령 출력과 에이전트의 추론을 포함해 회원님과 똑같이 채팅을 보게 됩니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェントがこの人の招待を求めています。コマンド出力を含むチャット全体が見えるようになります。"
+            "state": "translated",
+            "value": "エージェントまたはスクリプトがこのアカウントの招待を求めています。サインインすると、コマンド出力やエージェントの推論を含め、あなたと同じようにチャットが見えます。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent je zatražio da pozove ovu osobu. Vidjet će cijeli chat, uključujući izlaz naredbi."
+            "state": "translated",
+            "value": "Agent ili skripta traži da pozove ovaj račun. Nakon prijave vidjet će chat kao i ti, uključujući izlaz naredbi i razmišljanje agenta."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En agent bad om at invitere denne person. De ser hele chatten, også kommandooutput."
+            "state": "translated",
+            "value": "En agent eller et script vil invitere denne konto. Når de logger ind, ser de chatten som dig, også kommandooutput og agentens ræsonnement."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un agente ha chiesto di invitare questa persona. Vedrà tutta la chat, incluso l’output dei comandi."
+            "state": "translated",
+            "value": "Un agente o uno script vuole invitare questo account. Dopo l’accesso vedrà la chat come te, inclusi l’output dei comandi e il ragionamento dell’agente."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារមួយបានស្នើអញ្ជើញមនុស្សនេះ។ ពួកគេនឹងឃើញការជជែកទាំងមូល រួមទាំងលទ្ធផលពាក្យបញ្ជា។"
+            "state": "translated",
+            "value": "ភ្នាក់ងារ ឬស្គ្រីបមួយបានស្នើអញ្ជើញគណនីនេះ។ បន្ទាប់ពីចូលគណនី ពួកគេនឹងឃើញការជជែកដូចអ្នក រួមទាំងលទ្ធផលពាក្យបញ្ជា និងការវែកញែករបស់ភ្នាក់ងារ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En agent ba om å invitere denne personen. De ser hele chatten, også kommandoutdata."
+            "state": "translated",
+            "value": "En agent eller et skript vil invitere denne kontoen. Når de logger på, ser de chatten slik du gjør, også kommandoutdata og agentens resonnement."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent chce zaprosić tę osobę. Zobaczy cały czat, w tym wyniki poleceń."
+            "state": "translated",
+            "value": "Agent lub skrypt chce zaprosić to konto. Po zalogowaniu osoba zobaczy czat tak jak Ty, w tym wyniki poleceń i rozumowanie agenta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Um agente pediu para convidar esta pessoa. Ela verá o chat inteiro, incluindo a saída dos comandos."
+            "state": "translated",
+            "value": "Um agente ou script pediu para convidar esta conta. Depois de entrar, a pessoa vê o chat como você, incluindo a saída dos comandos e o raciocínio do agente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент просит пригласить этого человека. Он увидит весь чат, включая вывод команд."
+            "state": "translated",
+            "value": "Агент или скрипт просит пригласить этот аккаунт. После входа человек увидит чат так же, как вы, включая вывод команд и рассуждения агента."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์ขอเชิญบุคคลนี้ เขาจะเห็นแชททั้งหมด รวมถึงผลลัพธ์คำสั่ง"
+            "state": "translated",
+            "value": "เอเจนต์หรือสคริปต์ขอเชิญบัญชีนี้ เมื่อลงชื่อเข้าใช้ เขาจะเห็นแชทเหมือนที่คุณเห็น รวมถึงผลลัพธ์คำสั่งและการให้เหตุผลของเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir ajan bu kişiyi davet etmek istiyor. Komut çıktıları dahil tüm sohbeti görecek."
+            "state": "translated",
+            "value": "Bir ajan veya betik bu hesabı davet etmek istiyor. Oturum açınca sohbeti sizin gibi görür; komut çıktıları ve ajanın akıl yürütmesi de dahil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агент просить запросити цю людину. Вона бачитиме увесь чат, разом із виводом команд."
+            "state": "translated",
+            "value": "Агент або скрипт просить запросити цей обліковий запис. Після входу людина бачитиме чат так само, як ви, разом із виводом команд і міркуваннями агента."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Một tác tử muốn mời người này. Họ sẽ thấy toàn bộ cuộc trò chuyện, kể cả kết quả lệnh."
+            "state": "translated",
+            "value": "Một tác tử hoặc tập lệnh muốn mời tài khoản này. Sau khi đăng nhập, họ thấy cuộc trò chuyện như bạn, kể cả kết quả lệnh và suy luận của tác tử."
           }
         }
       }
@@ -5640,127 +5640,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "They sign in with their cmux account and see the whole chat, including command output."
+            "value": "People you invite sign in with their cmux account and see this chat as you do, including command output and the agent’s reasoning."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sie melden sich mit ihrem cmux-Konto an und sehen den ganzen Chat, einschließlich Befehlsausgaben."
+            "state": "translated",
+            "value": "Eingeladene Personen melden sich mit ihrem cmux-Konto an und sehen diesen Chat wie du, einschließlich Befehlsausgaben und der Überlegungen des Agenten."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ces personnes se connectent avec leur compte cmux et voient toute la conversation, y compris la sortie des commandes."
+            "state": "translated",
+            "value": "Les personnes invitées se connectent avec leur compte cmux et voient la conversation comme vous, y compris la sortie des commandes et le raisonnement de l’agent."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "يسجّلون الدخول بحساب cmux ويرون الدردشة كاملة، بما في ذلك مخرجات الأوامر."
+            "state": "translated",
+            "value": "يسجّل الأشخاص الذين تدعوهم الدخول بحساب cmux ويرون هذه الدردشة كما تراها، بما في ذلك مخرجات الأوامر وتفكير الوكيل."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Inician sesión con su cuenta de cmux y ven todo el chat, incluida la salida de los comandos."
+            "state": "translated",
+            "value": "Las personas que invites inician sesión con su cuenta de cmux y ven este chat como tú, incluida la salida de los comandos y el razonamiento del agente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "對方以 cmux 帳號登入後，可以看到整個聊天，包括指令輸出。"
+            "state": "translated",
+            "value": "受邀的人使用自己的 cmux 帳號登入，會看到與你相同的聊天內容，包括指令輸出與代理程式的推理過程。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "对方用 cmux 账号登录后，可以看到整个聊天，包括命令输出。"
+            "state": "translated",
+            "value": "受邀的人使用自己的 cmux 账号登录，会看到与你相同的聊天内容，包括命令输出和代理的推理过程。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 계정으로 로그인하면 명령 출력을 포함한 채팅 전체를 볼 수 있습니다."
+            "state": "translated",
+            "value": "초대한 사람은 자신의 cmux 계정으로 로그인하며, 명령 출력과 에이전트의 추론을 포함해 회원님과 똑같이 이 채팅을 봅니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux アカウントでサインインすると、コマンド出力を含むチャット全体が見えます。"
+            "state": "translated",
+            "value": "招待した人は自分の cmux アカウントでサインインし、コマンド出力やエージェントの推論を含め、あなたと同じようにこのチャットを見られます。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prijavljuju se svojim cmux računom i vide cijeli chat, uključujući izlaz naredbi."
+            "state": "translated",
+            "value": "Osobe koje pozoveš prijavljuju se svojim cmux računom i vide ovaj chat kao i ti, uključujući izlaz naredbi i razmišljanje agenta."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "De logger ind med deres cmux-konto og ser hele chatten, også kommandooutput."
+            "state": "translated",
+            "value": "Personer, du inviterer, logger ind med deres cmux-konto og ser chatten som dig, også kommandooutput og agentens ræsonnement."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accedono con il loro account cmux e vedono tutta la chat, incluso l’output dei comandi."
+            "state": "translated",
+            "value": "Le persone che inviti accedono con il proprio account cmux e vedono questa chat come te, inclusi l’output dei comandi e il ragionamento dell’agente."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ពួកគេចូលដោយគណនី cmux របស់ពួកគេ ហើយឃើញការជជែកទាំងមូល រួមទាំងលទ្ធផលពាក្យបញ្ជា។"
+            "state": "translated",
+            "value": "មនុស្សដែលអ្នកអញ្ជើញចូលដោយប្រើគណនី cmux របស់ពួកគេ ហើយឃើញការជជែកនេះដូចអ្នក រួមទាំងលទ្ធផលពាក្យបញ្ជា និងការវែកញែករបស់ភ្នាក់ងារ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "De logger på med cmux-kontoen sin og ser hele chatten, også kommandoutdata."
+            "state": "translated",
+            "value": "Personer du inviterer, logger på med cmux-kontoen sin og ser chatten slik du gjør, også kommandoutdata og agentens resonnement."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Logują się kontem cmux i widzą cały czat, w tym wyniki poleceń."
+            "state": "translated",
+            "value": "Zaproszone osoby logują się kontem cmux i widzą ten czat tak jak Ty, w tym wyniki poleceń i rozumowanie agenta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Elas entram com a conta cmux e veem o chat inteiro, incluindo a saída dos comandos."
+            "state": "translated",
+            "value": "As pessoas que você convida entram com a conta cmux delas e veem este chat como você, incluindo a saída dos comandos e o raciocínio do agente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Они входят со своим аккаунтом cmux и видят весь чат, включая вывод команд."
+            "state": "translated",
+            "value": "Приглашённые входят со своим аккаунтом cmux и видят этот чат так же, как вы, включая вывод команд и рассуждения агента."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เขาลงชื่อเข้าใช้ด้วยบัญชี cmux และเห็นแชททั้งหมด รวมถึงผลลัพธ์คำสั่ง"
+            "state": "translated",
+            "value": "ผู้ที่คุณเชิญจะลงชื่อเข้าใช้ด้วยบัญชี cmux และเห็นแชทนี้เหมือนที่คุณเห็น รวมถึงผลลัพธ์คำสั่งและการให้เหตุผลของเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux hesaplarıyla oturum açar ve komut çıktıları dahil tüm sohbeti görürler."
+            "state": "translated",
+            "value": "Davet ettiğiniz kişiler cmux hesaplarıyla oturum açar ve bu sohbeti sizin gibi görür; komut çıktıları ve ajanın akıl yürütmesi de dahil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вони входять зі своїм обліковим записом cmux і бачать увесь чат, разом із виводом команд."
+            "state": "translated",
+            "value": "Запрошені входять зі своїм обліковим записом cmux і бачать цей чат так само, як ви, разом із виводом команд і міркуваннями агента."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Họ đăng nhập bằng tài khoản cmux và thấy toàn bộ cuộc trò chuyện, kể cả kết quả lệnh."
+            "state": "translated",
+            "value": "Người bạn mời đăng nhập bằng tài khoản cmux của họ và thấy cuộc trò chuyện này như bạn, kể cả kết quả lệnh và suy luận của tác tử."
           }
         }
       }
@@ -5902,127 +5902,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can send"
+            "value": "Can talk"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Darf senden"
+            "state": "translated",
+            "value": "Darf schreiben"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Peut envoyer"
+            "state": "translated",
+            "value": "Peut écrire"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "يمكنه الإرسال"
+            "state": "translated",
+            "value": "يمكنه التحدث"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Puede enviar"
+            "state": "translated",
+            "value": "Puede escribir"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "可傳送"
+            "state": "translated",
+            "value": "可發言"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "可发送"
+            "state": "translated",
+            "value": "可发言"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "보내기 가능"
+            "state": "translated",
+            "value": "대화 가능"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "送信可"
+            "state": "translated",
+            "value": "発言可"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Može slati"
+            "state": "translated",
+            "value": "Može pisati"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kan sende"
+            "state": "translated",
+            "value": "Kan skrive"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Può inviare"
+            "state": "translated",
+            "value": "Può scrivere"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "អាចផ្ញើ"
+            "state": "translated",
+            "value": "អាចនិយាយ"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kan sende"
+            "state": "translated",
+            "value": "Kan skrive"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Może wysyłać"
+            "state": "translated",
+            "value": "Może pisać"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pode enviar"
+            "state": "translated",
+            "value": "Pode conversar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Может отправлять"
+            "state": "translated",
+            "value": "Может писать"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ส่งได้"
+            "state": "translated",
+            "value": "พูดคุยได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gönderebilir"
+            "state": "translated",
+            "value": "Yazabilir"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Може надсилати"
+            "state": "translated",
+            "value": "Може писати"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Có thể gửi"
+            "state": "translated",
+            "value": "Có thể trò chuyện"
           }
         }
       }
@@ -6557,127 +6557,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove ends their access on every device."
+            "value": "Remove ends their access on every device. Removing just one of their devices from the chat doesn’t keep their account out."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Entfernen beendet den Zugriff auf allen Geräten."
+            "state": "translated",
+            "value": "Entfernen beendet den Zugriff auf allen Geräten. Wird nur eines ihrer Geräte aus dem Chat entfernt, bleibt ihr Konto weiterhin eingeladen."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Retirer met fin à leur accès sur tous leurs appareils."
+            "state": "translated",
+            "value": "Retirer met fin à leur accès sur tous leurs appareils. Retirer un seul de leurs appareils de la conversation n’empêche pas leur compte de revenir."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تؤدي الإزالة إلى إنهاء وصولهم على كل الأجهزة."
+            "state": "translated",
+            "value": "تؤدي الإزالة إلى إنهاء وصولهم على كل الأجهزة. أما إزالة جهاز واحد فقط من الدردشة فلا تمنع حسابهم من العودة."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Quitar termina su acceso en todos los dispositivos."
+            "state": "translated",
+            "value": "Quitar termina su acceso en todos sus dispositivos. Sacar solo uno de sus dispositivos del chat no impide que su cuenta vuelva."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移除後，對方在所有裝置上都無法存取。"
+            "state": "translated",
+            "value": "移除會結束對方在所有裝置上的存取權。只把對方的一台裝置移出聊天，並不會擋下對方的帳號。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移除后，对方在所有设备上都无法访问。"
+            "state": "translated",
+            "value": "移除会结束对方在所有设备上的访问权限。只把对方的一台设备移出聊天，并不会阻止对方的账号再次加入。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "제거하면 모든 기기에서 접근이 끝납니다."
+            "state": "translated",
+            "value": "제거하면 모든 기기에서 접근 권한이 사라집니다. 기기 하나만 채팅에서 내보내면 계정은 계속 들어올 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "削除すると、すべてのデバイスでアクセスできなくなります。"
+            "state": "translated",
+            "value": "削除すると、すべてのデバイスでアクセスできなくなります。デバイスを1台だけチャットから外しても、アカウントは締め出されません。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uklanjanje im ukida pristup na svim uređajima."
+            "state": "translated",
+            "value": "Uklanjanje prekida pristup na svim uređajima. Uklanjanje samo jednog uređaja iz chata ne zaključava njihov račun."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjern afslutter deres adgang på alle enheder."
+            "state": "translated",
+            "value": "Fjern stopper deres adgang på alle enheder. Fjerner du kun én af deres enheder fra chatten, holder det ikke deres konto ude."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rimuovi termina il loro accesso su tutti i dispositivi."
+            "state": "translated",
+            "value": "Rimuovi interrompe l’accesso su tutti i dispositivi. Togliere dalla chat solo uno dei loro dispositivi non tiene fuori il loro account."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការដកចេញបញ្ចប់សិទ្ធិចូលរបស់ពួកគេលើគ្រប់ឧបករណ៍។"
+            "state": "translated",
+            "value": "ការដកចេញនឹងបញ្ចប់សិទ្ធិចូលប្រើរបស់ពួកគេលើគ្រប់ឧបករណ៍។ ការដកតែឧបករណ៍មួយចេញពីការជជែក មិនរារាំងគណនីរបស់ពួកគេទេ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjern avslutter tilgangen deres på alle enheter."
+            "state": "translated",
+            "value": "Fjern avslutter tilgangen deres på alle enheter. Fjerner du bare én av enhetene deres fra chatten, holder det ikke kontoen deres ute."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usunięcie odbiera dostęp na wszystkich urządzeniach."
+            "state": "translated",
+            "value": "Usunięcie odbiera dostęp na wszystkich urządzeniach. Usunięcie z czatu tylko jednego urządzenia nie blokuje konta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Remover encerra o acesso em todos os dispositivos."
+            "state": "translated",
+            "value": "Remover encerra o acesso em todos os dispositivos. Tirar só um dos dispositivos do chat não impede a conta de voltar."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Удаление закрывает доступ на всех устройствах."
+            "state": "translated",
+            "value": "«Удалить» закрывает доступ на всех устройствах. Если убрать из чата только одно устройство, аккаунт сможет вернуться."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "การนำออกจะยุติสิทธิ์เข้าถึงบนทุกอุปกรณ์"
+            "state": "translated",
+            "value": "การนำออกจะปิดสิทธิ์เข้าถึงในทุกอุปกรณ์ การนำอุปกรณ์เพียงเครื่องเดียวออกจากแชทไม่ได้กันบัญชีของเขาออก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaldırmak, tüm cihazlarda erişimlerini sonlandırır."
+            "state": "translated",
+            "value": "Kaldır, tüm cihazlardaki erişimi bitirir. Cihazlarından yalnızca birini sohbetten çıkarmak hesabın dışarıda kalmasını sağlamaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вилучення припиняє доступ на всіх пристроях."
+            "state": "translated",
+            "value": "«Вилучити» припиняє доступ на всіх пристроях. Якщо прибрати з чату лише один пристрій, обліковий запис зможе повернутися."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa sẽ chấm dứt quyền truy cập của họ trên mọi thiết bị."
+            "state": "translated",
+            "value": "Xóa sẽ chấm dứt quyền truy cập trên mọi thiết bị. Chỉ gỡ một thiết bị khỏi cuộc trò chuyện thì không chặn được tài khoản của họ."
           }
         }
       }
@@ -7333,661 +7333,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Máy Cloud này chưa thể tạo liên kết chia sẻ. Hãy cập nhật máy rồi thử lại."
-          }
-        }
-      }
-    },
-    "agentShare.sheet.removeAccessibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إزالة %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukloni %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjern %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ entfernen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quitar a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retirer %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rimuovi %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ を削除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដក %@ ចេញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 제거"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjern %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usuń %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Remover %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Удалить %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "นำ %@ ออก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ kişisini kaldır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вилучити %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "移除 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "移除 %@"
-          }
-        }
-      }
-    },
-    "agentShare.sheet.error.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That didn’t finish. Try again."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يكتمل ذلك. حاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije završeno. Pokušaj ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Det blev ikke fuldført. Prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Das hat nicht geklappt. Versuche es erneut."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se completó. Inténtalo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’opération n’a pas abouti. Réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non è stato completato. Riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "完了しませんでした。もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនបានបញ្ចប់ទេ។ សូមព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "완료되지 않았습니다. 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Det ble ikke fullført. Prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się. Spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi concluído. Tente de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не получилось. Попробуйте ещё раз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่สำเร็จ ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tamamlanamadı. Yeniden dene."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося. Спробуйте ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa hoàn tất. Hãy thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "未完成，请重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "未完成，請再試一次。"
-          }
-        }
-      }
-    },
-    "agentShare.sheet.error.limit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Too many shared chats on this Mac. End one in Settings > Shared links."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "توجد دردشات مشتركة كثيرة جدًا على هذا الـ Mac. أنهِ واحدة في الإعدادات > الروابط المشتركة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Previše dijeljenih chatova na ovom Macu. Završi jedan u Postavke > Dijeljene veze."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "For mange delte chats på denne Mac. Afslut en i Indstillinger > Delte links."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zu viele geteilte Chats auf diesem Mac. Beende einen unter Einstellungen > Geteilte Links."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hay demasiados chats compartidos en este Mac. Termina uno en Ajustes > Enlaces compartidos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trop de conversations partagées sur ce Mac. Arrêtez-en une dans Réglages > Liens partagés."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Troppe chat condivise su questo Mac. Terminane una in Impostazioni > Link condivisi."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "この Mac で共有中のチャットが多すぎます。設定 > 共有リンク で1つ終了してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មានការជជែកដែលបានចែករំលែកច្រើនពេកនៅលើ Mac នេះ។ បញ្ចប់មួយនៅក្នុង ការកំណត់ > តំណដែលបានចែករំលែក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 Mac에 공유 중인 채팅이 너무 많습니다. 설정 > 공유 링크에서 하나를 끝내세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "For mange delte chatter på denne Macen. Avslutt én i Innstillinger > Delte lenker."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Za dużo udostępnionych czatów na tym Macu. Zakończ jeden w Ustawienia > Udostępnione linki."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Muitos chats compartilhados neste Mac. Encerre um em Ajustes > Links compartilhados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На этом Mac слишком много общих чатов. Завершите один в Настройки > Общие ссылки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "มีแชทที่แชร์บน Mac เครื่องนี้มากเกินไป ปิดหนึ่งรายการใน การตั้งค่า > ลิงก์ที่แชร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu Mac’te çok fazla paylaşılan sohbet var. Ayarlar > Paylaşılan bağlantılar’dan birini sonlandır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "На цьому Mac забагато спільних чатів. Завершіть один у Параметри > Спільні посилання."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Có quá nhiều cuộc trò chuyện được chia sẻ trên máy Mac này. Hãy kết thúc một cuộc trong Cài đặt > Liên kết đã chia sẻ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此 Mac 上共享的聊天太多。请在“设置 > 共享链接”中结束一个。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此 Mac 上共享的聊天太多。請在「設定 > 共享連結」中結束一個。"
-          }
-        }
-      }
-    },
-    "agentShare.sheet.error.roomUnreachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t reach the share server. Check your connection and try again."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر الوصول إلى خادم المشاركة. تحقّق من اتصالك وحاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Server za dijeljenje nije dostupan. Provjeri vezu i pokušaj ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke nå delingsserveren. Tjek din forbindelse, og prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Freigabeserver ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo conectar con el servidor para compartir. Revisa tu conexión e inténtalo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de joindre le serveur de partage. Vérifiez votre connexion et réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile raggiungere il server di condivisione. Controlla la connessione e riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "共有サーバーに接続できませんでした。接続を確認して、もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចភ្ជាប់ទៅម៉ាស៊ីនមេចែករំលែកបានទេ។ ពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "공유 서버에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fikk ikke kontakt med delingsserveren. Sjekk tilkoblingen og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można połączyć się z serwerem udostępniania. Sprawdź połączenie i spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível acessar o servidor de compartilhamento. Verifique sua conexão e tente de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось связаться с сервером общего доступа. Проверьте подключение и попробуйте ещё раз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เข้าถึงเซิร์ฟเวอร์แชร์ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Paylaşım sunucusuna ulaşılamadı. Bağlantını kontrol edip yeniden dene."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося з’єднатися із сервером спільного доступу. Перевірте з’єднання і спробуйте ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không kết nối được máy chủ chia sẻ. Hãy kiểm tra kết nối và thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法连接共享服务器。请检查网络连接后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法連線至共享伺服器。請檢查網路連線後再試一次。"
-          }
-        }
-      }
-    },
-    "agentShare.sheet.error.roomRefused": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sharing is off for this chat’s server."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المشاركة متوقفة على خادم هذه الدردشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dijeljenje je isključeno za server ovog chata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deling er slået fra for denne chats server."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teilen ist für den Server dieses Chats ausgeschaltet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compartir está desactivado en el servidor de este chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le partage est désactivé pour le serveur de cette conversation."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La condivisione è disattivata per il server di questa chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このチャットのサーバーでは共有がオフになっています。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចែករំលែកត្រូវបានបិទសម្រាប់ម៉ាស៊ីនមេរបស់ការជជែកនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅의 서버에서 공유가 꺼져 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deling er slått av for serveren til denne chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udostępnianie jest wyłączone na serwerze tego czatu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O compartilhamento está desativado no servidor deste chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Общий доступ выключен на сервере этого чата."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแชร์ปิดอยู่สำหรับเซิร์ฟเวอร์ของแชทนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sohbetin sunucusunda paylaşım kapalı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спільний доступ вимкнено на сервері цього чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chia sẻ đang tắt trên máy chủ của cuộc trò chuyện này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此聊天的服务器已关闭共享。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此聊天的伺服器已關閉共享。"
           }
         }
       }

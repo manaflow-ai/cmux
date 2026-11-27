@@ -7,8 +7,8 @@ name: PR checks
 # request: a failed or timed-out step is a warning annotation, and the job's name ends "(advisory)", which
 # landing tools read as never a pull request's own red. On a push it also runs the description lints (capture,
 # design spec, Performance table, cloud backend), which were pr-body-checks.yml's own job on every push (973 jobs
-# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a media-tour or
-# perf label, which this workflow does not take (a description edit re-lints at the next push). A docs-only push (the `paths:` below) gets no lints: none of them
+# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a description edit or a media-tour or
+# perf label, which this workflow does not take. A docs-only push (the `paths:` below) gets no lints: none of them
 # judges a docs-only change.
 #
 # CI v2 step 6, "advisory steps leave the PR's machines" (cmuxterm-hq docs/design/ci-v2.md). They were six

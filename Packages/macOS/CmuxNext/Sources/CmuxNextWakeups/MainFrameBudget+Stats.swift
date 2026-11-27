@@ -15,9 +15,6 @@ extension MainFrameBudget {
         /// Times a background task was held for the next frame because this one had no idle time
         /// (it came late, or after a long render pass).
         public var waitedForIdleFrame = 0
-        /// Times a background task was held because the launch has not released background work yet
-        /// (``MainFrameBudget/holdBackgroundForLaunch()``).
-        public var heldForLaunch = 0
         /// Per class: tasks that ran past the class's whole budget on their own.
         public var overBudgetTasks: [Int] = [0, 0, 0]
         /// Per class: the longest task, in nanoseconds.

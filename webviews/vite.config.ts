@@ -58,10 +58,6 @@ export default defineConfig({
       "src/icon-picker/generated/**",
       // cmux-tui/bindings/codegen/page_router.py --check owns these bytes.
       "src/pages/shared/generated/**",
-      // Gitignored output of scripts/gen-component-manifest.ts.
-      "src/ui/components.generated.json",
-      "src/ui/llms.txt",
-      "src/ui/docs/**",
     ],
   }),
   define: {

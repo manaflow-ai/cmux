@@ -88,18 +88,6 @@ PY
   mcp_call '{"name":"list_branches","arguments":{"owner":"acme","repo":"app"}}' "$work/repo" >"$out" 2>"$work/mcp.err"
   check mcp_call mcp_ok "$out" <"$out"
   check mcp_read_set grep -q '"contents": "read"' "$log"
-  # A read_set FAIL says what the minter was asked (permission sets only, never a token), which
-  # acpmux answered, and the origin as git resolves it (an insteadOf rewrite changes it). Runs
-  # 45750510949 and 45778908629 failed here on updated spares with nothing to go on.
-  if ! grep -q '"contents": "read"' "$log" 2>/dev/null; then
-    asks=$( { tr '\n' ' ' <"$log"; } 2>/dev/null | grep -v ghs_ | cut -c1-400)
-    # shellcheck disable=SC2086 # the command is split on purpose
-    set -- $acpmux_cmd
-    say "mcp_read_set says asks: ${asks:-none}"
-    say "mcp_read_set says acpmux: $(command -v "$1" 2>/dev/null || echo "$1") ($acpmux_cmd)"
-    say "mcp_read_set says origin: $(git -C "$work/repo" remote get-url origin 2>&1 | head -n 1) (configured $(git -C "$work/repo" config --get remote.origin.url))"
-    [ -s "$work/mcp.err" ] && sed -n '1,2p' "$work/mcp.err" | grep -v ghs_ | sed 's/^/e2e: mcp_read_set says acpmux: /'
-  fi
   check no_token_in_reply sh -c "! grep -q ghs_ '$out'"
   say "stub: the minter and GitHub here are stand-ins; the live check needs the team's GitHub connection"
   exit $((fails > 0))

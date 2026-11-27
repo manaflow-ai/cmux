@@ -1,113 +1,113 @@
 import AppKit
 import CmuxNextAgentActivity
+import CmuxNextDesignTokens
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
-import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Leo 2026-11-22T00:23Z, on a row's trailing ⚠ "2/9" and blue dot: "this is kinda odd why is there a yellow and why
-/// does it look like that". Leo 2026-11-22T21:56Z, on the same ⚠ still drawn: "i literally said to remove this bullshit
-/// over 24 hours ago." The usage warning triangle is gone: a runaway acpmux chat (its summary's `usageWarnings`: no
-/// autocompact cap, a huge context, a storm of subagents) draws nothing on its sidebar row, at rest or hovered, pinned
-/// or not, and its row's hover card and accessibility label say nothing of it (a mark with no action, cmuxterm-hq
-/// docs/handbook/ui-text-says-only-what-you-can-act-on.md).
-@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarUsageWarningTests {
+/// Leo 2026-10-30: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can
+/// make more improvements to acpmux/cmux-next". A runaway agent chat (no autocompact cap, a huge
+/// context, a storm of subagents) gets a small warning triangle on its sidebar row, apart from the
+/// working spinner. The row's hover card says each rule acpmux found broken and the number (a1315's cut 3: rows,
+/// which have hover cards, carry no tooltips).
+@MainActor @Suite(.serialized) struct SidebarUsageWarningTests {
     static let warnings = [
         "No autocompact cap: context is 412k and only compacts at the model's limit",
         "90 subagents started in the last hour, above 40",
     ]
 
-    /// acpmux's summary of a working chat that breaks `warnings`.
     static func summary(_ session: String, warnings: [String]) -> [String: Any] {
         ["sessionId": session, "name": session, "lane": ["state": "working"],
          "usageWarnings": warnings.map { ["rule": "r", "value": 1, "limit": 0, "text": $0] }]
     }
 
-    /// The "working" row the sidebar maps from `fixture`, its chat warned by acpmux or not.
-    static func workingRow(_ fixture: SidebarLaneStatusTests.Fixture, warned: Bool) throws -> SidebarWorkspace {
-        fixture.lanes.lanes["s-working"] = try #require(AgentActivityLane.of(summary: summary("s-working", warnings: warned ? warnings : [])))
-        return try #require(fixture.sections().flatMap(\.workspaces).first { $0.title == "working" })
+    @Test func aLaneReadsAcpmuxsWarningLines() throws {
+        let lane = try #require(AgentActivityLane.of(summary: Self.summary("s", warnings: Self.warnings)))
+        #expect(lane.usageWarnings == Self.warnings)
+        let plain = try #require(AgentActivityLane.of(summary: ["sessionId": "p", "lane": ["state": "idle"]]))
+        #expect(plain.usageWarnings.isEmpty, "an acpmux from before usageWarnings warns nothing")
     }
 
-    /// A warned chat's row maps to exactly the row of the same chat unwarned, with the lane state merge on and off.
-    @Test func acpmuxWarningsReachNoRow() throws {
+    /// The row takes its chats' warnings even with the lane state merge off: the warning is not a
+    /// lane-status toggle's to hide.
+    @Test func aRowCarriesItsChatsWarnings() throws {
         let fixture = try SidebarLaneStatusTests.Fixture()
+        fixture.lanes.lanes["s-working"] = try #require(AgentActivityLane.of(summary: Self.summary("s-working", warnings: Self.warnings)))
         for on in [true, false] {
-            try SidebarLaneStatusTests.withLaneStatus(on) {
-                let calm = try Self.workingRow(fixture, warned: false)
-                let warned = try Self.workingRow(fixture, warned: true)
-                #expect(warned == calm, "laneStatus \(on): acpmux's usage warnings changed the row")
+            SidebarLaneStatusTests.withLaneStatus(on) {
+                let rows = Dictionary(uniqueKeysWithValues: fixture.sections().flatMap(\.workspaces).map { ($0.title, $0) })
+                #expect(rows["working"]?.usageWarnings == Self.warnings, "laneStatus \(on)")
+                #expect(rows["idle"]?.usageWarnings == [], "laneStatus \(on)")
             }
         }
     }
 
-    /// What `ws`'s row draws (every visible view, by class and frame) and says (its accessibility label and hover card
-    /// facts), at rest or hovered, pinned or not.
-    static func drawn(_ ws: SidebarWorkspace, pinned: Bool, hovered: Bool) throws -> (views: [String], label: String?, facts: [String]) {
-        Motion.reduceMotionOverride = true // marks clear at once instead of fading out
-        defer { Motion.reduceMotionOverride = nil }
-        _ = NSApplication.shared
+    @Test func twoChatsSayingTheSameLineShowItOnce() throws {
+        let a = try #require(AgentActivityLane.of(summary: Self.summary("a", warnings: Self.warnings)))
+        let b = try #require(AgentActivityLane.of(summary: Self.summary("b", warnings: [Self.warnings[1]])))
+        #expect(SidebarLaneStatus.usageWarnings([a, b]) == Self.warnings)
+    }
+
+    static func rowView(_ ws: SidebarWorkspace) throws -> WorkspaceRowView {
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(ws)]),
         ])
-        model.workspacePin = (isPinned: { _ in pinned }, toggle: { _ in })
         let sidebar = SidebarView(model: model, design: DesignSettings())
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 400), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = sidebar
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
-        sidebar.list.contextMenuProvider = { _ in NSMenu() }
-        window.orderFrontRegardless()
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
-        sidebar.renderNow()
         sidebar.list.reload(animated: false)
-        sidebar.layoutSubtreeIfNeeded()
-        let row = try #require(sidebar.list.rowViews[.workspace(ws.id)] as? WorkspaceRowView)
-        row.wire(ws.id, in: sidebar.list)
-        row.isHovered = hovered
-        row.needsLayout = true
-        row.layoutSubtreeIfNeeded()
-        if hovered {
-            let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self).filter { !$0.isHidden && $0.alphaValue > 0 }
-            #expect(!controls.isEmpty, "pinned \(pinned): no hover control on the hovered row")
-        }
-        var views: [String] = []
-        func walk(_ view: NSView, depth: Int) {
-            for sub in view.subviews where !sub.isHidden && sub.frame.width > 0
-                && SidebarTrailingColumnTests.drawnAlpha(sub, below: row) > 0.01 {
-                views.append("\(depth) \(type(of: sub)) \(sub.frame)")
-                walk(sub, depth: depth + 1)
-            }
-        }
-        walk(row, depth: 0)
-        let facts = WorkspaceHoverCardOptions.Layout.allCases.flatMap { layout in
-            var options = WorkspaceHoverCardOptions()
-            options.layout = layout
-            return WorkspaceHoverCardContent.make(ws, machine: nil, now: Date(timeIntervalSince1970: 0), options: options, timeline: [])
-                .facts.map { "\(layout) \($0.kind) \($0.text)" }
-        }
-        return (views, row.accessibilityLabel(), facts)
+        return try #require(sidebar.list.rowViews[.workspace(ws.id)] as? WorkspaceRowView)
     }
 
-    /// No row ever draws the usage warning: a warned chat's row draws, says and shows on hover the same as the same row
-    /// unwarned, at rest and hovered, pinned and not; no view, label or hover card line carries a warning's text.
-    @Test(arguments: [false, true], [false, true])
-    func aWarnedRowDrawsNoTriangle(_ pinned: Bool, _ hovered: Bool) throws {
-        let fixture = try SidebarLaneStatusTests.Fixture()
-        let calm = try Self.drawn(Self.workingRow(fixture, warned: false), pinned: pinned, hovered: hovered)
-        let warned = try Self.drawn(Self.workingRow(fixture, warned: true), pinned: pinned, hovered: hovered)
-        let state = "pinned \(pinned), hovered \(hovered)"
-        #expect(warned.views == calm.views, "\(state): the warned row draws \(warned.views), the calm one \(calm.views)")
-        #expect(warned.label == calm.label, "\(state): the warned row's label \(warned.label ?? "nil")")
-        #expect(warned.facts == calm.facts, "\(state): the warned row's hover card \(warned.facts)")
-        let said = [warned.label ?? ""] + warned.facts
-        for warning in Self.warnings {
-            #expect(!said.contains { $0.contains(warning) }, "\(state): the row still says \(warning)")
+    @Test func theBadgeSaysEachRuleAndItsNumber() throws {
+        var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
+                                  kind: .harness, activity: .working)
+        ws.usageWarnings = Self.warnings
+        let row = try Self.rowView(ws)
+        #expect(!row.usageWarningMark.isHidden)
+        #expect(row.usageWarningMark.frame.width > 0)
+        #expect(row.usageWarningMark.themedToolTip == nil, "a mark on a row has a tooltip")
+        let label = try #require(row.accessibilityLabel())
+        #expect(Self.warnings.allSatisfy(label.contains))
+        // The hover card says each one, in every layout.
+        for layout in WorkspaceHoverCardOptions.Layout.allCases {
+            var options = WorkspaceHoverCardOptions()
+            options.layout = layout
+            let facts = WorkspaceHoverCardContent.make(ws, machine: nil, now: Date(), options: options, timeline: []).facts
+            #expect(facts.filter { $0.kind == "usageWarning" }.map(\.text) == Self.warnings, "\(layout)")
         }
-        #expect(!warned.facts.contains { $0.contains("usageWarning") }, "\(state): a usage warning line in the hover card")
+    }
+
+    /// Hovering the row shows its ⋯ and × over the row's end; the badge gives way to them in place, as every other
+    /// mark does (Leo 2026-11-22: "in all cases, the hovered buttons should just replace the other ones"), and comes
+    /// back when the hover ends. The hover card still names each warning.
+    @Test func theBadgeGivesWayToTheHoverControls() throws {
+        Motion.reduceMotionOverride = true // the badge clears at once instead of fading out
+        defer { Motion.reduceMotionOverride = nil }
+        var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
+                                  kind: .harness, activity: .working)
+        ws.usageWarnings = Self.warnings
+        let row = try Self.rowView(ws)
+        row.layoutSubtreeIfNeeded()
+        let mark = row.usageWarningMark
+        let resting = mark.frame
+        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows at rest")
+        row.isHovered = true
+        row.layoutSubtreeIfNeeded()
+        let controls: [NSView] = [row.closeButton, row.moreButton].filter { !$0.isHidden }
+        #expect(!controls.isEmpty, "the hover controls show")
+        #expect(mark.alphaValue == 0, "the badge gives way on hover (alpha \(mark.alphaValue))")
+        #expect(mark.frame == resting, "the badge moved on hover \(resting) -> \(mark.frame) (a layout shift)")
+        row.isHovered = false
+        row.layoutSubtreeIfNeeded()
+        #expect(mark.alphaValue == 1, "the badge is back after the hover (alpha \(mark.alphaValue))")
+    }
+
+    @Test func noWarningNoBadge() throws {
+        let row = try Self.rowView(SidebarWorkspace(id: WorkspaceID("ws-calm"), title: "lane", lastActivity: Date(), kind: .harness))
+        #expect(row.usageWarningMark.isHidden)
+        #expect(row.usageWarningMark.themedToolTip == nil)
     }
 }

@@ -1,22 +1,15 @@
 import { lazy, Suspense, useMemo, useState, memo } from "react";
 import { shownCategories, sidebarSections } from "../categories";
-import { useStore, shallowEqual, useSettingsSelector, useSettingsRouter } from "../context";
+import { useStore, useSettingsRouter, shallowEqual, useSettingsSelector } from "../context";
 import type { SettingsState } from "../store";
 import { Icon } from "../icons";
 import { sectionHref } from "../router";
-import { filterRows, filterPages, filterPlaces, joinConsentPlaces } from "../search";
+import { filterPlaces, filterRows, joinConsentPlaces, filterPages } from "../search";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
-
-/** Each category's page title (the sidebar section that holds it), for a result's crumb. */
-const pageTitles = new Map(
-  sidebarSections.flatMap((section) =>
-    section.title ? section.categories.map((id) => [id, section.title!] as const) : [],
-  ),
-);
 
 const searchInputs = (state: SettingsState) => ({
   rows: state.rows,
@@ -32,9 +25,7 @@ const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard })
 const JoinGroup = lazy(() => import("./DevicesCard").then(({ JoinGroup }) => ({ default: JoinGroup })));
 
 /**
- * Matching rows from every category, editable in place, grouped by category under a crumb, its
- * page then the category ("AI › Agents"; a page's own category is just its name), so a result says
- * where it lives among the six pages (findings G6, the search-first layout's results). Every
+ * Matching rows from every category, editable in place, grouped by category. Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes. Page-only
  * places match beside the rows (search.ts `PagePlace`): Settings > Devices' join consent switches show,
@@ -72,11 +63,6 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
   const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
   const router = useSettingsRouter();
   const empty = shown.size === 0 && places.length === 0 && pages.length === 0;
-  const crumb = (category: { id: string; title: Parameters<typeof text>[0] }) => {
-    const page = pageTitles.get(category.id);
-    const name = page ? text(page) : null;
-    return name && name !== text(category.title) ? name : null;
-  };
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -139,17 +125,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
             aria-hidden={open ? undefined : true}
           >
             <div className="collapse-body">
-              <h2 className="result-section-title">
-                {crumb(category) && (
-                  <>
-                    <span className="result-section-page">{crumb(category)}</span>
-                    <span className="result-section-crumb" aria-hidden="true">
-                      {" › "}
-                    </span>
-                  </>
-                )}
-                {text(category.title)}
-              </h2>
+              <h2 className="result-section-title">{text(category.title)}</h2>
               {petRows && petRows.size > 0 && (
                 <Suspense fallback={null}>
                   <ChiefPetCard query={query} visibleRows={petRows} />

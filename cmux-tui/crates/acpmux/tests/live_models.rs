@@ -182,8 +182,8 @@ fn a_cached_list_lasts_until_its_program_changes() {
     let key = CacheKey::of(&program).unwrap();
     cache.store("claude", &key, &models).unwrap();
     let started = Instant::now();
-    assert_eq!(cache.load("claude", Some(&program)), Some((models.clone(), key.clone())));
-    assert_eq!(cache.load_all().get("claude"), Some(&(models.clone(), key.clone())));
+    assert_eq!(cache.load("claude", Some(&program)), Some(models.clone()));
+    assert_eq!(cache.load_all().get("claude"), Some(&models));
     eprintln!("cached live list read: {} us", started.elapsed().as_micros());
     // A CLI update (another binary) discards it.
     std::fs::write(&program, "version two").unwrap();

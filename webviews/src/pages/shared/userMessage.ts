@@ -39,9 +39,7 @@ function text(key: string): string {
 
 /** The sentence to show for `error`: the page's own sentence for its code, the owner's when the
  *  page marks that code ``OWNER_SENTENCE``, a shared sentence for a lost link or a missing op,
- *  else "Something went wrong. Try again." A lost link's sentence names no "try again": a page that
- *  reads asks again on its own (agent-session/acpmux/autoRetry.ts).
- *  retry-prompt-ok: these sentences answer the person's own action (a save, a run, a change), which only they redo. */
+ *  else "Something went wrong. Try again." */
 export function userMessage(error: unknown, sentences: ErrorSentences = {}): string {
   const code = typeof (error as { code?: unknown } | null)?.code === "string" ? (error as { code: string }).code : "";
   const own = code ? sentences[code] : undefined;

@@ -303,10 +303,7 @@ fn worktree(
         return Ok((folder, branch, true));
     }
     let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
-    // Review branches keep the default prefix, so `existing` finds them again
-    // whatever `worktrees.branchPrefix` says.
-    let attempt =
-        worktree::plan(repository, target.common_dir(), worktree::BRANCH_PREFIX, &fields)?;
+    let attempt = worktree::plan(repository, target.common_dir(), &fields)?;
     // Untrusted: no hook or filter driver runs, since either could run the
     // pull request's code in its checkout before anyone read it.
     worktree::create(repository, git, &attempt, target.common_dir(), Some(&pull.url()))?;

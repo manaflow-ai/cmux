@@ -61,11 +61,6 @@ pub trait VideoEncoder: Send {
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn name(&self) -> String;
-    /// Whether every stream it makes is Constrained Baseline whatever profile it was asked for
-    /// (OpenH264 has no other), so a `h264.baseline` viewer can take it as it is.
-    fn constrained_baseline(&self) -> bool {
-        false
-    }
     /// The codec of the access units [`VideoEncoder::encode`] emits.
     fn codec(&self) -> Codec {
         Codec::H264

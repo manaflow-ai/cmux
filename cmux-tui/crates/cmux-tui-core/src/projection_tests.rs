@@ -77,7 +77,7 @@ fn a_revision_in_the_store_is_fetched_and_assembled() {
     let split = cmux_projection::revision::split(&manifest).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let pieces: HashMap<String, Vec<u8>> =
+    let pieces: std::collections::HashMap<String, Vec<u8>> =
         split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
     let served = std::thread::spawn(move || {
         // One request per connection, until the test drops the last reference.
@@ -443,7 +443,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
          - README.md\n\
          - src/main.rs"
     );
-    let capped = Report { paths: vec!["a".into()], failed: 9, ..report };
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
     let (title, body) = away_notice(at, &capped);
     assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
     assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");

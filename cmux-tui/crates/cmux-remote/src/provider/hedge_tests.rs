@@ -167,20 +167,6 @@ async fn every_attempt_black_holed_ends_at_the_caller_s_budget() {
     assert_eq!(starts.lock().unwrap().len(), 6, "at most max_attempts sockets");
 }
 
-/// Every attempt black-holed under a caller with no budget of its own (the direct TCP dialer):
-/// the connect ends at the last attempt's 8 s bound, about 11.8 s in, instead of waiting out the
-/// operating system's connect timeout.
-#[tokio::test(start_paused = true)]
-async fn every_attempt_black_holed_ends_at_the_last_attempt_s_bound_without_a_caller_budget() {
-    let (result, starts, took) =
-        run(&["a", "b"], vec![Plan::Never; 6], HedgePolicy::INTERNET).await;
-    let error = result.unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-    assert_eq!(error.to_string(), "no answer within 8000 ms");
-    assert_eq!(starts.len(), 6);
-    assert_eq!(took, 11_800);
-}
-
 #[tokio::test(start_paused = true)]
 async fn every_attempt_refused_answers_the_last_refusal() {
     let plans = vec![Plan::FailAfter(ms(1)); 6];

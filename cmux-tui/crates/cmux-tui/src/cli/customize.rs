@@ -42,8 +42,6 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize generations                  Every generation, newest first (`ls`)
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
-  cmux customize pack NAME --css FILE         A chat stylesheet or default-off settings as a pack, not applied; then
-  cmux customize pack NAME --set KEY=VALUE    `try NAME` (the yolo path: docs/design/yolo-path.md)
   cmux customize use NAME|FILE                Preview a profile (or a recipe, by name), then apply or discard it
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
@@ -113,7 +111,6 @@ const VERBS: &[&str] = &[
     "generations",
     "show",
     "save",
-    "pack",
     "use",
     "profiles",
     "recipes",
@@ -167,13 +164,6 @@ pub(super) enum Request {
     },
     Save {
         name: String,
-        note: String,
-    },
-    /// A pack made from a stylesheet and settings, written as a profile and not applied.
-    Pack {
-        name: String,
-        css: Option<String>,
-        sets: Vec<(String, String)>,
         note: String,
     },
     Use {
@@ -296,7 +286,6 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     .to_owned()),
             }
         }
-        "pack" => pack_of(rest),
         "use" => {
             let watch = rest.iter().any(|word| word == "--watch");
             let words: Vec<&String> = rest.iter().filter(|word| *word != "--watch").collect();
@@ -340,38 +329,6 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
 }
 
 /// `try [NAME|FILE] [--minutes N]`.
-/// `pack NAME [--css FILE] [--set KEY=VALUE]... [NOTE...]`.
-fn pack_of(words: &[String]) -> Result<Request, String> {
-    let usage = "customize pack needs a NAME and --css FILE or --set KEY=VALUE, like `cmux customize pack calmer-composer --css /tmp/calmer.css`";
-    let (name, rest) = match words.split_first() {
-        Some((name, rest)) if !name.starts_with('-') => (name.clone(), rest),
-        _ => return Err(usage.to_owned()),
-    };
-    let (mut css, mut sets, mut note) = (None, Vec::new(), Vec::new());
-    let mut iter = rest.iter();
-    while let Some(word) = iter.next() {
-        match word.as_str() {
-            "--css" => css = Some(value_of(&mut iter, word)?),
-            "--set" => {
-                let pair = value_of(&mut iter, word)?;
-                let (key, value) = pair
-                    .split_once('=')
-                    .filter(|(key, _)| !key.is_empty())
-                    .ok_or_else(|| format!("--set takes KEY=VALUE, got {pair:?}"))?;
-                sets.push((key.to_owned(), value.to_owned()));
-            }
-            flag if flag.starts_with('-') => {
-                return Err(format!("customize pack does not take {flag:?}"));
-            }
-            _ => note.push(word.clone()),
-        }
-    }
-    if css.is_none() && sets.is_empty() {
-        return Err(usage.to_owned());
-    }
-    Ok(Request::Pack { name, css, sets, note: note.join(" ") })
-}
-
 fn try_of(words: &[String]) -> Result<Request, String> {
     let mut source = None;
     let mut minutes = f64::from(cmux_customize::DEFAULT_TRY_ON_MINUTES);
@@ -792,22 +749,6 @@ pub(super) fn execute(
         Request::Generations => Answer::Generations(customize.generations()?),
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
-        }
-        Request::Pack { name, css, sets, note } => {
-            let mut files = std::collections::BTreeMap::new();
-            if let Some(path) = css {
-                let text = std::fs::read_to_string(&path)
-                    .map_err(|error| Error::Profile(format!("{path}: {error}")))?;
-                files.insert("agent-pane/theme.css".to_owned(), text);
-            }
-            let settings = sets
-                .into_iter()
-                .map(|(key, value)| {
-                    let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-                    (key, value)
-                })
-                .collect();
-            Answer::Saved(customize.write_pack(&name, &note, settings, files, now_ms)?)
         }
         Request::Use { source, watch } => match source::parse(&source) {
             Some(source::Source::Dir(path)) => {

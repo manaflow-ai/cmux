@@ -5,7 +5,6 @@
   "joined": "descriptors",
   "lists": {
     "terminalFont": ["fontRows", null],
-    "terminalCursor": ["cursorRows", "TerminalCursorSetting"],
     "openingLinks": ["linkRows", null],
     "terminalCompatibility": ["compatibilityRows", null],
     "terminalTyping": ["typingRows", null]

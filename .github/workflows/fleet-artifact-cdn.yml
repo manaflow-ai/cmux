@@ -2,9 +2,6 @@ name: Fleet artifact CDN
 
 on:
   pull_request:
-    # A pull request into feat-cmux-next runs the test job's commands as ci/steps.toml's fleet-artifact-cdn-test
-    # step in pr-pipeline.yml's linux job instead.
-    branches-ignore: [feat-cmux-next]
     paths:
       - workers/fleet-artifacts/**
       - .github/workflows/fleet-artifact-cdn.yml

@@ -18,7 +18,7 @@ set -euo pipefail
 # into this same repository (nightly run 44232805509 died on a stalled cmux-cua transfer).
 # shellcheck source=scripts/cmux-next/lib/origin-net.sh
 source "$(dirname "$0")/lib/origin-net.sh"
-export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}"
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}"
 [[ $# -eq 3 || $# -eq 4 ]] || { echo "usage: $0 <remote> <head_sha> <tag> [<since_sha>]" >&2; exit 64; }
 remote="$1" head="$2" tag="$3" since_sha="${4:-}"
 [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "error: head must be a full commit sha: $head" >&2; exit 64; }

@@ -104,7 +104,6 @@ async fn a_blackholed_tailnet_candidate_falls_back_on_the_next_hedge() {
         super::super::hedge::HedgePolicy {
             stagger: Duration::from_millis(10),
             attempt_timeout: Duration::from_millis(50),
-            last_attempt_timeout: Duration::from_millis(50),
             max_in_flight: 2,
             max_attempts: 2,
         },

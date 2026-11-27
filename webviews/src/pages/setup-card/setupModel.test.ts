@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cardStrings } from "./strings";
-import { nextStep, setupProgress, setupSteps, type SetupState, setupTitle } from "./setupModel";
+import { nextStep, setupProgress, setupSteps, setupTitle, type SetupState } from "./setupModel";
 
 const strings = cardStrings(["en"]);
 
@@ -38,15 +38,6 @@ describe("setupSteps", () => {
     expect(steps[0]?.detail).toBe("Claude Code, Codex");
     expect(nextStep(steps)?.action?.run).toEqual({ kind: "installAgent", id: "claude" });
     expect(setupProgress(steps)).toEqual({ done: 0, total: 3 });
-  });
-
-  test("signed out, the account row carries the app's backend line under Sign In; signed in, none", () => {
-    const line = "Signs in to Development backend · dev-abc.cmux.dev";
-    const out = setupSteps({ ...fresh, account: { signedIn: false, signInBackend: line } }, strings);
-    expect(out.find((step) => step.id === "account")?.note).toBe(line);
-    expect(setupSteps(fresh, strings).find((step) => step.id === "account")?.note).toBeUndefined();
-    const signedIn = setupSteps({ ...fresh, account: { signedIn: true, signInBackend: line } }, strings);
-    expect(signedIn.find((step) => step.id === "account")?.note).toBeUndefined();
   });
 
   test("classic's session leads, with Import and Not Now, until answered", () => {

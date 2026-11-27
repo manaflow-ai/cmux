@@ -67,55 +67,6 @@ test("a second Vite on the run's cache reads the React Compiler output the first
   expect(entries()).toHaveLength(2);
 });
 
-// CI keeps one cache across runs (ci-web.yml's react-apps-check shards), and each run checks out to its own path:
-// a key on the absolute module id missed every entry another checkout wrote. Two copies of webviews/ (this
-// file's reactCompiler.mjs in each) stand in for two checkouts; the second reads the first one's entry.
-test("a cache written in one checkout is read in another", async () => {
-  const shared = path.join(scratch, "shared-cache");
-  const checkouts = ["checkout-a", "checkout-b"].map((name) => {
-    const root = path.join(scratch, name);
-    fs.mkdirSync(path.join(root, "dev-server"), { recursive: true });
-    fs.mkdirSync(path.join(root, "src"), { recursive: true });
-    for (const file of ["reactCompiler.mjs", "bun.lock", "dev-server/viteCacheDir.mjs"]) {
-      fs.copyFileSync(path.join(import.meta.dir, "..", file), path.join(root, file));
-    }
-    fs.writeFileSync(
-      path.join(root, "src", "Card.tsx"),
-      "export function Card({ title }: { title: string }) { return <h2>{title}</h2>; }\n",
-    );
-    return root;
-  });
-  const compileIn = async (root: string): Promise<string> => {
-    process.env.CMUX_VITE_TRANSFORM_CACHE = shared;
-    const { reactWithCompiler: plugins } = await import(path.join(root, "reactCompiler.mjs"));
-    const server = await createServer({
-      configFile: false,
-      root,
-      cacheDir: path.join(root, "vite"),
-      plugins: plugins(),
-      server: { middlewareMode: true, hmr: false, ws: false, preTransformRequests: false },
-      optimizeDeps: { noDiscovery: true, include: [] },
-      logLevel: "error",
-    });
-    try {
-      return (await server.transformRequest("/src/Card.tsx"))!.code;
-    } finally {
-      await server.close();
-    }
-  };
-  expect(await compileIn(checkouts[0]!)).toContain("const $ = _c(");
-  const written = fs.readdirSync(shared, { recursive: true }).filter((name) => String(name).endsWith(".json"));
-  expect(written).toHaveLength(1);
-  const file = path.join(shared, String(written[0]));
-  const stored = JSON.parse(fs.readFileSync(file, "utf8")) as { code: string };
-  fs.writeFileSync(file, JSON.stringify({ ...stored, code: `${stored.code}\n// from checkout-a` }));
-  // A day-old entry: a hit marks it as read, so CI's prune keeps what runs still use.
-  const old = new Date(Date.now() - 86_400_000);
-  fs.utimesSync(file, old, old);
-  expect(await compileIn(checkouts[1]!)).toContain("// from checkout-a");
-  expect(fs.statSync(file).mtimeMs).toBeGreaterThan(old.getTime() + 3_600_000);
-});
-
 test("without CMUX_VITE_TRANSFORM_CACHE the compiler writes no cache", async () => {
   const before = entries().length;
   fs.writeFileSync(source, "export function Greeting() { return <p>Hi</p>; }\n");

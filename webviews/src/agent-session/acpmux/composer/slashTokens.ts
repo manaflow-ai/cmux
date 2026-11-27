@@ -21,12 +21,12 @@ import { INLINE_NODE } from "./inlineNode";
 export const SLASH_TOKEN_CLASS = "acpmux-slash-token";
 
 /// A line break reads as one; an attachment placed in the text (or any other leaf) as U+FFFC.
-export const leafChar = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
+const leafChar = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
 
 /// The text of `block` (its content at document position `start`) from offset `from` to `to`, a
 /// character per position. It starts at the child that holds `from`, found through a resolved
 /// position, so the text before it is never walked.
-export function blockText(doc: ProseNode, block: ProseNode, start: number, from: number, to: number): string {
+function blockText(doc: ProseNode, block: ProseNode, start: number, from: number, to: number): string {
   if (to <= from) return "";
   const $at = doc.resolve(start + from);
   let index = $at.index();

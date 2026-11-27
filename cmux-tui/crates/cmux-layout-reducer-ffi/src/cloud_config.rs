@@ -56,15 +56,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
         }
-        // What the sign-in screens say they sign in to: the configuration's backend, named.
-        b"cloud_config_backend_label" => {
-            #[derive(Deserialize)]
-            struct Request {
-                backend: config::Backend,
-            }
-            let request: Request = read(request)?;
-            json!(config::backend_label(&request.backend))
-        }
         // Sign-in with no callback (`cli_sign_in`): each request the app sends, and what each answer means.
         b"cloud_auth_cli_sign_in_start" => {
             let project: cmux_cloud_config::cli_sign_in::Project = read(request)?;

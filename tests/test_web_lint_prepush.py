@@ -189,7 +189,6 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/ci/workflow_job_bounds.py",
-            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -1005,36 +1004,6 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
-
-    def test_new_only_reruns_the_base_reds_side_by_side(self):
-        # 2026-11-26: a webviews pull request over a base red on 13 checks reran them on the base one at a time, 128 s
-        # of a 290 s fast gates job, while the head's run had them side by side. Each check here, red on the base,
-        # logs its start, sleeps a second and logs its end: on the base tree the two reruns overlap.
-        if len(os.sched_getaffinity(0)) < 2 if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1) < 2:
-            self.skipTest("one core: the checks run one at a time by design")
-        spans = self.root / "spans.log"
-        for name in ("one", "two"):
-            self.write(f"webviews/check-{name}.sh",
-                       "#!/bin/sh\nif grep -rl 'BAD_LANE' src >/dev/null 2>&1; then\n"
-                       f'  echo "start {name} $(pwd)" >> "$SPANS"; sleep 1; echo "end {name} $(pwd)" >> "$SPANS"\n'
-                       f"  echo 'src/old.ts:1:1: error {name}'; exit 1\nfi\n")
-        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
-            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-one.sh && sh check-two.sh"'))
-        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
-        self.commit("a base red on two checks")
-        self.write("webviews/src/app.ts", "export const app = 9;\n")
-        self.commit("a clean change on it")
-        self.env["SPANS"] = str(spans)
-
-        result = self.lint_range("--new-only")
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = spans.read_text().splitlines()
-        head = str((self.repo / "webviews").resolve())
-        base = [line for line in lines if line.split(" ", 2)[2] != head]  # the reruns, in the base lint tree
-        self.assertEqual(len(base), 4, lines)
-        self.assertEqual([line.split()[0] for line in base[:2]], ["start", "start"],
-                         f"the base reruns ran one after the other: {lines}")
 
     def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
         # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,

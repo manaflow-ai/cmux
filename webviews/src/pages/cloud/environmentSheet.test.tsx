@@ -1,5 +1,5 @@
 import { act } from "react";
-import { afterAll, expect, jest, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { EnvironmentStore } from "./environmentStore";
 import type { CloudEnvironment, EnvironmentPatch, EnvironmentSection } from "./environmentModel";
@@ -296,9 +296,6 @@ const vaultSentences: Record<string, string> = {
   // Only a machine's start gives these, or the platform adds one later: the generic save sentence.
   "vault.boot_superseded": "Could not save changes. Your edits are kept; try again.",
   "vault.something_new": "Could not save changes. Your edits are kept; try again.",
-  // The app saves only on the person's own click; a click another process posted (a driver, a script) is refused.
-  "transport.gesture_required":
-    "Your edits are kept but not saved: saving needs your own click. Click Save changes again.",
 };
 
 for (const [code, sentence] of Object.entries(vaultSentences)) {
@@ -319,72 +316,3 @@ for (const [code, sentence] of Object.entries(vaultSentences)) {
     }
   });
 }
-
-// Leo, 2026-11-22: "vacuous decisions like that should be just done". A failed read of the environment
-// is read again on its own: no Retry button and no alert while it recovers, and the fields come once it answers.
-test("a failed environment read is read again on its own, with no Retry", async () => {
-  jest.useFakeTimers();
-  let reads = 0;
-  const store = new EnvironmentStore({
-    list: async () => {
-      if (++reads <= 2) throw new Error("down");
-      return [sample];
-    },
-    get: async () => sample,
-    update: async () => sample,
-    derive: async () => ({ setup: { script: "#!/bin/bash\nnpm ci\n" } }),
-  });
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  try {
-    await act(async () => {
-      root.render(<EnvironmentSheet store={store} strings={strings} />);
-      await store.open();
-      await settle();
-    });
-    expect(store.getSnapshot().error).toBe("load");
-    expect(button("Retry")).toBeUndefined();
-    expect(document.querySelector(".cloud-environment-sheet [role=alert]")).toBeNull();
-    // Jittered 1 s, then 2 s: the third read answers within 4 s.
-    for (let i = 0; i < 4; i++)
-      await act(async () => {
-        jest.advanceTimersByTime(1_000);
-        await settle();
-      });
-    expect(reads).toBe(3);
-    expect(store.getSnapshot().error).toBeUndefined();
-    expect(document.querySelector(".cloud-environment-sheet .env-fields")).not.toBeNull();
-  } finally {
-    await act(async () => root.unmount());
-    container.remove();
-    jest.useRealTimers();
-  }
-});
-
-test("a failed create keeps its message and Retry: asking again makes an environment", async () => {
-  const store = new EnvironmentStore({
-    list: async () => [sample],
-    get: async () => sample,
-    update: async () => sample,
-    derive: async () => ({ setup: { script: "" } }),
-    create: async () => {
-      throw new Error("down");
-    },
-  });
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  try {
-    await act(async () => {
-      root.render(<EnvironmentSheet store={store} strings={strings} />);
-      await store.open({ create: { name: "Build" } });
-      await settle();
-    });
-    expect(document.querySelector(".cloud-environment-sheet [role=alert]")).not.toBeNull();
-    expect(button("Retry")).toBeDefined();
-  } finally {
-    await act(async () => root.unmount());
-    container.remove();
-  }
-});

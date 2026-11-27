@@ -28,10 +28,7 @@ extension DrawnWebParkable {
         drawnWebPage?.chromiumWindowMoved()
     }
 
-    /// ``PageWebView/clearAreaSnapshot()``, not ``PageWebView/snapshot()``: Chromium's snapshot is a JPEG with no alpha, so
-    /// over a see-through window the page's clear areas came out black and the switch back showed a black page under
-    /// the one drawing clear over it (the class of cmux#58354, Cmd-R in a chat).
-    public func drawnPicture() async -> NSImage? { await drawnWebPage?.clearAreaSnapshot() }
+    public func drawnPicture() async -> NSImage? { await drawnWebPage?.snapshot() }
     public func standOverDrawnPicture() {}
     public func drawnPictureWent() {}
 

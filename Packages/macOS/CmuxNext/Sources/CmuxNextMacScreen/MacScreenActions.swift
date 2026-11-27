@@ -159,22 +159,7 @@ public struct MacScreenActions {
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages,
                        startedBy: (ActionInvocation) -> String? = { _ in nil }) throws -> MacScreenRecord {
-        let devices = pages.viewableDevices
-        if missesList(invocation, among: devices), let hub = pages.hub {
-            // A machine joined since the list was read (its `devices.changed` push missed, or no socket yet): read the
-            // hub's list again, so the next ask of that name finds it (Leo: "if you have indeed connected a machine,
-            // you should be able to just screen share onto it freely").
-            // task-owner: one devices read after a name the list lacked.
-            Task { await hub.refreshDevices() }
-        }
-        return try record(invocation, pages: pages, devices: devices, startedBy: startedBy)
-    }
-
-    /// Whether `invocation` names a device by a name none of `devices` has (an id is opened as is, never missed).
-    static func missesList(_ invocation: ActionInvocation, among devices: [HubDevice]) -> Bool {
-        guard let text = invocation["device"]?.stringValue, MacScreenRecord.normalizedDeviceID(text) == nil,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        do { _ = try deviceID(named: text, among: devices); return false } catch { return true }
+        try record(invocation, pages: pages, devices: pages.viewableDevices, startedBy: startedBy)
     }
 
     /// `device` is the hub's device id or, from the CLI and agents, a device name (the Mac's Computer Name) among

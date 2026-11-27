@@ -14,7 +14,7 @@ import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
 import { chatAfterRewind, type ChatMarks } from "../conversation/cloudTurnCheckpoints";
 import { projectInboxRows } from "../conversation/laneNoticeBatches";
-import { detailRows } from "../chatDetail";
+import { messagesRows } from "../conversation/messagesRows";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
@@ -189,7 +189,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldFolds,
     chatShellRuns,
   } = deps;
-  if (chatPresentation === "messages") return detailRows(childRows ?? sourceRows, "messages");
+  if (chatPresentation === "messages") return messagesRows(childRows ?? sourceRows);
   if (childRows) {
     return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
   }

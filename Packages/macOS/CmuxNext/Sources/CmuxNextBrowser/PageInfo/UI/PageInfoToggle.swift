@@ -2,9 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The permission toggle, in ink: the track is the foreground when on (no accent color; the one
-/// saturated hue is driver state's) and a faint fill when off, the knob flat (no painted shadow
-/// or sheen), sized for a 28 menu row.
+/// The permission toggle, in theme grays: the track is the foreground
+/// when on (no accent color) and a faint fill when off.
 final class PageInfoToggle: NSView {
     var onChange: ((Bool) -> Void)?
 
@@ -24,6 +23,9 @@ final class PageInfoToggle: NSView {
         wantsLayer = true
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
+        knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
+        knob.shadowRadius = PopupStyle.elevation1.layerRadius
+        knob.shadowOffset = PopupStyle.elevation1.layerOffset()
         setAccessibilityElement(true)
         setAccessibilityRole(.checkBox)
         setAccessibilitySubrole(.switch)

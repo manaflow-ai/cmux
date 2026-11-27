@@ -4,7 +4,6 @@
 //! queued message sink over a synchronized TCP stream.
 
 use super::BACKPRESSURE_RECHECK;
-use super::BudgetedFrame;
 use super::BudgetedText;
 use super::MAX_SERVER_CONNECTIONS;
 use super::MessageSink;
@@ -61,32 +60,8 @@ pub(super) struct StreamOutboundUsage {
 }
 
 pub(super) struct RegularOutbound {
-    message: QueuedMessage,
+    text: Arc<BudgetedText>,
     stream: OutboundStream,
-}
-
-/// What a stream queues: a JSON line, or an `attach-frames-v1` frame. Both
-/// share the stream's FIFO and byte budget, so a frame keeps its place among
-/// the stream's JSON events.
-pub(super) enum QueuedMessage {
-    Line(Arc<BudgetedText>),
-    Frame(Arc<BudgetedFrame>),
-}
-
-impl QueuedMessage {
-    fn len(&self) -> usize {
-        match self {
-            Self::Line(text) => text.len(),
-            Self::Frame(frame) => frame.len(),
-        }
-    }
-
-    fn into_item(self) -> OutboundItem {
-        match self {
-            Self::Line(text) => OutboundItem::Text(text),
-            Self::Frame(frame) => OutboundItem::Frame(frame),
-        }
-    }
 }
 
 pub(super) enum ControlOutbound {
@@ -96,9 +71,6 @@ pub(super) enum ControlOutbound {
 
 pub(super) enum OutboundItem {
     Text(Arc<BudgetedText>),
-    /// An `attach-frames-v1` frame: header and payload, no newline. Only a
-    /// Unix connection that negotiated the capability gets one.
-    Frame(Arc<BudgetedFrame>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -217,8 +189,7 @@ impl BoundedOutbound {
         initial: bool,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let result =
-            Self::push_regular_locked(&mut state, QueuedMessage::Line(text), stream, initial);
+        let result = Self::push_regular_locked(&mut state, text, stream, initial);
         drop(state);
         self.changed.notify_all();
         result
@@ -227,24 +198,6 @@ impl BoundedOutbound {
     pub(super) fn push_regular_backpressured(
         &self,
         text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.push_backpressured(QueuedMessage::Line(text), stream)
-    }
-
-    /// [`Self::push_regular_backpressured`] of an `attach-frames-v1` frame: same queue, same
-    /// budget, same wait.
-    pub(super) fn push_frame_backpressured(
-        &self,
-        frame: Arc<BudgetedFrame>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.push_backpressured(QueuedMessage::Frame(frame), stream)
-    }
-
-    fn push_backpressured(
-        &self,
-        message: QueuedMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
@@ -261,7 +214,7 @@ impl BoundedOutbound {
             let pending =
                 state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
             if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
-                let result = Self::push_regular_locked(&mut state, message, stream, false);
+                let result = Self::push_regular_locked(&mut state, text, stream, false);
                 drop(state);
                 self.changed.notify_all();
                 return result;
@@ -273,7 +226,7 @@ impl BoundedOutbound {
 
     pub(super) fn push_regular_locked(
         state: &mut BoundedOutboundState,
-        message: QueuedMessage,
+        text: Arc<BudgetedText>,
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
@@ -283,7 +236,7 @@ impl BoundedOutbound {
         if !stream.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
         }
-        let bytes = message.len();
+        let bytes = text.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
@@ -337,7 +290,7 @@ impl BoundedOutbound {
         });
         usage.messages += 1;
         usage.bytes += bytes;
-        let message = RegularOutbound { message, stream: stream.clone() };
+        let message = RegularOutbound { text, stream: stream.clone() };
         if initial {
             state.initial.push_back(message);
         } else {
@@ -468,10 +421,7 @@ impl BoundedOutbound {
                 });
                 usage.messages += 1;
                 usage.bytes += bytes;
-                state.regular.push_back(RegularOutbound {
-                    message: QueuedMessage::Line(text),
-                    stream: stream.clone(),
-                });
+                state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
                 stream.terminal_enqueued.store(true, Ordering::Release);
                 stream.close();
                 drop(state);
@@ -555,12 +505,6 @@ impl BoundedOutbound {
                     self.changed.notify_all();
                     return Some(text.to_string());
                 }
-                Some(OutboundItem::Frame(frame)) => {
-                    drop(state);
-                    self.changed.notify_all();
-                    let bytes = [&frame.header[..], &frame.payload].concat();
-                    return Some(String::from_utf8_lossy(&bytes).into_owned());
-                }
                 Some(OutboundItem::Flush(flushed)) => {
                     drop(state);
                     self.changed.notify_all();
@@ -594,7 +538,7 @@ impl BoundedOutbound {
 
     pub(super) fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         let item = Self::pop_item_locked(state);
-        if matches!(item, Some(OutboundItem::Text(_) | OutboundItem::Frame(_))) {
+        if matches!(item, Some(OutboundItem::Text(_))) {
             state.lines_taken += 1;
         }
         item
@@ -603,7 +547,7 @@ impl BoundedOutbound {
     fn pop_item_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.message.into_item());
+            return Some(OutboundItem::Text(message.text));
         }
         if let Some(control) = state.control.pop_front() {
             return Some(match control {
@@ -617,11 +561,11 @@ impl BoundedOutbound {
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.message.into_item())
+        Some(OutboundItem::Text(message.text))
     }
 
     pub(super) fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
-        let bytes = message.message.len();
+        let bytes = message.text.len();
         state.regular_bytes = state.regular_bytes.saturating_sub(bytes);
         let remove = state.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
             usage.messages = usage.messages.saturating_sub(1);
@@ -683,13 +627,9 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
 ) -> std::io::Result<()> {
     match item {
         OutboundItem::Text(text) => {
-            let result =
-                write_parts(writer, &mut [IoSlice::new(text.as_bytes()), IoSlice::new(b"\n")]);
+            let result = write_line(writer, text.as_bytes());
             text.note_written(result.is_ok());
             result
-        }
-        OutboundItem::Frame(frame) => {
-            write_parts(writer, &mut [IoSlice::new(&frame.header), IoSlice::new(&frame.payload)])
         }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
@@ -699,14 +639,12 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     }
 }
 
-/// A line and its `\n`, or a frame's header and payload, in one vectored
-/// write: one syscall per message, and the client never wakes on a line body
-/// with no end. A short write finishes with the rest, as `write_all` would.
-fn write_parts<W: Write + ?Sized>(
-    writer: &mut W,
-    parts: &mut [IoSlice<'_>],
-) -> std::io::Result<()> {
-    let mut rest = parts;
+/// `line` and its `\n` in one vectored write: one syscall per line, and the
+/// client never wakes on a line body with no end. A short write finishes with
+/// the rest, as `write_all` would.
+fn write_line<W: Write + ?Sized>(writer: &mut W, line: &[u8]) -> std::io::Result<()> {
+    let mut parts = [IoSlice::new(line), IoSlice::new(b"\n")];
+    let mut rest = &mut parts[..];
     while !rest.is_empty() {
         match writer.write_vectored(rest) {
             Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
@@ -923,14 +861,6 @@ impl MessageSink for QueuedSink {
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_regular_backpressured(text, stream)
-    }
-
-    fn send_frame_backpressured(
-        &self,
-        frame: Arc<BudgetedFrame>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.outbound.push_frame_backpressured(frame, stream)
     }
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {

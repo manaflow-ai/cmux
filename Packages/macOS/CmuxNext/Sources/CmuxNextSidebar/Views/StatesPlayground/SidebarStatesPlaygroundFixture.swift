@@ -16,7 +16,7 @@ struct SidebarStatesPlaygroundFixture {
     static let pinnedWorkspace = WorkspaceID("sp-pinned")
     static let idle = WorkspaceID("sp-idle"), busy = WorkspaceID("sp-busy"), unread = WorkspaceID("sp-unread")
     static let needsYou = WorkspaceID("sp-needs-you"), error = WorkspaceID("sp-error"), needsInput = WorkspaceID("sp-needs-input")
-    static let selected = WorkspaceID("sp-selected")
+    static let usageWarning = WorkspaceID("sp-usage-warning"), selected = WorkspaceID("sp-selected")
     static let hovered = WorkspaceID("sp-hovered"), renaming = WorkspaceID("sp-renaming"), archived = WorkspaceID("sp-archived")
     static let remote = WorkspaceID("sp-remote"), member = WorkspaceID("sp-member"), accent = WorkspaceID("sp-accent")
     static let faviconMono = WorkspaceID("sp-favicon-mono"), faviconColorful = WorkspaceID("sp-favicon-colorful")
@@ -46,6 +46,7 @@ struct SidebarStatesPlaygroundFixture {
         case .needsYou: .list(.workspace(Self.needsYou))
         case .error: .list(.workspace(Self.error))
         case .needsInput: .list(.workspace(Self.needsInput))
+        case .usageWarning: .list(.workspace(Self.usageWarning))
         case .pinned, .pinnedHoverCard: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
         case .selected: .list(.workspace(Self.selected))
         case .hovered: .list(.workspace(Self.hovered))
@@ -77,6 +78,8 @@ struct SidebarStatesPlaygroundFixture {
         }
         var needsInput = row(Self.needsInput, "Program asks a question", activity: .waiting(kind: .question))
         needsInput.activityFromProgram = true // an OSC 7501 report opts its row in to the detailed marks
+        var usage = row(Self.usageWarning, "Runaway agent chat")
+        usage.usageWarnings = ["No autocompact cap"]
         let favicons = SidebarStatesPlaygroundFavicons()
         func browser(_ id: WorkspaceID, _ title: String, _ image: CGImage?) -> SidebarWorkspace {
             var row = row(id, title)
@@ -99,6 +102,7 @@ struct SidebarStatesPlaygroundFixture {
             .workspace(row(Self.needsYou, "Agent needs you", activity: .waiting)),
             .workspace(row(Self.error, "Build failed", activity: .error)),
             .workspace(needsInput),
+            .workspace(usage),
             .workspace(row(Self.hovered, "Hovered workspace", color: .purple)),
             .workspace(row(Self.accent, "Colored workspace", color: .purple)),
             .workspace(row(Self.renaming, "Renaming workspace")),

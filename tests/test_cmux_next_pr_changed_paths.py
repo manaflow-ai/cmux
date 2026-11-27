@@ -250,14 +250,14 @@ class HistoryFetchTests(unittest.TestCase):
 
     def fetch(self, **env: str) -> subprocess.CompletedProcess:
         return subprocess.run([str(FETCH_HISTORY), self.merge, self.base, self.head], cwd=self.clone,
-                              # No history store unless a test makes one: a cloud runner VM has a real one.
-                              env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0",
-                                   "CMUX_PR_HISTORY_STORE": f"{self.tmp.name}/no-store.git", **env},
+                              env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", **env},
                               capture_output=True, text=True)
 
     def has(self, sha: str) -> bool:
+        # No lazy fetch: in this partial clone a missing commit is otherwise fetched from the promisor remote
+        # by the probe itself, and every commit reads as present.
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
-                              capture_output=True).returncode == 0
+                              env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True).returncode == 0
 
     def test_deepens_until_the_merge_base_and_no_further(self):
         result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128")
@@ -294,27 +294,6 @@ class HistoryFetchTests(unittest.TestCase):
         self.assertIn("history: whole", result.stdout)
         self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "false")
         self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
-
-    def test_a_history_store_gives_the_history_with_no_remote_fetch(self):
-        # A cloud runner VM's image: the repository's commits and trees, without the PR's merge ref.
-        store = Path(self.tmp.name) / "store.git"
-        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", f"file://{self.remote}", str(store)],
-                       check=True, capture_output=True)
-        git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")
-        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8", CMUX_PR_HISTORY_STORE=str(store))
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("history: already whole", result.stdout)
-        self.assertNotIn("::warning::history fetch", result.stdout)
-        self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
-        self.assertEqual(git(self.clone, "remote"), "origin")
-
-    def test_a_broken_history_store_leaves_the_remote_fetch(self):
-        store = Path(self.tmp.name) / "broken.git"
-        (store / "objects").mkdir(parents=True)
-        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128", CMUX_PR_HISTORY_STORE=str(store))
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("history store fetch failed", result.stdout)
-        self.assertIn("depth 128", result.stdout)
 
     def test_a_fetch_that_keeps_failing_fails_the_job(self):
         git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")

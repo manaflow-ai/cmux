@@ -50,15 +50,13 @@ import CmuxNextDesignTokens
         await view.artLoad?.value
         await view.artBlurJob?.value
         #expect(view.artBlurRadius == 20)
-        let blurredFilters = view.artView.layer?.filters ?? []
-        #expect(blurredFilters.isEmpty, "a filter on the art layer draws it in a corner")
+        #expect((view.artView.layer?.filters ?? []).isEmpty, "a filter on the art layer draws it in a corner")
         #expect(view.artImage != nil)
         #expect(CFGetTypeID(view.artView.layer?.contents as CFTypeRef?) == CGImage.typeID, "the art shows no blurred copy")
         // The video over the art blurs with a filter (its layer fills its view on its own).
         #expect((view.videoView.layer?.filters as? [CIFilter])?.contains { $0.name == "CIGaussianBlur" } == true)
         view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
-        let sharpFilters = view.artView.layer?.filters ?? []
-        #expect(sharpFilters.isEmpty)
+        #expect((view.artView.layer?.filters ?? []).isEmpty)
         #expect(view.artView.layer?.contents as? NSImage === view.artImage, "the sharp picture is not back")
     }
 }

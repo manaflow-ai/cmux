@@ -113,7 +113,7 @@ public final class MarqueeLabel: NSView {
         super.layout()
         let geometry = TitleFadeGeometry(
             textWidth: text.textWidth, span: bounds.width, visibleWidth: max(0, bounds.width - trailingOcclusion),
-            leadingPadding: leadingPadding, trailingPadding: 0, fadeWidth: fadeWidth, wordStarts: text.wordStarts
+            leadingPadding: leadingPadding, trailingPadding: 0, fadeWidth: fadeWidth
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)

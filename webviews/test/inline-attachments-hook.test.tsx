@@ -28,7 +28,6 @@ import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -186,6 +185,7 @@ async function render(initial: {
         calls.push(`cancel ${id}`);
         setPending((chips) => chips.filter((chip) => chip.id !== id));
       },
+      retry: (id) => calls.push(`retry ${id}`),
       revive: (id) => {
         calls.push(`revive ${id}`);
         const chip = initial.pending?.find((each) => each.id === id);
@@ -431,22 +431,28 @@ for (const [label, attachment] of [
     expect(controls.attachments()).toEqual([]);
   });
 
-test("an image in the text that cannot be drawn says so, with only a Remove that works", async () => {
+test("an image in the text that cannot be drawn says so, with Retry and Remove that work", async () => {
   const { controls } = await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
+  const fail = () =>
+    act(async () => void inlineChip(IMAGE.id)!.querySelector("img")!.dispatchEvent(new Event("error")));
   const fallback = () => inlineChip(IMAGE.id)?.querySelector<HTMLElement>(".acpmux-attachment-image-failed");
-  // A thumbnail that fails falls back to the image's own bytes first; only bytes that cannot be
-  // drawn show the fallback (the same bytes would fail the same way: no Retry).
-  for (let tries = 0; tries < 3 && !fallback(); tries++) {
-    const img = inlineChip(IMAGE.id)?.querySelector("img");
-    if (img) await act(async () => void img.dispatchEvent(new Event("error")));
-    await settle();
-  }
+  await fail();
   await until(() => !!fallback());
   expect(fallback()?.querySelector(".acpmux-attachment-failed-text")?.textContent).toBe(translate("image.failed"));
   expect(inlineChip(IMAGE.id)!.querySelector("img")).toBeNull();
-  expect(fallback()!.querySelectorAll("button").length).toBe(1);
+  // Retry draws it again.
+  // One small retry glyph button, named Retry, never a text link.
+  const retry = fallback()!.querySelector<HTMLButtonElement>(".acpmux-attachment-retry") ?? undefined;
+  expect(retry?.getAttribute("aria-label")).toBe(translate("composer.retryAttachment"));
+  expect(retry?.textContent).toBe("");
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
+  expect(fallback()).toBeFalsy();
   // Remove takes it out of the prompt.
+  await fail();
+  await until(() => !!fallback());
   const remove = fallback()!.querySelector<HTMLButtonElement>(
     `button[aria-label="${translate("composer.removeAttachment", { name: "shot.png" })}"]`,
   );
@@ -534,32 +540,23 @@ for (const revives of [true, false])
   });
 
 // Review of #26545 at a29c21e7: inline is the default view, so an image whose original failed to
-// upload shows in the text what the strip's chip shows (#28833): since 2026-11-22 its original is
-// asked again on its own (composer/uploadRetry.ts), and a lasting failure is a quiet mark, no button.
-test("an image in the text whose original keeps failing shows a quiet still-trying mark, never a button", async () => {
-  setLastingGrace(0);
-  try {
-    await render({
-      text: `look ${inlineToken(IMAGE.id)} here`,
-      attachments: [IMAGE],
-      originalFailures: { [IMAGE.id]: "The disk is full." },
-    });
-    await until(() => !!inlineChip(IMAGE.id)?.querySelector(".acpmux-attachment-original-still"));
-    const mark = inlineChip(IMAGE.id)!.querySelector<HTMLElement>(".acpmux-attachment-original-still")!;
-    expect(mark.tagName).not.toBe("BUTTON");
-    expect(mark.getAttribute("title")).toContain("The disk is full.");
-    // An <output> is a live status region by itself.
-    expect(mark.tagName).toBe("OUTPUT");
-    expect(mark.getAttribute("aria-label")).toBeTruthy();
-  } finally {
-    setLastingGrace(LASTING_MS);
-  }
+// upload must show its Retry in the text, as the strip's chip does (#28833).
+test("an image in the text whose original failed to upload shows Retry, which retries it", async () => {
+  const { calls } = await render({
+    text: `look ${inlineToken(IMAGE.id)} here`,
+    attachments: [IMAGE],
+    originalFailures: { [IMAGE.id]: "The disk is full." },
+  });
+  await until(() => !!inlineChip(IMAGE.id)?.querySelector(".acpmux-attachment-original-retry"));
+  const retry = inlineChip(IMAGE.id)!.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!;
+  await act(async () => retry.click());
+  expect(calls).toContain(`retry ${IMAGE.id}`);
 });
 
-test("an image in the text whose original did not fail shows no still-trying mark", async () => {
+test("an image in the text whose original did not fail shows no Retry", async () => {
   await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
-  expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-still")).toBeNull();
+  expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
 
 /// Every kind a person adds, as its read makes it.

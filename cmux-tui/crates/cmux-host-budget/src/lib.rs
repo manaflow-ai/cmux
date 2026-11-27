@@ -385,10 +385,10 @@ pub use meter::{Meter, SAMPLE_WAIT};
 // The real host's readings, and the parsers of Linux's `/proc` files.
 mod probe;
 pub use probe::{
-    HostProbe, Reclaim, cpu_busy, owner_idle_seconds, parse_loadavg, parse_meminfo_available,
-    parse_meminfo_swap_used, parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10,
-    parse_thermal_millic_max, parse_vmstat_oom_kill, parse_vmstat_pswpout, parse_vmstat_reclaim,
-    performance_cores, thermal_pressure_word,
+    HostProbe, Reclaim, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
+    parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_thermal_millic_max,
+    parse_vmstat_oom_kill, parse_vmstat_pswpout, parse_vmstat_reclaim, performance_cores,
+    thermal_pressure_word,
 };
 
 // Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
@@ -405,8 +405,6 @@ pub use rejudge::with_pressure;
 pub mod place;
 // Which idle sessions leave this machine while it stays over budget (beside `place::decide`).
 pub mod evacuate;
-// What AutoCloud-placed work does when an enrolled machine's owner comes back (beside `evacuate`).
-pub mod owner_return;
 
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;
@@ -419,10 +417,6 @@ pub use shadow::{
 // name both placers log, so their shadow lines join.
 mod pressure_digest;
 pub use pressure_digest::{canonical_pressure, host_short, pressure_digest};
-
-// Auto on reserve (RFD 0072): what Auto would move while agents use more than the
-// person left them; stage 1 only records it.
-pub mod reserve;
 
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
 pub mod ffi;

@@ -2,7 +2,7 @@
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
   ci/run route --paths-file F            the routed steps by job, as JSON
-  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope]
+  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES]
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -31,12 +31,6 @@ A step's `inputs` are path globs (`**` crosses `/`, `*` and `?` do not). A chang
 step when it touches one of them; a step with no inputs, an unknown change, and a change to
 the pipeline itself (PIPELINE_PATHS: the table, this runner, the entry, the workflow) route it
 always.
-
-`--pr-scope` (a pull request's linux job, pr-pipeline.yml) routes a step only by the inputs that name its files:
-a literal path or a one-directory glob (`*`, `?`, no `**`). A step a change reaches only through a whole-directory
-glob (`dir/**`, `**`) or a change to the pipeline itself is left to the post-merge batch, which runs every linux
-step at the merged tip (cmux-next-pr-pipeline-linux-batch.yml) and bisects a new red there. A step with
-`pr_scope = false` keeps its whole route on a pull request. An unknown diff still routes every step.
 
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
 routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
@@ -123,9 +117,6 @@ class Step:
     needs: tuple[str, ...] = ()
     alone: bool = False
     reuse: bool = True
-    # False: a pull request's --pr-scope route keeps every input of this step (security-holes: a secret or a
-    # workflow hole must not land to be found post-merge).
-    pr_scope: bool = True
 
 
 @dataclass
@@ -199,7 +190,6 @@ def parse(doc: dict) -> Table:
             needs=tuple(raw.get("needs", ())),
             alone=raw.get("alone", False),
             reuse=raw.get("reuse", True),
-            pr_scope=raw.get("pr_scope", True),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -209,8 +199,6 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `alone` is true or false")
         if not isinstance(step.reuse, bool):
             raise TableError(f"step {name}: `reuse` is true or false")
-        if not isinstance(step.pr_scope, bool):
-            raise TableError(f"step {name}: `pr_scope` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -234,19 +222,11 @@ def load(path: Path = TABLE) -> Table:
     return parse(tomllib.loads(path.read_text(encoding="utf-8")))
 
 
-def named_input(glob: str) -> bool:
-    """An input that names the step's own files: a literal path or a glob inside one directory (no `**`). A `**`
-    glob reaches a whole directory tree, so a pull request leaves a step it alone routes to the post-merge batch."""
-    return "**" not in glob
-
-
-def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
-    """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it. PR_SCOPE: only the step's
-    named inputs route it, and a change to the pipeline does not route every step (see the module's `--pr-scope`)."""
-    narrow = pr_scope and step.pr_scope
-    if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
+def routed(step: Step, paths: list[str] | None) -> bool:
+    """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it."""
+    if not step.inputs or paths is None or any(p in PIPELINE_PATHS for p in paths):
         return True
-    patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
+    patterns = [glob_pattern(g) for g in step.inputs]
     ignored = [(g.startswith("!"), glob_pattern(g.lstrip("!"))) for g in reversed(step.ignore)]
 
     def kept(path: str) -> bool:
@@ -255,13 +235,12 @@ def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
-def route(table: Table, paths: list[str] | None, label: str | None = None,
-          pr_scope: bool = False) -> dict[str, list[str]]:
+def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
     jobs: dict[str, list[str]] = {}
     for step in table.steps.values():
         if label is not None and label not in step.labels:
             continue
-        if routed(step, paths, pr_scope):
+        if routed(step, paths):
             jobs.setdefault(step.job, []).append(step.name)
     return jobs
 
@@ -325,7 +304,7 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
         changed = None if paths is None else sorted(paths)
     doc = {
         "v": STEP_KEY_VERSION,
-        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about", "pr_scope")},
+        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about")},
         "setup": table.setup.get(step.job, ""),
         "tools": {t: table.tools[t] for t in sorted(step.needs)},
         "pipeline": {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"},
@@ -522,13 +501,8 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT, pr_scope: bool = False) -> int:
-    names = route(table, paths, label, pr_scope).get(job, [])
-    if pr_scope:
-        deferred = [n for n in route(table, paths, label).get(job, []) if n not in names]
-        if deferred:
-            print(f"--pr-scope: {len(deferred)} step(s) this change reaches only through a whole-directory input or the "
-                  f"pipeline's own files run in the post-merge batch, not here: {', '.join(deferred)}", file=out)
+            root: Path = ROOT) -> int:
+    names = route(table, paths, label).get(job, [])
     if only:
         for name in only:
             if name not in table.steps:
@@ -646,28 +620,24 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("route")
     r.add_argument("--paths-file")
-    r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
-    x.add_argument("--pr-scope", action="store_true",
-                   help="a pull request's route: a step reached only by a whole-directory input or the pipeline's own "
-                        "files is left to the post-merge batch")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
     if args.command == "route":
-        print(json.dumps(route(table, paths, pr_scope=args.pr_scope), indent=1, sort_keys=True))
+        print(json.dumps(route(table, paths), indent=1, sort_keys=True))
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
     store = None if args.label else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope)
+                   only=parse_only(args.only), store=store, root=Path.cwd())
 
 
 if __name__ == "__main__":

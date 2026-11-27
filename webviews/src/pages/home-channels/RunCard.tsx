@@ -8,7 +8,7 @@ import { RunTranscript } from "./RunTranscript";
 import { usePageNow } from "../../ui/pageClock";
 import { runBlocks } from "./runBlocks";
 export { runBlocks } from "./runBlocks";
-import type { ChatDetail } from "./presentation";
+import type { Presentation } from "./presentation";
 import { RunMessage } from "./RunMessage";
 import { RunMessageCache } from "./runMessages";
 export { stepActivity } from "./runMessages";
@@ -179,8 +179,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
 
 /** What a message row needs to show runs: the page's run book and the sheet's actions. */
 export interface RunsContextValue {
-  /** The open conversation's place on the detail ladder (presentation.tsx). */
-  detail?: ChatDetail;
+  presentation?: Presentation;
   book: RunBook;
   strings: Strings;
   /** The participants by id: a card shows its author's picture. */
@@ -206,10 +205,10 @@ export function MessageRuns({
 }) {
   const context = useContext(RunsContext);
   const reply = useRunEntry(context?.book, (book) => book.forReply(message));
-  const live = useLiveRuns(context?.book, message, context?.detail !== undefined && context.detail !== "messages");
+  const live = useLiveRuns(context?.book, message, context?.presentation === "transcript");
   const names = useMemo(() => participantNames(context?.people), [context?.people]);
   if (!context || (!reply && live.length === 0)) return null;
-  const transcript = context.detail !== undefined && context.detail !== "messages";
+  const transcript = context.presentation === "transcript";
   if (placement === "before" && !transcript) return null;
   const card = (entry: RunEntry) =>
     transcript ? (
@@ -219,7 +218,6 @@ export function MessageRuns({
         strings={context.strings}
         onLoad={context.onLoad}
         agentNames={names}
-        detail={context.detail}
       />
     ) : (
       <RunCard

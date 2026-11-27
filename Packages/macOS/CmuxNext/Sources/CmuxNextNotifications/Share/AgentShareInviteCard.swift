@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Observation
 
 /// Invite People (design chat-multiplayer.md 2, "Invite people"): one chat's invited accounts, an
-/// email or @handle field, a Can send / Can view picker and Invite; each invitee's row has its role
+/// email or @handle field, a Can talk / Can view picker and Invite; each invitee's row has its role
 /// and a quiet destructive Remove. A centered dialog over the window, like Share cmux, opened by
 /// Invite People… (the tab menu, the palette). AppKit (plans/cmux-next/no-swiftui-DESIGN.md).
 ///
@@ -142,7 +142,6 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let sheet = self.model
         for row in rows {
             let view = AgentShareInviteRowView(account: row.account, detail: sheet.rowDetail(row), removeTitle: sheet.removeTitle,
-                                               removeLabel: sheet.removeAccessibilityLabel(row.account),
                                                isRemoving: removing.contains(row.account)) {
                 // task-owner: one Remove; the model ignores a second press for the same account meanwhile
                 Task { await sheet.remove(row.account) }

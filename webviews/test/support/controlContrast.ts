@@ -20,10 +20,6 @@
 // failing reading, baselined or not, as a table (control-contrast-N.md) and the part's worst reading
 // per class as baseline lines (control-contrast-N.baseline.txt).
 //
-// The golden screen (looks.golden) is also read under each of its looks, in the default light and dark
-// schemes at rest: a look sets its own page and ink, so a look that drops a control under its minimum
-// fails like a theme does.
-//
 // Shipped themes (Resources/ghostty/themes and Resources/cmux-themes, over 600) are also read, at rest
 // with the theme's own accent, on the entries that hold the shared controls (SWEEP_ENTRIES): a theme
 // whose palette breaks a token breaks it on these. Every run reads SAMPLED_THEMES of them, spread
@@ -66,18 +62,6 @@ export const SCHEMES: Scheme[] = [
   { name: "light-over-light-picture", query: { colorScheme: "light", background: "light" }, states: ["rest"] },
   { name: "rose-pine-dawn-theme-accent", query: { theme: "Rose Pine Dawn", accent: "theme" }, states: ["rest"] },
   { name: "catppuccin-mocha-yellow-accent", query: { theme: "Catppuccin Mocha", accent: "yellow" }, states: ["rest"] },
-];
-
-/**
- * The golden screen's entry, whose variants are the looks (src/gallery/golden/looks.json): its first
- * variant (the default look) is read under every SCHEME like any entry; each other look is read in the
- * default light and dark schemes at rest, as a look draws its own page and ink there (cmuxterm-hq
- * docs/findings/2026-11-24-looks-text-contrast.md: tool rows under 4.5:1 in 21 look stages).
- */
-export const LOOK_ENTRY = "looks.golden";
-const LOOK_SCHEMES: Scheme[] = [
-  { name: "dark", query: {}, states: ["rest"] },
-  { name: "light", query: { colorScheme: "light" }, states: ["rest"] },
 ];
 
 type State = "rest" | "hover" | "active";
@@ -137,9 +121,6 @@ const sweepSchemes = (every: boolean): Scheme[] => {
 export const MINIMUM = { text: 4.5, large: 3, icon: 3, disabled: 2.5 } as const;
 
 type Stage = { entry: string; variant: string; source: string; height: number; scheme: Scheme };
-/** How long a stage may take to say it is ready: the golden screen opens every fold before it does
- * (16 to 35 s a look on a busy 32-core VM, 2026-11-24), every other entry far less. */
-const readyMs = (stage: Stage): number => (stage.entry === LOOK_ENTRY ? 90_000 : 20_000);
 const stageName = (stage: Stage): string => `${stage.entry}/${stage.variant}@${stage.scheme.name}`;
 
 /** One failing reading. */
@@ -183,22 +164,17 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
     const sources = (await loadEntrySources()).filter(({ entry }) => entry.host !== "native");
     const missing = SWEEP_ENTRIES.filter((id) => !sources.some(({ entry }) => entry.id === id));
     if (missing.length) throw new Error(`control contrast: sweep entries are gone: ${missing.join(", ")}`);
-    if (!sources.some(({ entry }) => entry.id === LOOK_ENTRY && Object.keys(entry.variants).length > 1))
-      throw new Error(`control contrast: ${LOOK_ENTRY} has no looks to read`);
     if (readShippedThemes().length < 500) throw new Error("control contrast: fewer than 500 shipped themes were read");
     const everyStage: Stage[] = sources
-      .flatMap(({ entry, path: source }) => [
-        ...(sweepEntries.has(entry.id) ? [...SCHEMES, ...sweep] : SCHEMES).map((scheme) => ({
+      .flatMap(({ entry, path: source }) =>
+        (sweepEntries.has(entry.id) ? [...SCHEMES, ...sweep] : SCHEMES).map((scheme) => ({
           entry: entry.id,
           variant: Object.keys(entry.variants)[0]!,
           source,
           height: entry.height ?? 720,
           scheme,
         })),
-        ...(entry.id === LOOK_ENTRY ? Object.keys(entry.variants).slice(1) : []).flatMap((variant) =>
-          LOOK_SCHEMES.map((scheme) => ({ entry: entry.id, variant, source, height: entry.height ?? 720, scheme })),
-        ),
-      ])
+      )
       .sort((a, b) => stageName(a).localeCompare(stageName(b)));
     // Local red/green runs may pick entries (CONTROL_CONTRAST_ENTRIES=a,b); CI always reads every one.
     const filter = process.env.CONTROL_CONTRAST_ENTRIES?.split(",").filter(Boolean);
@@ -272,9 +248,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
         await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
-          timeout: readyMs(stage),
-        });
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };
         await page.addStyleTag({
@@ -318,14 +292,14 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     // A stage that never settles holds its worker; past its deadline it is not read and its worker
     // goes on with a new page (as accent-glass-invariants does).
-    const stageDeadlineMs = (stage: Stage) => 40_000 + readyMs(stage);
+    const stageDeadlineMs = 60_000;
     const scanWithin = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<Scanned>((resolve) => {
         // fixed-wait: a deadline, not a wait; a stage that answers clears it and goes on at once.
         timer = setTimeout(
-          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs(stage) / 1000} s` }),
-          stageDeadlineMs(stage),
+          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs / 1000} s` }),
+          stageDeadlineMs,
         );
       });
       try {

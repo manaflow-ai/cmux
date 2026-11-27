@@ -209,7 +209,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     var assistiveClientsChanged: ((Bool) -> Void)? {
         didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
     }
-    private var assistiveRequests = AssistiveClientRequests(environment: ProcessInfo.processInfo.environment)
+    private var assistiveRequests = AssistiveClientRequests()
 
     nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
         guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {

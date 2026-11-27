@@ -1,5 +1,5 @@
-// POLISH pass (cx-9br4q): when the chat index does not answer, All chats asks again on its own
-// (autoRetry.ts) instead of an empty area that never fills; a failure that lasts says one quiet line.
+// POLISH pass (cx-9br4q): when the chat index does not answer, All chats says it could not load and
+// offers Try again, instead of an empty area that never fills.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -38,11 +38,9 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-test("a first page that fails is asked again on its own, with no Try again button", async () => {
+test("a first page that fails says so, and Try again reads it again", async () => {
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
-  const { AUTO_RETRY_FIRST_MS } = await import("../src/agent-session/acpmux/autoRetry");
-  const { LASTING_MS, setLastingGrace } = await import("../src/ui/lasting");
   let answer = false;
   let calls = 0;
   const load = async () => {
@@ -54,32 +52,22 @@ test("a first page that fails is asked again on its own, with no Try again butto
     };
   };
 
-  setLastingGrace(0);
-  jest.useFakeTimers();
-  try {
-    act(() => root?.unmount());
-    root = createRoot(host);
-    await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
-    await act(async () => {});
-    // A failure that lasts says one quiet line, with no button: asking again is no one's decision.
-    expect(host.textContent).toContain("Still loading your chats…");
-    expect(host.textContent).not.toContain("Couldn't load your chats.");
-    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Try again")).toBe(false);
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  await act(async () => {});
+  expect(host.textContent).toContain("Couldn't load your chats.");
+  const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+  expect(retry).toBeDefined();
 
-    answer = true;
-    const before = calls;
-    await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
-    await act(async () => {});
-    expect(calls).toBeGreaterThan(before);
-    expect(host.textContent).toContain("Fix the build");
-    expect(host.textContent).not.toContain("Still loading your chats…");
-  } finally {
-    jest.useRealTimers();
-    setLastingGrace(LASTING_MS);
-  }
+  answer = true;
+  const before = calls;
+  await act(async () => retry!.click());
+  await act(async () => {});
+  expect(calls).toBe(before + 1);
+  expect(host.textContent).not.toContain("Couldn't load your chats.");
 });
 
-test("a search that fails keeps asking instead of leaving the unfiltered list under the query", async () => {
+test("a search that fails says so instead of leaving the unfiltered list under the query", async () => {
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
   const load = async (params: { query?: string }) => {
@@ -108,8 +96,7 @@ test("a search that fails keeps asking instead of leaving the unfiltered list un
     jest.useRealTimers();
   }
   await act(async () => {});
-  // The skeleton holds the place while the query is asked again; the unfiltered rows do not stay.
-  expect(host.querySelector(".nt-all-skeleton-row")).not.toBeNull();
+  expect(host.textContent).toContain("Couldn't load your chats.");
   expect(host.textContent).not.toContain("Fix the build");
 });
 
@@ -173,11 +160,11 @@ test("the index scan completes to an empty state after a host push", async () =>
   expect(host.querySelector(".nt-chats-empty")).not.toBeNull();
 });
 
-test("a first page that never answers is asked again on its own past the ceiling, with no button", async () => {
+test("a first page that never answers says it couldn't load past the ceiling, and Try again reads again", async () => {
+  const { jest } = await import("bun:test");
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
   const { CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
-  const { AUTO_RETRY_FIRST_MS } = await import("../src/agent-session/acpmux/autoRetry");
   let calls = 0;
   const load = () => {
     calls += 1;
@@ -188,15 +175,17 @@ test("a first page that never answers is asked again on its own past the ceiling
     act(() => root?.unmount());
     root = createRoot(host);
     await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
-    await act(async () => void jest.advanceTimersByTime(CHATS_READ_CEILING_MS - 1_000));
+    await act(async () => jest.advanceTimersByTime(CHATS_READ_CEILING_MS - 1_000));
     expect(host.querySelector(".nt-all-skeleton-row")).not.toBeNull();
-    const before = calls;
-    await act(async () => void jest.advanceTimersByTime(2_000));
-    // Past the ceiling the stuck read is asked again over itself once the retry's first backoff passes.
-    await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
-    expect(calls).toBeGreaterThan(before);
     expect(host.textContent).not.toContain("Couldn't load your chats.");
-    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Try again")).toBe(false);
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(host.querySelector(".nt-all-skeleton-row")).toBeNull();
+    expect(host.textContent).toContain("Couldn't load your chats.");
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+    expect(retry?.disabled).toBe(false);
+    const before = calls;
+    await act(async () => retry!.click());
+    expect(calls).toBe(before + 1);
   } finally {
     jest.useRealTimers();
   }

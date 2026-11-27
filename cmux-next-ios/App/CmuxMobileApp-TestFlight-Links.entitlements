@@ -43,7 +43,6 @@
 		<string>applinks:www.cmux.com</string>
 		<string>applinks:cloud-api.cmux.dev</string>
 		<string>applinks:cloud-api-staging.cmux.dev</string>
-		<string>applinks:share.cmux.dev</string>
 	</array>
 </dict>
 </plist>

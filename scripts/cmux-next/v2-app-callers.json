@@ -17,7 +17,7 @@
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift", "symbol": "AcpmuxPaneMethods.knownParams", "method": "_acpmux/watch", "count": 1, "owner": "7f", "kind": "relay"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift", "symbol": "AcpmuxPaneMethods.knownParams", "method": "_acpmux/sessions", "count": 2, "owner": "7f", "kind": "relay"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift", "symbol": "AcpmuxPaneMethods.requests", "method": "_acpmux/watch", "count": 1, "owner": "7f", "kind": "relay"},
-    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift", "symbol": "AcpmuxPaneMethods.requests", "method": "_acpmux/sessions", "count": 3, "owner": "7f", "kind": "relay"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift", "symbol": "AcpmuxPaneMethods.requests", "method": "_acpmux/sessions", "count": 2, "owner": "7f", "kind": "relay"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneSessions.swift", "symbol": "AcpmuxPaneSessions.observeTabSession", "method": "_acpmux/watch", "count": 2, "owner": "7f", "kind": "comment"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPeerReconnects.swift", "symbol": "AcpmuxPeerReconnects.note(peer:stale:)", "method": "_acpmux/watch", "count": 1, "owner": "7f", "kind": "comment"},
     {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPendingReads.swift", "symbol": "AcpmuxPendingReads.isLocal", "method": "_acpmux/sessions", "count": 1, "owner": "7f", "kind": "comment"},

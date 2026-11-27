@@ -33,19 +33,11 @@ internal import ObjectiveC
 public final class AppLanguage: Observable, Sendable {
     private struct State {
         var code: String?
-        /// What ``Foundation/Bundle/inAppLanguage`` answers for each adopted bundle, by its identity
-        /// (the entry holds the bundle, so the identity is never reused); emptied by a language
-        /// change and a pack activation (``languagePackChanged()``). Every native string read on the
-        /// main thread hits this: one dictionary lookup, no path string (hq#22770).
-        var localized: [ObjectIdentifier: Resolved] = [:]
+        /// Each adopted bundle's `.lproj` for ``code``, by bundle path (nil: the bundle has none).
+        var localized: [String: Bundle?] = [:]
         /// Counts language changes and pack activations, so a lookup that began before one does not
         /// cache what it found after it.
         var generation = 0
-    }
-
-    private struct Resolved {
-        let bundle: Bundle
-        let answer: Bundle
     }
 
     private let state = Mutex(State())
@@ -99,26 +91,19 @@ public final class AppLanguage: Observable, Sendable {
     fileprivate static var key: UnsafeRawPointer { unsafeBitCast(AppLanguage.self as AnyClass, to: UnsafeRawPointer.self) }
     #endif
 
-    /// The bundle to read `bundle`'s strings from: the `.lproj` for the chosen language from
-    /// `bundle`'s language pack copy, else from `bundle` (its development language when neither has
-    /// that one); for System the pack's copy, else `bundle`. Registers the observation of ``code``.
-    /// Found once per bundle, language and pack (the directory listings are cached by CFBundle),
-    /// then answered from the cache.
-    func resolvedBundle(for bundle: Bundle) -> Bundle {
+    /// The `.lproj` bundle for the chosen language from `bundle`'s language pack copy, else from
+    /// `bundle` (its development language when neither has that one), nil for System. Registers the
+    /// observation of ``code``.
+    func localizedBundle(for bundle: Bundle) -> Bundle? {
         registrar.access(self, keyPath: \.code)
-        let id = ObjectIdentifier(bundle)
-        let (code, known, generation) = state.withLock { ($0.code, $0.localized[id], $0.generation) }
-        if let known, known.bundle === bundle { return known.answer }
-        let found: Bundle
-        if let code {
-            found = (bundle.languagePackCopy.flatMap { Self.lproj(of: $0, for: code, exactly: true) }
-                ?? Self.lproj(of: bundle, for: code, exactly: false)).flatMap(Bundle.init(path:))
-                ?? bundle.languagePackCopy ?? bundle
-        } else {
-            found = bundle.languagePackCopy ?? bundle
-        }
-        let entry = Resolved(bundle: bundle, answer: found)
-        state.withLock { if $0.generation == generation { $0.localized[id] = entry } }
+        let path = bundle.bundlePath
+        let (code, known, generation) = state.withLock { ($0.code, $0.localized[path], $0.generation) }
+        guard let code else { return nil }
+        if let known { return known }
+        // Once per bundle, language and pack: the directory listings are cached by CFBundle.
+        let found = (bundle.languagePackCopy.flatMap { Self.lproj(of: $0, for: code, exactly: true) }
+            ?? Self.lproj(of: bundle, for: code, exactly: false)).flatMap(Bundle.init(path:))
+        state.withLock { if $0.generation == generation { $0.localized[path] = .some(found) } }
         return found
     }
 
@@ -144,6 +129,6 @@ extension Bundle {
         #else
         let adopted: AppLanguage? = nil
         #endif
-        return adopted?.resolvedBundle(for: self) ?? languagePackCopy ?? self
+        return adopted?.localizedBundle(for: self) ?? languagePackCopy ?? self
     }
 }

@@ -221,7 +221,6 @@ fn read_connection(
                 OutboundItem::Flush(flushed) => {
                     let _ = flushed.send(());
                 }
-                OutboundItem::Frame(_) => panic!("a frame without attach-frames-v1"),
             }
         }
     });

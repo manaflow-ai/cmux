@@ -1116,37 +1116,6 @@ async fn github_sign_in_end_to_end_against_a_stub_gh() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// After a GitHub sign-in, git on the machine signs in through gh: `gh auth setup-git` for
-/// github.com, run without the daemon's token; a gh that fails it is a typed failure.
-#[cfg(unix)]
-#[tokio::test]
-async fn github_setup_git_runs_gh_for_github_com_only() {
-    let root = dir("gh-setup-git");
-    let seen = root.join("seen");
-    let program = stub(
-        &root,
-        "gh",
-        &format!(
-            "[ \"$*\" = 'auth setup-git --hostname github.com' ] || exit 9\n\
-             env > {seen}\n",
-            seen = seen.display()
-        ),
-    );
-    let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
-    cli.env.insert("HOME".into(), root.display().to_string());
-    cli.env.insert("GH_TOKEN".into(), "daemon-token-must-not-reach-gh".into());
-    github::setup_git(&cli).await.expect("set up");
-    let env = std::fs::read_to_string(&seen).unwrap();
-    assert!(!env.contains("GH_TOKEN"), "gh saw the daemon's token");
-    assert!(env.lines().any(|l| l == "GH_PROMPT_DISABLED=1"), "{env}");
-    let failing = stub(&root, "gh-fails", "exit 1\n");
-    let bad = Cli { program: failing.display().to_string(), ..cli.clone() };
-    assert_eq!(github::setup_git(&bad).await.unwrap_err().reason, reason::FAILED);
-    let missing = Cli { program: root.join("no-gh").display().to_string(), ..cli };
-    assert_eq!(github::setup_git(&missing).await.unwrap_err().reason, reason::FAILED);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
 /// A sign-out runs the CLI's own logout in the account's home only: the default store's
 /// sign-in stays.
 #[cfg(unix)]
@@ -1174,63 +1143,4 @@ async fn a_sign_out_in_a_home_logs_out_there_only() {
         reason::UNSUPPORTED
     );
     let _ = std::fs::remove_dir_all(&root);
-}
-
-/// The hosts the app may close a sign-in's own tab on once it ended (`parse::page_hosts`): the
-/// link's host first, then the provider's own sign-in hosts, and never another provider's or a
-/// host outside the sign-in.
-#[test]
-fn page_hosts_are_the_links_host_then_the_providers_own() {
-    use super::parse::page_hosts;
-    assert_eq!(page_hosts(Agent::Github, "https://github.com/login/device"), ["github.com"]);
-    assert_eq!(
-        page_hosts(Agent::Codex, "https://AUTH.OPENAI.COM/codex/device"),
-        ["auth.openai.com"]
-    );
-    // Claude's link on claude.com signs in on claude.ai and ends on platform.claude.com.
-    assert_eq!(
-        page_hosts(Agent::Claude, "https://claude.com/cai/oauth/authorize?code=true&state=abc123"),
-        [
-            "claude.com",
-            "claude.ai",
-            "platform.claude.com",
-            "console.anthropic.com",
-            "auth.anthropic.com"
-        ]
-    );
-    assert_eq!(
-        page_hosts(Agent::Claude, "https://claude.ai/oauth/authorize").first().map(String::as_str),
-        Some("claude.ai")
-    );
-    assert_eq!(
-        page_hosts(Agent::Grok, "https://accounts.x.ai/device"),
-        ["accounts.x.ai", "auth.x.ai"]
-    );
-    assert_eq!(
-        page_hosts(Agent::Cursor, "https://cursor.com/loginDeepControl?x=1"),
-        ["cursor.com"]
-    );
-    // One provider's sign-in never names another's hosts.
-    for (agent, url) in [
-        (Agent::Github, "https://github.com/login/device"),
-        (Agent::Codex, "https://auth.openai.com/codex/device"),
-    ] {
-        let hosts = page_hosts(agent, url);
-        assert!(
-            !hosts.iter().any(|h| h.contains("claude") || h.contains("anthropic")),
-            "{hosts:?}"
-        );
-    }
-    // A link that is not an allowed one for the provider closes nothing.
-    for (agent, bad) in [
-        (Agent::Github, "https://github.com.evil.example/login/device"),
-        (Agent::Github, "https://claude.ai/login"),
-        (Agent::Cursor, "https://claude.ai/login"),
-        (Agent::Claude, "http://claude.ai/login"),
-        (Agent::Claude, "https://user@claude.ai/login"),
-        (Agent::Claude, "https://claude.ai:8443/login"),
-        (Agent::Codex, ""),
-    ] {
-        assert!(page_hosts(agent, bad).is_empty(), "{bad}");
-    }
 }

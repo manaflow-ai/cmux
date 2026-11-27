@@ -36,7 +36,6 @@ export type RunState = {
   phase: RunPhase;
   /** the phase to return to when the run fails */ back: RunPhase;
   failed: boolean;
-  /** what the last successful try-on put on, for Share */ target?: string;
 };
 export type RunEvent = { type: "start" } | { type: "done"; run: CustomizeRun; ok: boolean };
 
@@ -44,22 +43,12 @@ export const idleRun: RunState = { phase: "idle", back: "idle", failed: false };
 
 export function runReducer(state: RunState, event: RunEvent): RunState {
   if (event.type === "start") {
-    return state.phase === "running" ? state : { ...state, phase: "running", back: state.phase, failed: false };
+    return state.phase === "running" ? state : { phase: "running", back: state.phase, failed: false };
   }
-  const kept = state.target === undefined ? {} : { target: state.target };
-  if (!event.ok) return { phase: state.back, back: state.back, failed: true, ...kept };
-  if (event.run.customize === "try") return { phase: "tried", back: "tried", failed: false, target: event.run.target };
-  const phase: RunPhase = event.run.customize === "keep" ? "kept" : "reverted";
-  return { phase, back: phase, failed: false, ...kept };
-}
-
-/// The one line that puts `target` on someone else's cmux, for Share: code anyone with the repo can
-/// fetch (`pr:N`, `branch:B`, `sha:S`). A folder or a profile name lives on this Mac only, so it
-/// has no line (RFD 0150's next pass: `cmux setup export` and its `cmux setup install` line).
-export function shareLine(target: string | undefined): string | undefined {
-  if (!target || !/^(?:pr|branch|sha):/.test(target)) return undefined;
-  const run = readRun({ customize: "try", target });
-  return run ? `cmux customize try ${target}` : undefined;
+  if (!event.ok) return { phase: state.back, back: state.back, failed: true };
+  const phase: RunPhase =
+    event.run.customize === "try" ? "tried" : event.run.customize === "keep" ? "kept" : "reverted";
+  return { phase, back: phase, failed: false };
 }
 
 type Runner = {

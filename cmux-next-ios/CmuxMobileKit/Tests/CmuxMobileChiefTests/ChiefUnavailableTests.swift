@@ -48,34 +48,6 @@ import Testing
         #expect(session.takeUnsentText() == nil, "shown once")
     }
 
-    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". The screen tries again
-    /// on its own (``ChiefSession/reconnectAndWait(cap:)`` under an AutoRetry), and each try
-    /// returns once it came back, so the backoff runs from its answer.
-    @Test func anAutomaticTryReturnsWhenTheTryComesBack() async {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ContinuousClock())
-        session.status = "Chief isn't running on Studio."
-        #expect(!session.needsReconnect, "nothing to try without a hook")
-        var retries = 0
-        session.reconnect = { [weak session] in
-            retries += 1
-            // The coordinator answers later with the same refusal.
-            Task { @MainActor in session?.status = "Chief isn't running on Studio." }
-        }
-        #expect(session.needsReconnect)
-        let started = ContinuousClock.now
-        await session.reconnectAndWait(cap: .seconds(60))
-        #expect(retries == 1)
-        #expect(!session.isReconnecting)
-        #expect(ContinuousClock.now - started < .seconds(30), "returned on the answer, not the cap")
-        // A try that never answers ends at the cap, and the next one dials again.
-        session.reconnect = { retries += 1 }
-        await session.reconnectAndWait(cap: .milliseconds(50))
-        #expect(retries == 2)
-        #expect(!session.isReconnecting)
-        await session.reconnectAndWait(cap: .milliseconds(50))
-        #expect(retries == 3)
-    }
-
     @Test func withoutRefusalOrReconnectHookNoTryAgain() {
         let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         session.status = "No Mac"

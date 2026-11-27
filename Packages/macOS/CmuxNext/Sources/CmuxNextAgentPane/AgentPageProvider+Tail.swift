@@ -6,15 +6,7 @@ extension AgentPageProvider {
     static func tail(_ method: String, params: JSONValue, op: String, host: (any AgentPaneHostProviding)?, pageGeneration: UInt64? = nil) async throws -> JSONValue {
         guard case .object(let body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        // Never through Foundation: the tail is the chat's whole last read (cmuxterm-hq#19028).
-        return try answered(await AgentPaneTailCache.answer(to: method, params: params, host: host, pageGeneration: pageGeneration))
-    }
-
-    private static func answered(_ answer: AgentPaneTailCache.Answer) throws -> JSONValue {
-        switch answer {
-        case .value(let value): return value
-        case .refused(let message): throw PageError(code: AgentPaneTailCache.refusedCode, message: message)
-        }
+        return try value(of: await AgentPaneTailCache.reply(to: method, params: params.foundationObject as? [String: Any], host: host, pageGeneration: pageGeneration))
     }
 
     /// `chat.tail` (`sessionId`, `tail` or none) and `chat.tail.get` (`sessionId`): what a page last
@@ -23,6 +15,16 @@ extension AgentPageProvider {
     static func tail(_ method: String, params: JSONValue, op: String) throws -> JSONValue {
         guard case .object(let body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        return try answered(AgentPaneTailCache.answer(to: method, params: params))
+        let cache = AgentPaneTailCache.shared
+        if method == "chat.tail.get" { return cache.tail(for: session) ?? .null }
+        // No tail, or one this refuses: the chat is forgotten here, so no tab draws a transcript
+        // this page no longer stands behind.
+        // A hover's hand-over (`ifNewer`) never replaces a tail that ends on the same or a newer record.
+        if case .bool(true)? = body["ifNewer"] {
+            if let tail = body["tail"] { cache.rememberIfNewer(tail, for: session) }
+        } else {
+            cache.remember(body["tail"], for: session)
+        }
+        return .null
     }
 }

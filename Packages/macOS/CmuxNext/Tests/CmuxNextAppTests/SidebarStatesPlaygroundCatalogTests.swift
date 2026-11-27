@@ -61,6 +61,7 @@ import Testing
             case .unread: #expect(has("StatusIndicatorView", "success") || has("UnreadBadgeView"), "\(marks)")
             case .needsYou, .needsInput: #expect(has("StatusIndicatorView", "waiting"), "\(state): \(marks)")
             case .error: #expect(has("StatusIndicatorView", "error"), "\(marks)")
+            case .usageWarning: #expect(has("DecorativeImageView"), "\(marks)")
             case .hovered: #expect(marks.contains { $0.view.hasSuffix("Button") }, "a hovered row shows its controls: \(marks)")
             case .groupExpanded: #expect(has("DisclosureChevronView"), "\(marks)")
             case .groupCollapsed: #expect(marks.contains { $0.view == "StatusIndicatorView" && $0.state != nil }, "no roll-up: \(marks)")

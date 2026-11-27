@@ -21,12 +21,6 @@ use super::*;
 static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
-static API_PULL_URL: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(
-        r"^https://api\.github\.com/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([0-9]+)$",
-    )
-    .ok()
-});
 
 /// The `"number": N` of a `lane-gh call land|close` call's JSON arguments. `None` only if the
 /// constant pattern failed to build, which its tests rule out.
@@ -229,16 +223,10 @@ fn is_filter(command: &str) -> bool {
     matches!(command.split_whitespace().next(), Some("tail" | "head" | "tee" | "cat"))
 }
 
-/// A tool that opens a pull request through a broker or repository helper. GitHub's
-/// `pr_create` names and repo MCP's `repo_publish` both return the created URL in their
-/// structured result, so they can be joined to the session without scraping chat text.
+/// A tool that opens a pull request through the lane VM broker: `mcp__github__pr_create` (Claude
+/// Code's name for an MCP tool), `github.pr_create` or a bare `pr_create`.
 fn is_pr_create_tool(name: &str) -> bool {
-    name == "pr_create"
-        || name.ends_with("__pr_create")
-        || name.ends_with(".pr_create")
-        || name == "repo_publish"
-        || name.ends_with("__repo_publish")
-        || name.ends_with(".repo_publish")
+    name == "pr_create" || name.ends_with("__pr_create") || name.ends_with(".pr_create")
 }
 
 /// A tool that starts a background command (acpmux's `bg_start`), whose output arrives later.
@@ -463,9 +451,7 @@ fn output_text(update: &Value) -> String {
     }
     let mut text = String::new();
     for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
-        if let Some(t) =
-            block.pointer("/content/text").or_else(|| block.get("text")).and_then(Value::as_str)
-        {
+        if let Some(t) = block.pointer("/content/text").and_then(Value::as_str) {
             text.push_str(t);
             text.push('\n');
         }
@@ -492,10 +478,11 @@ fn bare_urls(output: &str) -> Vec<String> {
     let mut urls: Vec<String> = vec![];
     let mut previous = "";
     for line in output.lines().map(str::trim) {
-        if let Some(url) = normalize_pull_url(line).filter(|_| !previous.contains("already exists"))
-            && !urls.iter().any(|u| u == &url)
+        if PULL_URL.is_match(line)
+            && !previous.contains("already exists")
+            && !urls.iter().any(|u| u == line)
         {
-            urls.push(url);
+            urls.push(line.to_owned());
         }
         if !line.is_empty() {
             previous = line;
@@ -507,15 +494,6 @@ fn bare_urls(output: &str) -> Vec<String> {
 /// The pull request `gh pr create` printed: the last output line that is nothing but its URL.
 fn printed_url(output: &str) -> Option<String> {
     bare_urls(output).pop()
-}
-
-/// Normalizes GitHub's API pull URL to the browser URL stored in session metadata.
-fn normalize_pull_url(value: &str) -> Option<String> {
-    if PULL_URL.is_match(value) {
-        return Some(value.to_owned());
-    }
-    let captures = API_PULL_URL.as_ref()?.captures(value)?;
-    Some(format!("https://github.com/{}/{}/pull/{}", &captures[1], &captures[2], &captures[3]))
 }
 
 /// The pull request a broker create answered with: `{"ok": true, "status": 201, "data":
@@ -530,12 +508,13 @@ fn created_url(output: &str) -> Option<String> {
         if answer.get("ok").and_then(Value::as_bool) == Some(false) {
             return None;
         }
-        for pointer in ["/data/url", "/data/html_url", "/url", "/html_url"] {
-            if let Some(url) =
-                answer.pointer(pointer).and_then(Value::as_str).and_then(normalize_pull_url)
-            {
-                return Some(url);
-            }
+        if let Some(url) = answer
+            .pointer("/data/html_url")
+            .or_else(|| answer.get("html_url"))
+            .and_then(Value::as_str)
+            .filter(|url| PULL_URL.is_match(url))
+        {
+            return Some(url.to_owned());
         }
     }
     printed_url(output)

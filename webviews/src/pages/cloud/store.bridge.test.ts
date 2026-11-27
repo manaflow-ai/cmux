@@ -60,15 +60,20 @@ for (const [code, connection] of cases) {
         jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
         await settle();
         expect(reads).toBe(2);
-        expect(store.getSnapshot()).toMatchObject({ connection, loading: false, errorCode: code });
-        expect(store.getSnapshot().auth).toBeUndefined();
-        // Retryable or not, the store reads again on its own (no Retry to press), after twice the wait.
-        expect(store.getSnapshot().recovering).toBe(true);
-        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2 - 1);
+        if (code.startsWith("cmux.cloud.") && retryable === true) {
+          // A retryable Cloud service refusal is read again quietly (CLOUD_BLIP_RETRIES): no failure shows.
+          expect(store.getSnapshot().connection).not.toBe("failed");
+        } else {
+          expect(store.getSnapshot()).toMatchObject({ connection, loading: false, errorCode: code });
+          expect(store.getSnapshot().auth).toBeUndefined();
+        }
+        expect(store.canRetry).toBe(true);
+        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2);
         await settle();
-        expect(reads).toBe(2);
-        jest.advanceTimersByTime(1);
-        await settle();
+        if (connection === "failed" && !(code.startsWith("cmux.cloud.") && retryable === true)) {
+          expect(reads).toBe(2);
+          await store.retry();
+        }
         expect(reads).toBe(3);
         expect(store.getSnapshot()).toMatchObject({
           connection: "connected",

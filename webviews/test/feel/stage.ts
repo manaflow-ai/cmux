@@ -9,9 +9,6 @@ import { frames, installFeelProbe } from "./probe";
 import { feelContext, feelDir, saveRecording, writeReport, type ScenarioResult } from "./report";
 import { Verdicts } from "./verdicts";
 
-/** A scenario's known red checks, and who is fixing them. */
-export type KnownRed = { by: string; checks: readonly string[] };
-
 export type StageOptions = {
   entry: string;
   variant: string;
@@ -22,11 +19,8 @@ export type StageOptions = {
   prepare?: (page: Page) => Promise<void>;
   /** Scenarios known to fail on this base, each with who is fixing it: they run as `test.failing`, so
    *  the base stays green, the report still says FAIL, and the fix that makes one pass fails the run
-   *  until its line here goes (bun: "marked as failing but it passed").
-   *  With `checks`, only those checks are known red: the scenario runs as a plain `test`, its other
-   *  checks must pass (a known red never hides a new one, as a burst's swaps once hid its layout
-   *  shift), and a listed check that passes fails the run until it leaves the list. */
-  known?: Record<string, string | KnownRed>;
+   *  until its line here goes (bun: "marked as failing but it passed"). */
+  known?: Record<string, string>;
 };
 
 /** Whether a headless Chromium launches here (a lane without browsers skips the check). */
@@ -109,38 +103,23 @@ export function feelStage(options: StageOptions) {
   ) => {
     const page = await open(variant);
     const verdicts = new Verdicts();
-    const known = options.known?.[name];
-    if (typeof known === "object") verdicts.known = known.checks;
     let numbers: Record<string, unknown> = {};
     try {
       numbers = await run(page, verdicts);
     } finally {
       const video = await saveRecording(page, dir, name);
       await page.context().close();
-      results.push({
-        scenario: name,
-        verdicts: verdicts.list,
-        numbers,
-        video,
-        known: typeof known === "object" ? `${known.by} (${known.checks.join(", ")})` : known,
-      });
+      results.push({ scenario: name, verdicts: verdicts.list, numbers, video, known: options.known?.[name] });
     }
     return verdicts;
   };
 
   /** `test`, or `test.failing` for a scenario in `known`. */
-  const testFor = (name: string) => (typeof options.known?.[name] === "string" ? test.failing : test);
+  const testFor = (name: string) => (options.known?.[name] ? test.failing : test);
 
   return { open, scenario, testFor };
 }
 
 /** Fails the test with every failed verdict's check, measure and limit. */
-export const expectPass = (verdicts: Verdicts) => {
-  const known = new Set(verdicts.known);
-  expect([
-    ...verdicts.failed.filter((v) => !known.has(v.check)).map((v) => `${v.check}: ${v.measured} (limit ${v.limit})`),
-    ...[...known]
-      .filter((check) => !verdicts.list.some((v) => v.check === check && !v.pass))
-      .map((check) => `${check}: known red but passes now; drop it from known`),
-  ]).toEqual([]);
-};
+export const expectPass = (verdicts: Verdicts) =>
+  expect(verdicts.failed.map((v) => `${v.check}: ${v.measured} (limit ${v.limit})`)).toEqual([]);

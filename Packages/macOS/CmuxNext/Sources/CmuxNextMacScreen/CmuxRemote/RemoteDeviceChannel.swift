@@ -79,9 +79,6 @@ nonisolated final class RemoteDeviceChannel: Sendable {
                     done?(.success(line))
                 } else if object["event"] as? String == "push", let text = object["text"] as? String {
                     deliver(text)
-                } else if object["event"] as? String == "online" {
-                    // The acpmux daemon's `device.watch` channel: the event line itself.
-                    deliver(String(decoding: line, as: UTF8.self))
                 }
             }
         }

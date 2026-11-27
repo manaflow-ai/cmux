@@ -5,121 +5,6 @@
 use super::*;
 
 wire_op! {
-    /// Create a Google Calendar event; attendees get Google's invitation email.
-    CalendarEventCreateOp {
-        name: "calendar.event.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventCreateParams,
-        result: Value,
-        error: CalendarEventCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsStart {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsEnd {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub summary: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub location: Option<String>,
-    pub start: CalendarEventCreateParamsStart,
-    pub end: CalendarEventCreateParamsEnd,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attendees: Option<Vec<EmailAddress>>,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.create declares.
-    CalendarEventCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Answer a Google Calendar invitation as the connected account; the organizer is notified.
-    CalendarEventRespondOp {
-        name: "calendar.event.respond",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventRespondParams,
-        result: Value,
-        error: CalendarEventRespondError,
-    }
-}
-
-wire_enum! {
-    CalendarEventRespondParamsResponse {
-        Accepted = "accepted",
-        Declined = "declined",
-        Tentative = "tentative",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventRespondParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub event_id: String,
-    pub response: CalendarEventRespondParamsResponse,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.respond declares.
-    CalendarEventRespondError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
     /// List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored.
     CalendarEventsListOp {
         name: "calendar.events.list",
@@ -891,4 +776,131 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineGetParams {
     pub machine: MachineId,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.get declares.
+    CloudMachineGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.
+    CloudMachineIdlePolicySetOp {
+        name: "cloud.machine.idle_policy.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineIdlePolicySetParams,
+        result: CloudMachineIdlePolicySetResult,
+        error: CloudMachineIdlePolicySetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineIdlePolicySetParams {
+    pub machine: MachineId,
+    pub idle_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineIdlePolicySetResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.idle_policy.set declares.
+    CloudMachineIdlePolicySetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only.
+    CloudMachineKeepOp {
+        name: "cloud.machine.keep",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineKeepParams,
+        result: CloudMachineKeepResult,
+        error: CloudMachineKeepError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineKeepParams {
+    pub machine: MachineId,
+    pub keep: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineKeepResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.keep declares.
+    CloudMachineKeepError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
+    CloudMachineLinkTokenOp {
+        name: "cloud.machine.link_token",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudMachineLinkTokenParams,
+        result: CloudMachineLinkTokenResult,
+        error: CloudMachineLinkTokenError,
+    }
+}
+
+wire_enum! {
+    CloudMachineLinkTokenParamsServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineLinkTokenParams {
+    pub host: HostId,
+    pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_proof: Option<ServerNetworkProof>,
 }

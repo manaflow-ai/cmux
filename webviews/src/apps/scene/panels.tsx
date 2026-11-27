@@ -83,7 +83,6 @@ export function SceneMount({ mounted }: { mounted: MountedPanel }) {
   return (
     <div ref={box} className="cmux-app-scene-mount" data-status={status.state}>
       {status.state === "failed" || status.state === "disconnected" ? (
-        // retry-prompt-ok: Reload runs the app's script again, only from the person's click.
         <SceneFailure status={status} onReload={reload} />
       ) : (
         <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} />

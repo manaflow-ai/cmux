@@ -50,10 +50,6 @@ public struct ChiefConversationScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showsInfo = false
     @State private var link = ChiefScreenLink()
-    /// Chief unavailable with something to try (a dropped Mac link, a kept conversation): it tries
-    /// again on its own, with backoff and at once back in the foreground, never a Try Again
-    /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
-    @State private var autoReconnect = AutoRetry()
 
     public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false,
                 options: ConversationPresentationOptions = .chief) {
@@ -90,7 +86,6 @@ public struct ChiefConversationScreen: View {
             // Focus carries only to a screen rebuilt in place; one that never
             // showed leaves none for the next visit (its text stays).
             .onDisappear { session.dropCarriedComposerFocus() }
-            .autoRetry(autoReconnect, failing: session.needsReconnect) { await session.reconnectAndWait() }
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
@@ -275,7 +270,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// and then drops the message (its store has no sender yet). The send
     /// button goes through this gate: once Chief takes sends it runs the
     /// package's own action; until then the text stays in the composer and
-    /// the screen says why (and Chief is tried again on its own).
+    /// the screen says why, with Try Again.
     private func installSendGate() {
         // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
         // The conversation asks this before every send path (Send, Return, the effect
@@ -321,15 +316,19 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
-    /// The message stays in the composer; the alert says why. Chief is tried again at once
-    /// (the person just asked to send; there is nothing to decide), and on its own after that.
+    /// The message stays in the composer; the alert says why and offers to
+    /// try Chief again.
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
-        session.retryConnecting()
         let alert = UIAlertController(
             title: String(localized: "mobile.chief.notSent", defaultValue: "Not sent", bundle: .module),
             message: String(localized: "mobile.chief.draftKept", defaultValue: "Your draft is saved here.", bundle: .module),
             preferredStyle: .alert)
+        if session.canRetryConnecting {
+            alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
+                self?.session.retryConnecting()
+            })
+        }
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
     }

@@ -23,9 +23,6 @@ actor FakeBillingAPI: BillingAPI {
     var receipt: BillingTransactionReceipt?
     private(set) var submitted: [String] = []
     private(set) var accountLoads = 0
-    /// The `paymentPastDue` answer; an error makes the read throw.
-    var pastDue: Result<Bool, BillingAPIError> = .success(false)
-    private(set) var pastDueReads = 0
     /// While true, each submission waits in `submitTransaction` until
     /// ``releaseSubmissions()``.
     private var holding = false
@@ -46,15 +43,6 @@ actor FakeBillingAPI: BillingAPI {
 
     func setAccount(_ account: BillingAccount) {
         self.account = account
-    }
-
-    func setPastDue(_ pastDue: Result<Bool, BillingAPIError>) {
-        self.pastDue = pastDue
-    }
-
-    func paymentPastDue() async throws -> Bool {
-        pastDueReads += 1
-        return try pastDue.get()
     }
 
     /// Holds every later submission (after recording it) until released.

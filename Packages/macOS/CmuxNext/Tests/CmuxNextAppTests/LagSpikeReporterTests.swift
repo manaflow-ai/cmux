@@ -71,19 +71,6 @@ import Testing
         #expect(spikes.first?.duration == .milliseconds(400))
     }
 
-    /// The sink (event build, Sentry capture, `beforeSend` scrubbing) never runs on the main
-    /// thread that called `noteStall`, so a stall does not pay for its own report.
-    @Test @MainActor func theSinkNeverRunsOnTheMainThread() async {
-        let threads = SinkThreads()
-        let sent = SpikeRecorder()
-        let reporter = LagSpikeReporter(limiter: LagSpikeRateLimiter(minimumNanos: 250 * Self.ms), isEnabled: { true },
-                                        sink: { spike in threads.onMain.withLock { $0.append(Thread.isMainThread) }; sent.add(spike) })
-        #expect(pthread_main_np() != 0)
-        #expect(reporter.noteStall(duration: .milliseconds(400), cpu: .milliseconds(400), addresses: []))
-        _ = await sent.wait(for: 1)
-        #expect(threads.onMain.withLock { $0 } == [false])
-    }
-
     @Test func reporterDoesNothingWhileReportingIsOff() {
         let reporter = LagSpikeReporter(limiter: LagSpikeRateLimiter(), isEnabled: { false }, sink: { _ in Issue.record("sent while off") })
         #expect(!reporter.noteStall(duration: .seconds(1), cpu: .seconds(1), addresses: []))
@@ -119,11 +106,6 @@ private nonisolated final class SpikeRecorder: Sendable {
     let store = SpikeStore()
     func add(_ spike: LagSpikeEvent) { Task { await store.add(spike) } }
     func wait(for count: Int) async -> [LagSpikeEvent] { await store.wait(for: count) }
-}
-
-/// Which thread each sink call ran on (a class: `Mutex` cannot be captured).
-private nonisolated final class SinkThreads: Sendable {
-    let onMain = Mutex<[Bool]>([])
 }
 
 /// A fixed monotonic clock (a class: `Mutex` cannot be captured).

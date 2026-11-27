@@ -209,7 +209,7 @@ fn read(
     let settings = settings_in_force(
         &found.home,
         cwd,
-        spawned.env.get(crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV).map(String::as_str),
+        spawned.env.get(crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0).map(String::as_str),
     );
     if let Some((auth, route)) = launcher(argv) {
         return StatusFacts {

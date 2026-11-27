@@ -10,7 +10,7 @@ import { connectBusy, connectRetrying, type Sql } from "./release/runner.ts"
 const script = join(import.meta.dir, "cloud-journey-ci.sh")
 
 /** Runs cloud-journey-ci.sh with a fake bun whose journey runs exit with RUNS in turn and whose compare exits COMPARE. */
-const wrapper = (runs: number[], phase: string, compare = 0, pair: Record<string, string> = { CMUX_DOGFOOD_STACK_EMAIL: "e", CMUX_DOGFOOD_STACK_PASSWORD: "p" }, extra: Record<string, string> = {}) => {
+const wrapper = (runs: number[], phase: string, compare = 0, pair: Record<string, string> = { CMUX_DOGFOOD_STACK_EMAIL: "e", CMUX_DOGFOOD_STACK_PASSWORD: "p" }) => {
   const dir = mkdtempSync(join(tmpdir(), "journey-retry-"))
   const bin = join(dir, "bin")
   Bun.spawnSync(["mkdir", "-p", bin])
@@ -28,7 +28,7 @@ echo run >> "${dir}/calls"; exit "$code"
   const summary = join(dir, "summary.md")
   const r = Bun.spawnSync(["bash", script], {
     env: { PATH: `${bin}:${process.env.PATH}`, TARGET: "staging", JOURNEY_PHASE: phase, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary,
-      ...pair, JOURNEY_RETRY_DELAY_S: "0", ...extra },
+      ...pair, JOURNEY_RETRY_DELAY_S: "0" },
   })
   let calls = 0
   try { calls = readFileSync(join(dir, "calls"), "utf8").trim().split("\n").length } catch {}
@@ -62,30 +62,6 @@ describe("cloud-journey-ci.sh retry", () => {
     expect(r.calls).toBe(2)
     expect(r.code).toBe(3)
     expect(r.out).toContain("result=regressed")
-  })
-})
-
-// Run 45874526877: a 1702 s first pass in a 32 min step, so the retry was killed 3 min in and the job ended with no
-// verdict. Under JOURNEY_DEADLINE_EPOCH a retry runs only when another run as long fits, and a run is stopped first.
-describe("cloud-journey-ci.sh under a deadline", () => {
-  const now = () => Math.floor(Date.now() / 1000)
-  it("judges the first run, with a red verdict, when no second run fits before the deadline", () => {
-    // 60 s left less the 120 s tail: nothing fits, so not even the first run starts.
-    const r = wrapper([1, 0], "", 0, undefined, { JOURNEY_DEADLINE_EPOCH: String(now() + 60) })
-    expect(r.calls).toBe(0)
-    expect(r.code).toBe(1)
-    expect(r.out).toContain("result=red")
-    const tight = wrapper([1, 0], "", 0, undefined, { JOURNEY_DEADLINE_EPOCH: String(now() + 140), JOURNEY_RETRY_DELAY_S: "30" })
-    expect(tight.calls).toBe(1)
-    expect(tight.code).toBe(1)
-    expect(tight.out).toContain("title=Cloud journey not retried::")
-    expect(tight.out).toContain("result=red")
-  })
-  it("retries as before when the time left holds another run", () => {
-    const r = wrapper([1, 0], "", 0, undefined, { JOURNEY_DEADLINE_EPOCH: String(now() + 3600) })
-    expect(r.calls).toBe(2)
-    expect(r.code).toBe(0)
-    expect(r.out).toContain("result=pass")
   })
 })
 

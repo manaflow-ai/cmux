@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "uniffi bindings of cmux-mobile-core and the screen stream's rules (cmux-rd-screen) for the iOS (Swift) and Android (Kotlin) apps"
+description = "uniffi bindings of cmux-mobile-core for the iOS (Swift) and Android (Kotlin) apps"
 
 [lints]
 workspace = true
@@ -28,8 +28,6 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 cmux-mobile-core.workspace = true
-# The screen stream's rules (src/screen.rs: `screen_json`), shared with the Mac.
-cmux-rd-screen = { path = "../cmux-rd-screen" }
 serde_json.workspace = true
 # The version the manaflow-ai/iroh-ffi fork uses, so Iroh can fold into this
 # library later (MOBILE-RUST-2: one uniffi staticlib per platform).

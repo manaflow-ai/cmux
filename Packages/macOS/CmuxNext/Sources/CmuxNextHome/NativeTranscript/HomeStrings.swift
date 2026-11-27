@@ -75,7 +75,6 @@ enum HomeStrings {
             String(localized: "home.send.refused.notAuthorized", defaultValue: "You can’t send messages in this conversation.",
                    bundle: .localizedModule)
         case .rateLimited:
-            // retry-prompt-ok: re-sending a message is a paid model turn
             String(localized: "home.send.refused.rateLimited", defaultValue: "Too many messages. Try again in a moment.", bundle: .localizedModule)
         case .ownerUnreachable, .indeterminate, .invalid:
             String(localized: "home.send.refused.generic", defaultValue: "A message couldn’t be sent.", bundle: .localizedModule)

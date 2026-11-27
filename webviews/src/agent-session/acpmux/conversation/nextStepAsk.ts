@@ -15,13 +15,7 @@ import { quoteMarkdown } from "./selectionReplyModel";
 /// card made the answer up (Yes and Not now for a yes-or-no question), which it draws instead.
 /// An answer the agent's wrap-up gave as `{label, run}` carries its `run`: a click runs
 /// `cmux customize` (customizeRun.ts) instead of sending the label.
-export type NextStepOption = {
-  label: string;
-  key?: "recap.yes" | "recap.notNow";
-  run?: CustomizeRun;
-  /// A line the button copies instead of answering (Share, after Try it on: customizeRun.ts `shareLine`).
-  share?: string;
-};
+export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow"; run?: CustomizeRun };
 
 export type NextStepAsk = {
   /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
