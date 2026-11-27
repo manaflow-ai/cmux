@@ -253,10 +253,16 @@ async fn checkout_outside_home(canonical: &Path, home: &Path) -> bool {
 /// itself or anything above it, no hidden folder on the way (`~/.ssh`, `~/.config`), and
 /// nothing under `~/Library` (keychains, app data). A Web client and a forward for one or for
 /// a paired device never get here (the caller holds them to the roots).
+///
+/// Home is the OS account's (the account database's, the folder the app's chooser and its
+/// `NSHomeDirectory` show), never `$HOME`: a daemon started with another HOME (a tag's env, a
+/// CI step's own HOME) still means the person's home, and an env var cannot widen it (parity
+/// run 45917772761 refused `/Users/runner/_work/_temp/parity/work/picked-folder` because the
+/// daemon's `$HOME` was the step's `pair-home`).
 pub(super) async fn owner_home_folder(canonical: &Path) -> bool {
-    let home = match dirs::home_dir() {
-        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
-        None => return false,
+    let home = match crate::machine_consent::account_home() {
+        Ok(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        Err(_) => return false,
     };
     folder_inside_home(canonical, &home)
 }
@@ -271,7 +277,7 @@ fn folder_inside_home(canonical: &Path, home: &Path) -> bool {
     for part in parts {
         let Component::Normal(name) = part else { return false };
         let name = name.to_string_lossy();
-        if name.starts_with('.') || (first && name == "Library") {
+        if name.starts_with('.') || (first && name.eq_ignore_ascii_case("Library")) {
             return false;
         }
         first = false;
@@ -347,6 +353,11 @@ mod tests {
         assert!(!folder_inside_home(&home.join("src/.git/hooks"), home), "hidden on the way");
         assert!(!folder_inside_home(&home.join("Library"), home));
         assert!(!folder_inside_home(&home.join("Library/Keychains"), home));
+        assert!(
+            !folder_inside_home(&home.join("library/Keychains"), home),
+            "APFS is case-insensitive"
+        );
+        assert!(!folder_inside_home(&home.join("LIBRARY"), home));
         assert!(folder_inside_home(&home.join("src/Library"), home), "only home's own Library");
     }
 
