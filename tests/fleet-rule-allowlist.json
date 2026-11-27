@@ -3,7 +3,7 @@
     "scripts/cmux-next/check-keychain-no-prompt.py": {"count": 1, "reason": "safe: the keychain no-prompt ratchet names SecItemCopyMatching as a pattern to find; it reads no keychain item"},
     "scripts/cmux-next/tests/test_check_keychain_no_prompt.py": {"count": 3, "reason": "safe: test fixture strings naming SecItemCopyMatching for the keychain no-prompt ratchet; it reads no keychain item"},
     "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a key provider's bootstrap token (service cmux-key-provider)"},
-    "plans/cmux-next/swift-logic-classes.tsv": {"count": 2, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
+    "plans/cmux-next/swift-logic-classes.tsv": {"count": 4, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the VNC login item manaflow-fleet-login, only when the step has no --vnc-login file, into a 0600 file removed at exit (never argv, env or logs)"},
