@@ -306,9 +306,10 @@ export interface OnboardingOps {
    * needs no click or key (the page engine keys its own child window, not the onboarding window). */
   "cmux.onboarding.focused": [Record<string, never>, unknown];
   /** The footer's filled button, or Return (cmux Tools: Turn On, then Done). */
-  "cmux.onboarding.next": [Record<string, never>, unknown];
+  "cmux.onboarding.next": [{ screen?: number }, unknown];
   /** Skip / Skip Importing / Not Now, or Escape (cmux Tools' Not Now answers no). */
-  "cmux.onboarding.skip": [Record<string, never>, unknown];
+  /** `screen`: the Make cmux Yours walk's screen index, logged with the walk's end (IntroWalkSplit). */
+  "cmux.onboarding.skip": [{ screen?: number }, unknown];
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];
   "cmux.onboarding.agents.install": [{ id: string }, unknown];
