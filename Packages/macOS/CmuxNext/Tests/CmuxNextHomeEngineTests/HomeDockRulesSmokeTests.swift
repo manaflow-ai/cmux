@@ -4,6 +4,7 @@ import Testing
 
 /// The dock's rules are the Rust `dock.*` ops (cmux-home-rules, tested there). This smoke test
 /// crosses the FFI through the Swift callers once: a plan, a reason and a link check.
+@MainActor
 struct HomeDockRulesSmokeTests {
     @Test func theDockRulesAnswerThroughTheFFI() {
         let chief = ConversationID("conv_default")
