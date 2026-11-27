@@ -127,10 +127,15 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
+                // Every chat's row carries `autoSession` (#54159), Auto off on almost all; the
+                // off default is what a reader assumes when it is absent, and its ~90 bytes in
+                // both forms push a full row past MAX_SUMMARY_BYTES. Nulls say the same as a missing key.
+                && !(key.as_str() == "autoSession"
+                    && **value == crate::auto_session::record::AutoRecord::row_of(None))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
