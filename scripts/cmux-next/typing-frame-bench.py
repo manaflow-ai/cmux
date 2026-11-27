@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
 from state_wait import wait_until, wait_stable  # noqa: E402
+from windowserver_gpu import GPUSampler  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -1106,9 +1107,12 @@ def measure(surface, phase, params, column, pid, streams=()):
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
+    gpu_sampler = GPUSampler()
+    gpu_sampler.start()
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     rows, trips, verdicts = type_keys(opts.samples, params, column)
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    gpu = gpu_sampler.finish()
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
                        if wall > 0 and cpu_end[i] is not None and cpu_start[i] is not None else None)
@@ -1153,6 +1157,7 @@ def measure(surface, phase, params, column, pid, streams=()):
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
         "stream_replies": LOAD.get("stream_replies", [])[:4],
         "cpu_pct": {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)},
+        "gpu": gpu,
     }
     if sampler:
         try:
