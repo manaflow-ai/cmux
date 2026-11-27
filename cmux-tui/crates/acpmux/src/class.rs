@@ -1,5 +1,5 @@
 //! One class table for acpmux's queues (RFD 0182 S2, B9): the admission class a session's
-//! model requests carry (`X-Subrouter-Priority`, `subrouter_priority.rs`) as a ranked enum,
+//! model requests carry (the gateway priority header, `priority` in the hub) as a ranked enum,
 //! and priority inheritance along acpmux wait edges (S8): a session waited on runs at the
 //! highest class of the sessions waiting on it, until the wait ends.
 //!
@@ -20,16 +20,18 @@ pub enum Class {
     Coordinator,
     /// `interactive`: a coordinator by role, a dictator or ask lane (`classify_role`).
     Interactive,
-    /// A person's own chat (sent as `interactive`; sr2 adds `person` itself, `sr2_priority.rs`).
+    /// A person's own chat (sent as `interactive`; a gateway may rank it higher itself).
     Person,
 }
 
 impl Class {
-    /// The `X-Subrouter-Priority` value this class sends.
+    /// The gateway priority value this class sends.
     pub fn wire(self) -> &'static str {
         match self {
+            // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
             Class::Person | Class::Interactive => crate::subrouter_priority::INTERACTIVE,
             Class::Coordinator => "coordinator",
+            // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
             Class::Lane => crate::subrouter_priority::BACKGROUND,
             Class::Batch => "batch",
         }

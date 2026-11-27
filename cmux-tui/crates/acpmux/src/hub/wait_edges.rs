@@ -83,9 +83,10 @@ impl Hub {
         by.get(id).map(|w| w.keys().cloned().collect()).unwrap_or_default()
     }
 
-    /// A session's own class, as its next start would send it (`subrouter_priority`).
+    /// A session's own class, as its next start would send it.
     fn own_class(&self, session: &Session) -> Option<Class> {
         let meta = session.meta();
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
         Class::parse(self.subrouter_priority(session, &meta, self.for_a_person(session)))
     }
 
