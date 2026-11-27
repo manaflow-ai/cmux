@@ -147,8 +147,8 @@ fn seeds_hold_the_delivery_invariants() {
     let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
+        let (alive, built) = world::left_alive();
         if trace_leaks {
-            let (alive, built) = world::left_alive();
             let count = |d: &str| std::fs::read_dir(d).map_or(0, |r| r.count());
             let mut names: BTreeMap<String, usize> = BTreeMap::new();
             if let Ok(tasks) = std::fs::read_dir("/proc/self/task") {
@@ -169,6 +169,15 @@ fn seeds_hold_the_delivery_invariants() {
             );
         }
         simulated += run.simulated;
+        // Every hub a simulation built is gone with it: one kept alive keeps its audit thread and
+        // runtime (~13 MB a seed), which ran the known-gap sweep's runner out of memory (a
+        // strong `Hub` in the session tap, `hub/tap.rs`).
+        if alive > 0 {
+            failures.push(format!(
+                "seed {seed}: {alive} of {built} hubs outlived the simulation\n  replay: {}",
+                replay_command(seed, &opts)
+            ));
+        }
         if let Err(failure) = invariants::check(&run) {
             let known =
                 if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
