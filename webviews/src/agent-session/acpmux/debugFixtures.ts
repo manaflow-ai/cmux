@@ -5,6 +5,7 @@ export { incomingRows } from "./incomingFixture";
 export { LINKED_GITHUB_PULL_REQUEST, linkRows } from "./linkFixture";
 export { selectionRows } from "./selectionFixture";
 export { mermaidRows } from "./mermaidFixture";
+export { imageRows } from "./imageFixture";
 export { organizationRows } from "./organizationFixture";
 export { toolSummaryRows } from "./toolSummaryFixture";
 export { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
