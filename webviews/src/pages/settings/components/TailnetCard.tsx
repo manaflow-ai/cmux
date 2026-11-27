@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "../../../agent-session/acpmux/conversation/clipboard";
 import { Button } from "../../../ui/Button";
 import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
-import { useSettingsState, useRowState, useStore } from "../context";
+import { useStore, useSettingsState, useRowState } from "../context";
 import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
 import "../tailnetJoin.css";

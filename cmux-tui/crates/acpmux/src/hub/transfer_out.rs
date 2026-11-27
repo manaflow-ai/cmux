@@ -89,11 +89,68 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
     Ok(files)
 }
 
-/// Removes moves left behind: a receive never finished, a bundle no chat here is in.
+/// A scratch folder in `transfers/` for one pack of a chat's lines (`kind`: `outline`,
+/// `history-read`, `prepack`), named for this process: `work-<pid>-<kind>-<uuid>`. Its owner
+/// removes it when done; one a daemon left as it died is removed by the next sweep at once
+/// ([`sweep_transfers`]), not a day later. A compaction's outline of an 8.6 GB chat once left
+/// 8 GB there for a day after the daemon that wrote it died.
+pub(super) fn scratch_dir(kind: &str) -> PathBuf {
+    transfers_dir().join(format!("{SCRATCH}{}-{kind}-{}", std::process::id(), uuid::Uuid::now_v7()))
+}
+
+const SCRATCH: &str = "work-";
+/// Scratch folders named before [`scratch_dir`], without their owner's pid.
+const UNOWNED_SCRATCH: [&str; 2] = ["outline-", "history-read-"];
+
+/// When this daemon began: an unowned scratch folder last changed before it is a dead daemon's.
+static STARTED: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+/// Notes when this daemon began, for [`sweep_transfers`]; the hub calls it as it starts.
+pub(super) fn note_started() {
+    STARTED.get_or_init(std::time::SystemTime::now);
+}
+
+/// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
+/// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
+/// predates this daemon.
+fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    if let Some(rest) = name.strip_prefix(SCRATCH) {
+        let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
+        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+    }
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
+        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+}
+
+#[cfg(unix)]
+fn process_runs(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    // SAFETY: signal 0 only checks that the pid exists.
+    let signalled = unsafe { libc::kill(pid, 0) == 0 };
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_runs(_pid: u32) -> bool {
+    true
+}
+
+/// Removes moves left behind: a receive never finished, a bundle no chat here is in, and at once
+/// the scratch of a daemon that died packing ([`scratch_dir`]).
 pub(super) fn sweep_transfers(moving: &[String]) {
-    let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+    sweep_transfers_in(&transfers_dir(), moving);
+}
+
+/// [`sweep_transfers`] of the folder `dir`.
+pub(super) fn sweep_transfers_in(dir: &Path, moving: &[String]) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        if dead_scratch(&name, entry.metadata().and_then(|m| m.modified()).ok()) {
+            tracing::info!("removing {name} in transfers: scratch of a daemon that is gone");
+            let _ = crate::home_fs::remove_dir_all(entry.path());
+            continue;
+        }
         // A receive's last page touched its `alive` file (`transfer_in.rs`).
         let alive = entry.path().join("alive");
         let stamp = std::fs::metadata(&alive).or_else(|_| entry.metadata());
@@ -490,6 +547,56 @@ impl Hub {
         None
     }
 
+    /// A saved local ChatGPT plan has no portable account binding in a move bundle.
+    async fn transfer_has_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let profile =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok();
+        let family = profile
+            .as_ref()
+            .map(|profile| crate::config::derive_family(&meta.harness, profile))
+            .or_else(|| meta.family.clone())
+            .unwrap_or_else(|| meta.harness.clone());
+        if crate::agent_credentials::Family::of_harness(&family)
+            != Some(crate::agent_credentials::Family::Codex)
+        {
+            return false;
+        }
+        let (dir, state) = crate::routes::places(&config);
+        drop(config);
+        let bindings = crate::routes::bindings(&state);
+        let env = profile.map(|profile| profile.env).unwrap_or_default();
+        let selected = crate::routes::spawn_route(
+            dir.as_deref(),
+            &bindings,
+            &session.id,
+            meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+            &family,
+            &env,
+        );
+        if selected.is_some_and(|(id, _)| crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id)) {
+            return true;
+        }
+        let uses_local_plan = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if let Some(uses_local_plan) = uses_local_plan {
+            return uses_local_plan;
+        }
+        session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .is_some_and(|record| record.local_chatgpt_expiry.is_some())
+    }
+
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
     /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
@@ -527,7 +634,7 @@ impl Hub {
             let deadline = tokio::time::Instant::now() + wait;
             let busy = || {
                 let why = format!(
-                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                     wait.as_secs()
                 );
                 transfer_error("busy", why)
@@ -621,6 +728,12 @@ impl Hub {
             }
             e
         };
+        if self.transfer_has_local_chatgpt_plan(session).await {
+            return Err(unfreeze(
+                transfer_error("account", super::credentials::credential_needed().message),
+                None,
+            ));
+        }
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {

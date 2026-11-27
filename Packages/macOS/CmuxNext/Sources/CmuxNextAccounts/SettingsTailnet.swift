@@ -89,6 +89,16 @@ public final class SettingsTailnet: PageProvider {
         return ["ok": .bool(false), "error": .string(detail.isEmpty ? "The tailnet command failed (exit \(result.status))." : detail)]
     }
 
+    /// The CLI's envelope: its last non-blank stdout line, parsed off the main actor (the output is a process's, so
+    /// its size is not bounded here).
+    @concurrent nonisolated private static func lastJSONLine(_ output: Data) async -> JSONValue? {
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n")
+        guard let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }) else {
+            return nil
+        }
+        return try? JSONValue.parse(Data(line.utf8))
+    }
+
     /// The policy lines the Connect sheet shows for the person to paste (`cmux vm tailnet acl`): the
     /// text is the CLI's, so the sheet and `cmux vm tailnet acl` never differ.
     private func runACL(params: JSONValue) async throws -> JSONValue {
@@ -103,15 +113,5 @@ public final class SettingsTailnet: PageProvider {
             return answer
         }
         return ["ok": .bool(false), "errorCode": .string("acl_unavailable")]
-    }
-
-    /// The CLI's envelope: its last non-blank stdout line, parsed off the main actor (the output is a process's, so
-    /// its size is not bounded here).
-    @concurrent nonisolated private static func lastJSONLine(_ output: Data) async -> JSONValue? {
-        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n")
-        guard let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }) else {
-            return nil
-        }
-        return try? JSONValue.parse(Data(line.utf8))
     }
 }
