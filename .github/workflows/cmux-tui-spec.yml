@@ -117,6 +117,7 @@ on:
       - "web/app/globals.css"
       - "schemas/settings/file-keys.json"
       - "schemas/sidebar-hover-card-rules/vectors.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]

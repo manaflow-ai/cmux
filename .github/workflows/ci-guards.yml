@@ -2213,6 +2213,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
 
+      - name: Validate a nightly-next run reads its feed back before it says published
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_published_feed_check.py
+
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
