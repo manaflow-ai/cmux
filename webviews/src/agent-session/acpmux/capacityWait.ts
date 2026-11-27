@@ -6,6 +6,7 @@
 // list "Paused for capacity, resumes ~22:41". Never red: red is a turn nothing will continue.
 import { createContext } from "react";
 import type { Translate } from "./i18n";
+import { intl } from "../../ui/intl";
 
 export type CapacityWaitState = {
   reason: "capacity" | "rate_limit";
@@ -60,6 +61,11 @@ export function aboutTime(seconds: number): string {
   }
   if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
   return `${Math.round(seconds / 3600)}h`;
+}
+
+/// When it resumes, in the person's clock: "22:41".
+export function resumesClock(at: number): string {
+  return intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(at));
 }
 
 /// The wait's line: "Waiting for capacity, about 40s", or "…, any moment now" once its time passed

@@ -45,7 +45,7 @@ type Props = {
   held?: boolean;
   /// A prompt sent as words, the first image, more words, then a file, each where it was put in
   /// the text; the image's bytes arrive `lateMs` after the row draws, as acpmux's read does.
-  mixed?: { lateMs: number };
+  mixed?: { lateMs: number; view?: "inline" | "strip" };
 };
 
 const paint = (shot: Shot) => paintShot(shot);
@@ -105,7 +105,7 @@ function GallerySentImages({
   held,
   mixed,
 }: Props) {
-  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} />;
+  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} view={mixed.view ?? "inline"} />;
   if (primedLate) return <GalleryPrimedLate images={images} />;
   if (placedIn !== undefined)
     return <GalleryPlacedImages images={images} text={placedIn} before={placedBefore} column={column} held={held} />;
@@ -218,7 +218,15 @@ const placedHolds = attachmentsHoldTheirBoxes({ inBubble: true });
 /// Text, an image, more text, then a file, each where the composer put it (Leo, 2026-11-22: "there
 /// should be no problem doing so for inline attachments after send"). acpmux's read of the image
 /// lands `lateMs` after the row draws; its slot already has the image's shape, so nothing moves.
-function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateMs: number }) {
+function GalleryMixedPrompt({
+  images,
+  lateMs,
+  view,
+}: {
+  images: Props["images"];
+  lateMs: number;
+  view: "inline" | "strip";
+}) {
   const [actions] = useState<TurnActions>(() => {
     const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
     return {
@@ -249,7 +257,7 @@ function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateM
     text: parts.map((part) => (part.kind === "text" ? part.text : "")).join(""),
     inlineParts: parts,
   };
-  if (!useAttachmentView("inline")) return null;
+  if (!useAttachmentView(view)) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
@@ -531,6 +539,28 @@ export default componentEntry<Props>({
         mixed: { lateMs: 600 },
       },
       play: placedInOrderNoShift,
+    },
+    "placed-mixed-top": {
+      note: 'The same prompt in Attachments at Top (agentPane.attachmentView strip, the default since #55723): its screenshot and log in one row over the words. A sent prompt\'s right-click switches it to Attachments Inline (Leo, 2026-11-27: "it should be toggleable one or the other").',
+      height: 360,
+      props: {
+        images: [
+          {
+            id: "mixed-shot-top",
+            mimeType: "image/png",
+            name: "image.png",
+            width: 1440,
+            height: 900,
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+        ],
+        mixed: { lateMs: 0, view: "strip" },
+      },
+      play: async ({ waitFor, document }) => {
+        await waitFor(() => document.querySelector("[data-inline-attachment-strip]") !== null);
+        if (document.querySelector(".cv-user__bubble [data-inline-content] .cv-user__inline-image"))
+          throw new Error("Attachments at Top still draws the screenshot inside the text");
+      },
     },
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",
