@@ -4109,7 +4109,9 @@ export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   }
   if (answer.accepted === true && answer.state === "ready") return { state: "ready", reason: "reserved home chat is ready" };
   const state = typeof answer.state === "string" ? answer.state : "unknown";
-  return { state: "not_ready", reason: `warm-home answered state=${state}` };
+  // acpmux names why nothing holds the reserved key (`why`, state none): oversize, remote, or another key in its slot.
+  const why = typeof answer.why === "string" && answer.why ? ` (${answer.why.slice(0, 200)})` : "";
+  return { state: "not_ready", reason: `warm-home answered state=${state}${why}` };
 }
 
 /**
