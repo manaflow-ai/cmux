@@ -89,10 +89,10 @@ printf 'user:u1' > "$work/token"
 "$work/bin/cmux-mobile-fake-backend" "127.0.0.1:$port" > "$work/backend.log" 2>&1 & pids+=($!)
 "$work/bin/cmux-mobile-stub-tui" "$work/tui" main > "$work/tui.log" 2>&1 & pids+=($!)
 for _ in $(seq 50); do
-  [[ -S "$work/tui/main.sock" ]] && curl -s -o /dev/null "$url/v1/ice" && break
+  [[ -S "$work/tui/main.sock" ]] && curl -fsS -H 'Authorization: Bearer user:u1' -o /dev/null "$url/v1/ice" && break
   sleep 0.2
 done
-if [[ ! -S "$work/tui/main.sock" ]] || ! curl -fsS -o /dev/null "$url/v1/ice"; then
+if [[ ! -S "$work/tui/main.sock" ]] || ! curl -fsS -H 'Authorization: Bearer user:u1' -o /dev/null "$url/v1/ice"; then
   echo "::error::pair fixture did not become ready; no compatibility verdict"; exit 1
 fi
 CMUX_MOBILE_BASE_URL=$url CMUX_MOBILE_TEAM_ID=t1 CMUX_MOBILE_DEVICE_ID=mac1 \

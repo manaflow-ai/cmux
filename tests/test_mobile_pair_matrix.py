@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Terminal receipts must identify failed and unexecuted compatibility cells."""
 import importlib.util
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import socket
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +23,41 @@ result_spec.loader.exec_module(pair_result)
 
 
 class MatrixReceipts(unittest.TestCase):
+    def test_pair_fixture_readiness_authenticates_both_ice_requests(self):
+        requests = []
+        class AuthenticatedIce(BaseHTTPRequestHandler):
+            def do_GET(self):
+                authorized = self.headers.get("Authorization") == "Bearer user:u1"
+                requests.append((self.path, authorized))
+                self.send_response(200 if authorized else 401)
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        script = (ROOT / "scripts/ci/mobile-pair-skew.sh").read_text()
+        readiness = script.split("for _ in $(seq 50); do\n", 1)[1].split(
+            "CMUX_MOBILE_BASE_URL=$url", 1)[0]
+        with tempfile.TemporaryDirectory() as directory, \
+             socket.socket(socket.AF_UNIX) as daemon, \
+             ThreadingHTTPServer(("127.0.0.1", 0), AuthenticatedIce) as backend:
+            tui = Path(directory) / "tui"
+            tui.mkdir()
+            daemon.bind(str(tui / "main.sock"))
+            thread = threading.Thread(target=backend.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", "set -euo pipefail\nfor _ in $(seq 50); do\n" + readiness],
+                    env={**os.environ, "work": directory,
+                         "url": f"http://127.0.0.1:{backend.server_port}"},
+                    capture_output=True, text=True, timeout=15)
+            finally:
+                backend.shutdown()
+                thread.join(timeout=2)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(requests, [("/v1/ice", True), ("/v1/ice", True)])
+
     def test_assertion_verdict_requires_complete_parseable_transport_results(self):
         good = [json.dumps({"transport": t, "daemon": json.dumps({"id": 1, "ok": True})})
                 for t in ("webrtc", "wireguard")]
