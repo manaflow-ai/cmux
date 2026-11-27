@@ -39,13 +39,6 @@ export function useDraftWaitOver(
 ): string | undefined {
   const [draftWaitOver, setDraftWaitOver] = useState<string>();
   const waiting = rowsReadFor !== undefined && draftSettled !== rowsReadFor ? rowsReadFor : undefined;
-  // A wait over before it began: the prompt the last commit drew already shows what the copy does when
-  // the rows come in (a relaunch with no draft, or the one restoredDraft.ts put back). This render takes
-  // the chat as drawn, where the effect below set it and the whole pane rendered once more for it
-  // (first-load-after-restart.bench.ts). Kept per chat, so a later render reads the same answer.
-  const shownAtRender = useRef<string>(undefined);
-  if (waiting !== undefined && shownAtRender.current !== waiting && draftWaitOver !== waiting && promptShown())
-    shownAtRender.current = waiting;
   // The checks and `ended` are read when they run, the latest of each, written as the render commits: a
   // new set each render arms nothing again, and a lint rule turned off keeps the hook out of the React Compiler.
   const checks = useRef({ promptShown, promptRoot, ended });
@@ -55,12 +48,7 @@ export function useDraftWaitOver(
   useEffect(() => {
     if (waiting === undefined) return;
     const { promptShown, promptRoot, ended } = checks.current;
-    if (shownAtRender.current === waiting) {
-      ended("shown");
-      return;
-    }
     if (promptShown()) {
-      shownAtRender.current = undefined;
       ended("shown");
       setDraftWaitOver(waiting);
       return;
@@ -70,7 +58,6 @@ export function useDraftWaitOver(
       watch?.disconnect();
       watch = undefined;
       window.clearTimeout(timer);
-      shownAtRender.current = undefined;
       ended(by);
       setDraftWaitOver(waiting);
     };
@@ -89,6 +76,5 @@ export function useDraftWaitOver(
       window.clearTimeout(timer);
     };
   }, [waiting]);
-  // The latest chat whose wait ended: a wait the effect ended later clears the render's answer.
-  return shownAtRender.current ?? draftWaitOver;
+  return draftWaitOver;
 }
