@@ -14,7 +14,8 @@ app, one idle chat per workspace on the acpmux test agent (its first turn answer
 - memory.app_agents.<N>.total_footprint_mb: N chats open and idle;
 - memory.app_agents.ratio_vs_empty: the highest N's total / the empty total, both from this one run.
 - memory.app_agents.idle_gpu_device_pct and .idle_disk_write_mb_per_h (goal idle-gpu-disk, idle_rows): the worst idle
-  window's GPU Device Utilization % over the same Mac with no app open, and its disk bytes written per hour.
+  window's GPU Device Utilization % over the same Mac with no app open, and its disk bytes written per hour, read
+  from the settled samples below (past the launch), not the --settle ones.
 These sample --settle seconds (20) after the launch and after the last open, before hidden chat pages are released
 (60 s) and idle harnesses hibernate (120 s). So the run samples the empty app and each count once more, --settled-at
 seconds (150) after the launch and after the last open (bench_memory's settled-launch and settled-N), and writes the
@@ -95,6 +96,33 @@ GPU_FLOOR_PCT = 1.0  # ioreg's Device Utilization % is a whole number: one step 
 DISK_FLOOR_MB_PER_H = 1.0  # the goal's own line: below it a change is not one a person's disk sees
 
 
+def idle_windows(report: dict, phase: str) -> list[dict]:
+    """The measured samples of one phase (`idle` or `settled`) that count as idle windows: the empty app and each count
+    whose chats all opened (pure)."""
+    windows = []
+    for s in report.get("samples") or []:
+        if not isinstance(s, dict) or not s.get("measure_s"):
+            continue
+        label = str(s.get("label") or "")
+        if label == f"{phase}-launch":
+            windows.append(s)
+            continue
+        try:
+            asked = int(label.split("-", 1)[1]) if label.startswith(f"{phase}-") else None
+        except ValueError:
+            asked = None
+        if asked is not None and s.get("workspaces") == asked and not s.get("pane_failures"):
+            windows.append(s)
+    return windows
+
+
+def window_disk(s: dict) -> float | None:
+    """MB/h every process of the app wrote to the storage device over one window, or None when none was read."""
+    values = [k.get("disk_write_mb_per_h") for k in (s.get("kinds") or {}).values() if isinstance(k, dict)]
+    values = [v for v in values if isinstance(v, (int, float))]
+    return round(sum(values), 2) if values else None
+
+
 def idle_rows(report: dict) -> list[dict]:
     """Goal idle-gpu-disk's rows from bench_memory.py's report (pure), the worst idle window of the run (the empty
     app and each count whose chats all opened):
@@ -103,31 +131,26 @@ def idle_rows(report: dict) -> list[dict]:
       reading alone would count whatever else the Mac draws.
     - DISK_ROW: bytes the app's processes wrote to the storage device (proc_pid_rusage ri_diskio_byteswritten, every
       process bench_memory.owned counts) over the window, as MB per hour.
+    The windows are the settled samples (--settled-at, 150 s after the launch and after the last open) when the run
+    took them, else the --settle ones. A --settle window starts 20 s after the launch, inside it: on cmux17
+    (2026-11-26, step 6b4a829c) its 30 s read 577.5 MB/h, a fresh profile's first fill (the built-in uBlock Origin's
+    lists, Chromium's databases and shader caches), which no idle hour repeats. Those launch writes stay in the
+    report as the breakdown row launch_disk_write_mb_per_h, so a launch that writes more is still seen.
     The raw GPU reading and the baseline are report-only breakdown rows beside them."""
-    samples = [s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("measure_s")]
-    windows = []
-    for s in samples:
-        label = str(s.get("label") or "")
-        if label == "idle-launch":
-            windows.append(s)
-            continue
-        try:
-            asked = int(label.split("-", 1)[1]) if label.startswith("idle-") else None
-        except ValueError:
-            asked = None
-        if asked is not None and s.get("workspaces") == asked and not s.get("pane_failures"):
-            windows.append(s)
+    windows = idle_windows(report, "settled") or idle_windows(report, "idle")
     rows = []
-    disks = []
-    for s in windows:
-        values = [k.get("disk_write_mb_per_h") for k in (s.get("kinds") or {}).values() if isinstance(k, dict)]
-        values = [v for v in values if isinstance(v, (int, float))]
-        if values:
-            disks.append((round(sum(values), 2), s["label"]))
+    disks = [(window_disk(s), s["label"]) for s in windows]
+    disks = [(v, label) for v, label in disks if v is not None]
     if disks:
         value, label = max(disks)
         rows.append({"name": DISK_ROW, "p50": value, "p95": value, "unit": "MB/h", "floor": DISK_FLOOR_MB_PER_H,
                      "window": label})
+    launch = [(window_disk(s), s["label"]) for s in idle_windows(report, "idle")]
+    launch = [(v, label) for v, label in launch if v is not None]
+    if launch and windows and windows[0]["label"].startswith("settled-"):
+        value, label = max(launch)
+        rows.append({"name": BREAKDOWN_PREFIX + "launch_disk_write_mb_per_h", "p50": value, "p95": value,
+                     "unit": "MB/h", "floor": DISK_FLOOR_MB_PER_H, "window": label})
     base = (report.get("gpu_no_app") or {}).get("device_utilization_pct")
     gpus = [((s.get("gpu") or {}).get("device_utilization_pct"), s["label"]) for s in windows]
     gpus = [(v, label) for v, label in gpus if isinstance(v, (int, float))]
