@@ -943,6 +943,11 @@ pub struct Socket<'a> {
     syn_data_in: bool,
     /// cmux patch: the SYN|ACK acknowledging `syn_data_in` has been sent.
     syn_data_acked: bool,
+    /// cmux patch: how long a connecting socket with `syn_data` holds its
+    /// SYN for the first write (`set_syn_data_hold`).
+    syn_data_hold: Duration,
+    /// cmux patch: until when this connect's SYN waits for that write.
+    syn_hold_until: Option<Instant>,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -1054,6 +1059,8 @@ impl<'a> Socket<'a> {
             syn_data: false,
             syn_data_in: false,
             syn_data_acked: false,
+            syn_data_hold: Duration::ZERO,
+            syn_hold_until: None,
         }
     }
 
@@ -1221,6 +1228,24 @@ impl<'a> Socket<'a> {
     /// cmux patch: whether data on the SYN is enabled (`set_syn_data`).
     pub fn syn_data(&self) -> bool {
         self.syn_data
+    }
+
+    /// cmux patch: with `syn_data`, a connect holds its SYN up to `hold`
+    /// for the first write so the write rides on it. Zero (the default)
+    /// sends the SYN at once.
+    pub fn set_syn_data_hold(&mut self, hold: Duration) {
+        self.syn_data_hold = hold;
+    }
+
+    /// cmux patch: the connect's SYN is waiting for the first write
+    /// (`set_syn_data_hold`).
+    fn syn_held(&self, now: Instant) -> Option<Instant> {
+        match self.syn_hold_until {
+            Some(until) if self.syn_data_open() && self.tx_buffer.is_empty() && now < until => {
+                Some(until)
+            }
+            _ => None,
+        }
     }
 
     /// cmux patch: a listening socket took data from the peer's SYN and its
@@ -2078,6 +2103,7 @@ impl<'a> Socket<'a> {
         self.window_before_cut = None;
         self.syn_data_in = false;
         self.syn_data_acked = false;
+        self.syn_hold_until = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2218,6 +2244,9 @@ impl<'a> Socket<'a> {
         self.local_seq_no = seq;
         self.remote_last_seq = seq;
         self.remote_rewound = 0;
+        if self.syn_data && self.syn_data_hold > Duration::ZERO {
+            self.syn_hold_until = Some(cx.now() + self.syn_data_hold);
+        }
         Ok(())
     }
 
@@ -3659,7 +3688,8 @@ impl<'a> Socket<'a> {
 
         // If we want to send a SYN and we haven't done so, do it!
         if matches!(self.state, State::SynSent | State::SynReceived) && !data_in_flight {
-            return true;
+            // cmux patch: unless the SYN waits for the first write.
+            return self.syn_held(cx.now()).is_none();
         }
 
         // cmux patch: past its SYN, a handshake sends data only as a listener
@@ -3673,9 +3703,8 @@ impl<'a> Socket<'a> {
         };
 
         // max sequence number we can send.
-        let max_send_seq = self.local_seq_no
-            + syn_len
-            + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
+        let max_send_seq =
+            self.local_seq_no + syn_len + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
 
         // Max amount of octets we can send.
         let capped_send_seq = if max_send_seq >= self.remote_last_seq {
@@ -4380,6 +4409,9 @@ impl<'a> Socket<'a> {
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
             PollAt::Now
+        } else if let Some(until) = self.syn_held(cx.now()) {
+            // cmux patch: the SYN waits for the first write, or until then.
+            PollAt::Time(until)
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
@@ -5198,12 +5230,18 @@ mod test {
         assert_eq!(server.socket.state(), State::SynReceived);
         assert!(!server.socket.syn_data_acked());
         assert!(server.socket.recv_slice(&mut [0u8; 8]).is_err());
-        assert!(!client.socket.may_send(), "the SYN is out: later writes wait");
+        assert!(
+            !client.socket.may_send(),
+            "the SYN is out: later writes wait"
+        );
         let syn_ack = hop(&mut server, &mut client).unwrap();
         assert_eq!(syn_ack.0, TcpControl::Syn);
         assert!(server.socket.syn_data_acked());
         assert_eq!(client.socket.state(), State::Established);
-        assert!(client.socket.tx_buffer.is_empty(), "the SYN|ACK acknowledged it");
+        assert!(
+            client.socket.tx_buffer.is_empty(),
+            "the SYN|ACK acknowledged it"
+        );
         assert_eq!(drain(&mut server), b"hello".to_vec());
         // The listener replies before the handshake's last ACK arrives.
         assert_eq!(server.socket.send_slice(b"world"), Ok(5));
@@ -5220,6 +5258,33 @@ mod test {
         assert!(server.socket.tx_buffer.is_empty());
         // Nothing was sent twice.
         assert_eq!(client.socket.remote_last_seq, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_hold_waits_for_the_first_write() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        // Held: no SYN until a write or the hold's end.
+        assert!(hop(&mut client, &mut server).is_none());
+        assert_eq!(
+            client.socket.poll_at(&mut client.cx),
+            PollAt::Time(start + Duration::from_millis(20))
+        );
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+    }
+
+    #[test]
+    fn test_syn_data_hold_ends_with_a_bare_syn() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        assert!(hop(&mut client, &mut server).is_none());
+        client.cx.set_now(start + Duration::from_millis(20));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
     }
 
     #[test]
