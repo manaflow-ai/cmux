@@ -274,6 +274,7 @@ pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod perf_trace;
+pub(crate) mod sandbox_authority;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
