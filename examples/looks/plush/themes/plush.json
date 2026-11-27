@@ -1,7 +1,7 @@
 // Plush: the Plush look in Light.
 // One cool blue-gray clay surface everywhere; panes are soft raised cards on it, set apart by an even
 // 10 pt gap, 16 pt corners and a breath of shade instead of lines. No borders, no glass, no wallpaper. The
-// type is a low-contrast ink (5.14:1 over the page, above the 4.5:1 floor) and the one saturated
+// type is a low-contrast ink (5.97:1 over the page, above the 4.5:1 floor) and the one saturated
 // accent (#4c55d8) marks focus, Send, links and the working dot. ANSI colors are solved in OKLCH
 // at one lightness over the page (every hue at least 4.6:1). An opt-in look: nothing changes
 // until you pick it.
@@ -12,19 +12,19 @@
   "appearance.appTheme": "followTerminal",
   "colors": {
     "background": "#e2e7ee",
-    "foreground": "#536073",
+    "foreground": "#4a566a",
     "selection": "#c1c7e9",
     "accent": "#4c55d8"
   },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #e2e7ee",
-    "foreground = #536073",
+    "foreground = #4a566a",
     "cursor-color = #4c55d8",
     "cursor-text = #e2e7ee",
     "selection-background = #c1c7e9",
-    "selection-foreground = #536073",
-    "palette = 0=#536073",
+    "selection-foreground = #4a566a",
+    "palette = 0=#4a566a",
     "palette = 1=#96534e",
     "palette = 2=#3c7145",
     "palette = 3=#7f6220",
