@@ -546,7 +546,9 @@ class Builder:
                 if result.returncode != 0:
                     raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
                 source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                # No -z: the delta is a few hundred KB, but zlib still reads all 263 MB, which took
+                # 13.7 s of a 1 s copy (scripts/measure/rust-live-fetch.py, 2026-11-27).
+                result = run(["rsync", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:

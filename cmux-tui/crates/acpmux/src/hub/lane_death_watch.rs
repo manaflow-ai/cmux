@@ -81,6 +81,7 @@ impl Hub {
             now_ms,
             GRACE_MS,
             |p| local.contains_key(p),
+            |host| self.peer_by_name(host).is_some_and(|peer| peer.idle_parked()),
         );
         for n in notices.into_iter().take(MAX_PER_PASS) {
             let Some(parent) = local.get(&n.parent).cloned() else { continue };
