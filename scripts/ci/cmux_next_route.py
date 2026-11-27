@@ -323,6 +323,8 @@ BUNDLE_INPUTS = (
     "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
+    # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
     # The key styles the key presentation imports (src/ui/keyStyle.ts).
@@ -1083,7 +1085,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
     "release-compile": ("native", "mac_release"),
-    "app-compile-fleet": ("native",),
+    "app-compile-fleet": ("native", "mac_release"),
     "cmux-scheme-compile": ("native", "scheme"),
     "cmux-scheme-compile-fleet": ("native", "scheme"),
 }

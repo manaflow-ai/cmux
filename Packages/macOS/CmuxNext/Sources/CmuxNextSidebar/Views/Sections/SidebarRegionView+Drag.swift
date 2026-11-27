@@ -172,10 +172,14 @@ extension SidebarRegionView {
         endDocPress()
     }
 
-    /// Whether `subject` may be dragged, from its item's data (`LayoutItem.isMovable`): Home never is. A section is.
+    /// Whether `subject` may be dragged, from its item's data (`LayoutItem.isMovable(in:)`): Home and a pinned
+    /// workspace never are. A section is.
     func isMovable(_ subject: SidebarRegionDragSubject) -> Bool {
         guard case let .item(id) = subject else { return true }
-        return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.isMovable ?? true
+        for section in content?.sections ?? [] {
+            if let item = section.items.first(where: { $0.id == id }) { return item.isMovable(in: section.id) }
+        }
+        return true
     }
 
     /// Whether one of the region's items holds a press whose release has not come.
