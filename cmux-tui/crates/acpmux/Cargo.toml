@@ -206,6 +206,8 @@ serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
 sha1.workspace = true
 sha2.workspace = true
+# Three-way merges of a memory mount's files (src/memory_mount/merge.rs).
+diffy.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.
 ring.workspace = true
