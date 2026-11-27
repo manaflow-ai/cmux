@@ -333,3 +333,68 @@ fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
     meta.cmux_rules_seq = None;
     assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
 }
+
+/// Every hidden `<cmux-X-context>` block acpmux sends is one each test agent knows what to do
+/// with. A tag a fake does not know reaches its fixture commands and echoes: #56653's "where you
+/// are" card turned 10 session-move matrix cells red (hq run 45953095553). The tags are the
+/// literals under `src/`, the `"cmux-X-context"` names (btw.rs, forum.rs), and every
+/// `…SOURCE: &str = "cmux-X"` part [`override_block`] wraps as `<cmux-X-context>`. A fake knows a
+/// tag when its code (not a comment) quotes it: in what it hides, or in `CONTEXT_TAGS_SEEN_AS_IS`.
+#[test]
+fn every_hidden_context_tag_is_one_each_fake_agent_hides_or_passes_through() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let literal = regex::Regex::new(r"<cmux-([a-z][a-z-]*?)-context>").unwrap();
+    let named = regex::Regex::new(r#""cmux-([a-z][a-z-]*?)-context""#).unwrap();
+    let source = regex::Regex::new(r#"SOURCE: &str = "cmux-([a-z][a-z-]*)";"#).unwrap();
+    let mut emitted = std::collections::BTreeMap::<String, String>::new();
+    let mut dirs = vec![root.join("src")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            for re in [&literal, &named, &source] {
+                for cap in re.captures_iter(&text) {
+                    emitted
+                        .entry(format!("<cmux-{}-context>", &cap[1]))
+                        .or_insert_with(|| rel.clone());
+                }
+            }
+        }
+    }
+    for known in ["<cmux-card-context>", "<cmux-btw-context>", "<cmux-folder-context>"] {
+        assert!(emitted.contains_key(known), "the scan lost {known}: {emitted:?}");
+    }
+    let mut unknown = Vec::new();
+    for fake in ["fake_agent.py", "fake_claude.py", "fake_workflow_agent.py"] {
+        let text = std::fs::read_to_string(root.join("tests").join(fake)).unwrap();
+        assert!(
+            text.contains("\nCONTEXT_TAGS_SEEN_AS_IS = ("),
+            "tests/{fake} has no CONTEXT_TAGS_SEEN_AS_IS"
+        );
+        let code: String = text
+            .lines()
+            .map(|line| line.split_once('#').map_or(line, |(code, _)| code))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for (tag, file) in &emitted {
+            if !code.contains(&format!("\"{tag}\"")) {
+                unknown.push(format!("{tag} (from {file}) in cmux-tui/crates/acpmux/tests/{fake}"));
+            }
+        }
+    }
+    assert!(
+        unknown.is_empty(),
+        "acpmux sends hidden context a test agent does not know: {unknown:#?}. In that fake, hide \
+         the tag (its guidance tuple, and its contextSource) when fixtures must not see it, or add \
+         it to CONTEXT_TAGS_SEEN_AS_IS when the agent reads it"
+    );
+}

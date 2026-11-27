@@ -390,6 +390,18 @@ def is_attribution(block):
 GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
                  "<cmux-card-context>")
 
+# Hidden context acpmux sends that this fake passes through as-is: the agent reads it, so a
+# fixture command or echo carries it. Every <cmux-X-context> tag acpmux sends is either hidden
+# above or named here (src/context_inventory_tests.rs,
+# every_hidden_context_tag_is_one_each_fake_agent_hides_or_passes_through); a new tag goes in one.
+# Tests read these in the echo: btw.rs (a side question's chat), forum.rs (the rules; the
+# `gate:` path ends where they start), prompt_context.rs (the app's workspace note, @-tool
+# notes), attachments. No test reads folder or left-on-mac yet: candidates for GUIDANCE_TAGS.
+CONTEXT_TAGS_SEEN_AS_IS = ("<cmux-btw-context>", "<cmux-rules-context>", "<cmux-workspace-context>",
+                           "<cmux-tools-context>", "<cmux-attachments-context>",
+                           "<cmux-folder-context>", "<cmux-left-on-mac-context>")
+
+
 
 def guidance_text(text):
     """Recognize a guidance wrapper after an adapter dropped its metadata."""

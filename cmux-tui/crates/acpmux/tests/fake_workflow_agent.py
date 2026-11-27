@@ -50,6 +50,15 @@ def reply(session, request, text, reason="end_turn"):
     send({"id": request, "result": {"stopReason": reason}})
 
 
+# Hidden context acpmux sends that this fake passes through as-is: the agent reads it, so a
+# fixture command or echo carries it. Every <cmux-X-context> tag acpmux sends is either hidden
+# above or named here (src/context_inventory_tests.rs,
+# every_hidden_context_tag_is_one_each_fake_agent_hides_or_passes_through); a new tag goes in one.
+CONTEXT_TAGS_SEEN_AS_IS = ("<cmux-btw-context>", "<cmux-rules-context>", "<cmux-workspace-context>",
+                           "<cmux-tools-context>", "<cmux-attachments-context>", "<cmux-prefetch-context>",
+                           "<cmux-folder-context>", "<cmux-left-on-mac-context>")
+
+
 def command_text(blocks):
     """Match workflow commands while leaving the hidden context on the wire."""
     out = []

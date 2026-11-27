@@ -175,6 +175,15 @@ if os.environ.get("FAKE_CLAUDE_RENAMED"):
     COMMANDS.append({"name": "rename", "description": "Rename the current conversation", "argumentHint": "[name]"})
 
 
+# Hidden context acpmux sends that this fake passes through as-is: the agent reads it, so a
+# fixture command or echo carries it. Every <cmux-X-context> tag acpmux sends is either hidden
+# above or named here (src/context_inventory_tests.rs,
+# every_hidden_context_tag_is_one_each_fake_agent_hides_or_passes_through); a new tag goes in one.
+CONTEXT_TAGS_SEEN_AS_IS = ("<cmux-btw-context>", "<cmux-rules-context>", "<cmux-workspace-context>",
+                           "<cmux-tools-context>", "<cmux-attachments-context>",
+                           "<cmux-folder-context>", "<cmux-left-on-mac-context>")
+
+
 def is_cmux_guidance(block):
     """Identify hidden cmux guidance in the stream-json content Claude receives."""
     if not isinstance(block, dict):
