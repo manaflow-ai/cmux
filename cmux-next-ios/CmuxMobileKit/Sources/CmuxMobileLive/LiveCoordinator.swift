@@ -141,6 +141,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// The network-return watch while a link is down in front (``updateNetworkReturnWatch()``).
+    @ObservationIgnored private var networkReturnTask: Task<Void, Never>?
     /// UIKit's `willEnterForeground` already resumed the links for this return
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
@@ -527,6 +529,64 @@ public final class LiveCoordinator {
 
     /// Presence down at least this long before its return redials the links.
     static let presenceOutageMin = PresenceTiming.outageMin
+
+    /// Whether a link is down while the app is in front: the network-return watch runs then.
+    private var wantsNetworkReturnWatch: Bool {
+        guard !isBackgrounded, registeredTeamID != nil else { return false }
+        return sessions.values.contains { session in
+            guard session.linkDownSince != nil else { return false }
+            switch session.link.phase {
+            case .connecting, .waiting: return true
+            case .idle, .connected, .macOffline, .signedOut: return false
+            }
+        }
+    }
+
+    /// Starts or stops the network-return watch (Rust `net_return`): while a link is down and
+    /// the app is in front, a TCP connect to the cmux service once a second; the first that gets
+    /// through after one that did not redials every link at once. It is the network-back signal
+    /// when iOS reports no path change and presence is still in its backoff (or hanging on the
+    /// dead path): before it, such a return waited out a backoff step, up to 30 s
+    /// (`network_flaps`). A network that was never down (the Mac is the problem) ends it until
+    /// the next phase change. Costs one SYN a second while dark, nothing in the background.
+    func updateNetworkReturnWatch() {
+        #if canImport(CmuxMobileLinkFFI)
+        guard wantsNetworkReturnWatch else {
+            networkReturnTask?.cancel()
+            networkReturnTask = nil
+            return
+        }
+        guard networkReturnTask == nil else { return }
+        let baseURL = api.baseURL.absoluteString
+        networkReturnTask = Task { [weak self] in
+            // Bounded rounds: a cancelled watch's Rust side stops within one.
+            while !Task.isCancelled {
+                let got = await waitForNetworkReturn(baseUrl: baseURL, maxWaitMillis: 15_000)
+                guard !Task.isCancelled, let self else { return }
+                if got.back {
+                    self.networkReturned(downMillis: got.downMillis)
+                    break
+                }
+                if got.neverDown { break }
+                if !self.wantsNetworkReturnWatch { break }
+            }
+            // A cancelled watch leaves the slot to the one that replaced it.
+            guard !Task.isCancelled else { return }
+            self?.networkReturnTask = nil
+        }
+        #endif
+    }
+
+    /// The network-return watch got through after a dark spell: as on a path change, every
+    /// waiting or dialing link dials now and presence reconnects now.
+    private func networkReturned(downMillis: UInt64) {
+        log.info("network back (probe, dark \(downMillis) ms): links redial")
+        ConnectTimeline.shared.mark("network_back_probe")
+        lastPathNudge = instants.now()
+        if store.isOffline { store.isOffline = false }
+        presence?.kick()
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
 
     // MARK: Warm start
 
@@ -1343,6 +1403,7 @@ public final class LiveCoordinator {
         // A call's link may have been opened since the call started.
         holdCallLink()
         for session in sessions.values { session.link.send(.background) }
+        updateNetworkReturnWatch()
         discovery.pause()
         presence?.backgrounded = true
         #if canImport(CmuxMobileLinkFFI)
