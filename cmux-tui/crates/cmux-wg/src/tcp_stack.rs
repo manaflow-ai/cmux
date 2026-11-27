@@ -192,6 +192,9 @@ pub(crate) struct Conn {
     /// Measures the delivery rate and holds the stream's writes at the
     /// low-water mark of unsent bytes ([`crate::send_gate`]).
     pub(crate) send: SendPacer,
+    /// This stream's fresh bytes the driver's pacer holds, as of its last
+    /// pass ([`TcpStack::set_pacer_held`]).
+    pub(crate) pacer_held: usize,
 }
 
 pub(crate) struct Listener {
@@ -467,11 +470,27 @@ impl TcpStack {
         for conn in &mut self.conns {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
             let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
-            conn.send.update(now, socket.send_queue(), socket.unsent_queue(), srtt);
+            let unsent = socket.unsent_queue() + conn.pacer_held;
+            conn.send.update(now, socket.send_queue(), unsent, srtt);
             // The buffer is the most a stream may use; the path decides how
             // much it does (`SendPacer::send_window`).
             socket.set_send_window_cap(Some(conn.send.send_window(socket.send_capacity())));
         }
+    }
+
+    /// After the driver moved the stack's output into its pacer and sent
+    /// what the pace allowed: each stream's fresh bytes the pacer still holds
+    /// (`held(local, remote)`, [`crate::pacing::Pacer::held`]) count as unsent
+    /// for its send gate. smoltcp counts them in flight, so without this a
+    /// bulk stream's backlog behind the delay window grew in the pacer to its
+    /// whole send window (3 s at 1 MB/s on lte), and a keystroke's echo
+    /// written on the same stream waited behind all of it.
+    pub(crate) fn set_pacer_held(&mut self, held: impl Fn(SocketAddr, SocketAddr) -> usize) {
+        for conn in &mut self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            conn.pacer_held = socket_flow(socket).map_or(0, |(local, remote)| held(local, remote));
+        }
+        self.update_send_gates();
     }
 
     /// Queue a decrypted packet for the next poll. In tagged mode `origin` is
@@ -653,6 +672,7 @@ impl TcpStack {
             drained: VecDeque::new(),
             reset,
             send: SendPacer::new(gate),
+            pacer_held: 0,
         };
         (conn, stream)
     }
