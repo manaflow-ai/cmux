@@ -31,6 +31,16 @@ const globalForDb = globalThis as typeof globalThis & {
   __cmuxCloudDb?: CloudDbState;
 };
 
+/**
+ * How long an RDS pool request waits for a connection: a new connect (IAM
+ * token fetch, TCP and TLS, auth) or a free pooled client. Without it a connect
+ * that never finished, and every request queued behind the full pool, waited
+ * until Vercel killed the function at maxDuration (960 s on the VM routes).
+ * Past it the query fails and the route answers its retryable database error.
+ * Kept inside the VM list's 20 s database budget.
+ */
+export const CLOUD_DB_CONNECT_TIMEOUT_MS = 10_000;
+
 export function createAwsRdsIamPool(
   config: CloudDbAwsRdsIamConfig,
   overrides: Partial<ConstructorParameters<typeof Pool>[0] & object> = {},
@@ -38,6 +48,7 @@ export function createAwsRdsIamPool(
   return new Pool({
     ...awsRdsConnectionOptions(config),
     max: config.poolMax,
+    connectionTimeoutMillis: CLOUD_DB_CONNECT_TIMEOUT_MS,
     ...overrides,
     Client: overrides.Client ?? CancellableRdsClient,
   });
