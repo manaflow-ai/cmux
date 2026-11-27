@@ -35,10 +35,10 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
+  turnTimeKey,
   formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
@@ -51,7 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Close, Retry } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import {
   ForkButton,
@@ -210,6 +210,7 @@ export function WorkedFor({
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-alone={row.workedAlone ? "" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -642,7 +643,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+              : waiting
+                ? "cv-turn-actions cv-turn-actions--waiting"
+                : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
