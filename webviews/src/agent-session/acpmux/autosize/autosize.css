@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 1.4;
   color: var(--text-secondary, rgba(127, 127, 127, 0.95));
   min-width: 0;
@@ -112,5 +112,5 @@
 }
 
 .autosize-row[data-look="card"] .autosize-row-title {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
