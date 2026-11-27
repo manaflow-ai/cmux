@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/swiftpm-seed.sh
+source "$SCRIPT_DIR/lib/swiftpm-seed.sh"
 # shellcheck source=scripts/lib/dev-sign-identity.sh
 source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
@@ -717,6 +719,9 @@ reload_write_discovery_file() {
 usage() {
   cat <<'EOF'
 Usage: ./scripts/reload.sh --tag <name> [options]
+
+A web or daemon change needs no build: `cmux app try .` copies your NIGHTLY and
+swaps your code into the copy. This script is for changes that need a build.
 
 Options:
   --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
@@ -1925,12 +1930,35 @@ xcodebuild_lock_dir() {
 }
 
 XCODEBUILD_LOCK_DIR="$(xcodebuild_lock_dir)"
-XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
+# How many tagged builds run at once on this machine. On a personal Mac:
+# max(1, min(cores / 6, RAM GiB / 16)) (cores: hw.physicalcpu). A Chief-driven
+# M5 Pro (15 cores, 48 GB) ran 118 swift-frontend at load 300 with swap full
+# (2026-11-23); this gives it 2, an 8 GB Mac 1. A build over the limit waits
+# in the queue below (never refused). CI runners (CI or GITHUB_ACTIONS set) keep
+# 5: they are build hosts. CMUX_XCODEBUILD_LOCK_CONCURRENCY=N overrides both.
+machine_build_slots() {
+  if [[ -n "${CI:-}${GITHUB_ACTIONS:-}" ]]; then
+    echo 5
+    return
+  fi
+  local cores mem_bytes by_cores by_ram slots
+  cores="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 0)"
+  mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  is_positive_integer "$cores" || { echo 5; return; }
+  is_positive_integer "$mem_bytes" || { echo 5; return; }
+  by_cores=$(( cores / 6 ))
+  by_ram=$(( mem_bytes / 1073741824 / 16 ))
+  slots=$(( by_cores < by_ram ? by_cores : by_ram ))
+  (( slots < 1 )) && slots=1
+  echo "$slots"
+}
+XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-$(machine_build_slots)}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
   echo "error: xcodebuild lock concurrency must be a positive integer" >&2
   exit 1
 fi
-XCODEBUILD_LOCK_WAIT_SECONDS="${CMUX_XCODEBUILD_LOCK_WAIT_SECONDS:-1800}"
+# A queued build waits up to 4 h by default: the slot limit queues work, it does not fail it.
+XCODEBUILD_LOCK_WAIT_SECONDS="${CMUX_XCODEBUILD_LOCK_WAIT_SECONDS:-14400}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
@@ -1941,8 +1969,11 @@ build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
 build_dirty=false
 [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
-# xcodebuild invocations can trample that daemon, so cap reload.sh builds at
-# five per user while still allowing useful parallel tagged builds.
+# xcodebuild invocations can trample that daemon, and parallel builds swap a
+# laptop to a halt, so reload.sh builds take one of XCODEBUILD_LOCK_CONCURRENCY
+# slots (machine_build_slots above).
+# Runner slots sharing one SwiftPM artifact cache: seed it first (scripts/lib/swiftpm-seed.sh).
+seed_swiftpm_binary_artifacts "$SCRIPT_DIR/.."
 XCODEBUILD_STARTED=1
 set_xcodebuild_command
 python3 -c '
@@ -2064,10 +2095,34 @@ def wait_for_any_slot():
 
 fd, slot, lock_path = try_acquire_any_slot()
 if fd is None:
+    waiting = 0
+    try:
+        for name in os.listdir(lock_dir):
+            if not name.startswith("waiting-"):
+                continue
+            try:
+                os.kill(int(name[len("waiting-"):]), 0)
+                waiting += 1
+            except (ValueError, ProcessLookupError):
+                try:
+                    os.unlink(os.path.join(lock_dir, name))
+                except OSError:
+                    pass
+            except OSError:
+                waiting += 1
+    except OSError:
+        pass
     msg = (
-        f"==> xcodebuild concurrency limit reached ({concurrency}); "
-        "waiting for the next available slot...\n"
+        f"==> queued: this machine runs {concurrency} tagged build(s) at once "
+        f"(cores and memory; CMUX_XCODEBUILD_LOCK_CONCURRENCY=N sets it), "
+        f"#{waiting + 1} in line; waiting for a slot. "
+        "`cmux-ci build` builds on the fleet instead.\n"
     )
+    marker = os.path.join(lock_dir, f"waiting-{os.getpid()}")
+    try:
+        open(marker, "w").close()
+    except OSError:
+        marker = None
     # reload.sh saves the original stderr on fd 4 before redirecting to the
     # log file. Surface the wait notice to the terminal so the user knows
     # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
@@ -2077,7 +2132,14 @@ if fd is None:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
-    fd, slot, lock_path = wait_for_any_slot()
+    try:
+        fd, slot, lock_path = wait_for_any_slot()
+    finally:
+        if marker:
+            try:
+                os.unlink(marker)
+            except OSError:
+                pass
 
 try:
     os.execvp(command[0], command)
@@ -2309,7 +2371,6 @@ case "$cmux_next_tui_source" in
     exit 1
     ;;
 esac
-"$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
@@ -2349,6 +2410,14 @@ if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
+  # That quit keeps the old build's helpers (the terminal owner, acpmux, the Chief host, files-host),
+  # as a shipped app's quit does; the build is being replaced, so end the tree the old bundle
+  # started, also for a build older than its own reaper (issue 55842, scripts/dev-build.py).
+  # CMUX_DEV_KEEP_HELPERS=1 keeps them, to test that terminals survive a reload.
+  if [[ "${CMUX_DEV_KEEP_HELPERS:-0}" != 1 && "$NAME_SET" -eq 0 && "$TAG_SLUG" != next ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" stop --tag "$TAG_SLUG" \
+      || echo "warning: some processes of the old ${APP_NAME} build are still running (scripts/dev-build.py list)" >&2
+  fi
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2412,6 +2481,11 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; the
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
+  # The agent chat that launches a tag owns it: `dev-build.py stop --all-idle` ends the build once
+  # that chat is closed (issue 55842).
+  if [[ -n "${TAG_SLUG:-}" && -n "${ACPMUX_SESSION_ID:-}" ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet || true
+  fi
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
     cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"

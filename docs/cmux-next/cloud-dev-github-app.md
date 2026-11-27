@@ -95,7 +95,7 @@ GitHub counts as configured when all of these are set (`src/http.ts` integration
 |---|---|
 | `INTEGRATIONS_KEK` | 32 random bytes, base64. Keep an existing one: it opens the sealed connection rows. |
 | `DASHBOARD_ORIGIN` | a var in `wrangler.jsonc` (already set) |
-| `GITHUB_APP_SLUG` | the App's slug |
+| `GITHUB_APP_SLUG` | the App's slug; only a fallback: the API reads the slug from GitHub's `GET /app` (cached an hour), so renaming the App needs no change |
 | `GITHUB_APP_CLIENT_ID` | the App's client id (also the JWT issuer) |
 | `GITHUB_APP_CLIENT_SECRET` | the App's client secret |
 | `GITHUB_APP_PRIVATE_KEY` | the App's private key as PKCS#8 PEM |

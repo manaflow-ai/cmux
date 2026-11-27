@@ -63,6 +63,10 @@
 /* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
 .ui-notice[data-placement="stack"] {
   --glass-elevation: var(--elevation-2);
+  /* A toast is a floating surface: its corner is the role's (schemas/design-roles), the button corner
+     plus the inset capped at a third of a one-line toast's height, so a thin toast is never a capsule
+     (the corner rule, design-debate 2026-11-22). */
+  border-radius: var(--role-toast-radius); /* concentric-allow: the toast role caps the concentric corner */
   width: max-content;
   max-width: min(420px, calc(100vw - var(--ds-space-5)));
 }
@@ -384,7 +388,7 @@
   width: min(96px, 30%);
   height: var(--ds-space-6, 32px);
   border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
-  border-radius: var(--transient-surface-radius);
+  border-radius: var(--role-toast-radius);
   pointer-events: none;
   transition:
     background-color var(--cmux-motion-quick, 80ms),

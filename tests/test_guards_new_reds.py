@@ -193,21 +193,42 @@ class NewReds(unittest.TestCase):
 
     def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
         # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
-        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
-        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        # replay passed it. A missing or unreadable first result stays unknown, never a flake. A first replay whose
+        # file timed out (it names no test) followed by replays that name the test red is no flake either: the base
+        # failed it by name, so it is red on the base too (cmux#50088), never excused as flaky.
         red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
+            self.assertNotIn(f"webview test red step (flaky): {red}", done.stdout)
             if first == "unreadable":
                 self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
                 self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
             else:
-                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-                self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-                self.assertIn(f"webview test red step (new): {red}", done.stdout)
+                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (base): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [] if first == "unreadable" else [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [], first)
+
+    def test_a_red_the_first_replay_timed_out_on_is_the_bases_when_every_later_replay_fails_it(self):
+        # cmux#50088 (job 137410904472): feel-plan-tray.test.ts timed out on the first base replay, naming the tests
+        # it finished; both later base replays failed "five drags in a row" by name with the head's own numbers, and
+        # the compare called it the change's.
+        file = "test/feel-plan-tray.test.ts"
+        red = f"{file} > feel: plan tray rim drag > five drags in a row, up and down: each follows the hand, none jumps"
+        other = f"{file} > feel: plan tray rim drag > a click on the rim (no drag) moves and changes nothing"
+        head = {red: False, other: False, file: False}
+        first = {other: False, file: False}
+        done = self.run_again(head, first, {red: False, other: False, file: False}, {red: False, file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test red on the base too::{red}", done.stdout)
+        self.assertIn(f"webview test red step (base): {red}", done.stdout)
+        # One later replay that passes it, or none that names it: still the change's.
+        for again in (({red: False}, {red: True}), ({file: False},), ({file: False}, {file: False})):
+            done = self.run_again(head, first, *again)
+            self.assertEqual(done.returncode, 1, f"{again}: {done.stdout}{done.stderr}")
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -299,6 +320,29 @@ class NewReds(unittest.TestCase):
             subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
                             str(files), str(base)], check=True, capture_output=True)
             self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
+
+    def test_the_first_base_replay_never_stops_before_the_head_reds(self):
+        # cmux#53976, run 45519691376 job 138896898305: the job started 00:59:13, the replay's setup (bundles,
+        # browsers) took it to 01:24:09, and the fixed REPLAY_RESERVE put CMUX_WEB_TEST_STOP_AT at 01:25:53. Its one
+        # head-red file was "NOT RUN ... past CMUX_WEB_TEST_STOP_AT", so a red from the base had no base verdict
+        # and failed the job. The first replay holds only head reds: it gets a whole file's time from when it starts.
+        started, now = 1_700_000_000, 1_700_000_000 + 1496
+
+        def stop_at(*args):
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"),
+                                   "--first-replay-stop-at", *map(str, args)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return done.stdout.strip()
+
+        at = int(stop_at(started, 55, 1700, now))
+        self.assertGreaterEqual(at, now + 900)  # the runner's per-file ceiling
+        self.assertLessEqual(at, started + 55 * 60 - 120)  # never past the verdict's margin
+        # With time to spare the reserve for the head re-run still holds.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 60)), started + 55 * 60 - 1700)
+        # Late in the job it ends at the verdict's margin, not past the job's timeout.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 50 * 60)), started + 55 * 60 - 120)
+        # No job clock: no stop.
+        self.assertEqual(stop_at(0, 55, 1700, now), "")
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
@@ -629,6 +673,22 @@ class AWarningLineIsNotAFailureName(unittest.TestCase):
         ])
         self.assertIn("tests/test_keychain.py::test_probe", names)
         self.assertFalse({name for name in names if name.startswith("sys")}, names)
+
+
+class AnObjectAddressIsNotAFailureName(unittest.TestCase):
+    """An object repr's address (`<function f at 0x758be97b8360>`) differs in every process. "0x" glued it into one
+    word the sha pattern never matched, so "Validate the Cloud chat proof script", red on the base for the same
+    reason, read new on every pull request (cmux-next CI guard group, 2026-11-26: `x0e0a0>`, `x0be0b0>`)."""
+
+    def test_two_runs_of_the_same_failure_name_the_same_things(self):
+        import guards_new_reds
+
+        head = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x758be97b8360>"])
+        base = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x7f01c0ea2de0>"])
+        self.assertEqual(head, base)
+        self.assertIn("_remove_cached_logins_on_exit", head)
 
 
 if __name__ == "__main__":

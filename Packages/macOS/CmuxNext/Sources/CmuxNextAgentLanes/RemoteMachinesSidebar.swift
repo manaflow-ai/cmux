@@ -110,6 +110,9 @@ public final class RemoteMachinesSidebar {
     /// Bumped by each push (`peerStateChanged`): a read in flight then may answer from before it, so
     /// its answer is dropped and the list read again.
     @ObservationIgnored private var peerPushes = 0
+    @ObservationIgnored private let connectionPresentation = RemoteMachinesConnectionPresentation()
+    /// Only chats still displayed retain navigation through a brief watch gap.
+    @ObservationIgnored private var displayedLanes: [String: AgentActivityLane] = [:]
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -125,11 +128,29 @@ public final class RemoteMachinesSidebar {
         let lanes = lanes, refresh = refresh
         // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
+            for await _ in ObservationStream({ _ = lanes.lanes; _ = lanes.live; _ = SidebarTunables.laneFixture.value }) {
+                guard !Task.isCancelled else { return }
                 refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
         rebuild()
+    }
+
+    /// Creates the app-facing transport adapter without coupling this model to AppServices.
+    public static func host(socketPath: String?, displayName: @escaping (String) -> String?,
+                            open: @escaping (AgentActivityLane) -> Void) -> Host {
+        Host(
+            peers: {
+                guard let socketPath else { return nil }
+                return try? await AcpmuxPeerList(socketPath: socketPath).peers()
+            },
+            older: { peer, cursor in
+                guard let socketPath else { return nil }
+                return try? await AcpmuxSessionPage(socketPath: socketPath).closed(peer: peer, cursor: cursor,
+                                                                                  limit: RemoteMachinesSidebar.pageSize)
+            },
+            displayName: displayName,
+            open: open)
     }
 
     public func stop() {
@@ -139,6 +160,15 @@ public final class RemoteMachinesSidebar {
         (laneWatch, peerRead) = (nil, nil)
         olderReads.values.forEach { $0.cancel() }
         olderReads = [:]
+        connectionPresentation.stop()
+        host = nil
+        peers = nil
+        machines = []
+        displayedLanes = [:]
+        pages = [:]
+        olderShown = []
+        older = [:]
+        peerPushes = 0
     }
 
     /// The app's own acpmux pushed peer `peer`'s link state (`AgentTurnStateFeed.peerStateChanged`),
@@ -175,7 +205,7 @@ public final class RemoteMachinesSidebar {
         let connected = state == "connected"
         guard list[i].connected != connected else { return .same }
         let old = list[i]
-        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url, symbol: old.symbol)
+        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url, symbol: old.symbol, autoCloud: old.autoCloud)
         return .list(list)
     }
 
@@ -217,9 +247,11 @@ public final class RemoteMachinesSidebar {
         }
         if let rest = Self.suffix(raw, Self.olderSessionPrefix), let cut = rest.firstIndex(of: "/") {
             let (peer, session) = (String(rest[..<cut]), String(rest[rest.index(after: cut)...]))
-            let title = older[peer]?.chats.first { $0.id == session }?.title ?? session
+            let chat = older[peer]?.chats.first { $0.id == session }
+            let title = chat?.title ?? session
             host?.open(AgentActivityLane(id: session, name: peer + "/" + session, title: title, peer: peer, parent: nil, state: .idle,
-                                         since: nil, error: nil))
+                                         since: nil, error: nil, harness: chat?.harness,
+                                         chat: chat?.harness.map { "\($0):\(session)" }))
             return true
         }
         if Self.suffix(raw, Self.resourcesPrefix) != nil { return true }
@@ -228,16 +260,35 @@ public final class RemoteMachinesSidebar {
             return true
         }
         guard let session = Self.suffix(raw, Self.sessionPrefix) else { return false }
-        if let lane = lanes.lanes[session] { host?.open(lane) }
+        if let lane = lanes.lanes[session] ?? displayedLanes[session] { host?.open(lane) }
         return true
     }
 
-    private func rebuild() {
+    func rebuild() {
         guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
         askForPeers()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
-        let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
-            : Self.machines(lanes: lanes.lanes.values, peers: peers)
+        let current: [Machine]
+        if SidebarTunables.laneFixture.value {
+            current = Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
+        } else if lanes.beforeGap != nil {
+            // An empty watch is unknown, not a fresh empty session list. Use the same bounded
+            // disconnect presentation as a peer drop; never freeze a stale working state forever.
+            current = machines.map { machine in
+                var down = machine
+                down.online = false
+                down.chats = []
+                return down
+            }
+        } else {
+            current = Self.machines(lanes: lanes.lanes.values, peers: peers)
+        }
+        let next = connectionPresentation.update(current) { [weak self] in self?.rebuild() }
+        var navigation: [String: AgentActivityLane] = [:]
+        for chat in next.flatMap(\.chats) {
+            navigation[chat.id] = lanes.lanes[chat.id] ?? displayedLanes[chat.id]
+        }
+        displayedLanes = navigation
         if machines != next { machines = next }
     }
 
@@ -247,6 +298,7 @@ public final class RemoteMachinesSidebar {
         guard olderReads[peer] == nil, let read = host?.older else { return }
         // task-owner: this instance; one page read, bounded by the host's 2 s deadline, cancelled by `stop()`
         olderReads[peer] = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let page = await read(peer, cursor)
             guard let self, !Task.isCancelled else { return }
             olderReads[peer] = nil
@@ -293,6 +345,7 @@ public final class RemoteMachinesSidebar {
         // task-owner: this instance; one read at a time, each bounded by its 2 s deadline, cancelled by `stop()`;
         // a follow-up only when a push came during it (pushes come only on a state change, so a burst ends)
         peerRead = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let next = await read()
             guard let self, !Task.isCancelled else { return }
             peerRead = nil
@@ -366,10 +419,11 @@ public final class RemoteMachinesSidebar {
             let room = machine.online ? machine.resources : nil
             let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
                 else { name }
+            // Never greyed while offline: the title says "· Offline" (Leo, 2026-11-24: no "graying out").
             // The machine's own device glyph (cmux-device-kind's SF Symbol); an older peer keeps the cloud.
             var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: machine.symbol ?? "cloud",
                                          icon: machine.symbol == nil ? .cloud : nil,
-                                         badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
+                                         badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil)
             header.activity = activity(machine.chats)
             add(machinePrefix + machine.peer, header)
             guard machine.online, expanded.contains(machine.peer) else { continue }

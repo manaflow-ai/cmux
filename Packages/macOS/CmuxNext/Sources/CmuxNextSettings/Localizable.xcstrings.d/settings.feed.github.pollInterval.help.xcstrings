@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.feed.github.pollInterval.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sekunden zwischen GitHub-Aktualisierungen. Aktualisieren im Posteingang erfolgt sofort."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secondes entre les actualisations GitHub. Actualiser dans la boîte de réception s’exécute immédiatement."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الثواني بين تحديثات GitHub. يعمل التحديث في صندوق الوارد فوراً."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segundos entre actualizaciones de GitHub. Actualizar en la bandeja se ejecuta inmediatamente."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 重新整理之間的秒數。在收件匣中重新整理會立即執行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 刷新之间的秒数。在收件箱中刷新会立即执行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 새로 고침 간격(초)입니다. 받은 편지함에서 새로 고침은 즉시 실행됩니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub の更新間隔（秒）。受信トレイでの更新はすぐに実行されます。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

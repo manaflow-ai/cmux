@@ -54,10 +54,15 @@ test("the prompts' Map is the same object until an editable prompt changes", () 
   expect(trackEditableTurns(rows, "claude", first)).toBe(first);
   expect(trackEditableTurns([...rows], "claude", first).seqs).toBe(first.seqs);
   const finished = trackEditableTurns([...streamed.slice(0, -1), reply(4, "tok"), summary(4)], "claude", third);
-  expect(finished.seqs).toBe(third.seqs);
+  expect(finished.seqs).not.toBe(third.seqs);
+  expect(finished.seqs.get("user-4")).toBe(3);
+  // A new prompt edits only once its own turn ends: until then the Map stays the same object.
   const next = trackEditableTurns([...finished.rows, user(5)], "claude", finished);
-  expect(next.seqs).not.toBe(finished.seqs);
-  expect(next.seqs.get("user-5")).toBe(4);
+  expect(next.seqs).toBe(finished.seqs);
+  expect(next.seqs.has("user-5")).toBe(false);
+  const answered = trackEditableTurns([...next.rows, reply(5, "ok"), summary(5)], "claude", next);
+  expect(answered.seqs).not.toBe(next.seqs);
+  expect(answered.seqs.get("user-5")).toBe(4);
 });
 
 // The Fork under each answered prompt (trackPromptTurns): a finished turn keeps its Fork while a later

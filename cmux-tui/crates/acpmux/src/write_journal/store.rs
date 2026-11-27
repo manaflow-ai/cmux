@@ -65,7 +65,7 @@ impl FileJournalStore {
     /// Creates the folder and makes its link in its parent durable, once per store.
     fn ensure_dir(&self) -> io::Result<()> {
         use std::sync::atomic::Ordering;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dirs(&self.dir)?;
         if !self.dir_durable.load(Ordering::SeqCst) {
             if let Some(parent) = self.dir.parent().filter(|p| !p.as_os_str().is_empty()) {
                 sync_dir(parent)?;
@@ -157,12 +157,9 @@ impl JournalStore for FileJournalStore {
         for e in state.entries.into_iter().filter(|e| e.seq > through) {
             text.push_str(&line_of(&Line::Entry(e))?);
         }
-        let mut tmp = tempfile::NamedTempFile::new_in(&self.dir)?;
-        tmp.write_all(text.as_bytes())?;
-        tmp.as_file().sync_data()?;
-        tmp.persist(&path).map_err(|e| e.error)?;
-        // The rename itself is durable once the folder is.
-        sync_dir(&self.dir)
+        // One copy name per file and process (`home_fs::write_durable`), synced, renamed, and
+        // the folder synced: the rename itself is durable once the folder is.
+        crate::home_fs::write_durable(&path, text.as_bytes())
     }
 }
 
@@ -205,4 +202,37 @@ fn drop_torn_tail(path: &Path) -> io::Result<()> {
     let keep = bytes.iter().rposition(|&c| c == b'\n').map_or(0, |i| i.saturating_add(1));
     f.set_len(u64::try_from(keep).unwrap_or(len))?;
     f.sync_data()
+}
+
+/// A journal kept in memory only: what a daemon with a memory store (tests, a scratch daemon)
+/// keeps, so nothing it journals outlives it, like the rest of its state.
+#[derive(Default)]
+pub struct MemoryJournalStore {
+    machines: Mutex<std::collections::BTreeMap<String, JournalState>>,
+}
+
+impl MemoryJournalStore {
+    fn guard(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeMap<String, JournalState>> {
+        self.machines.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl JournalStore for MemoryJournalStore {
+    fn load(&self, machine: &str) -> io::Result<JournalState> {
+        Ok(self.guard().get(machine).cloned().unwrap_or_default())
+    }
+
+    fn append(&self, machine: &str, entry: &Entry) -> io::Result<()> {
+        self.guard().entry(machine.to_owned()).or_default().entries.push(entry.clone());
+        Ok(())
+    }
+
+    fn clear_through(&self, machine: &str, seq: u64) -> io::Result<()> {
+        let mut all = self.guard();
+        let state = all.entry(machine.to_owned()).or_default();
+        state.cleared_through = state.cleared_through.max(seq);
+        let through = state.cleared_through;
+        state.entries.retain(|e| e.seq > through);
+        Ok(())
+    }
 }

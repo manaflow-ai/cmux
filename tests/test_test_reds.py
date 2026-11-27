@@ -729,6 +729,20 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
         broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
         self.assertTrue(self.unnamed(*broken))
 
+    def test_nested_cargo_counts_stay_in_their_own_invocation(self):
+        parent = "test result: FAILED. 0 passed; 2 failed; 0 ignored"
+        child = "test result: FAILED. 0 passed; 1 failed; 0 ignored"
+        lines = ["running 2 tests", "test outer::one ... FAILED", "test outer::two ... FAILED",
+                 "running 1 test", "test child::one ... FAILED", child, parent]
+        self.assertEqual(self.unnamed(*lines), [])
+        # Neither invocation can borrow the other's unused names to cover a missing identity.
+        child_short = lines.copy()
+        child_short[-2] = child.replace("1 failed", "2 failed")
+        self.assertEqual(self.unnamed(*child_short), [child_short[-2]])
+        parent_short = lines.copy()
+        parent_short[-1] = parent.replace("2 failed", "3 failed")
+        self.assertEqual(self.unnamed(*parent_short), [parent_short[-1]])
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
@@ -907,6 +921,55 @@ def bun_invocation(results=(), recap=(), fail=None):
     return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
 
 
+class SubtestParamsKeepAnOffendersIdentity(unittest.TestCase):
+    """cmuxterm-hq, 2026-11-22: main was red on `Skills tests / Skill policy tests` (tests/test_py39_names.py,
+    `test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard`, one assertEqual of every offender against []), and PRs
+    that added new offenders (`tools/lane-gh-broker/test_state.py: sys.stdlib_module_names`, ...) read as the same red:
+    one test name on both sides. hq's list-style lints now report each offender as its own subTest; this replays that
+    run and holds the key: a subTest's message and parameters are part of a unittest failure's identity, so a new
+    offender inside a test the base already fails is a new failing item (hq docs/handbook/excuse-key-drops-identity.md,
+    "A test that holds many findings")."""
+
+    TEST = "test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard (__main__.UnderPython39.test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard)"
+    OLD = "tools/fleet-reconcilers/test_hold_fences.py"
+    NEW = "tools/lane-gh-broker/test_state.py"
+
+    def run_log(self, *paths):
+        lines = [*step("python3 tests/test_py39_names.py -v")]
+        for path in paths:
+            lines += ["=" * 70, f"FAIL: {self.TEST} (path='{path}')", "-" * 70,
+                      "Traceback (most recent call last):",
+                      '  File "/w/tests/test_py39_names.py", line 690, in test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard',
+                      "    self.fail(...)",
+                      f"AssertionError: Python 3.9 lacks these names and nothing guards the read: {path}:1: tomllib"]
+        lines += ["-" * 70, "Ran 9 tests in 12.000s", f"FAILED (failures={len(paths)})",
+                  "##[error]Process completed with exit code 1."]
+        return log(*lines)
+
+    def test_each_subtest_is_its_own_failing_test(self):
+        found = reds.read(self.run_log(self.OLD, self.NEW))
+        self.assertEqual(found.failed, {f"{self.TEST} (path='{self.OLD}')", f"{self.TEST} (path='{self.NEW}')"})
+        self.assertEqual(found.truncated, [])
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [msg only]"]), {f"{self.TEST} [msg only]"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [m] (n=1)  "]), {f"{self.TEST} [m] (n=1)"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST}"]), {self.TEST})
+
+    def test_a_new_offender_in_a_test_the_base_fails_is_refused(self):
+        verdict = reds.classify(self.run_log(self.OLD, self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn(f"(path='{self.NEW}')", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [f"{self.TEST} (path='{self.OLD}')"])
+
+    def test_the_base_offender_alone_is_excused(self):
+        verdict = reds.classify(self.run_log(self.OLD), self.run_log(self.OLD), "Skill policy tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_fixed_offender_does_not_excuse_a_new_one(self):
+        # The count alone was not enough: the base's offender fixed and a new one added is one failure on each side.
+        verdict = reds.classify(self.run_log(self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+
+
 class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):
     """#41222's review, earlier F1: "Move the refusal into the shared path every consumer goes through ... Cover each
     entry point (classify, read, expand_job)". read() records a failure no parser names (Result.unnamed) and calls
@@ -936,6 +999,77 @@ class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):
         lines = bun_invocation(results=["a > one"], fail=2)
         self.assertEqual(reds.read(log(*lines)).unnamed, [" 2 fail"])
         self.assertTrue(reds.classify(log(*lines), log(*lines), "web tests").own)
+
+
+def cargo_run(failed, nested, total=None, listed=None):
+    """A cargo test binary's run as libtest prints it (shaped after cmux run 45048355800's `acpmux tests (lib,
+    hub_integration)`): FAILED lines, a `failures:` section whose test `nested` printed a whole nested libtest run in
+    its captured stdout (a test that re-execs its own binary with a filter), the closing list, and the summary."""
+    lines = ["     Running unittests src/lib.rs (target/debug/deps/acpmux-02edcd1085c33921)", "",
+             f"running {len(failed) + 2} tests", "test a::passes ... ok"]
+    lines += [f"test {name} ... FAILED" for name in failed] + ["test z::passes ... ok", "", "failures:", ""]
+    for name in failed:
+        lines += [f"---- {name} stdout ----", "", f"thread '{name}' (816903) panicked at src/lib.rs:888:9:"]
+        if name == nested:
+            lines += ["", "running 1 test", "test other::child_only ... FAILED", "",
+                      "failures:", "", "failures:", "    other::child_only", "",
+                      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6881 filtered out; "
+                      "finished in 0.01s", "", "", "",
+                      f"thread '{name}' (816915) panicked at src/lib.rs:948:82:"]
+        lines += ["note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace", ""]
+    lines += ["", "failures:"] + [f"    {name}" for name in sorted(listed or failed)] + [""]
+    lines += [f"test result: FAILED. 6795 passed; {len(failed) if total is None else total} failed; 76 ignored; "
+              "0 measured; 0 filtered out; finished in 416.77s", "",
+              "error: test failed, to rerun pass `-p acpmux --lib`"]
+    return lines
+
+
+class NestedCargoOutputIsTheTestsOwn(unittest.TestCase):
+    """2026-11-22, cmux run 45048355800: `acpmux tests (lib, hub_integration)` was refused as "its log reports more
+    failing tests than it names (test result: FAILED. 6795 passed; 11 failed; ...)" while base had the same reds.
+    linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names re-execs its own binary, and the nested
+    run it printed in its captured stdout (`test ... FAILED`, `test result: FAILED. 0 passed; 1 failed`) was read as
+    the job's: the nested summary took the cargo count, the real one was compared against nothing. The failures are
+    the outer run's `test NAME ... FAILED` lines, counted against its own last summary (cargo_captured)."""
+
+    OUTER = ["cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples",
+             "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names",
+             "protocol::tests::protocol_ir_is_current"]
+    NESTED = "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names"
+
+    def test_the_excuse_names_exactly_the_outer_failures_and_the_counts_agree(self):
+        lines = cargo_run(self.OUTER, self.NESTED)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.failed, set(self.OUTER))  # never the child's other::child_only
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(reds.failed_in(log(*lines)), Counter({name: 1 for name in self.OUTER}))
+        self.assertEqual(reds.unnamed_failures(lines), [])
+        verdict = reds.classify(log(*lines), log(*cargo_run(self.OUTER, self.NESTED)), "acpmux tests (lib)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, sorted(self.OUTER))
+
+    def test_the_real_log_reads_no_unnamed_summary(self):
+        # The real job log's three cargo runs (the lib's, and the two `retry ... alone` runs), trimmed.
+        text = (FIXTURES / "cargo-nested-run-45048355800.log").read_text()
+        found = reds.read(text)
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertNotIn("other::child_only", found.failed)
+        self.assertEqual(reds.failed_in(text)[self.NESTED], 3)  # once per run, never its nested line too
+
+    def test_a_summary_counting_more_than_the_outer_run_named_still_refuses(self):
+        lines = cargo_run(self.OUTER, self.NESTED, total=4)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [lines[-3]])
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests (lib)").own)
+
+    def test_a_closing_list_the_failed_lines_disagree_with_hides_nothing(self):
+        # A failed test with no `test NAME ... FAILED` line of its own: the list names it, so no summary is the
+        # outer run's own and its captured output is not hidden. Its count is named by the closing list itself
+        # (#50988: a cargo summary counts the names in its closing `failures:` list).
+        lines = cargo_run(self.OUTER, self.NESTED, total=4, listed=self.OUTER + ["tests::printed_no_failed_line"])
+        hidden = reds.cargo_captured(lines)
+        self.assertFalse(any(lines[n].startswith("---- ") for n in hidden), [lines[n] for n in hidden])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
 
 
 class BunCountsTheIdentitiesItKeeps(unittest.TestCase):
@@ -1394,6 +1528,45 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         # A replay with no head re-run holds no run of the head.
         self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
         self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
+
+    def test_a_replay_cut_at_its_stop_compares_its_unknown_tests_with_the_base(self):
+        # cmux#54692 (job 138764620789): the first replay stopped at CMUX_WEB_TEST_STOP_AT with 593 head reds it never
+        # reached, deferred to the merge gate as `unknown`, and 0 charged. Their "base result unavailable" warnings are
+        # no base verdict: each unknown test is compared with the base's runs, never cleared, and the head re-run's
+        # flake alone never decides the replay.
+        unknown, flake = f"{CAPSULES} > {CAPSULE_TEST}", "test/composer-footer-plain.test.ts > rests flat"
+
+        def verdict(*names, kind):
+            return log(*[f"webview test red step ({kind}): {name}" for name in names])
+
+        def cut_replay(unknowns):
+            first = log(*[f"##[warning]{name}" for name in [*unknowns, flake]],
+                        "0 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed")
+            final = log(*[f"##[warning]{name}" for name in [*unknowns, flake]],
+                        "0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base, 0 fixed",
+                        f"{len(unknowns)} webview test steps have no base result (deferred to the merge gate)")
+            return "\n".join([first, verdict(*unknowns, kind="unknown"), log("re-running alone on the head:"),
+                              web_job(("test/composer-footer-plain.test.ts", [("rests flat", "boom", 9)])),
+                              final, verdict(flake, kind="flaky"), verdict(*unknowns, kind="unknown")])
+
+        text = cut_replay([unknown])
+        found = reds.web_failures(text)
+        self.assertEqual(found.unknown, {unknown})
+        self.assertNotIn(unknown, found.shared)
+        self.assertEqual(found.charged, set())
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        same = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", same)])).own)
+        # The base passes it (its red is the change's), or fails it another way: the replay is the change's own.
+        for base in ([web_job(("test/composer-footer-plain.test.ts", [("rests flat", "boom", 9)]))],
+                     [web_job((CAPSULES, [(CAPSULE_TEST, "expect(received).toEqual(expected)", 140)]))]):
+            with self.subTest(base=base[0][-80:]):
+                judged = reds.classify_web_window([text, head], iter([("run 1", base)]))
+                self.assertTrue(judged.own)
+                self.assertIn("agent-pane-no-capsules", " ".join(judged.reasons))
+        # A head shard log that never printed the unknown test's error is no match either.
+        self.assertTrue(reds.classify_web_window([text, web_job((CAPSULES, [(CAPSULE_TEST, None)]))],
+                                                 iter([("run 1", same)])).own)
 
     def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
         # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).
@@ -1931,6 +2104,101 @@ class VolatileTokens(unittest.TestCase):
         self.assertIn("fail differently", verdict.reasons[0])
 
 
+CHECKOUT_DEATH_LOG = FIXTURES / "51655-changes-checkout-job-514215463833.log"
+
+
+class DiedInCheckout(unittest.TestCase):
+    """A job that died in actions/checkout before any step of the change ran (cmux#51655 at fd3c0b17, 'changes'):
+    infra to re-run, read as leo-workspace tools/ws-check's failed_in_checkout reads it."""
+
+    def test_the_real_checkout_death_is_read_with_its_first_error(self):
+        said = reds.died_in_checkout(CHECKOUT_DEATH_LOG.read_text())
+        self.assertIsNotNone(said)
+        self.assertIn("Operation too slow", said)
+
+    def test_the_gh_run_view_shape_reads_the_same(self):
+        text = "\n".join(f"changes\tUNKNOWN STEP\t{line}" for line in CHECKOUT_DEATH_LOG.read_text().splitlines())
+        self.assertIn("Operation too slow", reds.died_in_checkout(text))
+
+    def test_a_later_step_failure_keeps_its_verdict(self):
+        text = "\n".join([
+            "2026-11-25T19:16:19Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+            "2026-11-25T19:16:20Z Checking out the ref",
+            "2026-11-25T19:16:21Z ##[group]Run python3 tests/test_x.py",
+            "2026-11-25T19:16:22Z ##[error]Process completed with exit code 1.",
+            "2026-11-25T19:16:23Z A job completed hook has been configured by the self-hosted runner administrator",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_a_step_that_ran_after_a_checkout_error_keeps_its_verdict(self):
+        # A checkout with continue-on-error, then the change's own step: that step ran, so its red is judged.
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]fatal: could not fetch abc from promisor remote",
+            "##[group]Run python3 tests/test_x.py",
+            "##[error]Process completed with exit code 1.",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_the_runners_job_completed_hook_is_no_step_of_the_job(self):
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]The process '/usr/local/bin/git' failed with exit code 128",
+            "A job completed hook has been configured by the self-hosted runner administrator",
+            "##[group]Run '/opt/cmux-job-clean.sh'",
+        ])
+        self.assertIn("exit code 128", reds.died_in_checkout(text))
+
+    def test_no_error_or_no_log_is_no_checkout_death(self):
+        self.assertIsNone(reds.died_in_checkout(None))
+        self.assertIsNone(reds.died_in_checkout("##[group]Run actions/checkout@v4\nok"))
+        self.assertIsNone(reds.died_in_checkout("##[error]before any step"))
+
+
+ENOSPC_JOBS = ("139341128013", "139340766008")  # cmux#50809 (run 45639356121), cmux#50827 (run 45649635922)
+
+
+class RunnerWorkerCrashed(unittest.TestCase):
+    """A job whose runner's worker crashed under it on a full disk (`No space left on device` on its own _diag trace,
+    then `Unhandled exception.` in GitHub.Runner.Worker) is infra to re-run, never the PR's own red."""
+
+    def real(self, job_id):
+        return (json.loads((FIXTURES / f"runner-enospc-job-{job_id}.json").read_text()),
+                json.loads((FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text()))
+
+    def test_both_real_jobs_read_as_a_worker_crash(self):
+        for job_id in ENOSPC_JOBS:
+            job, notes = self.real(job_id)
+            said = reds.runner_worker_crashed(job, notes)
+            self.assertIn("No space left on device", said)
+            self.assertIn("/actions-runner/_diag/Worker_", said)
+            self.assertIn("worker crashed", reds.lost_runner(job, notes))
+            # As cmuxterm-hq's next-autoland infra_noted asks: a conclusion and the annotations, nothing else.
+            self.assertIn("worker crashed", reds.lost_runner({"conclusion": "failure"}, notes))
+            self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in notes]))
+
+    def test_the_unhandled_worker_exception_alone_is_a_crash(self):
+        _, notes = self.real(ENOSPC_JOBS[0])
+        tail = notes[0]["message"][notes[0]["message"].index("Unhandled exception."):]
+        alone = tail.replace("No space left on device", "Broken pipe")
+        self.assertIn("Unhandled exception", reds.runner_worker_crashed({"conclusion": "failure"}, [alone]))
+
+    def test_a_failed_step_keeps_its_verdict(self):
+        job, notes = self.real(ENOSPC_JOBS[0])
+        job["steps"][20] = dict(job["steps"][20], status="completed", conclusion="failure")
+        self.assertIsNone(reds.runner_worker_crashed(job, notes))
+
+    def test_a_test_quoting_the_words_is_no_crash(self):
+        job = {"conclusion": "failure"}
+        for message in ("Unhandled exception. TypeError: x is undefined\n    at Object.<anonymous> (a.test.ts:3:1)",
+                        "No space left on device : '/tmp/build/out.bin'",
+                        "Process completed with exit code 1."):
+            self.assertIsNone(reds.runner_worker_crashed(job, [{"annotation_level": "failure", "message": message}]))
+        _, notes = self.real(ENOSPC_JOBS[0])
+        self.assertIsNone(reds.runner_worker_crashed(job, [dict(notes[0], annotation_level="warning")]))
+        self.assertIsNone(reds.runner_worker_crashed({"conclusion": "cancelled"}, notes))
+
+
 class LostRunner(unittest.TestCase):
     """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
 
@@ -2368,3 +2636,64 @@ class ReadOncePerLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CutShortWordsAreWords(unittest.TestCase):
+    """2026-11-22, cmuxterm-hq eb73df0c's 'build-fleet Go tests / go vet + go test' (job 137452468531) was refused
+    "a crash, a cut-short run or a failure no parser names is never a base red", quoting `error: Path
+    'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from working tree.`: one of 54
+    annotations actions/checkout printed at 02:37:42 narrowing a sparse checkout on a reused self-hosted workspace,
+    which failed nothing. The job ran five more minutes and ended at 02:42:40 in a plain Go failure a comparison can
+    name. The hang watchdog's words matched with `\\b`, so that file name's `stalled` read as the watchdog's word and
+    the first annotation in the log pre-empted the real failure. Each word is read as a word: a path or a longer
+    identifier that carries it is not it."""
+
+    CHECKOUT = ["##[error]error: Path 'docs/handbook/%s' not uptodate; will not remove from working tree." % name
+                for name in ("stalled-work-nobody-moves.md", "timeout-without-a-deadline.md",
+                             "a-run-that-never-finished-its-sweep.md")]
+    GO = ["--- FAIL: TestEveryStepModeReservesItsMeasuredDisk (0.00s)", "FAIL",
+          "FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+          "##[error]Process completed with exit code 1."]
+
+    def test_a_checkout_annotation_naming_such_a_file_is_not_a_cut_short_run(self):
+        self.assertEqual(reds.read(log(*self.CHECKOUT, *self.GO)).truncated, [])
+
+    def test_the_watchdogs_own_words_are_still_a_cut_short_run(self):
+        for line in ("##[error]go test timed out after 600s",
+                     "##[error]the suite stalled: no output for 600s",
+                     "##[error]hung test: TestX made no progress",
+                     "##[error]TestX stopped by SIGKILL",
+                     "##[error]cancelled test run",
+                     "##[error]Timeout waiting for the controller",
+                     "##[error]2 test(s) never finished"):
+            with self.subTest(line=line):
+                self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])
+
+
+class UnittestOutputQuotingADiagnosticIsNotACrash(unittest.TestCase):
+    """hq#26226, run 45717138906 job 139565977393: parallel_suite printed 4 FAILED modules, but a test's own output
+    on its `name (mod.Cls.name) ... ` line quoted `crash report cmux-1.ips: EXC_BAD_ACCESS`, and the log read as
+    "the test process crashed (no signal named)", so land-judge refused a normal exit 1 with named failures."""
+
+    QUOTE = ("test_a_gone_app (m.RelaunchTests.test_a_gone_app) ...            ok fresh/first-launch 1 ms\n"
+             "           ok library/base 0 ms: relaunched (was gone: crash report cmux-1.ips: EXC_BAD_ACCESS)\n"
+             "ok\n")
+    FAILS = ("FAIL: test_b (m.T.test_b)\nTraceback (most recent call last):\nAssertionError: 1 != 2\n"
+             "FAILED module m: failures=1\n##[error]Process completed with exit code 1.\n")
+
+    def test_a_quoted_diagnostic_in_a_tests_output_is_no_crash(self):
+        found = reds.read(self.QUOTE + self.FAILS)
+        self.assertEqual(found.crashes, [])
+        self.assertIn("test_b (m.T.test_b)", " ".join(found.failed))
+
+    def test_the_same_line_outside_a_test_still_crashes(self):
+        found = reds.read("crash report cmux-1.ips: EXC_BAD_ACCESS\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_fatal_python_error_in_a_tests_output_still_crashes(self):
+        found = reds.read("test_a (m.T.test_a) ... Fatal Python error: Segmentation fault\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_signal_exit_after_named_failures_still_crashes(self):
+        found = reds.read(self.QUOTE + self.FAILS.replace("exit code 1", "exit code 139"))
+        self.assertTrue(found.crashes)

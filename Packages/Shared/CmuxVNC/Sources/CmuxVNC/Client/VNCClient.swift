@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// How a session connects.
@@ -12,13 +11,22 @@ public struct VNCSessionOptions: Sendable, Equatable {
     public var localCursor: Bool
     /// Encodings to advertise, most preferred first; nil for the default list.
     public var encodings: [RFBEncoding]?
+    /// The handshake's rules (cmux-vnc); a client without them cannot connect.
+    public var rules: VNCRules
 
     public init(credentials: VNCCredentials = VNCCredentials(), shared: Bool = true, localCursor: Bool = false,
-                encodings: [RFBEncoding]? = nil) {
+                encodings: [RFBEncoding]? = nil, rules: VNCRules = VNCRules()) {
         self.credentials = credentials
         self.shared = shared
         self.localCursor = localCursor
         self.encodings = encodings
+        self.rules = rules
+    }
+
+    /// The settings, not the channel.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.credentials == rhs.credentials && lhs.shared == rhs.shared && lhs.localCursor == rhs.localCursor
+            && lhs.encodings == rhs.encodings
     }
 }
 
@@ -73,11 +81,23 @@ public actor VNCClient {
     private var statistics = VNCSessionStats()
     private var advertised: [RFBEncoding] = []
 
+    #if canImport(Network)
     /// `transport` defaults to TCP to `endpoint`.
     public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: (any RFBTransport)? = nil) {
+        self.init(endpoint: endpoint, options: options,
+                  connection: transport ?? NetworkRFBTransport(host: endpoint.host, port: endpoint.port))
+    }
+    #else
+    /// Runs the session over the supplied byte transport.
+    public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: any RFBTransport) {
+        self.init(endpoint: endpoint, options: options, connection: transport)
+    }
+    #endif
+
+    private init(endpoint: VNCEndpoint, options: VNCSessionOptions, connection: any RFBTransport) {
         self.endpoint = endpoint
         self.options = options
-        self.transport = transport ?? NetworkRFBTransport(host: endpoint.host, port: endpoint.port)
+        self.transport = connection
         (events, eventSink) = AsyncStream.makeStream(of: VNCEvent.self, bufferingPolicy: .bufferingNewest(256))
         (frames, frameSink) = AsyncStream.makeStream(of: VNCFrame.self, bufferingPolicy: .bufferingNewest(1))
     }
@@ -183,7 +203,7 @@ public actor VNCClient {
         let reader = RFBReader(transport: transport)
         do {
             try await transport.open()
-            let handshake = RFBHandshake(credentials: options.credentials, shared: options.shared)
+            let handshake = RFBHandshake(credentials: options.credentials, shared: options.shared, rules: options.rules)
             let info = try await handshake.run(reader: reader, transport: transport)
             self.info = info
             let framebuffer = Framebuffer(width: info.width, height: info.height)

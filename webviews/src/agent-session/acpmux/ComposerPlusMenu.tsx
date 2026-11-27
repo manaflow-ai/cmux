@@ -14,12 +14,13 @@ import { useT } from "./i18n";
 
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
+import { composerPlusReturnHint } from "./composerPlusReturnHint.experiment";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { Tooltip } from "../../ui/Tooltip";
 import { Button } from "../../ui/Button";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { toolbarButtonsFrom, type ToolbarButton } from "./composer/toolbarButtons";
-import { composerPlusMenuSections, composerActionIcon } from "./composerPlusMenuModel";
+import { composerPlusMenuSections, composerActionIcon, composerPlusReturnVerb } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
 import { memo, useEffect } from "react";
@@ -46,6 +47,8 @@ export type ComposerPlusMenuProps = {
   onSlash(command: SlashCommand): void;
   /** The menu opens: the composer reads its recent commands again (another pane may have used one). */
   onOpen?(): void;
+  /** Where the menu opens: over + (the default), or under it (New Tab's card, its + in the bar under the field). */
+  menuSide?: "top" | "bottom";
 };
 
 /// The + menu draws again only when its rows or Plan change, never on a keystroke in the composer
@@ -66,6 +69,7 @@ const MemoPlusMenu = memo(function PlusMenu({
   onExtension,
   onSlash,
   onOpen,
+  menuSide,
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
@@ -95,7 +99,11 @@ const MemoPlusMenu = memo(function PlusMenu({
     experimentArm(composerPlusCommands),
     planShortcut,
   ).map((group) => ({
-    choices: group.choices,
+    // The verb Return carries out, drawn beside ↩ on the highlighted row (composerPlusReturnHint).
+    choices: group.choices.map((choice, index) => {
+      const entry = group.entries[index];
+      return entry ? { ...choice, verb: t(`composer.returnVerb.${composerPlusReturnVerb(entry)}`) } : choice;
+    }),
     onPick: (id: string) => {
       const entry = group.entries.find((row) => row.id === id);
       if (!entry) return "keep";
@@ -113,6 +121,9 @@ const MemoPlusMenu = memo(function PlusMenu({
       button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
       align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
+      resizeId="composer.add"
+      returnHint={experimentArm(composerPlusReturnHint) === "verb"}
+      {...(menuSide ? { side: menuSide } : {})}
       {...(onOpen ? { onOpen } : {})}
     />
   );

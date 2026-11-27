@@ -24,7 +24,12 @@ budget=scripts/cmux-next/bundle-size-budget.json
 tool="$(dirname "$0")/../../cmux-next/bundle-size.py"
 # The DMG the feed serves now is the previous nightly (this one is not published yet): its size
 # is the change's baseline. Public download, headers only; none (a fork, no network) skips it.
-previous="$(curl -sfIL --max-time 20 "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TRACK}/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg" 2>/dev/null \
+# The Macs get 403 on anonymous release downloads: with the job's token (GH_DOWNLOAD_TOKEN from the step)
+# the size and the DMG come through the API (scripts/ci/github-release-download.sh), else as before.
+previous_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TRACK}/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
+release_tools="$(dirname "$0")/.."
+previous="$(python3 -I "$release_tools/github_release_asset.py" --size "$previous_url" 2>/dev/null || true)"
+[ -n "$previous" ] || previous="$(curl -sfIL --max-time 20 "$previous_url" 2>/dev/null \
   | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }' || true)"
 # No array: macOS /bin/bash 3.2 under `set -u` fails on an empty one.
 case "$previous" in ''|*[!0-9]*) previous_arg="" ;; *) previous_arg="--previous-dmg-bytes=$previous" ;; esac
@@ -52,12 +57,49 @@ keep["categories"] = {c["key"]: c["bytes"] for c in b["categories"]}
 print("::notice title=Bundle size breakdown::" + json.dumps(keep, separators=(",", ":")).replace("%", "%25"))
 ' "$RUNNER_TEMP/bundle-size-breakdown.json" || true
 fi
+# The 20 biggest growers and shrinkers against the previous nightly, per file and per component, so growth
+# cannot creep back while the app is cut. The previous nightly is the DMG the feed serves now (the same
+# public download as `previous` above: no API call, nothing stored); its app is read for file sizes only.
+# A report, never a gate: every failure, a slow download included, leaves this empty and the step as it was.
+growers_md="$RUNNER_TEMP/bundle-size-growers.md"
+rm -f "$growers_md"
+if [ -n "$previous_arg" ] && [ "$SECONDS" -lt 120 ]; then
+  (
+    set +e
+    prev_dmg="$RUNNER_TEMP/bundle-size-previous.dmg"
+    prev_mnt="$RUNNER_TEMP/bundle-size-previous-mnt"
+    old="$RUNNER_TEMP/bundle-size-previous-files.json.gz"
+    new="$RUNNER_TEMP/bundle-size-files.json.gz"
+    mkdir -p "$prev_mnt"
+    trap 'hdiutil detach "$prev_mnt" -force >/dev/null 2>&1; rm -f "$prev_dmg"' EXIT
+    if [ -f "$release_tools/github-release-download.sh" ]; then
+      bash "$release_tools/github-release-download.sh" "$previous_url" "$prev_dmg" --max-time 100 2>/dev/null || exit 0
+    else
+      curl -sfL --max-time 100 -o "$prev_dmg" "$previous_url" || exit 0
+    fi
+    hdiutil attach -nobrowse -readonly -mountpoint "$prev_mnt" "$prev_dmg" >/dev/null 2>&1 || exit 0
+    prev_app="$(find "$prev_mnt" -maxdepth 1 -name '*.app' -print -quit)"
+    [ -n "$prev_app" ] || exit 0
+    python3 -I "$tool" files "$prev_app" --json "$old" >/dev/null || exit 0
+    python3 -I "$tool" files "$app" --json "$new" >/dev/null || exit 0
+    python3 -I "$tool" diff "$old" "$new" --top 20 > "$growers_md.tmp" || exit 0
+    note="$(python3 -I "$tool" diff "$old" "$new" --top 20 --annotation)" || exit 0
+    mv "$growers_md.tmp" "$growers_md"
+    echo "::notice title=Bundle size growers::$note"
+  ) || true
+fi
 {
   echo '### Bundle size'
   cat "$RUNNER_TEMP/bundle-size-summary.md"
   echo
   cat "$RUNNER_TEMP/bundle-size-breakdown.md" 2>/dev/null || true
   echo
+  if [ -s "$growers_md" ]; then
+    echo '#### Growers and shrinkers since the previous nightly'
+    echo
+    cat "$growers_md"
+    echo
+  fi
   echo '```'
   python3 -I "$tool" report "$app" --dmg "$release"
   echo '```'

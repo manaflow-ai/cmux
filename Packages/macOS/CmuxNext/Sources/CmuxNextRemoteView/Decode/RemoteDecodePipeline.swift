@@ -15,6 +15,16 @@ public nonisolated struct RemoteViewerFrameTimes: Sendable, Equatable {
         self.decodedAtNanos = decodedAtNanos
         self.presentedAtNanos = presentedAtNanos
     }
+
+    /// A frame's times once the presenter's handler ran, `presentedAtMicros` the drawable's
+    /// presented time: 0 when macOS did not record one (the first drawable on a layer just
+    /// sized, a window not on screen), and then `nowNanos`, the handler's own time, so a static
+    /// screen's one frame still gives Present and Decode + Present a value.
+    public static func shown(frame: UInt32, releasedAtNanos: UInt64, decodedAtNanos: UInt64,
+                             presentedAtMicros: UInt64, nowNanos: UInt64) -> Self {
+        Self(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
+             presentedAtNanos: presentedAtMicros > 0 ? presentedAtMicros &* 1_000 : nowNanos)
+    }
 }
 
 /// Decodes a source's access units off the main actor, the moment each one
@@ -113,9 +123,10 @@ public actor RemoteDecodePipeline {
                 pixelBuffer: image, frame: frame, tCaptureMicros: unit.tCaptureMicros,
                 decodedAtNanos: decodedAt, releasedAtNanos: releasedAt,
                 onPresented: { atMicros in
-                    source.notePresented(frame: frame, presentedAtMicros: atMicros)
-                    presented?(RemoteViewerFrameTimes(frame: frame, releasedAtNanos: releasedAt, decodedAtNanos: decodedAt,
-                                                      presentedAtNanos: atMicros &* 1_000))
+                    // 0: the presenter could not say when it reached the glass; the host hears nothing then.
+                    if atMicros > 0 { source.notePresented(frame: frame, presentedAtMicros: atMicros) }
+                    presented?(.shown(frame: frame, releasedAtNanos: releasedAt, decodedAtNanos: decodedAt,
+                                      presentedAtMicros: atMicros, nowNanos: DispatchTime.now().uptimeNanoseconds))
                 }))
             return .decoded
         } catch {

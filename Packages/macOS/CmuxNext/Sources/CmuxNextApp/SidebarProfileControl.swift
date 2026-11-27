@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
@@ -23,7 +24,7 @@ import Observation
         sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
         // The footer's spaces strip marks the spaces other windows show (design/spaces.md "The switcher (PR 3)").
         sidebar.spaceWindowMarks.install(source: services.windows) { [weak state] in state?.id }
-        let control = self
+        let control = self; sidebar.bindLive(settings: { [services] in services.settings }, team: { [services] in services.home.contacts().filter { $0.source == .team }.map { ($0.id.rawValue, $0.name) } }, open: { [services] in _ = services.registry.perform("home.messageTo", invocation: ActionInvocation(arguments: ["to": .string($0)])) })
         // The first value now, so the window's first frame draws the avatar at its size, never the account glyph it
         // replaced a turn later (the relaunch bench's `SidebarAvatarView shown` in every window). The window's shown
         // workspace stands in for the sidebar's active one, which the selection pass sets later in this turn.
@@ -58,9 +59,8 @@ import Observation
 
     func menu(workspace: String?) -> NSMenu {
         let avatar = avatar(workspace: workspace)
-        // Show Chief / Hide Chief reads the `home.chiefPetEnabled` that applies now (the menu is built at each open).
-        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)), chiefPetShown: services.settings?.snapshot.homeChiefPetEnabled)
-        SidebarAccount.addRows(to: menu, account: account, registry: services.registry)
+        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)))
+        SidebarAccount.addRows(to: menu, account: account, registry: services.registry, backend: services.cloud.configuration.backendLabel, accountFirst: services.settings?.snapshot.sidebarSections.profileMenuStyle == .account)
         return menu
     }
 }

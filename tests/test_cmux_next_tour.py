@@ -725,7 +725,16 @@ class StopTests(unittest.TestCase):
         chief = self.run_from(bundle, "optchat-chief")
         stubborn = self.run_from(bundle, "acpmux", ignore_term=True)
         bystander = self.start(["/bin/sh", "-c", f"sleep 600; : '{bundle}/Contents/Resources/bin/optchat-chief'"])
-        time.sleep(0.5)
+        # Until each has settled into its sleep (ps state S: exec'd and waiting) or exited, 10 s at most.
+        def settled(process: subprocess.Popen) -> bool:
+            if process.poll() is not None:
+                return True
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(process.pid)], capture_output=True, text=True)
+            return state.stdout.strip().startswith("S")
+
+        deadline = time.monotonic() + 10
+        while not all(settled(p) for p in (chief, stubborn, bystander)) and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.assertTrue(all(process.poll() is None for process in (chief, stubborn, bystander)))
         return chief, stubborn, bystander
 
@@ -878,6 +887,14 @@ class FixtureCropTests(unittest.TestCase):
         self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
         self.assertFalse(self.path.exists())
 
+    def test_a_failed_command_step_names_its_reason(self) -> None:
+        # The job log prints `detail`; "exited 1" alone hid "no terminal is \"focused\"" (run 45880649238).
+        self.app.cli.return_value = subprocess.CompletedProcess([], 1, "", 'no terminal is "focused"\n')
+        result = self.tour.run_step(self.app, mock.Mock(), {"title": "Send", "cmux": ["terminal", "focused", "send"], "wait": 0},
+                                    1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["detail"], 'exited 1 (no terminal is "focused")')
+
     def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
         step = {"title": "menu", "capture": self.config, "wait": 0}
         with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
@@ -988,7 +1005,7 @@ class WindowVideoTests(unittest.TestCase):
             native.start.return_value = False
             native.stop.return_value = False
             def step(*args):
-                time.sleep(0.1)
+                time.sleep(0.1)  # sleep-ok: a step that takes 0.1 s, the timing the stills must measure
                 return {"status": "ok"}
             with mock.patch.object(tour, "App", return_value=app), \
                     mock.patch.object(tour, "WindowVideo", return_value=native), \
@@ -1086,10 +1103,57 @@ class WindowVideoTests(unittest.TestCase):
             process.kill.assert_called_once_with()
             self.assertIsNone(recording.process)
 
+class RecorderEndTests(unittest.TestCase):
+    """A window whose frames stop for good is named in the manifest (frames_ended): warn-before-quit-shortcut's
+    before quits on the first ⌘Q, and whats-new-clips.py ends its clip on the window going away."""
+
+    def record(self, answers):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        screen = mock.Mock(mode="direct")
+        queue = list(answers)
+
+        def capture(path, kind):
+            answer = queue.pop(0) if queue else answers[-1]
+            if answer is None:
+                path.write_bytes(b"jpg")
+            return answer
+        screen.capture.side_effect = capture
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(tour, "frame_interval", return_value=0.01):
+            recorder = tour.Recorder(screen, Path(root))
+            recorder.step = 2
+            recorder.start()
+            deadline = time.monotonic() + 5
+            while (queue or screen.capture.call_count < len(answers) + 2) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            frames = recorder.stop()
+        return frames, recorder.ended
+
+    def test_frames_that_stop_for_good_name_the_step_and_reason(self):
+        frames, ended = self.record([None, None, "no window server id for the app's window"])
+        self.assertEqual(len(frames), 2)
+        self.assertEqual((ended["step"], ended["reason"]), (2, "no window server id for the app's window"))
+
+    def test_a_capture_that_fails_once_then_recovers_ends_nothing(self):
+        _, ended = self.record([None, "busy", None])
+        self.assertIsNone(ended)
+
+    def test_a_window_never_captured_is_frames_error_not_an_end(self):
+        frames, ended = self.record(["no such window"])
+        self.assertEqual((frames, ended), ([], None))
+
+
 class CustomizeTemplatesTourTests(unittest.TestCase):
     """The customize-templates tour types each template into the app's terminal (base64, so
     no shell expansion touches it, and no checkout is needed on the capture Mac); what it
     types must be the files in skills/cmux-customization/templates as they are now."""
+
+    def test_skill_sidebar_starter_matches_the_native_starter(self) -> None:
+        template = (ROOT / "skills/cmux-customization/templates/starter/main.js").read_text()
+        source = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeFolder.swift"
+        script = re.search(r'let starterScript = """\n(.*?)\n"""', source.read_text(), re.DOTALL)
+        self.assertIsNotNone(script, "could not find the Swift starter")
+        self.assertEqual(template, script[1], "the skill and native sidebar starter scripts must match")
 
     def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
         import base64

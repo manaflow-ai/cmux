@@ -303,6 +303,23 @@ export default agentPaneEntry({
         noStrayEdges(ctx);
       },
     },
+    split: {
+      note: 'The split the app opens for Background tasks beside the chat (Leo, 2026-11-22: "it gave me the agent pane could not be drawn after i opedn up background tasks. i guess it sent you to that split."): the reveal lands, then lands again as a second open focuses the tab; the panel draws once and the pane never shows its could-not-draw card.',
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
+        if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        if (ctx.document.querySelector(".acpmux-pane-failed")) throw new Error("the split's pane draws");
+        if (ctx.document.querySelectorAll(".acpmux-bg").length !== 1) throw new Error("the split draws one panel");
+        noStrayEdges(ctx);
+      },
+    },
     finished: {
       note: "The finished tasks open, the latest first, each with how long it took; failures in red; Show more past eight.",
       snapshot: snapshot(false),

@@ -13,6 +13,10 @@ workspace = true
 [dependencies]
 # The typed app global compiled in compressed (src/capabilities.rs).
 cmux-embed.workspace = true
+# contributes.keybindings (src/keybindings.rs): each entry is read by keybindings.json's own
+# parser, and a command is checked against the action catalog.
+cmux-config.workspace = true
+cmux-action-catalog.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hex.workspace = true

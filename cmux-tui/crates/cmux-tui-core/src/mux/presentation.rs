@@ -111,29 +111,53 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
+#[cfg(test)]
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    read_git_head_at(directory).0
+}
+
+/// [`read_git_head`], with the directory whose change can change the answer: the git dir that
+/// holds the HEAD file, else the directory where a new `.git` would make a repository (the one
+/// whose `.git` could not be read, else `directory` itself). The HEAD cache watches it
+/// (git_heads.rs). The directory is its real path: a file watch names a changed file below the
+/// real path (FSEvents resolves `/var` to `/private/var` and each link), and the cache finds the
+/// directory by it.
+pub(crate) fn read_git_head_at(directory: &Path) -> (Option<GitHead>, std::path::PathBuf) {
     #[cfg(test)]
     git_head_probe::on_read(directory);
+    let (head, at) = find_and_read_git_head(directory);
+    let at = std::fs::canonicalize(&at).unwrap_or(at);
+    (head, at)
+}
+
+fn find_and_read_git_head(directory: &Path) -> (Option<GitHead>, std::path::PathBuf) {
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
         match std::fs::metadata(&dot_git) {
-            Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
+            Ok(metadata) if metadata.is_dir() => {
+                let head = read_git_head_file(&dot_git);
+                return (head, dot_git);
+            }
             Ok(metadata) if metadata.is_file() => {
-                let pointer = read_small_file(&dot_git)?;
-                let git_dir = pointer.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim();
-                let git_dir = Path::new(git_dir);
-                let git_dir = if git_dir.is_absolute() {
-                    git_dir.to_path_buf()
-                } else {
-                    candidate.join(git_dir)
+                let git_dir = read_small_file(&dot_git).and_then(|pointer| {
+                    let git_dir = pointer.lines().find_map(|line| line.strip_prefix("gitdir:"))?;
+                    let git_dir = Path::new(git_dir.trim());
+                    Some(if git_dir.is_absolute() {
+                        git_dir.to_path_buf()
+                    } else {
+                        candidate.join(git_dir)
+                    })
+                });
+                return match git_dir {
+                    Some(git_dir) => (read_git_head_file(&git_dir), git_dir),
+                    None => (None, candidate.to_path_buf()),
                 };
-                return read_git_head_file(&git_dir);
             }
             _ => current = candidate.parent(),
         }
     }
-    None
+    (None, directory.to_path_buf())
 }
 
 impl Deref for TreeDecorations {
@@ -377,6 +401,24 @@ impl Mux {
         decorations
     }
 
+    /// [`Self::tree_decorations_placing`] for a delta that serializes the one tab `placing` (a
+    /// `pane-added` or `tab-added` entity holds that tab only): its marker, its directory and
+    /// its terminal's state, with no walk of the session's other surfaces.
+    #[track_caller]
+    pub(crate) fn tab_decorations_placing(&self, placing: &Surface) -> TreeDecorations {
+        let (mut decorations, mut directories) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.tab_tree_decorations_parts(&state, &[placing.id])
+        };
+        if let Some(directory) = placing.presented_directory()
+            && !directories.iter().any(|(surface, _)| *surface == placing.id)
+        {
+            directories.push((placing.id, directory));
+        }
+        decorations.directories = self.resolve_tab_directories(directories, true);
+        decorations
+    }
+
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
@@ -394,6 +436,23 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations_in_state`] for a delta that serializes the one workspace at
+    /// `workspace_index` (a rename, a move): the decorations of its tabs only.
+    pub(crate) fn workspace_tree_decorations_in_state(
+        &self,
+        state: &State,
+        workspace_index: usize,
+    ) -> TreeDecorations {
+        let surfaces = state
+            .workspaces
+            .get(workspace_index)
+            .into_iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen_tabs(state, screen))
+            .collect::<Vec<_>>();
+        self.tab_tree_decorations_in_state(state, &surfaces)
     }
 
     /// Each placed PTY tab's git branch, from the HEAD cache only (no
@@ -822,6 +881,9 @@ impl Mux {
         if let Some(marked_unread) = update.marked_unread {
             fingerprint.set("marked_unread", marked_unread.into());
         }
+        if let Some(keep_awake) = update.keep_awake {
+            fingerprint.set("keep_awake", keep_awake.into());
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -848,6 +910,9 @@ impl Mux {
             }
             if let Some(marked_unread) = update.marked_unread {
                 after.marked_unread = marked_unread;
+            }
+            if let Some(keep_awake) = update.keep_awake {
+                after.keep_awake = keep_awake;
             }
             let changed = before != after;
             let desired = self.registry_projection(&state);

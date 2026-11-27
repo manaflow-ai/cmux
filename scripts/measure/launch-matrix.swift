@@ -4,7 +4,9 @@
 //   launch-matrix run APP LABEL SETTLE_S [ARG...]      open APP through LaunchServices as the Dock does (a new instance,
 //                                                       activated), time it, sample its process tree, quit it
 //   launch-matrix growth APP LABEL MINUTES [ARG...]    open APP the same way, then one LM-GROWTH line per minute for
-//                                                       MINUTES, then quit it (start it with nohup; read the log later)
+//                                                       MINUTES, then quit it (start it with nohup; read the log later);
+//                                                       each minute's line names its top spenders: "top", per process
+//                                                       pid, name, cpu_pct, written_mb and its top 3 threads by name
 //   launch-matrix evict PATH                           drop every regular file under PATH from the page cache with no
 //                                                       root (mmap + msync MS_INVALIDATE); LM-EVICT says the resident
 //                                                       pages before and after
@@ -120,6 +122,68 @@ func sample(_ root: pid_t) -> Usage {
         }
     }
     return u
+}
+
+// Per process of the tree (growth's burst owner): name, CPU and disk written so far, and its threads' CPU by thread
+// name, all read with proc_pidinfo/proc_pid_rusage (no task port, so a hardened app is readable with no root).
+struct ProcUse { var name: String; var cpuMs: Double; var written: Double; var threads: [String: Double] }
+
+func procName(_ pid: pid_t) -> String {
+    var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+    if proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 {
+        let path = String(cString: buf)
+        // A helper inside the bundle keeps its bundle's name ("cmux Helper (Renderer)"); anything else its file name.
+        return (path as NSString).lastPathComponent
+    }
+    var name = [CChar](repeating: 0, count: 256)
+    return proc_name(pid, &name, UInt32(name.count)) > 0 ? String(cString: name) : "pid \(pid)"
+}
+
+func threadTimes(_ pid: pid_t) -> [String: Double] {
+    var ids = [UInt64](repeating: 0, count: 2048)
+    let got = proc_pidinfo(pid, PROC_PIDLISTTHREADS, 0, &ids, Int32(ids.count * MemoryLayout<UInt64>.size))
+    guard got > 0 else { return [:] }
+    var out: [String: Double] = [:]
+    for id in ids.prefix(Int(got) / MemoryLayout<UInt64>.size) {
+        var info = proc_threadinfo()
+        let size = Int32(MemoryLayout<proc_threadinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTHREADINFO, id, &info, size) == size else { continue }
+        var name = withUnsafeBytes(of: info.pth_name) { raw in String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self) }
+        if name.isEmpty { name = "(unnamed)" }
+        // Threads that share a name (a pool's workers) add up: the pool is the owner a fix names.
+        out[name, default: 0] += Double(info.pth_user_time + info.pth_system_time) / 1e6
+    }
+    return out
+}
+
+func perProcess(_ root: pid_t) -> [pid_t: ProcUse] {
+    var out: [pid_t: ProcUse] = [:]
+    for pid in tree(root) {
+        var info = rusage_info_v4()
+        let ok = withUnsafeMutablePointer(to: &info) { ptr in
+            ptr.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+        }
+        guard ok == 0 else { continue }
+        out[pid] = ProcUse(name: procName(pid), cpuMs: machMs(info.ri_user_time + info.ri_system_time),
+                           written: Double(info.ri_diskio_byteswritten) / 1_048_576, threads: threadTimes(pid))
+    }
+    return out
+}
+
+// The minute's spenders: every process of the tree with its CPU % of a core over the minute (a process new this
+// minute counts from 0), the top LM_GROWTH_TOP (default 5) by CPU, each with its top 3 threads by name.
+func spenders(_ before: [pid_t: ProcUse], _ after: [pid_t: ProcUse], _ ms: Double) -> [[String: Any]] {
+    let top = Int(ProcessInfo.processInfo.environment["LM_GROWTH_TOP"] ?? "") ?? 5
+    let rows = after.map { pid, u -> (Double, [String: Any]) in
+        let b = before[pid]
+        let cpu = (u.cpuMs - (b?.cpuMs ?? 0)) / ms * 100
+        let threads = u.threads.map { ($0.key, ($0.value - (b?.threads[$0.key] ?? 0)) / ms * 100) }
+            .filter { $0.1 >= 0.5 }.sorted { $0.1 > $1.1 }.prefix(3)
+            .map { ["name": $0.0, "cpu_pct": round1($0.1)] as [String: Any] }
+        return (cpu, ["pid": Int(pid), "name": u.name, "cpu_pct": round1(cpu),
+                      "written_mb": round1(u.written - (b?.written ?? 0)), "threads": threads])
+    }
+    return rows.sorted { $0.0 > $1.0 }.prefix(top).map { $0.1 }
 }
 
 func fields(_ u: Usage) -> [String: Any] {
@@ -352,12 +416,14 @@ case "run", "growth":
     if args[1] == "growth" {
         guard pid > 0, o.window != nil else { emit("LM-GROWTH", row); exit(1) }
         emit("LM-GROWTH", row.merging(["minute": 0], uniquingKeysWith: { $1 }).merging(fields(sample(pid)), uniquingKeysWith: { $1 }))
-        var last = sample(pid), lastAt = now()
+        var last = sample(pid), lastAt = now(), lastProcs = perProcess(pid)
         for minute in 1...max(1, Int(amount)) {
             pause(60_000)
             guard kill(pid, 0) == 0 else { emit("LM-GROWTH", ["label": label, "minute": minute, "error": "app exited"]); exit(1) }
-            let u = sample(pid), at = now()
+            let u = sample(pid), at = now(), procs = perProcess(pid)
             var line = fields(u)
+            line["top"] = spenders(lastProcs, procs, at - lastAt)
+            lastProcs = procs
             line["label"] = label; line["minute"] = minute
             line["cpu_pct"] = round1((u.cpuMs - last.cpuMs) / (at - lastAt) * 100)
             line["wakeups_per_s"] = round1(Double(u.wakeups - last.wakeups) / ((at - lastAt) / 1000))

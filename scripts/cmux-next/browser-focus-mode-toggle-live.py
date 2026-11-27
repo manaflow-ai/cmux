@@ -138,7 +138,9 @@ def play(steps):
     reply = rpc("debug.key", params) or {}
     if reply.get("error"):
         print("debug.key:", reply.get("error"), flush=True)
-    time.sleep(((reply.get("duration_ms") or 0) + 30) / 1000)  # test harness: the sequence plays out
+    # sleep-ok: the app posts the sequence on its own timer over the duration_ms it reports and sends no done event;
+    # each caller then waits on the sequence's effect (toggled, resolved).
+    time.sleep(((reply.get("duration_ms") or 0) + 30) / 1000)
     return reply
 
 
@@ -176,6 +178,13 @@ class Page(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass
+
+
+def page_eval(script):
+    """The focused page's answer to `script` (browser.page.eval), or None."""
+    tab = browser_tab()
+    reply = rpc("browser.page.eval", {"tab": tab, "script": script}, timeout=10) if tab else None
+    return reply.get("value") if isinstance(reply, dict) and not reply.get("error") else None
 
 
 def browser_tab():
@@ -220,11 +229,12 @@ def setup_state(state, url):
         wait(lambda: resolved()[0] == "browserPage" or None, 2)
         if state == "pageinput":
             play([{"key_code": 48, "down": True}, {"key_code": 48, "down": False, "after_ms": 20}])  # Tab into the field
-            time.sleep(0.1)  # test harness: the page moves its focus
+            wait(lambda: page_eval("document.activeElement && document.activeElement.id") == "f" or None, 2)  # the field has focus
         if state == "navigated":
             if opts.url:
                 run("browserReload")  # a real site: the press right after a reload starts
-                time.sleep(0.05)  # test harness: the load is under way
+                # sleep-ok: the scenario is a press about 50 ms into the reload of a real site (a person's timing)
+                time.sleep(0.05)
                 return browser_tab(), None, "after reload"
             return browser_tab(), [{"key_code": 45, "down": True}, {"key_code": 45, "down": False, "after_ms": 20}], ""
         return browser_tab(), None, ""
@@ -286,7 +296,9 @@ def main():
     wait(lambda: browser_tab() or None, 15)
     print("openBrowser", run("openBrowser", {"url": url}), flush=True)
     wait(lambda: browser_tab() or None, 15)
-    time.sleep(6 if opts.url else 2)  # test harness: the page loads
+    # Until the page loaded: it reports readyState complete.
+    if not wait(lambda: page_eval("document.readyState") == "complete" or None, 20 if opts.url else 10, 0.1):
+        print("note: the page did not report readyState complete", flush=True)
     STATE["tab"] = browser_tab()
     print("page tab", STATE["tab"], resolved(), flush=True)
 

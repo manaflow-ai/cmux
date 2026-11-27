@@ -575,6 +575,92 @@ async fn create_sends_the_body_and_idempotency_key() {
     assert_eq!(json_stdout(&out)["state"], "starting");
 }
 
+/// `create --vcpus/--memory-mib/--disk-mib` sends `resources` (the headless `cmux vm new --size`).
+#[tokio::test]
+async fn create_sends_the_requested_resources() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .and(body_json(json!({
+            "idleTimeoutSeconds": -1,
+            "resources": { "vcpus": 8, "memoryMib": 16384 },
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(vm("starting")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "create",
+            "--vcpus",
+            "8",
+            "--memory-mib",
+            "16384",
+            "--idle-timeout",
+            "-1",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    let refused = cli(&server, &["create", "--vcpus", "64"]).await;
+    assert_eq!(refused.code, exit::USAGE);
+}
+
+/// `guest::Guest` writes a file (raw bytes, decimal mode) and runs a command with its answer.
+#[tokio::test]
+async fn the_guest_writes_files_and_runs_commands() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/v1/vms/{VM_ID}/files/content")))
+        .and(authorized())
+        .and(query_param("path", "/home/cmux/.cmux/bootstrap/in-ab/run"))
+        .and(query_param("mode", "448"))
+        .and(body_string_contains("#!/bin/sh"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(authorized())
+        .and(body_json(
+            json!({ "command": "echo started", "timeoutMs": 20000 }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "started\n", "stderr": "" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = move |name: &str| match name {
+        "CMUX_VM_API_KEY" => Some(KEY.to_owned()),
+        "CMUX_VM_BASE_URL" => Some(uri.clone()),
+        _ => None,
+    };
+    let guest =
+        cmux_vm::guest::Guest::connect(None, None, None, &env, &mut Vec::new()).expect("a client");
+    guest
+        .write_file(
+            VM_ID,
+            "/home/cmux/.cmux/bootstrap/in-ab/run",
+            b"#!/bin/sh\nexit 0\n",
+            0o700,
+        )
+        .await
+        .expect("written");
+    let ran = guest
+        .exec(VM_ID, "echo started", 20_000)
+        .await
+        .expect("ran");
+    assert_eq!(ran.exit_code, Some(0));
+    assert_eq!(ran.stdout, "started\n");
+}
+
 #[tokio::test]
 async fn get_prints_the_vm() {
     let server = MockServer::start().await;
@@ -646,6 +732,49 @@ async fn start_stop_pause_resume_post_to_their_action() {
         assert_eq!(out.code, exit::OK, "{verb}: stderr: {}", out.stderr);
         assert_eq!(json_stdout(&out)["state"], state, "{verb}");
     }
+}
+
+#[tokio::test]
+async fn a_verb_given_a_name_acts_on_the_one_vm_of_that_name() {
+    let server = MockServer::start().await;
+    let other = "vm_zzzzzzzzzzzzzzzzzzzzzzzzzz";
+    let mut lane = vm("running");
+    lane["displayName"] = json!("lane-7");
+    let mut first = vm("running");
+    first["id"] = json!(other);
+    first["displayName"] = json!("lane-6");
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .and(query_param("cursor", "page-2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "items": [lane], "nextCursor": null })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "items": [first], "nextCursor": "page-2" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/pause")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("paused")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["--json", "pause", "lane-7"]).await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out)["state"], "paused");
+
+    let missing = cli(&server, &["pause", "lane-9"]).await;
+    assert_eq!(missing.code, exit::USAGE, "stderr: {}", missing.stderr);
+    assert!(missing.stderr.contains("no VM named"), "{}", missing.stderr);
 }
 
 #[tokio::test]
@@ -1665,6 +1794,57 @@ async fn explicit_public_egress_is_sent_and_requires_confirmation() {
 }
 
 #[tokio::test]
+async fn egress_allow_locks_the_vm_to_presets_and_hosts_and_requires_confirmation() {
+    for confirmed in [true, false] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        if confirmed {
+            response["initialNetwork"] = json!({
+                "publicEgress": false,
+                "httpsProxyHosts": [],
+                "allowedDomains": ["files.cmux.com", "registry.npmjs.org", "example.dev"],
+            });
+        }
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .and(body_json(json!({"initialNetwork": {
+                "publicEgress": false,
+                "egress": {"mode": "allowlist", "presets": ["npm"], "domains": ["example.dev"]},
+            }})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "create",
+                "--egress-allow",
+                "npm",
+                "--egress-allow",
+                "example.dev",
+            ],
+        )
+        .await;
+        assert_eq!(out.code == exit::OK, confirmed, "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn egress_allow_conflicts_with_public_egress() {
+    let server = MockServer::start().await;
+    let out = cli(
+        &server,
+        &["create", "--egress-allow", "npm", "--public-egress"],
+    )
+    .await;
+    assert_ne!(out.code, exit::OK);
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn image_list_human_output_includes_revision() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/v1/vm-images"))
@@ -2323,6 +2503,32 @@ async fn exec_posts_the_command_and_prints_the_guest_output() {
     .await;
     assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
     assert_eq!(json_stdout(&out)["stdout"], "tenant ok\n");
+}
+
+/// Several words keep their argv: each is shell-quoted, so the guest's shell does not split
+/// `cat > f` again (`sh -c cat > f` before).
+#[tokio::test]
+async fn exec_quotes_each_word_so_argv_survives() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(authorized())
+        .and(body_json(
+            json!({ "command": "sh -c 'cat > f' 'it'\\''s' ''" }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "", "stderr": "" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["exec", VM_ID, "--", "sh", "-c", "cat > f", "it's", ""],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
 }
 
 #[tokio::test]

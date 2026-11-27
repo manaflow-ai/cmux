@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.chromeStyle.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whether panes sit in one rounded card, and where lines are drawn."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هل تكون الأجزاء داخل بطاقة واحدة مستديرة الحواف، وأين تُرسم الخطوط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Da li su okna u jednoj zaobljenoj kartici i gdje se crtaju linije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Om ruderne ligger i ét afrundet kort, og hvor der tegnes streger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ob die Bereiche in einer abgerundeten Karte liegen und wo Linien gezeichnet werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si los paneles están en una sola tarjeta redondeada y dónde se dibujan líneas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si les panneaux sont dans une seule carte arrondie, et où les lignes sont tracées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se i riquadri stanno in un’unica scheda arrotondata e dove vengono tracciate le linee."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ペインを1枚の角丸カードに収めるか、どこに線を描くか。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ថាតើផ្ទាំងស្ថិតក្នុងកាតមូលតែមួយ និងកន្លែងដែលគូរបន្ទាត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창 분할이 하나의 둥근 카드 안에 놓이는지, 어디에 선을 그릴지 정합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Om rutene ligger i ett avrundet kort, og hvor linjer tegnes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czy panele leżą na jednej zaokrąglonej karcie i gdzie są rysowane linie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se os painéis ficam em um único cartão arredondado e onde as linhas são desenhadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Лежат ли панели в одной скруглённой карточке и где рисуются линии."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บานหน้าต่างอยู่ในการ์ดมุมโค้งใบเดียวหรือไม่ และวาดเส้นที่ใด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bölmelerin tek bir yuvarlatılmış kartta durup durmadığı ve çizgilerin nereye çizildiği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чи лежать панелі в одній заокругленій картці і де малюються лінії."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các ngăn có nằm trong một thẻ bo tròn hay không, và đường kẻ được vẽ ở đâu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "窗格是否位于一张圆角卡片中，以及在哪里绘制线条。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "窗格是否位於一張圓角卡片中，以及在哪裡繪製線條。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

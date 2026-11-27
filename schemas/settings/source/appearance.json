@@ -63,6 +63,57 @@
       },
       "rows": [
         {
+          "key": "appearance.mode",
+          "note": "The app's own appearance (NSApp.appearance): system (the default) follows macOS; light and dark pin it. Terminal themes with a light/dark pair and the chrome follow the effective appearance. AppearanceModeSetting parses and applies it.",
+          "title": {
+            "key": "settings.appearance.mode",
+            "text": "Appearance"
+          },
+          "help": {
+            "key": "settings.appearance.mode.help",
+            "text": "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.appearanceMode.system",
+                "text": "Match System"
+              }
+            },
+            {
+              "value": "light",
+              "title": {
+                "key": "settings.choice.appearanceMode.light",
+                "text": "Light"
+              }
+            },
+            {
+              "value": "dark",
+              "title": {
+                "key": "settings.choice.appearanceMode.dark",
+                "text": "Dark"
+              }
+            }
+          ],
+          "swift_enum": {
+            "name": "AppearanceMode"
+          },
+          "swift_owner": "AppearanceModeSetting",
+          "default": "system",
+          "keywords": [
+            "appearance",
+            "light",
+            "dark",
+            "light mode",
+            "dark mode",
+            "system",
+            "color scheme",
+            "mode"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "note": "cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.",
           "title": {
@@ -479,6 +530,36 @@
             "colour",
             "theme"
           ]
+        },
+        {
+          "key": "customize.doctorNotice",
+          "name": "customizeDoctorNotice",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off (the default since Leo 2026-11-25: \"did we remove these by default yet\", \"make it stop showing the customization not applied/reviewd and shit popup tosts\"): no toast; Settings' doctor card shows the findings inline and the CLI still lists them. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "title": {
+            "key": "settings.customize.doctorNotice",
+            "text": "Customization notices"
+          },
+          "summary": {
+            "key": "settings.customize.doctorNotice.summary",
+            "text": "Tell me when a file or layer changes my setup"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "customize",
+            "customization",
+            "doctor",
+            "notice",
+            "toast",
+            "theme",
+            "layer",
+            "broken",
+            "file"
+          ]
         }
       ]
     },
@@ -872,7 +953,7 @@
         {
           "key": "appearance.backgroundPlacement",
           "name": "placement",
-          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background… and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
           "title": {
             "key": "settings.appearance.backgroundPlacement",
             "text": "Background Placement"
@@ -900,7 +981,7 @@
         {
           "key": "appearance.backgroundRecents",
           "name": "recents",
-          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds…, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
           "title": {
             "key": "settings.appearance.backgroundRecents",
             "text": "Recent Backgrounds"
@@ -1132,6 +1213,61 @@
           ]
         },
         {
+          "key": "appearance.settingsBetaChips",
+          "note": "Taste prototype (Taste Board #15): the Settings page draws a small Beta chip beside the title of each experimental row (the Experimental category, labs.* keys, rows tagged labs or experimental) and beside the Experimental sidebar entry (webviews/src/pages/settings/betaChips.ts). Off by default: the page is unchanged.",
+          "title": {
+            "key": "settings.appearance.settingsBetaChips",
+            "text": "Beta Chips in Settings"
+          },
+          "help": {
+            "key": "settings.appearance.settingsBetaChips.help",
+            "text": "Marks experimental settings with a Beta chip."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AppearanceSettingsSchema",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "beta",
+            "chip",
+            "badge",
+            "new",
+            "experimental",
+            "labs",
+            "preview"
+          ]
+        },
+        {
+          "key": "appearance.glassControls",
+          "title": {
+            "key": "settings.appearance.glassControls",
+            "text": "Glass Controls"
+          },
+          "help": {
+            "key": "settings.appearance.glassControls.help",
+            "text": "Draws the knobs of the switches and sliders in Settings as glass."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AppearanceSettingsSchema",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "experimental",
+            "glass",
+            "liquid glass",
+            "switch",
+            "toggle",
+            "slider",
+            "knob",
+            "thumb",
+            "labs"
+          ]
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "name": "opacity",
           "title": {
@@ -1300,6 +1436,139 @@
             "colour",
             "space",
             "background"
+          ]
+        },
+        {
+          "key": "appearance.wallpaperLighting",
+          "title": {
+            "key": "settings.appearance.wallpaperLighting",
+            "text": "Wallpaper Lighting"
+          },
+          "help": {
+            "key": "settings.appearance.wallpaperLighting.help",
+            "text": "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue."
+          },
+          "kind": "toggle",
+          "swift_owner": "WallpaperLightingSetting",
+          "default": false,
+          "keywords": [
+            "light",
+            "lighting",
+            "glow",
+            "rim",
+            "wallpaper",
+            "glass"
+          ]
+        },
+        {
+          "key": "appearance.liveWallpaperFrameRate",
+          "title": {
+            "key": "settings.appearance.liveWallpaperFrameRate",
+            "text": "Live Wallpaper Frame Rate"
+          },
+          "help": {
+            "key": "settings.appearance.liveWallpaperFrameRate.help",
+            "text": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."
+          },
+          "kind": "choice",
+          "swift_owner": "LiveWallpaperFrameRateSetting",
+          "choices": [
+            {
+              "value": "15",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.15",
+                "text": "15 fps"
+              }
+            },
+            {
+              "value": "30",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.30",
+                "text": "30 fps"
+              }
+            },
+            {
+              "value": "60",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.60",
+                "text": "60 fps"
+              }
+            }
+          ],
+          "default": "30",
+          "keywords": [
+            "live wallpaper",
+            "wallpaper",
+            "frame rate",
+            "fps",
+            "animation",
+            "motion",
+            "background",
+            "battery"
+          ]
+        },
+        {
+          "key": "appearance.terminalCellBackgrounds",
+          "note": "Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.",
+          "title": {
+            "key": "settings.appearance.terminalCellBackgrounds",
+            "text": "Terminal Cell Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.terminalCellBackgrounds.help",
+            "text": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+          },
+          "kind": "choice",
+          "swift_owner": "TerminalCellBackgroundsSetting",
+          "swift_enum": {
+            "name": "TerminalCellBackgrounds",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "opaque",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.opaque",
+                "text": "Opaque"
+              }
+            },
+            {
+              "value": "window",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.window",
+                "text": "Window Opacity"
+              }
+            },
+            {
+              "value": "tint",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tint",
+                "text": "Tint"
+              }
+            },
+            {
+              "value": "tintWindow",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tintWindow",
+                "text": "Tint at Window Opacity"
+              }
+            }
+          ],
+          "default": "opaque",
+          "keywords": [
+            "terminal",
+            "cell",
+            "background",
+            "transparent",
+            "translucent",
+            "opacity",
+            "wallpaper",
+            "tui",
+            "claude",
+            "codex",
+            "pi",
+            "opencode"
           ]
         }
       ]
@@ -1644,6 +1913,35 @@
           ]
         },
         {
+          "key": "appearance.appFont",
+          "note": "The font family of cmux's interface, any installed family (Leo, 2026-11-08: \"there's no whole app font change thing\"). Unset is the system font. Every web page (chat, Settings, palette) takes it as --font-ui live through the web theme (WebTheme.appFontStack, a <style id=cmux-app-font> rule under inline styles, so a chat font set on Chat still wins there). Native chrome text (CheckedFont.system) takes it too while experiments.appFontChrome is on. Terminals keep terminal.fontFamily. Validation domain:ui_font_family: any family name, the owner checks the shape only.",
+          "title": {
+            "key": "settings.appearance.appFont",
+            "text": "App Font"
+          },
+          "help": {
+            "key": "settings.appearance.appFont.help",
+            "text": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.appearance.appFont.system",
+            "text": "System"
+          },
+          "swift_owner": "AppFontSetting",
+          "keywords": [
+            "font",
+            "app font",
+            "interface font",
+            "ui font",
+            "typeface",
+            "family",
+            "whole app",
+            "text"
+          ]
+        },
+        {
           "key": "appearance.interfaceScale",
           "title": {
             "key": "settings.appearance.interfaceSize",
@@ -1887,6 +2185,507 @@
             "height",
             "thinner",
             "sidebarRowHeight"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.sidebarRowInset",
+          "name": "sidebarRowInset",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.sidebarRowInset",
+            "text": "Workspace Row Inset"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarRowInset.help",
+            "text": "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 6
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "padding",
+            "inset",
+            "sidebarRowInset"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.sidebarRowPadding",
+          "name": "sidebarRowPadding",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.sidebarRowPadding",
+            "text": "Workspace Row Padding"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarRowPadding.help",
+            "text": "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "padding",
+            "content",
+            "sidebarRowPadding"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.sidebarRowGap",
+          "name": "sidebarRowGap",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.sidebarRowGap",
+            "text": "Workspace Row Gap"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarRowGap.help",
+            "text": "The gap between two sidebar rows. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 12,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 2
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "gap",
+            "spacing",
+            "sidebarRowGap"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.sidebarRowHeightWithSubtitle",
+          "name": "sidebarRowHeightWithSubtitle",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.sidebarRowHeightWithSubtitle",
+            "text": "Two-Line Row Height"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarRowHeightWithSubtitle.help",
+            "text": "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 28,
+            "max": 96,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 37
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "two line",
+            "card",
+            "subtitle",
+            "height",
+            "sidebarRowHeightWithSubtitle"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.toolbarButtonSize",
+          "name": "toolbarButtonSize",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.toolbarButtonSize",
+            "text": "Toolbar Button Size"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonSize.help",
+            "text": "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 16,
+            "max": 40,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 20
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "toolbar",
+            "header",
+            "titlebar",
+            "button",
+            "icon",
+            "size",
+            "toolbarButtonSize"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.toolbarButtonGap",
+          "name": "toolbarButtonGap",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.toolbarButtonGap",
+            "text": "Toolbar Button Gap"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonGap.help",
+            "text": "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 6
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "toolbar",
+            "header",
+            "titlebar",
+            "button",
+            "gap",
+            "spacing",
+            "toolbarButtonGap"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.toolbarButtonCornerRadius",
+          "name": "toolbarButtonCornerRadius",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.toolbarButtonCornerRadius",
+            "text": "Toolbar Button Corner"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonCornerRadius.help",
+            "text": "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 20,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 6
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "toolbar",
+            "header",
+            "titlebar",
+            "button",
+            "corner",
+            "radius",
+            "rounded",
+            "square",
+            "toolbarButtonCornerRadius"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.toolbarButtonActiveFill",
+          "name": "toolbarButtonActiveFill",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.toolbarButtonActiveFill",
+            "text": "Active Button Fill"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonActiveFill.help",
+            "text": "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 0.4,
+            "step": 0.01,
+            "unit": "fraction",
+            "placeholder": 0.14
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "toolbar",
+            "header",
+            "button",
+            "active",
+            "on",
+            "fill",
+            "toolbarButtonActiveFill"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.headerDivider",
+          "name": "headerDivider",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.headerDivider",
+            "text": "Header Divider"
+          },
+          "help": {
+            "key": "settings.appearance.headerDivider.help",
+            "text": "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 0
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "header",
+            "titlebar",
+            "title bar",
+            "tab row",
+            "divider",
+            "hairline",
+            "line",
+            "headerDivider"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.spacingScale",
+          "name": "spacingScale",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.spacingScale",
+            "text": "Spacing"
+          },
+          "help": {
+            "key": "settings.appearance.spacingScale.help",
+            "text": "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0.5,
+            "max": 2,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "spacing",
+            "padding",
+            "gap",
+            "airy",
+            "tight",
+            "spacingScale"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.composerPadding",
+          "name": "composerPadding",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.composerPadding",
+            "text": "Composer Padding"
+          },
+          "help": {
+            "key": "settings.appearance.composerPadding.help",
+            "text": "The room from the chat prompt box's sides to its text and controls. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "composer",
+            "prompt",
+            "input",
+            "padding",
+            "inset",
+            "composerPadding"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.composerMinHeight",
+          "name": "composerMinHeight",
+          "note": "Leo 2026-11-19: \"the layout and proportions as well\"; \"if it cant be hot swapped, that's probably an issue with our api/sdk\". A look (theme file) sets it; unset draws today's layout.",
+          "title": {
+            "key": "settings.appearance.composerMinHeight",
+            "text": "Composer Height"
+          },
+          "help": {
+            "key": "settings.appearance.composerMinHeight.help",
+            "text": "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 32,
+            "max": 160,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 48
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "composer",
+            "prompt",
+            "input",
+            "height",
+            "composerMinHeight"
           ],
           "consumers": [
             "cmux-next"
@@ -2186,6 +2985,129 @@
           ]
         },
         {
+          "key": "appearance.toolbarButtonStyle",
+          "note": "How the buttons at a pane's top right (the pinned tab bar buttons, Exit Zoom and the pane's ⋮) and the tab bar's + and ⌄ draw. standard (the default) is today's look, unchanged. plain: bare glyphs, a fill only under the pointer. grouped: one filled pill holds the pane's buttons. glass: that pill in see-through glass with a rim. A theme file sets it like any appearance.* key; a change applies at once (ToolbarButtonStyleSetting, PaneToolbarView). Leo 2026-11-18: \"you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well\".",
+          "title": {
+            "key": "settings.appearance.toolbarButtonStyle",
+            "text": "Top Right Buttons"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonStyle.help",
+            "text": "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.choice.toolbarButtonStyle.plain",
+                "text": "Plain"
+              }
+            },
+            {
+              "value": "grouped",
+              "title": {
+                "key": "settings.choice.toolbarButtonStyle.grouped",
+                "text": "Grouped"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "toolbar",
+            "buttons",
+            "top right",
+            "pill",
+            "glass",
+            "plain",
+            "grouped",
+            "capsule",
+            "tab bar"
+          ],
+          "swift_enum": {
+            "name": "ToolbarButtonStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "ToolbarButtonStyleSetting"
+        },
+        {
+          "key": "appearance.homeCardStyle",
+          "note": "How the cards on Home and the New Tab page draw: the recent chats' cards, the environment and suggestions cards over the composer, and the Home lists under a new chat's composer. standard (the default) is today's look, unchanged. flat: a tonal fill, no edge, no shadow. raised: an elevated card with a hairline and a soft shadow. glass: see-through cards with a rim over the window's picture. A theme file sets it like any appearance.* key; a change applies at once (HomeCardStyleSetting, AgentPaneTheme homeCardStyle, the page's data-home-cards). Leo 2026-11-18: \"you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well\" / \"how about the customizations for claude/codex/t3code aka \"studio\" ... alongside customizing tabs and whatnot\".",
+          "title": {
+            "key": "settings.appearance.homeCardStyle",
+            "text": "Home Cards"
+          },
+          "help": {
+            "key": "settings.appearance.homeCardStyle.help",
+            "text": "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.homeCardStyle.flat",
+                "text": "Flat"
+              }
+            },
+            {
+              "value": "raised",
+              "title": {
+                "key": "settings.choice.homeCardStyle.raised",
+                "text": "Raised"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "home",
+            "new tab",
+            "cards",
+            "card",
+            "chats",
+            "flat",
+            "raised",
+            "shadow",
+            "glass",
+            "elevated"
+          ],
+          "swift_enum": {
+            "name": "HomeCardStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "HomeCardStyleSetting"
+        },
+        {
           "key": "appearance.titleAreaTone",
           "note": "One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.",
           "title": {
@@ -2399,7 +3321,7 @@
         },
         {
           "key": "appearance.cornerFlush",
-          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick. flush-goo also runs the sidebar's selected row into the card on a block appearance.tabShape (CornerFlush.sidebarRowFlows), and tones the frame under One Color too, since goo needs two tones to show (Leo 2026-11-18: \"like the \\\"gooey\\\" is each tab looking like it's morphing into the visible pane. the two tone thing.\").",
           "title": {
             "key": "settings.appearance.cornerFlush",
             "text": "Selected Tab Shape"
@@ -2465,6 +3387,119 @@
             "module": "CmuxNextDesign"
           },
           "swift_owner": "CornerFlushSetting"
+        },
+        {
+          "key": "appearance.tabShape",
+          "note": "How blocky the tabs of every tab bar and the rows of the sidebar are (TabShape, CmuxNextDesign). block (the default) draws today's tabs and rows unchanged. rounded draws the tabs and the sidebar's row fills as capsules, and the selected tab stays a capsule on its strip under every appearance.cornerFlush, never a folder into the content. The gooey look is not a third shape: it is appearance.cornerFlush flush-goo, which on a block shape also runs the sidebar's selected row into the content card (CornerFlush.sidebarRowFlows). Leo 2026-11-18: \"the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too.\"",
+          "title": {
+            "key": "settings.appearance.tabShape",
+            "text": "Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.tabShape.help",
+            "text": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."
+          },
+          "summary": {
+            "key": "settings.appearance.tabShape.summary",
+            "text": "Block or rounded tabs and sidebar rows"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.tabShape.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.tabShape.rounded",
+                "text": "Rounded"
+              }
+            }
+          ],
+          "default": "block",
+          "keywords": [
+            "tab",
+            "tabs",
+            "shape",
+            "corners",
+            "block",
+            "blocky",
+            "rounded",
+            "pill",
+            "capsule",
+            "sidebar",
+            "row",
+            "selection"
+          ],
+          "swift_enum": {
+            "name": "TabShape",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TabShapeSetting"
+        },
+        {
+          "key": "appearance.gooeyTabs",
+          "note": "How gooey the tab strip is (GooeyTabs, CmuxNextDesign; plans/cmux-next/gooey-tabs.md). off (the default) changes nothing: appearance.cornerFlush and appearance.titleAreaTone apply as set. subtle and full draw the selected tab as flush-goo (CornerFlush.current, unless compact density keeps the pill) over Subtle Tone (DesignSettings.effectiveTitleAreaTone), as effective values that never write those two settings, and run the goo springs (GooTunables). Leo 2026-11-23: \"presumably a less intense version should have a better case to be the default. so you guys need to try that. like. subtle goo.\"",
+          "title": {
+            "key": "settings.appearance.gooeyTabs",
+            "text": "Gooey Tabs"
+          },
+          "help": {
+            "key": "settings.appearance.gooeyTabs.help",
+            "text": "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more."
+          },
+          "summary": {
+            "key": "settings.appearance.gooeyTabs.summary",
+            "text": "Off, subtle or full goo for the tab strip"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.gooeyTabs.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.gooeyTabs.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.gooeyTabs.full",
+                "text": "Full"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "goo",
+            "gooey",
+            "liquid",
+            "spring",
+            "springy",
+            "wobble",
+            "stretch",
+            "tab animation",
+            "selected tab",
+            "tab shape"
+          ],
+          "swift_enum": {
+            "name": "GooeyTabs",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "GooeyTabsSetting"
         }
       ]
     },
@@ -2984,6 +4019,1017 @@
           },
           "default": false,
           "keywords": []
+        }
+      ]
+    },
+    {
+      "name": "themeFlourishes",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.themeFlourishes",
+        "text": "Theme Flourishes"
+      },
+      "rows": [
+        {
+          "key": "appearance.accentGlow.dark",
+          "name": "accentGlowDark",
+          "title": {
+            "key": "settings.appearance.accentGlow.dark",
+            "text": "Accent Glow (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.dark.help",
+            "text": "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.off",
+            "text": "Off"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.light",
+          "name": "accentGlowLight",
+          "title": {
+            "key": "settings.appearance.accentGlow.light",
+            "text": "Accent Glow (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.light.help",
+            "text": "The glow's color in the light appearance. Unset, the dark color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.radius",
+          "name": "accentGlowRadius",
+          "title": {
+            "key": "settings.appearance.accentGlow.radius",
+            "text": "Accent Glow Radius"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.radius.help",
+            "text": "How far the accent glow spreads from the focused pane."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 200,
+            "step": 1,
+            "unit": "points"
+          },
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.opacity",
+          "name": "accentGlowOpacity",
+          "title": {
+            "key": "settings.appearance.accentGlow.opacity",
+            "text": "Accent Glow Opacity"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.opacity.help",
+            "text": "How strong the accent glow is."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.from",
+          "name": "tabCloseFrom",
+          "title": {
+            "key": "settings.appearance.tabClose.from",
+            "text": "Tab Close Color"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.from.help",
+            "text": "The color of a tab's close button. Unset, the text color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.toDark",
+          "name": "tabCloseToDark",
+          "title": {
+            "key": "settings.appearance.tabClose.toDark",
+            "text": "Tab Close Hover Color (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.toDark.help",
+            "text": "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.toLight",
+          "name": "tabCloseToLight",
+          "title": {
+            "key": "settings.appearance.tabClose.toLight",
+            "text": "Tab Close Hover Color (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.toLight.help",
+            "text": "The close button's hover color in the light appearance. Unset, the dark color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.interpolation",
+          "name": "tabCloseInterpolation",
+          "title": {
+            "key": "settings.appearance.tabClose.interpolation",
+            "text": "Tab Close Blend"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.interpolation.help",
+            "text": "How the close button's color blends to its hover color."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "oklab",
+              "title": {
+                "key": "settings.choice.tabCloseInterpolation.oklab",
+                "text": "Perceptual (OKLab)"
+              }
+            },
+            {
+              "value": "srgb",
+              "title": {
+                "key": "settings.choice.tabCloseInterpolation.srgb",
+                "text": "sRGB"
+              }
+            }
+          ],
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "tab",
+            "close"
+          ]
+        },
+        {
+          "key": "appearance.sidebarHeader.dark",
+          "name": "sidebarHeaderDark",
+          "title": {
+            "key": "settings.appearance.sidebarHeader.dark",
+            "text": "Sidebar Header Image (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarHeader.dark.help",
+            "text": "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none."
+          },
+          "kind": "text",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.none",
+            "text": "None"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "sidebar",
+            "header",
+            "banner",
+            "image"
+          ]
+        },
+        {
+          "key": "appearance.sidebarHeader.light",
+          "name": "sidebarHeaderLight",
+          "title": {
+            "key": "settings.appearance.sidebarHeader.light",
+            "text": "Sidebar Header Image (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarHeader.light.help",
+            "text": "The sidebar header picture in the light appearance. Unset, the dark picture."
+          },
+          "kind": "text",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "sidebar",
+            "header",
+            "banner",
+            "image"
+          ]
+        },
+        {
+          "key": "appearance.paneArt.dark",
+          "name": "paneArtDark",
+          "title": {
+            "key": "settings.appearance.paneArt.dark",
+            "text": "Pane Art (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.paneArt.dark.help",
+            "text": "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above."
+          },
+          "placeholder": {
+            "key": "settings.appearance.paneArt.placeholder",
+            "text": "file:/path/to/picture.webp"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "theme",
+            "flourish",
+            "pane",
+            "wallpaper",
+            "background",
+            "art"
+          ]
+        },
+        {
+          "key": "appearance.paneArt.light",
+          "name": "paneArtLight",
+          "title": {
+            "key": "settings.appearance.paneArt.light",
+            "text": "Pane Art (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.paneArt.light.help",
+            "text": "Pictures behind panes in the light appearance. Empty, the dark list."
+          },
+          "placeholder": {
+            "key": "settings.appearance.paneArt.placeholder",
+            "text": "file:/path/to/picture.webp"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "theme",
+            "flourish",
+            "pane",
+            "wallpaper",
+            "background",
+            "art"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "menuLook",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.menuLook",
+        "text": "Menus and Popovers"
+      },
+      "rows": [
+        {
+          "key": "appearance.menu.cornerRadius",
+          "name": "menuCornerRadius",
+          "note": "The menu panel's corner (GlassMenu and every web menu). Unset: today's popup radius (the design scale's popup radius, 8 on the web).",
+          "title": {
+            "key": "settings.appearance.menu.cornerRadius",
+            "text": "Menu Corner Radius"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "context menu",
+            "popover",
+            "corner",
+            "radius",
+            "rounded"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.borderOpacity",
+          "name": "menuBorderOpacity",
+          "note": "The panel's hairline edge, as a share of the text color (the web's --menu-border). Unset: today's 12%.",
+          "title": {
+            "key": "settings.appearance.menu.borderOpacity",
+            "text": "Menu Border Opacity"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction",
+            "placeholder": 0.12
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "border",
+            "rim",
+            "opacity",
+            "contrast"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.shadow",
+          "name": "menuShadow",
+          "note": "The menu panel's drop shadow: standard is today's raised elevation step (0 2px 6px black 11%); subtle is the card step (0 1px 2px black 7%); strong a soft, larger drop (0 8px 24px black 28%); none draws no shadow.",
+          "title": {
+            "key": "settings.appearance.menu.shadow",
+            "text": "Menu Shadow"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "shadow",
+            "elevation",
+            "drop shadow",
+            "depth"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.fill",
+          "name": "menuFill",
+          "note": "The menu panel's fill as #RRGGBB or #RRGGBBAA, over the glass. Unset: today's glass (its tint and veil).",
+          "title": {
+            "key": "settings.appearance.menu.fill",
+            "text": "Menu Fill"
+          },
+          "kind": "color",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.glass",
+            "text": "Glass"
+          },
+          "keywords": [
+            "menu",
+            "fill",
+            "background",
+            "color",
+            "opaque",
+            "panel"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.padding",
+          "name": "menuPadding",
+          "note": "The panel's inner padding, which is also the hover fill's inset from its edges (the web's --menu-padding); labels, shortcuts and separators keep their place on the menu grid. Unset: the grid's 5.",
+          "title": {
+            "key": "settings.appearance.menu.padding",
+            "text": "Menu Padding"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 5
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "padding",
+            "inset",
+            "spacing"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.highlightRadius",
+          "name": "menuHighlightRadius",
+          "note": "The hover fill's corner. Unset: today's 5.",
+          "title": {
+            "key": "settings.appearance.menu.highlightRadius",
+            "text": "Menu Highlight Radius"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 5
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "hover",
+            "highlight",
+            "radius",
+            "corner"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.rowHeight",
+          "name": "menuRowHeight",
+          "note": "A one-line row's height. Unset: today's control row of the density (28 at the default).",
+          "title": {
+            "key": "settings.appearance.menu.rowHeight",
+            "text": "Menu Row Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 40,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 28
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "row",
+            "height",
+            "item",
+            "size"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.shortcuts",
+          "name": "menuShortcuts",
+          "note": "The shortcut column's ink: standard is today's (each surface's own muted ink); muted is quieter (the text at 45%, the native tertiary ink).",
+          "title": {
+            "key": "settings.appearance.menu.shortcuts",
+            "text": "Menu Shortcuts"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "shortcut",
+            "key equivalent",
+            "keyboard",
+            "muted",
+            "gray"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.sectionLabel",
+          "name": "menuSectionLabel",
+          "note": "A section label (Open in): standard is today's (caption, emphasis weight, the row ink at 55%); muted is regular weight in the text at 45% (the web's --menu-label-color and --menu-label-weight).",
+          "title": {
+            "key": "settings.appearance.menu.sectionLabel",
+            "text": "Menu Section Labels"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "section",
+            "label",
+            "header",
+            "group"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.separator",
+          "name": "menuSeparator",
+          "note": "A separator between row groups: standard is today's line; subtle a line at half its ink; none leaves only the gap (the web's --menu-separator).",
+          "title": {
+            "key": "settings.appearance.menu.separator",
+            "text": "Menu Separators"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "separator",
+            "divider",
+            "line"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.destructiveInk",
+          "name": "menuDestructiveInk",
+          "note": "A destructive row (Delete): standard is today's danger red; plain draws it in the row's own ink.",
+          "title": {
+            "key": "settings.appearance.menu.destructiveInk",
+            "text": "Menu Destructive Rows"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.choice.plainInk",
+                "text": "Plain"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "destructive",
+            "delete",
+            "danger",
+            "red"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.submenu",
+          "name": "menuSubmenu",
+          "note": "Where a submenu opens: standard is today's (a 6 pt gap beside its row); flush puts its panel against the menu's edge with its first row level with the row that opened it (the web's --menu-submenu-offset and --menu-submenu-align-offset).",
+          "title": {
+            "key": "settings.appearance.menu.submenu",
+            "text": "Submenu Placement"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.flush",
+                "text": "Flush"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "submenu",
+            "nested",
+            "flush",
+            "offset",
+            "align"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.subtitle",
+          "name": "menuSubtitle",
+          "note": "A row's second line (a subtitle under its title): standard is today's (the row ink at 55%); muted is the text at 45% (the web's --menu-subtitle-color).",
+          "title": {
+            "key": "settings.appearance.menu.subtitle",
+            "text": "Menu Subtitles"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "subtitle",
+            "description",
+            "second line",
+            "muted"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.padding",
+          "name": "popoverPadding",
+          "note": "A popover's inner padding. Unset: today's (the design scale's space 2).",
+          "title": {
+            "key": "settings.appearance.popover.padding",
+            "text": "Popover Padding"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "popover",
+            "card",
+            "padding",
+            "spacing"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.header",
+          "name": "popoverHeader",
+          "note": "A popover's header line: standard is today's (detail type, muted ink); strong is body type at emphasis weight in the primary ink.",
+          "title": {
+            "key": "settings.appearance.popover.header",
+            "text": "Popover Headers"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "popover",
+            "header",
+            "title",
+            "heading"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.progressHeight",
+          "name": "popoverProgressHeight",
+          "note": "A progress track's height in a popover (plan usage). Unset: today's 4.",
+          "title": {
+            "key": "settings.appearance.popover.progressHeight",
+            "text": "Popover Progress Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 1,
+            "max": 12,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 4
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "popover",
+            "progress",
+            "bar",
+            "track",
+            "usage",
+            "height"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.progressFill",
+          "name": "popoverProgressFill",
+          "note": "A progress bar's fill: standard is today's accent; muted the secondary ink; strong the primary ink.",
+          "title": {
+            "key": "settings.appearance.popover.progressFill",
+            "text": "Popover Progress Fill"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "popover",
+            "progress",
+            "bar",
+            "fill",
+            "usage",
+            "color"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        }
+      ]
+    },
+    {
+      "name": "agentSignature",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.agentSignature",
+        "text": "Agent Signatures"
+      },
+      "rows": [
+        {
+          "key": "appearance.agentSignature",
+          "note": "Off by default: it changes the default look. On, sidebar agent rows and the chat's running line draw a dot glyph acpmux makes from the session id (session/signature); off, no glyph and no request.",
+          "title": {
+            "key": "settings.appearance.agentSignature",
+            "text": "Agent Dot Signatures"
+          },
+          "help": {
+            "key": "settings.appearance.agentSignature.help",
+            "text": "Give each agent a small dot glyph made from its session, on sidebar rows and the running line."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentSignatureSetting",
+          "default": false,
+          "keywords": [
+            "agent",
+            "signature",
+            "glyph",
+            "dots",
+            "particles",
+            "session",
+            "sidebar",
+            "identity"
+          ]
         }
       ]
     }

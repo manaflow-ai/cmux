@@ -20,6 +20,7 @@ const OFF_CENTER: Record<string, string> = {
   "disclosure.collapsed": "SPEC: the collapsed chevron sits 1 right",
   "terminal.new": "optical.py V_TOLERANCE: a bottom-right plus badge may sit a little low",
   "status.progress": "drawn before this check: 0.504 left, at the rasteriser's rounding edge",
+  "action.retry": "#46801: the head is a separate chevron at the top, clear of the arc's tail",
 };
 
 // design/icons/SPEC.md "Line style": every Line drawing strokes at 1.5 on the 24 grid. A 16-unit glyph pasted in

@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextCompat
 import Foundation
 
 extension AgentPaneModel {
@@ -10,6 +12,12 @@ extension AgentPaneModel {
         switch checkedFileOpen(path, target: target) {
         case .success(let checked): url = checked
         case .failure(let refusal): return Self.transportFailure(refusal)
+        }
+        // Reveal in Finder: the checked file on this Mac, shown, never run. Another machine's chat names its own files.
+        if target == .finder {
+            guard !remoteChat else { return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage) }
+            NSWorkspace.shared.revealInBackground([url])
+            return AgentPaneReply.success()
         }
         guard await onOpenFile(url, target, nil) else {
             return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)

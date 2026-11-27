@@ -172,7 +172,7 @@ pub(crate) async fn prepare(
     command: &str,
     options: &Value,
 ) -> Result<CiIntent, RpcError> {
-    let repo = github_repo(&git(&run.cwd, &["remote", "get-url", "origin"]).await?)?;
+    let repo = github_repo(&git(&run.cwd, &["config", "--get", "remote.origin.url"]).await?)?;
     let source_ref = git(&run.cwd, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
     if source_ref.len() != 40 || !source_ref.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(error("CI source must resolve to a full commit SHA"));
@@ -221,7 +221,8 @@ impl Client {
 
     /// One client process, bounded. A missing client is `ci.unavailable`: nothing ran.
     async fn call_within(&self, args: &[String], bound: Duration) -> Result<Output, RpcError> {
-        let program = Path::new("cmux-ci");
+        let resolved = crate::config::user_program("cmux-ci");
+        let program = resolved.as_path();
         #[cfg(test)]
         let program = self.program.as_deref().unwrap_or(program);
         tokio::time::timeout(

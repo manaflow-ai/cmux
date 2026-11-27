@@ -89,8 +89,11 @@ guard; a scripting sandbox was considered and decided against.
   after it (`batch_time_limit`).
 - An acting step runs through `dispatch` like its own call: policy, the
   guards, the desktop's caret and web gates and priming scope, and the focus
-  guard (the batch is guarded once, as a whole). It then settles on its own
-  (adaptive, its own AX watch) and gets its own outcome from its own read-back,
+  guard (the batch is guarded once, as a whole). It captures the window at once,
+  with no wait. Only a step whose outcome is required (`require: "confirmed"`
+  or `"not_no_effect"`) or that asks for `settle: "adaptive"` settles on its
+  own (adaptive, its own AX watch): `confirmed` and `no_effect` need a real
+  settle to read back and compare. It gets its own outcome from its own read-back,
   pixels (against the previous step's capture), elements (against the
   previous step's tree) and what changed outside the window. Its outcome is
   decided before the next step runs, so a later step can never confirm it.
@@ -182,8 +185,14 @@ the agent's words.
 | `fullAccess` (default) | Every app that is not denied. |
 
 - `computerUse.deniedApps` (exact id, `prefix*`, `name:App Name`) holds password
-  managers and keychains, System Settings, terminals and cmux by default; the
-  person can remove any entry. No agent screenshot shows a denied window: on
+  managers and keychains and System Settings by default; the person can remove
+  any entry or add one (a terminal, say). Agents may act in cmux itself and in
+  terminals by default (Leo, 2026-11-22: "why not. it should be able to"); a
+  list an earlier build stored with the terminals and cmux on it loses those
+  entries and keeps the person's own. Settings > Computer Use, its Saved
+  Approvals and `cmux settings set computerUse.* --confirm` change only with
+  the person's own click or key (posted input is refused), and the approval
+  prompts are cmux Remote's (protected) or person-only buttons. No agent screenshot shows a denied window: on
   macOS the capture itself leaves out every window of every denied app, at
   every window level, and the compositor draws what is behind them (an allowed
   window in front keeps its pixels); elsewhere, and for an app that started
@@ -290,9 +299,48 @@ grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
 only when capture and input would work. It never shows an OS prompt (grants are
 the preflight reads `status` already does) and needs no app window. `helper`
 names the worker's executable (`status.worker.executable`); on macOS a
-`cmux-screen-sharing` outside the staging root
-(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
-fails with the staging fix.
+`cmux-screen-sharing` outside the one fixed helper folder
+(`~/Library/Application Support/cmux-next/helper/<bundle id>/`, every build's
+staged copy) fails, and so does an older daemon's copy under the per-build
+`cmux-next/screen-sharing/` layout. For a local worker the doctor also checks
+the folder's `.verified` marker against the copy's own content digest. The fix
+is to turn Computer Use off and on (the worker starts again from the staged
+copy); restarting the app alone does not, because the daemon and its worker
+outlive it.
+
+## Hot upgrade
+
+`cmux computer-use upgrade [--from nightly|PR|SHA|branch] [--dry-run]` replaces only the
+Computer Use engine, the signed helper whose `__computer-use-worker` mode is the worker. The app,
+its daemon and every session keep running. With no `--from` it takes the signed nightly-live
+channel's build.
+
+1. The build's signed `mac-live.json` names its helper zip, sha256, size, bundle id and
+   designated requirement. The zip is fetched, checked and unpacked as `cmux app try` does
+   (`cli/app/try_cmd/helper.rs`). The bundle must pass `codesign --verify --strict --deep`
+   against the installed helper's own designated requirement, and that requirement must be the
+   build's, byte for byte. An ad hoc (cdhash) helper is never replaced.
+2. The installed `Contents/Library/<app> Helper.app` (`<app> Screen Sharing.app` in builds from
+   before the rename) is copied into the try store for undo. The checked bundle is then
+   exchanged with it in one `renamex_np(RENAME_SWAP)`.
+3. The worker's fixed-path copy (`~/Library/Application Support/cmux-next/helper/<bundle id>/`)
+   is staged again from the new bundle, the same way the daemon stages it. If that fails, the
+   app's helper goes back.
+4. At its next call the running worker sees its executable replaced
+   (`cmux_computer_use::replaced`). It finishes the calls already running and exits, and the
+   supervisor starts the new one at once. The command makes that call itself and reports the
+   worker's pid before and after.
+
+`cmux computer-use upgrade --undo` puts the previous helper back once, the same way. It changes
+nothing if the helper changed since then, for example after an app update.
+
+Grants: TCC keys a Screen Recording or Accessibility grant to the helper's bundle id. The
+`csreq` it stores is the designated requirement (identifier, Apple anchor, Developer ID, team),
+not a cdhash. replayd's screen-capture approval is keyed to the executable path. A same-team,
+same-identifier helper at the same path therefore keeps its grants, and the restarted worker
+reads them fresh. A DEV build's ad hoc helper has a cdhash requirement that no other build can
+meet, so the upgrade refuses it. Swapping the nested helper also breaks the app's outer seal,
+as `cmux app try` does.
 
 ## Trust
 

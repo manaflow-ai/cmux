@@ -12,11 +12,12 @@ public import Foundation
 ///
 /// Apple's numbers: AppKit's tooltip waits `NSInitialToolTipDelay`
 /// (milliseconds; about 1000 ms at the default setting), and once one
-/// shows, the next view's tooltip shows at once. cmux waits 450 ms (Leo,
-/// 2026-10-14: 400-500): a pointer crossing a 24-30 pt toolbar button at
+/// shows, the next view's tooltip shows at once. cmux waits 250 ms (Leo,
+/// 2026-10-14 asked 400-500; 2026-11-22, on a keyed tooltip: "such a
+/// bullshit long hover"): a pointer crossing a 24-30 pt toolbar button at
 /// sweep speed (300-1000 pt/s) is on it for 30-100 ms, far under the delay,
 /// so a sweep still shows nothing, while a deliberate rest gets its answer
-/// in under half a second instead of AppKit's full second. The warm time
+/// in a quarter second instead of AppKit's full second. The warm time
 /// (500 ms) is the gap between two buttons a reader moves across. Each
 /// value is a tunable (Debug > Tunables > Hover).
 public nonisolated struct HoverIntentTiming: Hashable, Sendable {
@@ -39,7 +40,7 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
 
     /// The defaults (`HOVER_INTENT` in webviews/src/ui/hoverIntent.ts mirrors these).
     public static let standard = HoverIntentTiming(
-        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
+        tooltipDelay: .milliseconds(250), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
 
     /// The values now, with any tunable override.
     public static var current: HoverIntentTiming {
