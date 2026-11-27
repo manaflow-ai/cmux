@@ -31,7 +31,9 @@ impl Schema {
         for (key, value) in defaults {
             let Some(index) = self.by_key.get(key).copied() else { continue };
             let Some(row) = self.rows.get_mut(index) else { continue };
-            if super::accepts(row, value, &Domains::default()).is_err() {
+            if !crate::managed::allows_non_personal_value(key, value)
+                || super::accepts(row, value, &Domains::default()).is_err()
+            {
                 continue;
             }
             row.default = Some(value.clone());
