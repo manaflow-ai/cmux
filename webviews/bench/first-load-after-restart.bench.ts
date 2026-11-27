@@ -1024,6 +1024,13 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     },
   };
   (window as unknown as { __firstLoad: typeof recording }).__firstLoad = recording;
+  // Rows mounted over time (`.acpmux-row[data-row-id]` count at each DOM change), printed by RES_TRACE=1.
+  const mountedAt: [number, number][] = [];
+  (window as unknown as { __mountedAt: typeof mountedAt }).__mountedAt = mountedAt;
+  new MutationObserver(() => {
+    const n = document.querySelectorAll(".acpmux-row[data-row-id]").length;
+    if (n !== (mountedAt.at(-1)?.[1] ?? -1)) mountedAt.push([Math.round(performance.now()), n]);
+  }).observe(document, { childList: true, subtree: true });
   type Source = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
   /// A box by its class names and its parent's first one ("acpmux-main > div.acpmux-dock").
   const named = (node: Node | null | undefined): string => {
@@ -1926,18 +1933,46 @@ try {
     const context = await browser.newContext({ viewport: VIEWPORT });
     try {
       const page = await context.newPage();
+      /// What the page said while it warmed, printed only if it never settles: a warm load that times out
+      /// otherwise says nothing about why.
+      const said: string[] = [];
+      page.on("pageerror", (error) => said.push(`pageerror: ${String(error.stack ?? error).slice(0, 600)}`));
+      page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning")
+          said.push(`${message.type()}: ${message.text().slice(0, 400)}`);
+      });
+      page.on("requestfailed", (request) => said.push(`requestfailed: ${request.url().slice(0, 200)}`));
       await prepare(page, null, 120_000);
       await page.goto(url);
-      await page.waitForFunction(
-        (quietMs) => {
-          const recording = (window as unknown as BenchWindow).__firstLoad;
-          return (
-            recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
-          );
-        },
-        SETTLE_QUIET_MS,
-        { timeout: 120_000, polling: 100 },
-      );
+      await page
+        .waitForFunction(
+          (quietMs) => {
+            const recording = (window as unknown as BenchWindow).__firstLoad;
+            return (
+              recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
+            );
+          },
+          SETTLE_QUIET_MS,
+          { timeout: Number(process.env.WARM_TIMEOUT_MS ?? 120_000), polling: 100 },
+        )
+        .catch(async (error: unknown) => {
+          const state = await page
+            .evaluate(() => {
+              const recording = (window as unknown as BenchWindow).__firstLoad;
+              return {
+                latestAt: recording?.latestAt,
+                changedAt: recording?.changedAt,
+                now: performance.now(),
+                rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+                root: document.querySelector("#root")?.childElementCount ?? -1,
+                text: (document.body.innerText ?? "").replace(/\s+/g, " ").slice(-600),
+              };
+            })
+            .catch((failed: unknown) => `page state unreadable: ${String(failed)}`);
+          console.log(`WARM never settled: ${JSON.stringify(state)}`);
+          for (const line of said.slice(0, 40)) console.log(`WARM page ${line}`);
+          throw error;
+        });
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;
@@ -2064,6 +2099,11 @@ try {
         timeout: RECORD_MS + 60_000,
         polling: 250,
       });
+      if (process.env.RES_TRACE === "1")
+        console.log(
+          "  MOUNTED " +
+            JSON.stringify(await page.evaluate(() => (window as unknown as { __mountedAt: unknown }).__mountedAt)),
+        );
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
