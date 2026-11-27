@@ -334,6 +334,15 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
     for m in refused {
         let params = json!({"sessionId": a, "cwd": d.join("work"), "mcpServers": []});
         let r = mate.call(m, params).await;
+        // `_acpmux/request_state` is answered by the connection loop for the connection's own
+        // requests only, before any gate (`server/connection_loop.rs`, `in_flight.rs`): a
+        // teammate learns which of its own request ids still run, and nothing of any chat.
+        if m == method::MUX_REQUEST_STATE {
+            assert!(r["result"]["running"].is_array(), "{m}: {r}");
+            assert!(r["result"]["answered"].is_array(), "{m}: {r}");
+            assert_eq!(r["result"].as_object().map(|o| o.len()), Some(2), "{m}: {r}");
+            continue;
+        }
         assert_team_refused(m, &r);
     }
 
