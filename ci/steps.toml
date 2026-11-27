@@ -1383,6 +1383,7 @@ fi
 want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
 status=0
 if want tt-app-crate-licenses; then python3 tests/test_app_crate_licenses.py || status=1; fi
+if want tt-bench-coverage-map; then python3 -I tests/test_bench_coverage_map.py || status=1; fi
 if want tt-objc-selectors-step; then python3 tests/test_check_objc_selectors_step.py || status=1; fi
 if want tt-package-lane-prebuild; then python3 tests/test_ci_package_lane_prebuild.py || status=1; fi
 if want tt-ios-sim-runtime; then python3 -I tests/test_ios_sim_runtime.py || status=1; fi

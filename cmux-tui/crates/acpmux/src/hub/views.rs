@@ -1658,6 +1658,7 @@ mod time_breakdown_tests {
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
-#[cfg(test)]
+// Times thread CPU with clock_gettime, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;

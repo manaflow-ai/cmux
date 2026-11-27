@@ -627,7 +627,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                     let Ok(fallback_key) =
-                        crate::server::decode_terminal_host_clear_history(&frame.payload)
+                        crate::protocol_key::decode_terminal_host_clear_history(&frame.payload)
                     else {
                         break;
                     };

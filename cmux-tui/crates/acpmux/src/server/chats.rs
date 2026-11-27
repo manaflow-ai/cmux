@@ -504,6 +504,11 @@ pub(super) async fn route(
                 (name.to_owned(), profile.clone())
             };
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
+                id,
+                &forked,
+            );
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
