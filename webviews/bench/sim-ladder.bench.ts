@@ -321,8 +321,15 @@ async function launchChrome(): Promise<{
   const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  // Chrome dies with this process. An abort (SIGABRT, an OOM kill, `timeout -s KILL`) skips close() below, and Chrome
+  // lived on: a tabs 50/200/500 run aborted at its x200 rung left 348 Chrome processes holding 26 GB and the session's
+  // pids cap, so the next run and every shell in that session failed to fork. setpriv's death signal reaches the
+  // browser process; its renderers exit when the browser's IPC closes. Bun.spawn forks from the main thread, which
+  // lives as long as the process, so the signal fires only when the bench is gone.
+  const setpriv = Bun.which("setpriv");
   const proc = Bun.spawn(
     [
+      ...(setpriv ? [setpriv, "--pdeathsig", "KILL"] : []),
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",
@@ -889,10 +896,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
     // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
-    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows. Each page holds
+    // the list's first page (sessionPages.ts SESSION_PAGE) and reads the rest only when asked, as the app's pages do
+    // against acpmux (`cmuxAcpmuxMockPaged`): a mock that answered the whole list held SESSIONS rows in every chat.
     await context.addInitScript(
       ([size, shape]) => {
         (globalThis as any).cmuxAcpmuxMockListSize = size;
+        (globalThis as any).cmuxAcpmuxMockPaged = true;
         if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,

@@ -117,7 +117,7 @@ const RESTRICT_ROUNDS = 5;
 
 export function shareClient(sessionId: string, host: ShareCall = nativeShareCall) {
   // Every op names the chat it is for: the host refuses one whose tab shows another chat by now, so
-  // a step (a role change's two calls included) never lands on a chat the person did not share.
+  // a step never lands on a chat the person did not share.
   const call: ShareCall = (op, params = {}) => host(op, { ...params, session: sessionId });
   return {
     async state(): Promise<ShareView> {
@@ -126,11 +126,9 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
     },
     invite: (account: string, role: ShareRole) => call("invite", { account, role }),
     remove: (account: string) => call("uninvite", { account }),
-    /** A role change is a remove, then an invite (the daemon refuses another role on an invited account). */
-    async setRole(account: string, role: ShareRole) {
-      await call("uninvite", { account });
-      await call("invite", { account, role });
-    },
+    /** A role change is the invite again with the new role: the daemon changes it in place, so a
+     * failed change leaves the person their access as it was. */
+    setRole: (account: string, role: ShareRole) => call("invite", { account, role }),
     /** The viewer link Copy link hands out: the one this page made while it is live, else a new one. */
     async viewerLink(view: ShareView): Promise<string> {
       const kept = madeLinks.get(sessionId);

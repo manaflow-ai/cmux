@@ -2190,16 +2190,17 @@ async fn dispatch_request_with_identity(
             // alone): a refusal before the session sees it deletes them, so none is left behind.
             // Take ownership only after the lookup finishes in time. A retry after a timeout
             // can still name these uploads even if the background lookup finishes later.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 prompt_preparation(
                     answer_due,
                     "prompt_uploads::owned",
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_paths(&s.id, &blocks),
                 )
-                .await?
-            });
+                .await
+                .map(crate::attach::OwnedUploads)?
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
@@ -2870,6 +2871,11 @@ async fn dispatch_request_with_identity(
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
             let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            // `grace: true`: kept 7 days, restorable (`hub/soft_delete.rs`); else gone now.
+            if crate::hub::soft_delete::asks_grace(&params) {
+                let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
+                return heap(|| hub.soft_delete(&s, condition, why)).await;
+            }
             heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
@@ -2936,6 +2942,13 @@ async fn dispatch_request_with_identity(
             Ok(hub.list_counts())
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // A dhat-heap build's profile, written now (`heap_profile.rs`); the local socket only.
+        method::MUX_HEAP_PROFILE => {
+            if conn.origin != Origin::Local {
+                return Err(RpcError::method_not_found(m));
+            }
+            Ok(crate::heap_profile::dump())
+        }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
         method::MUX_FELT_SNAPSHOT => {
@@ -3086,6 +3099,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
+        crate::peer::wg_learn::ADMIT => {
+            super::peer_status::wireguard_admit(hub, conn.origin, &params).await
+        }
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         super::autocloud_enroll::METHOD => {
@@ -3505,6 +3521,9 @@ async fn dispatch_request_with_identity(
                 })
                 .await
         }
+        // A deleted chat back inside its grace, and the deleted chats (`hub/soft_delete.rs`).
+        method::MUX_UNDELETE => hub.undelete(session_key(&params)?),
+        method::MUX_DELETED => Ok(hub.deleted_chats()),
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
             // Local only, as `_acpmux/retention` (`server/worktrees.rs`): it rewrites the disk.
@@ -3873,6 +3892,7 @@ async fn dispatch_request_with_identity(
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
+                        stream_sent: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3933,6 +3953,7 @@ async fn dispatch_request_with_identity(
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
+                    stream_sent: 0,
                 },
             );
             let settled_key = match settled {
@@ -4120,6 +4141,10 @@ async fn dispatch_request_with_identity(
             if params.get("look").and_then(Value::as_bool) == Some(true) {
                 return Ok(crate::hub::turn_frames::look(&s.id).await);
             }
+            // A `cmux live` loop's build is in place (`acpmux frame @ --built SOURCE`): a frame.
+            if let Some(source) = str_param(&params, "built") {
+                return Ok(crate::hub::turn_frames::built(&s.id, source));
+            }
             Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
@@ -4229,6 +4254,11 @@ async fn dispatch_request_with_identity(
             // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
             // refused.
             let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            // A delete that asks for the grace keeps the chat 7 days, restorable
+            // (`hub/soft_delete.rs`); one that does not is gone now, as before.
+            if purge && crate::hub::soft_delete::asks_grace(&params) {
+                return heap(|| hub.soft_delete(&s, condition, why)).await;
+            }
             heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
