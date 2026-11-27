@@ -218,6 +218,20 @@ tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextPal
 budget = "median and p99 per keystroke at 1,000-2,000 items"
 
 [[area]]
+name = "Search All Windows"
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/GlobalSearch",
+  "cmux-tui/crates/cmux-palette-ranker/src/global_search.rs",
+]
+situations = ["main-thread"]
+benches = ["global_search::stress_sweep"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-palette-ranker --release --test global_search",
+  "swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextPaletteTests",
+]
+budget = "key 12 of a typed query tests at most 2% of 1.2M lines (50 agent tabs); RFD 0199 section 9"
+
+[[area]]
 name = "iOS workspace sync and live link"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive"]
 situations = ["main-thread"]

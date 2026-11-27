@@ -194,7 +194,10 @@ pub struct CmuxGlobalSearch {
 ///
 /// `titles` points to `titles_len` readable bytes (or is null with length 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_global_search_new(titles: *const u8, titles_len: usize) -> *mut CmuxGlobalSearch {
+pub unsafe extern "C" fn cmux_global_search_new(
+    titles: *const u8,
+    titles_len: usize,
+) -> *mut CmuxGlobalSearch {
     let Some(titles) = (unsafe { input(titles, titles_len) }) else { return std::ptr::null_mut() };
     let parsed = catch_unwind(|| serde_json::from_slice::<Vec<String>>(titles).ok());
     match parsed {
@@ -238,12 +241,15 @@ pub unsafe extern "C" fn cmux_global_search_apply(
     let Some(texts) = (unsafe { input(texts, texts_len) }) else { return ERR_NULL };
     // SAFETY: a live handle, used by one caller at a time.
     let handle = unsafe { &mut *search };
-    let result = catch_unwind(AssertUnwindSafe(|| match serde_json::from_slice::<Vec<Vec<String>>>(texts) {
-        Ok(texts) => {
-            let texts = texts.iter().map(|lines| crate::global_search::Text::new(lines)).collect();
-            if handle.corpus.apply(document, texts) { OK } else { ERR_INVALID }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        match serde_json::from_slice::<Vec<Vec<String>>>(texts) {
+            Ok(texts) => {
+                let texts =
+                    texts.iter().map(|lines| crate::global_search::Text::new(lines)).collect();
+                if handle.corpus.apply(document, texts) { OK } else { ERR_INVALID }
+            }
+            Err(_) => ERR_INVALID,
         }
-        Err(_) => ERR_INVALID,
     }));
     result.unwrap_or(ERR_PANIC)
 }

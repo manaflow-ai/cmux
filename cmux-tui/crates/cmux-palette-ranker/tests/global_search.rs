@@ -50,12 +50,12 @@ fn oracle(tabs: &[Tab], words: &[String], limit: usize) -> (Vec<Hit>, bool) {
         let needs: Vec<&String> =
             if remaining.is_empty() { words.iter().collect() } else { remaining.clone() };
         let mut best = None;
-        let mut count = 0;
+        let mut count = 0usize;
         for (text_index, text) in tab.texts.iter().enumerate() {
             for (line_index, line) in text.iter().enumerate().rev() {
                 if needs.iter().all(|word| line.contains(word.as_str())) {
                     best.get_or_insert((text_index, line_index));
-                    count += 1;
+                    count = count.saturating_add(1);
                 }
             }
         }
@@ -161,7 +161,7 @@ proptest! {
                 Step::Paste(text) => query.push_str(&text),
                 Step::Clear => query.clear(),
                 Step::Read(tab, texts) => {
-                    let tab = tab % tabs.len();
+                    let tab = tab.checked_rem(tabs.len()).unwrap_or(0);
                     corpus.apply(tab, texts.iter().map(|lines| Text::new(lines)).collect());
                     if let Some(slot) = tabs.get_mut(tab) { slot.texts = texts; }
                 }
@@ -187,15 +187,18 @@ fn agent_tabs(count: usize) -> Vec<Tab> {
     (0..count)
         .map(|tab| {
             let line = |i: usize| {
-                let a = words[(i * 7 + tab) % words.len()];
-                let b = words[(i * 13 + 3) % words.len()];
+                let word = |n: usize| {
+                    words.get(n.checked_rem(words.len()).unwrap_or(0)).copied().unwrap_or("")
+                };
+                let a = word(i.wrapping_mul(7).wrapping_add(tab));
+                let b = word(i.wrapping_mul(13).wrapping_add(3));
                 format!("{a} {b} crate-{} target/release/deps/{i:x} ({}ms)", i % 97, i % 1000)
             };
             Tab {
                 title: format!("agent {tab} ~/src/project-{tab}"),
                 texts: vec![
                     (0..20_000).map(line).collect(),
-                    (0..4_000).map(|i| line(i + 20_000)).collect(),
+                    (0..4_000usize).map(|i| line(i.wrapping_add(20_000))).collect(),
                 ],
             }
         })
@@ -217,6 +220,7 @@ fn extending_keystrokes_scan_only_previous_matches() {
         scanned.push(check(&mut corpus, &tabs, &query, 200).lines_scanned);
     }
     let last = *scanned.last().unwrap_or(&u64::MAX);
+    println!("STRESS-GLOBAL-SEARCH-SCANNED {{\"total\":{total},\"per_key\":{scanned:?}}}");
     assert!(last * 50 <= total, "key 12 tested {last} of {total} lines (> 2%): {scanned:?}");
 }
 
@@ -227,6 +231,7 @@ fn sweep(tabs: usize) {
     let mut corpus = corpus(&tabs);
     let tabs = lowered(&tabs);
     let (mut old_ms, mut new_ms, mut old_first, mut new_first) = (0.0, 0.0, 0.0, 0.0);
+    let (mut old_keys, mut new_keys) = (Vec::new(), Vec::new());
     let mut query = String::new();
     for (key, ch) in TYPED.chars().enumerate() {
         query.push(ch);
@@ -240,12 +245,16 @@ fn sweep(tabs: usize) {
         if key == 0 {
             (old_first, new_first) = (old, new);
         }
+        old_keys.push(format!("{old:.1}"));
+        new_keys.push(format!("{new:.1}"));
         old_ms += old;
         new_ms += new;
     }
     println!(
-        "STRESS-GLOBAL-SEARCH {{\"tabs\":{},\"lines\":{lines},\"old_query_ms\":{old_ms:.1},\"new_query_ms\":{new_ms:.1},\"old_first_key_ms\":{old_first:.1},\"new_first_key_ms\":{new_first:.1}}}",
-        tabs.len()
+        "STRESS-GLOBAL-SEARCH {{\"tabs\":{},\"lines\":{lines},\"old_query_ms\":{old_ms:.1},\"new_query_ms\":{new_ms:.1},\"old_first_key_ms\":{old_first:.1},\"new_first_key_ms\":{new_first:.1},\"old_key_ms\":[{}],\"new_key_ms\":[{}]}}",
+        tabs.len(),
+        old_keys.join(","),
+        new_keys.join(",")
     );
 }
 

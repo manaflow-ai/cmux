@@ -15,6 +15,7 @@
 //! `limit`. `tests/global_search.rs` checks every narrowed answer against that scan.
 
 use memchr::memmem;
+use std::borrow::Cow;
 
 /// One text of a tab (a transcript, a terminal's history), lowercased, one line after another.
 #[derive(Debug, Default, Clone)]
@@ -56,20 +57,47 @@ impl Text {
     }
 
     /// The lines holding `first` and every one of `rest`, oldest first: one pass over the
-    /// buffer for `first`, then the other words in the lines it found.
+    /// buffer for `first`, resuming after the line of each hit, then the other words in it.
     fn lines_with(&self, first: &memmem::Finder<'_>, rest: &[memmem::Finder<'_>]) -> Vec<usize> {
         let mut found: Vec<usize> = Vec::new();
-        for at in first.find_iter(&self.bytes) {
-            let index = self.ends.partition_point(|&end| end < at);
-            if found.last() == Some(&index) {
-                continue;
+        let mut from = 0usize;
+        let mut index = 0usize;
+        while let Some(at) = self
+            .bytes
+            .get(from..)
+            .and_then(|tail| first.find(tail))
+            .map(|at| at.saturating_add(from))
+        {
+            // Hits only move forward, and walking `ends` costs less than the bytes `find` skipped.
+            while self.ends.get(index).is_some_and(|&end| end < at) {
+                index = index.saturating_add(1);
             }
-            let line = self.line(index);
-            if rest.iter().all(|word| word.find(line).is_some()) {
+            if rest.iter().all(|word| word.find(self.line(index)).is_some()) {
                 found.push(index);
             }
+            let Some(&end) = self.ends.get(index) else { break };
+            from = end.saturating_add(1);
+            index = index.saturating_add(1);
         }
         found
+    }
+
+    /// The ones of `lines` that hold every one of `words`.
+    fn keep(&self, lines: &[usize], words: &[memmem::Finder<'_>]) -> Vec<usize> {
+        lines
+            .iter()
+            .copied()
+            .filter(|&line| {
+                let line = self.line(line);
+                words.iter().all(|word| word.find(line).is_some())
+            })
+            .collect()
+    }
+
+    /// A reach worth keeping: a list of at most a quarter of the lines. Past that, one pass over
+    /// the buffer costs less than a find per listed line, so the next key scans the text whole.
+    fn sparse(&self, lines: &[usize]) -> bool {
+        lines.len() <= self.len() / 4
     }
 }
 
@@ -111,8 +139,9 @@ pub struct Answer {
 #[derive(Debug, Default)]
 struct Narrowing {
     words: Vec<String>,
-    /// `None` for a tab to scan whole (a read landed since).
-    reach: Vec<Option<Vec<Vec<usize>>>>,
+    /// Per tab (`None`: a read landed since), per text (`None`: scan it whole, its reach was
+    /// most of it).
+    reach: Vec<Option<Vec<Option<Vec<usize>>>>>,
 }
 
 /// What Search All Windows looks through, with the previous query's reach.
@@ -193,54 +222,47 @@ impl Corpus {
                 None
             };
             let mut doc_reach = Vec::with_capacity(document.texts.len());
+            let mut count = 0usize;
+            let mut best = None;
             for (text_index, text) in document.texts.iter().enumerate() {
-                let lines =
-                    match (previous.and_then(|texts| texts.get(text_index)), lacking.split_first())
-                    {
-                        (Some(lines), _) => {
-                            scanned = scanned.saturating_add(lines.len() as u64);
-                            lines
-                                .iter()
-                                .copied()
-                                .filter(|&line| {
-                                    let line = text.line(line);
-                                    lacking.iter().all(|word| word.find(line).is_some())
-                                })
-                                .collect()
-                        }
-                        (None, Some((first, rest))) => {
-                            scanned = scanned.saturating_add(text.len() as u64);
-                            text.lines_with(first, rest)
-                        }
-                        (None, None) => (0..text.len()).collect(),
-                    };
-                doc_reach.push(lines);
-            }
-            // The title holds every word: the lines that count hold every word too.
-            let matches: Vec<Vec<usize>> = if title_matched {
-                doc_reach
-                    .iter()
-                    .zip(&document.texts)
-                    .map(|(lines, text)| {
+                let prior = previous
+                    .and_then(|texts| texts.get(text_index))
+                    .and_then(Option::as_ref)
+                    .filter(|lines| text.sparse(lines));
+                // `None`: the title holds every word, so every line is in reach.
+                let lines = match (prior, lacking.split_first()) {
+                    (Some(lines), _) => {
                         scanned = scanned.saturating_add(lines.len() as u64);
-                        lines
-                            .iter()
-                            .copied()
-                            .filter(|&line| {
-                                let line = text.line(line);
-                                finders.iter().all(|word| word.find(line).is_some())
-                            })
-                            .collect()
-                    })
-                    .collect()
-            } else {
-                doc_reach.clone()
-            };
-            let count = matches.iter().map(Vec::len).fold(0usize, usize::saturating_add);
-            let best = matches
-                .iter()
-                .enumerate()
-                .find_map(|(text_index, lines)| lines.last().map(|&line| (text_index, line)));
+                        Some(text.keep(lines, &lacking))
+                    }
+                    (None, Some((first, rest))) => {
+                        scanned = scanned.saturating_add(text.len() as u64);
+                        Some(text.lines_with(first, rest))
+                    }
+                    (None, None) => None,
+                };
+                // The title holds every word: the lines that count hold every word too.
+                let matched: Cow<'_, [usize]> = match (&lines, title_matched) {
+                    (Some(lines), false) => Cow::Borrowed(lines),
+                    (Some(lines), true) => {
+                        scanned = scanned.saturating_add(lines.len() as u64);
+                        Cow::Owned(text.keep(lines, &finders))
+                    }
+                    (None, _) => {
+                        scanned = scanned.saturating_add(text.len() as u64);
+                        Cow::Owned(
+                            finders.split_first().map_or_else(Vec::new, |(first, rest)| {
+                                text.lines_with(first, rest)
+                            }),
+                        )
+                    }
+                };
+                count = count.saturating_add(matched.len());
+                if best.is_none() {
+                    best = matched.last().map(|&line| (text_index, line));
+                }
+                doc_reach.push(lines.filter(|lines| text.sparse(lines)));
+            }
             let hit = Hit {
                 document: index,
                 text: best.map(|b| b.0),
@@ -255,7 +277,6 @@ impl Corpus {
             }
             reach.push(Some(doc_reach));
         }
-        drop(finders);
         self.narrowing = Narrowing { words: words.to_vec(), reach };
         titled.extend(others);
         let limited = titled.len() > limit;
