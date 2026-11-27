@@ -239,7 +239,7 @@ impl Hub {
             }
         };
         let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            let init = crate::hub::acp_version::initialize(&child, initialize_params()).await?;
             // An agent signed in by its key says so first (`acp_key_auth.rs`).
             let family = crate::config::derive_family(&draft.harness, &spec.spawn);
             if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {

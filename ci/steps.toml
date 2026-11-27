@@ -2092,9 +2092,17 @@ root="$PWD"
 (cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
 # The last feat-cmux-next push's daemon-tests build (read only; a miss builds cold): its dependencies are acpmux's.
-../scripts/ci/cmux-tui-test-target.sh restore
+set -o pipefail
+restore_log="$(mktemp)" cargo_log="$(mktemp)"
+../scripts/ci/cmux-tui-test-target.sh restore | tee "$restore_log"
 # No incremental state: it only fills the disk (No space left writing dep-graph.part.bin, #53426).
-CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
+CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux 2>&1 | tee "$cargo_log"
+# A hit should leave third-party crates fresh (a registry crate's Compiling line names no path). Many of them
+# rebuilding means the saved target was built with other features than this build's (cmux-tui-test-target.sh save).
+rebuilt="$(grep -cE '^ +Compiling [^ ]+ v[^ ]+$' "$cargo_log" || true)"
+if grep -q 'test target: hit' "$restore_log" && ((rebuilt > 20)); then
+  echo "::warning title=acpmux cache hit rebuilt third-party crates::$rebuilt registry crates compiled after a cmux-tui test target hit; the saved build's dependency features no longer match -p acpmux (scripts/ci/cmux-tui-test-target.sh save)"
+fi
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
@@ -2263,6 +2271,97 @@ channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 cargo bench --profile gate -p acpmux --bench icount --locked -- check
+'''
+
+# The cmux_next_ daemon tests of the gate's small members, on the pull request itself. The gate (the
+# cmux-next-daemon-tests step below, and cmux-tui-artifacts.yml's job whose pass moves the feat-cmux-next channel) has
+# whole-directory inputs, so --pr-scope leaves it to the post-merge batch, and a lane/** push does not run the
+# artifacts job: a pull request that breaks one of these tests merged green and held the channel after the merge.
+# These members compile in seconds, so their tests run here, routed by one-directory globs over each member and every
+# member it depends on by path (tests/test_ci_daemon_pr_crate_steps.py keeps those globs whole, the cargo targets
+# right, and says why each other gate member stays post-merge). Cold on a 32-vCPU host, each in its own target:
+# machine-protocol 26 s, hooks 28 s, server-core 12 s, cmux-sdk 49 s; nothing on a pull request that touches none.
+[step.cmux-next-daemon-crates]
+job = "linux"
+timeout = 360
+title = "cmux_next_ daemon tests of the small members"
+about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core and cmux-sdk (the gate's small members) pass on the pull request"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "tests/test_ci_daemon_pr_crate_steps.py",
+  "cmux-tui/bindings/rust/*",
+  "cmux-tui/bindings/rust/examples/*",
+  "cmux-tui/bindings/rust/src/*",
+  "cmux-tui/bindings/rust/src/client/*",
+  "cmux-tui/bindings/rust/src/generated/*",
+  "cmux-tui/bindings/rust/src/local_socket/*",
+  "cmux-tui/bindings/rust/src/raw/*",
+  "cmux-tui/bindings/rust/src/raw/byte_attachment/*",
+  "cmux-tui/bindings/rust/src/resource/*",
+  "cmux-tui/bindings/rust/src/resource/client/*",
+  "cmux-tui/bindings/rust/src/resource/handles/*",
+  "cmux-tui/bindings/rust/src/resource/options/*",
+  "cmux-tui/bindings/rust/tests/*",
+  "cmux-tui/bindings/rust/tests/cases/*",
+  "cmux-tui/bindings/rust/tests/common/*",
+  "cmux-tui/crates/cmux-json/*",
+  "cmux-tui/crates/cmux-json/src/*",
+  "cmux-tui/crates/cmux-link/*",
+  "cmux-tui/crates/cmux-link/src/*",
+  "cmux-tui/crates/cmux-link/src/caller/*",
+  "cmux-tui/crates/cmux-link/src/caller/supervised/*",
+  "cmux-tui/crates/cmux-link/src/root_bootstrap/*",
+  "cmux-tui/crates/cmux-link/tests/*",
+  "cmux-tui/crates/cmux-process/*",
+  "cmux-tui/crates/cmux-process/src/*",
+  "cmux-tui/crates/cmux-process/tests/*",
+  "cmux-tui/crates/cmux-process/tests/support/*",
+  "cmux-tui/crates/cmux-pty/*",
+  "cmux-tui/crates/cmux-pty/src/*",
+  "cmux-tui/crates/cmux-server-core/*",
+  "cmux-tui/crates/cmux-server-core/src/*",
+  "cmux-tui/crates/cmux-server-core/src/health/*",
+  "cmux-tui/crates/cmux-server-core/src/manifest/*",
+  "cmux-tui/crates/cmux-server-core/src/pairing/*",
+  "cmux-tui/crates/cmux-server-core/src/pg/*",
+  "cmux-tui/crates/cmux-server-core/src/units/*",
+  "cmux-tui/crates/cmux-server-core/tests/*",
+  "cmux-tui/crates/cmux-server-core/tests/fixtures/*",
+  "cmux-tui/crates/cmux-server-core/tests/fixtures/manifest/*",
+  "cmux-tui/crates/cmux-tui-hooks/*",
+  "cmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/*",
+  "cmux-tui/crates/cmux-tui-hooks/src/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/src/*",
+  "cmux-tui/crates/cmux-tui-machine-protocol/tests/*",
+  "cmux-tui/crates/cmux-tui-platform/*",
+  "cmux-tui/crates/cmux-tui-platform/src/*",
+  "cmux-tui/crates/cmux-tui-platform/src/host_exe/*",
+  "cmux-tui/crates/cmux-tui-platform/src/platform/*",
+  "cmux-tui/crates/cmux-tui-platform/src/process_resources/*",
+  "cmux-tui/crates/cmux-unix-socket/*",
+  "cmux-tui/crates/cmux-unix-socket/src/*",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_crate_steps.py
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+log="$(mktemp)"
+status=0
+# Each run must pass at least one test: a filter that matches nothing is red, as in the gate.
+ran() { tee "$log"; grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" || { echo "::error::no cmux_next_ test ran"; return 1; }; }
+cargo test --locked -p cmux-tui-machine-protocol --test machine_metadata_compat cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-tui-hooks --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-server-core --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-sdk --lib cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-sdk --test machine_catalog_reads cmux_next_ 2>&1 | ran || status=1
+rm -f "$log"
+exit "$status"
 '''
 
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the

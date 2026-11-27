@@ -744,7 +744,7 @@ pub struct Bindings {
     /// order (`server/connections.rs`).
     #[serde(default, rename = "connection_order", skip_serializing_if = "Vec::is_empty")]
     pub connection_order: Vec<String>,
-    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: on.
+    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spread: Option<bool>,
     /// Connections with no route file of their own that are turned off (`claude-login`;
