@@ -34,6 +34,7 @@
 use super::*;
 
 pub(in crate::hub) mod revive;
+pub(in crate::hub) mod scratch;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
 /// naming the folder in its message and data. Retryable: a folder can come back (put back
@@ -122,6 +123,9 @@ use cmux_worktree_care::schedule::{self, Claim, Refused};
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
 
+/// Milliseconds per minute for removal log durations.
+const MINUTE_MS: u64 = 60 * 1000;
+
 /// This process's cleanup state: one pass at a time in this process (the
 /// machine-wide claim is `schedule`), when this process last started one (a
 /// floor under the machine's stamp, which a full disk may keep from being
@@ -190,19 +194,6 @@ fn removals(report: &Value) -> Vec<String> {
             ))
         })
         .collect()
-}
-
-/// Whether a pass may remove idle build caches: the setting, else off. An
-/// unreadable settings file keeps them.
-pub fn clean_build_caches_enabled() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING_CLEAN_BUILD_CACHES)
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-        }
-        _ => false,
-    }
 }
 
 fn archive_store() -> Result<ArchiveStore, RpcError> {
@@ -501,6 +492,24 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         let meta = session.meta();
+        // A proven peer's scratch folder in the temp dir, gone with it (a reboot): made again,
+        // so a restart's continuation of its cut turn runs (`worktree_care/scratch.rs`).
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_peer_scratch(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "peer scratch folder not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {
@@ -654,7 +663,7 @@ mod care_tests {
     #[test]
     fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archive() {
         use cmux_worktree_care::pass::{Item, Outcome, Report};
-        use cmux_worktree_care::{Action, Verdict};
+        use cmux_worktree_care::{Action, Pressure, Verdict};
         let item = |path: &str, action, reason: &str, outcome| Item {
             path: path.into(),
             repository: "/m/cmux.git".into(),

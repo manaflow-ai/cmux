@@ -754,8 +754,8 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
-    /// harness's memory folder into it.
+    /// The memory mount shared by your machines (~/.cmux/memory): sync, put, get, ls, history,
+    /// status, and link a harness's memory folder into it.
     #[command(subcommand)]
     Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
@@ -1563,6 +1563,13 @@ pub struct HistoryDeleteArgs {
     /// fails is kept.
     #[arg(long)]
     pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args, Clone, Debug)]
