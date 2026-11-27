@@ -66,6 +66,15 @@ rate_limit_wait() {
   [[ "$waited" =~ ^[0-9]+$ ]] || waited=0
   left=$((rate_limit_max - waited))
   retry="$(header "$1" retry-after)" remaining="$(header "$1" x-ratelimit-remaining)" reset="$(header "$1" x-ratelimit-reset)"
+  # A refusal with no headers (a call that is not `gh api --include`, such as scripts/ci/gh_pages.py) says nothing of
+  # the reset, and the backoff below then slept 60+120+240+180 s before failing (job 140440306992, 2026-11-27: 10 min
+  # spent on a limit that reset 30 min later). GET /rate_limit does not count against the limit: read the token's
+  # core budget there, so a reset past this run's bound fails now.
+  if [[ -z "$retry" && -z "$reset" ]] &&
+      read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) &&
+      [[ "$remaining" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]]; then
+    ((remaining == 0)) || remaining="" reset=""
+  fi
   if [[ "$retry" =~ ^[0-9]+$ ]]; then
     wait_s=$((retry > 0 ? retry : 1)) wait_why="retry-after ${retry}s"
   elif [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]]; then
@@ -255,7 +264,12 @@ pending_newer() {
   # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
-    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+    # The oldest unpinned commit only makes the age larger, so a release whose own commit is already past the bound
+    # needs no walk. The walk is a path-limited `git log` in this treeless clone, which fetches each commit's trees
+    # one by one: 16 min in job 140515668328 and 5.7 min in 140468066668 (2026-11-27), each for a release 369 to
+    # 481 min old against the 60 min bound.
+    if (( ($(date +%s) - pin_time) / 60 <= pending_max_min )) &&
+        [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
         oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
@@ -443,8 +457,12 @@ held_pr() {
     local runs
     runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
       gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    # An advisory check gates nothing (land-judge lands past it), so its failure is not a reason to throw away the
+    # head's CI. 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316 for "2 failed check(s) of its own":
+    # "nightly app compile arm64 fleet job (advisory)" and the merge-train status (below), while its land was seated.
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c))
+      | select(.name | test("\\(advisory\\)$") | not) | .name' <<<"$runs"
   }
   local head_failed base_failed="" staged_on
   head_failed="$(failed_names "$previous")" || return 2
@@ -454,9 +472,12 @@ held_pr() {
   failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
   failed="${failed//[[:space:]]/}"
   [[ "$failed" =~ ^[0-9]+$ ]] || return 2
-  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
-  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
-  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # The merge-train status is the train's seat answer ("turned this head away: not seated"), not a verdict on the
+  # head: its error is the queue, and moving the head for it restarts the CI the train is waiting on.
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" \
+    --jq '[.statuses[]? | select(.context != "merge-train") | select(.state == "failure" or .state == "error")] | length')" || return 2
+  [[ "$status" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + status))
   # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
   # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
   # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended

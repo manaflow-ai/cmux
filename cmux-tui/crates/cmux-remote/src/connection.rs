@@ -667,6 +667,19 @@ impl ClientConnection {
         self.session_unavailable.load(Ordering::Acquire)
     }
 
+    /// True while this connection redials a carrier it lost (`Reconnecting`,
+    /// or `Disconnected` between bursts) and may still resume the session: not
+    /// closed, and the daemon has not said the session is gone. A send now
+    /// waits for the resume ([`Self::recover_by`]) rather than for a peer.
+    pub fn carrier_recovering(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && !self.session_unavailable()
+            && matches!(
+                self.diagnostics_state(),
+                ConnectionState::Reconnecting | ConnectionState::Disconnected
+            )
+    }
+
     /// Returns a consistent, credential-free view of the last published
     /// transport. Reconnect replay holds the group and session publication
     /// locks, so generation and topology are cached separately and never wait
