@@ -5,19 +5,37 @@
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
 //! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
-//! (`sidebar_row_layout`), the app sidebar
+//! (`sidebar_row_layout`), the session tree's folds, hidden rows and pull
+//! request badge (`sidebar_session_tree`), the sections' window
+//! membership, pins, loose-row edits and workspace order
+//! (`sidebar_sections`), the pending sidebar changes' record writes
+//! (`sidebar_pending_records`), where a sidebar drop or keyboard move lands
+//! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
+//! what auto-archive reads off the records (`sidebar_archive_marks`), the
+//! session tree's chat history page and heights (`sidebar_chat_history`),
+//! the sidebar's destinations in shown order and what Cmd-1...9 and
+//! Cmd-Ctrl-[ / ] select (`sidebar_item_order`), where the document puts
+//! the list's rows: band groups a window leaves out, list sections, machine
+//! order with links, group members, marks and sorts (`sidebar_doc_listing`),
+//! the row index's rules: which header stays, a row's machine label parts,
+//! changed looks and each workspace's places (`sidebar_row_index`),
+//! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
-//! and when to look again),
+//! and when to look again), auto-archive's ledger and what a pass does with
+//! its plan (`auto_archive_ledger`: sights, prunes, archive or suggest, the
+//! card's names, what comes back when shown, restores and Not Now),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! `cmux-layout-reducer`'s drop-target rules (`drop_*`: where a dragged tab or
 //! group lands, how a workspace drag ends, a link drop, a file drop's copy or move),
+//! `cmux-rd-core`'s Mac Screen device hub rules (`rd_hub_*`: the host's ticket admission, a
+//! viewer tab's progress with the hub, end reasons, refusals, access and default sharing),
 //! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
 //! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
@@ -103,6 +121,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+pub mod pane_drop_zones;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -259,6 +278,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"auto_archive_ledger" => {
+                use cmux_layout_reducer::auto_archive_ledger;
+                let request: auto_archive_ledger::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&auto_archive_ledger::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -323,6 +349,67 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_archive_marks" => {
+                use cmux_layout_reducer::sidebar_archive_marks;
+                let request: sidebar_archive_marks::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_archive_marks::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_item_order" => {
+                use cmux_layout_reducer::sidebar_item_order;
+                let request: sidebar_item_order::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_item_order::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_doc_listing" => {
+                use cmux_layout_reducer::sidebar_doc_listing;
+                let request: sidebar_doc_listing::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_doc_listing::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_row_index" => {
+                use cmux_layout_reducer::sidebar_row_index;
+                let request: sidebar_row_index::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_row_index::respond(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_chat_history" => {
+                use cmux_layout_reducer::sidebar_chat_history;
+                let request: sidebar_chat_history::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_chat_history::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_doc_target" => {
+                use cmux_layout_reducer::sidebar_doc_target;
+                let request: sidebar_doc_target::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_doc_target::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_pending_records" => {
+                use cmux_layout_reducer::sidebar_pending_records;
+                let request: sidebar_pending_records::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_pending_records::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_sections" => {
+                use cmux_layout_reducer::sidebar_sections;
+                let request: sidebar_sections::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_sections::respond(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_session_tree" => {
+                use cmux_layout_reducer::sidebar_session_tree;
+                let request: sidebar_session_tree::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_session_tree::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -378,12 +465,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
             }
-            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer;
+            // a team whose backend refused the one call skips it for a while).
             b"cloud_approval_next" => {
                 use cmux_cloud_start_core::approval_answer;
                 let request: approval_answer::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
+                serde_json::to_vec(&approval_answer::next_remembered(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
