@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -17,7 +18,14 @@ import CmuxNextWindowRules
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
-        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
+        MachineRowActions.bindJoinedActions(into: registry, context: context)
+        // Storage on This Mac: the disk, what worktree cleanup could free and Clean up now, over this app's acpmux.
+        MachineStoragePopover(source: { [weak services = context.services] in
+            guard let services, let acpmux = QuitAgents.environment(services) else { return nil }
+            return MachineStoragePopover.Source(report: { try await acpmux.worktreeCareReport() },
+                                                clean: { try await acpmux.worktreeCareClean() },
+                                                refusal: { ($0 as? AcpmuxRPCError)?.message })
+        }).bind(into: registry, window: { CloudHandlers.window(context) })
         bindQuality(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }

@@ -25,10 +25,14 @@
 //! include/cmux_daemon_conn.h).
 //! `daemon_launch` is how the app starts and keeps its cmux-tui daemon
 //! (include/cmux_daemon_launch.h).
+//! `update_prewarm` is the staged-update pre-warm record: the marker line and
+//! what a build's first launch reads from it (include/cmux_update_prewarm.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `launch_image` is each window's last committed frame for the launch's first
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
+//! `chat_markdown` is the agent chat transcript's markdown parser (cmux-chat-markdown,
+//! include/cmux_chat_markdown.h): the parsed document as bytes; the app renders it.
 //! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
 //! include/cmux_pane_pictures.h).
 //! `acpmux_remote_wire` is the remote chat's page wire as effects (cmux-acpmux-remote-wire,
@@ -40,6 +44,8 @@
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `sign_clone_sweep` removes the Chromium code-sign clones that cmux apps
+//! left in the per-user temp folder (include/cmux_sign_clone_sweep.h).
 //! `url_input` is the typed address-bar policy: what the omnibox, the New Tab
 //! field and newTab.submit load or search (cmux-url-input, include/cmux_url_input.h).
 
@@ -63,6 +69,8 @@
 //! cmux-background-ready, include/cmux_background_ready.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
+//! `updater` is the macOS app updater's decisions, as JSON ops (the install
+//! gate over Sparkle's flow first; include/cmux_updater.h).
 
 /// cbindgen:ignore
 pub mod files_lister;
@@ -75,9 +83,14 @@ pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
+/// Its own header (include/cmux_sign_clone_sweep.h), not the motion one:
+/// cbindgen:ignore
+pub mod sign_clone_sweep;
 /// cbindgen:ignore
 pub mod system_calendar;
 pub mod terminal_selection;
+/// cbindgen:ignore
+pub mod updater;
 /// cbindgen:ignore
 /// Live wallpapers: its own header (include/cmux_wallpaper_ffi.h, cbindgen-wallpaper.toml),
 /// so it stays out of cmux_motion_ffi.h.
@@ -88,6 +101,7 @@ pub use cmux_acpmux_remote_wire::ffi as acpmux_remote_wire;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_background_ready::ffi as background_ready;
+pub use cmux_chat_markdown::ffi as chat_markdown;
 pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
@@ -104,4 +118,5 @@ pub use cmux_rd_ffi as rd;
 pub use cmux_screenshots::ffi as screenshots;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
+pub use cmux_update_prewarm_core::ffi as update_prewarm;
 pub use cmux_url_input::ffi as url_input;

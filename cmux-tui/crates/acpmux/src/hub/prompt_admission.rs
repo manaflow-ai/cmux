@@ -63,8 +63,6 @@ pub struct Admission {
     stage: StdMutex<Stage>,
     committed: AtomicBool,
     acquired: AtomicBool,
-    queue_owned: AtomicBool,
-    defer_requested: AtomicBool,
     came: Instant,
     /// Someone waits on its acceptance or refusal.
     listened: AtomicBool,
@@ -80,14 +78,16 @@ impl std::fmt::Debug for Admission {
 impl Admission {
     /// A prompt's admission as it comes, before it waits for the lock ([`Self::acquire`]).
     pub(crate) fn new(session: &Session) -> Arc<Self> {
+        Self::arrived(session, Instant::now())
+    }
+
+    fn arrived(session: &Session, came: Instant) -> Arc<Self> {
         Arc::new(Self {
             guard: StdMutex::new(None),
             stage: StdMutex::new(Stage::Setup("admission")),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
-            queue_owned: AtomicBool::new(false),
-            defer_requested: AtomicBool::new(false),
-            came: Instant::now(),
+            came,
             listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
@@ -97,7 +97,6 @@ impl Admission {
     pub(super) fn none(session: &Session) -> Arc<Self> {
         let admission = Self::new(session);
         admission.acquired.store(true, Ordering::SeqCst);
-        admission.queue_owned.store(true, Ordering::SeqCst);
         admission
     }
 
@@ -112,7 +111,8 @@ impl Admission {
             return;
         }
         let lock = session.prompt_admission.clone().lock_owned();
-        let Ok(guard) = tokio::time::timeout(ADMISSION_BOUND, lock).await else {
+        let due = self.answer_due().min(Instant::now() + ADMISSION_BOUND);
+        let Ok(guard) = tokio::time::timeout_at(due, lock).await else {
             tracing::warn!(session = %session.id, "prompt admission wait lapsed: the prompt goes on unordered");
             return;
         };
@@ -160,25 +160,6 @@ impl Admission {
         self.committed.load(Ordering::SeqCst)
     }
 
-    /// A bounded setup probe found a lock that did not return in time. The caller can durably
-    /// queue this prompt instead of returning a late "started" answer.
-    pub(super) fn request_defer(&self) {
-        self.defer_requested.store(true, Ordering::SeqCst);
-    }
-
-    pub(super) fn defer_requested(&self) -> bool {
-        self.defer_requested.load(Ordering::SeqCst)
-    }
-
-    /// A prompt already owned by the durable queue: it may wait for the child outside admission.
-    pub(super) fn queue_owned(&self) -> bool {
-        self.queue_owned.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn listened(&self) -> bool {
-        self.listened.load(Ordering::SeqCst)
-    }
-
     /// When an unanswered prompt is queued instead.
     pub(crate) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
@@ -197,8 +178,12 @@ impl Admission {
 
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
-    let admission = Admission::new(session);
+pub(crate) async fn admit(
+    session: &Arc<Session>,
+    scope: &cmux_scope::Scope,
+    came: Instant,
+) -> Arc<Admission> {
+    let admission = Admission::arrived(session, came);
     admission.acquire(session, scope).await;
     admission
 }
@@ -223,6 +208,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),
@@ -371,6 +357,7 @@ impl Hub {
             {
                 return Err(restore_deadline());
             }
+            // Counted as `queue_slot` counts a prompt that queues, before it goes in.
             session.queued.fetch_add(1, Ordering::SeqCst);
             self.enqueue_admitted(session, &slot, &turn_id, limits, claimed, |row, _| {
                 let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
@@ -382,8 +369,7 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .push((row.prompt_id.clone(), row.turn_id.clone()));
                 outcome
-            })
-            .map_err(|refused| refused)?
+            })?
         };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.

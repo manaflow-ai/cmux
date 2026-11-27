@@ -1708,6 +1708,7 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
 /// a build does, into the folder the daemon reads as `CMUX_APPS_DIRS`; returns
 /// the package folder names.
 fn build_store_folder(apps: &Apps) -> Vec<String> {
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next docs/cmux-next/sidebar-customization
     // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let platform = apps.dir.join("platform");

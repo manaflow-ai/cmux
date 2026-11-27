@@ -5,6 +5,7 @@ impl Config {
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
+    /// `remote_pipe.ssh` (`true`/`false`),
     /// `lane_gh_broker` (the broker's socket path, or `none`), `lane_gh_carrier` (owners, comma
     /// separated, or `none`), `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
@@ -37,6 +38,18 @@ impl Config {
             self.remote_daemon = match value.to_ascii_lowercase().as_str() {
                 "" | "none" | "clear" | "off" => None,
                 _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
+            return Ok(());
+        }
+        // sshd on loopback :22 over the carrier, beside `remoteDaemon` (`cmux_tui_service.rs`).
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "remote_pipe.ssh" | "remotepipe.ssh"
+        ) {
+            self.remote_pipe.ssh = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" | "none" | "clear" | "default" => false,
+                _ => anyhow::bail!("remote_pipe.ssh must be true or false"),
             };
             return Ok(());
         }
@@ -533,6 +546,18 @@ impl Config {
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
         self.harnesses.get(name)
+    }
+
+    /// Whether harness `name`'s chats call no model, so they spend nothing (`hub/usage_view.rs`
+    /// meters them as zero tokens): a profile file that declares `no_model = true`, or the
+    /// built-in `chief` (`cmux-tui chief acp`), which only posts each prompt into the Chief
+    /// conversation: the Chief's model turns run as their own optchat chats, metered there.
+    /// Never inferred from the argv: `acpmux cli-agent` can wrap a model CLI too.
+    pub fn runs_no_model(&self, name: &str) -> bool {
+        match self.profile_meta.get(name) {
+            Some(meta) => meta.no_model,
+            None => name == super::CHIEF_PROFILE && self.discovered.contains(name),
+        }
     }
 
     /// The web listener this daemon actually serves, if any.

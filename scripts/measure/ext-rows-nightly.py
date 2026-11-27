@@ -3,6 +3,7 @@
 
     ext-rows-nightly.py --app APP --pid-file F --customize DIR --out DIR [--rows a,b,...]
     ext-rows-nightly.py --cli CMUX --daemon-socket S --customize DIR --out DIR [--rows ...]   (no Mac app)
+        [--bundle APP]   the NIGHTLY bundle CMUX came from (not running), for the receipt's commit and version
 
 APP is a running side-instance copy of the NIGHTLY (its own bundle id, data, daemon and customize folder; the
 person's own app is never asked anything). Everything goes through the copy's own bundled CLI: `cmux ext new`,
@@ -25,6 +26,7 @@ import argparse
 import importlib.util
 import json
 import os
+import pwd
 import re
 import shutil
 import socket
@@ -53,6 +55,7 @@ def load(name: str, path: Path):
 # call with its JSON answer, the scene in an `ext shot --json` answer.
 reload_nightly = load("ext_reload_nightly", ROOT / "scripts/measure/ext-reload-nightly.py")
 cli_json, scene_of, control_socket = reload_nightly.cli_json, reload_nightly.scene_of, reload_nightly.control_socket
+capture_marker = load("ext_rows_capture", ROOT / "scripts/measure/ext-rows-capture.py").capture_marker
 
 
 @dataclass
@@ -301,8 +304,8 @@ def row_composer(ctx: Ctx) -> dict:
             "composer_list_ok": listed.get("ok"), "mentions_ok": mentions.get("ok")}
 
 
-def row_chat_widget(ctx: Ctx) -> dict:
-    """Chat-widget routing (#43030, the daemon op only; the transcript does not draw it yet): a tool call whose
+def row_chat_widget_routes(ctx: Ctx) -> dict:
+    """Chat-widget routing (#43030): a tool call whose
     name matches a `cmux.chat.widget/1` app routes to it (`apps.chat_widgets.route`); another does not."""
     install = install_customize(ctx, {
         "name": "Rows chat widget", "description": "A card for rowsprobe tools.", "runtime": {"main": "main.js"},
@@ -322,6 +325,19 @@ def row_chat_widget(ctx: Ctx) -> dict:
                        and widget(other) is None,
                        "app_route_answers": (widget(by_app) or {}).get("app") == CUSTOMIZE_APP},
             "install": install, "route_tool": tool, "route_other": other, "route_app": by_app}
+
+
+def row_chat_widget(ctx: Ctx) -> dict:
+    """Require both routing and a completed tool's widget drawn in the NIGHTLY copy."""
+    routing = row_chat_widget_routes(ctx)
+    fixture = load("ext_rows_chat_widget", ROOT / "scripts/measure/ext-rows-chat-widget.py")
+    drawing = fixture.row_chat_widget_drawn(ctx, sys.modules[__name__])
+    return {"checks": {**{f"route_{key}": value for key, value in routing["checks"].items()},
+                       **drawing["checks"], "drawing_checks_present": bool(drawing["checks"])},
+            "routing": routing, "drawing": drawing}
+
+
+row_chat_widget.needs_app = True
 
 
 def row_newtab(ctx: Ctx) -> dict:
@@ -350,11 +366,47 @@ def row_newtab(ctx: Ctx) -> dict:
 row_newtab.needs_app = True
 
 
+def row_sidebar_list(ctx: Ctx) -> dict:
+    """The whole workspace list as an extension (#43027): with `sidebar.workspaceListApp` naming a
+    `cmux.sidebar/1` app (`cmux settings set`), the window's `apps.views` holds a cmux.sidebar/1 view with
+    its words; clearing the setting drops that view, so the built-in list is back (the fallback)."""
+    word = f"{ctx.token} workspace list"
+    install = install_customize(ctx, {
+        "name": "Rows workspace list", "description": "The workspace list.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.sidebar/1": {"export": "renderSidebar", "title": "Rows workspaces",
+                                          "symbol": "sidebar.left"}},
+        "activation": ["onInterface:cmux.sidebar/1"]},
+        {"main.js": ("function renderSidebar() {\n"
+                     f"  console.log({json.dumps(word)} + ' rendered')\n"
+                     f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
+                     "globalThis.__cmuxAppExports = { renderSidebar }\n")})
+    setting = ctx.ext(["settings", "set", "sidebar.workspaceListApp", CUSTOMIZE_APP], timeout=30)
+
+    def drawn() -> list[dict]:
+        return [v for v in views(ctx, "cmux.sidebar/1") if any(word in t for t in v.get("texts") or [])]
+
+    shown = wait_for(drawn, wait=20)
+    logged = logs_with(ctx, word, wait=5)
+    cleared = ctx.ext(["settings", "set", "sidebar.workspaceListApp", ""], timeout=30)
+    gone = wait_for(lambda: not drawn(), wait=20)
+    return {"checks": {"installed": install["installed"], "setting_set": setting.get("exit") == 0,
+                       "sidebar_shows_extension": bool(shown) or bool(logged),
+                       "cleared_falls_back": cleared.get("exit") == 0 and bool(gone)},
+            "install": install, "settings_set": setting, "settings_cleared": cleared,
+            "views": shown or views(ctx), "log_lines": logged}
+
+
+row_sidebar_list.needs_app = True
+
+
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
-    html = (f"<!doctype html><html><head><title>{ctx.token} web pane</title></head>"
-            f"<body><h1>{ctx.token} web pane</h1></body></html>\n")
+    # Only page content contains this marker: a tab title or install log cannot
+    # satisfy the drawing check when the page itself is blank or fails to load.
+    marker = f"WEB PANE {ctx.token}"
+    html = ("<!doctype html><html><head><title>Rows web pane</title></head>"
+            f"<body><h1>{marker}</h1></body></html>\n")
     install = install_customize(ctx, {
         "name": "Rows web pane", "description": "A web pane.", "runtime": {"web": {"root": "web"}},
         "implements": {"cmux.pane/1": {"web": "web/index.html", "title": "Rows web pane", "symbol": "globe"}},
@@ -365,14 +417,14 @@ def row_web_pane(ctx: Ctx) -> dict:
     tab = f"app:{CUSTOMIZE_APP}"
     snapshot = wait_for(lambda: (s := ctx.rpc("snapshot.get", {}, timeout=15)) and tab in json.dumps(s) and s,
                         wait=15)
+    drawn = capture_marker(ctx, "web-pane", marker) if snapshot else {"drawn": False}
     return {"checks": {"installed": install["installed"],
                        "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
                                               if isinstance(p, dict)),
                        "open_answered": isinstance(opened, dict) and "error" not in opened,
-                       "page_tab_open": bool(snapshot)},
+                       "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
             "install": install, "web_pages": pages, "open": opened,
-            "page_tab": find_tab(snapshot, tab) if snapshot else None,
-            "note": "the page's own load is not observable from outside the app in a release build"}
+            "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
 
 
 row_web_pane.needs_app = True
@@ -416,7 +468,7 @@ def row_ext_new(ctx: Ctx) -> dict:
         per_kind[kind] = {
             "ok": made.get("exit") == 0 and (folder / "cmux-app.json").is_file() and (folder / ".git").exists()
             and loaded,
-            "new_exit": made.get("exit"), "repo": (folder / ".git").exists(),
+            "new_exit": made.get("exit"), "repo": (folder / ".git").exists(), "scene_checked": bool(ctx.control),
             "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "web", "shot", "next")},
             "scene": scene_of(shot)[:20], "shot_exit": shot.get("exit"),
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
@@ -441,18 +493,70 @@ def side_relaunch(ctx: Ctx, between=None) -> dict:
             "launch_err": launch.stderr[-400:]}
 
 
+def support_roots() -> list[Path]:
+    """`~/Library/Application Support` for `$HOME` and for the account's own home: a cmux-ci step runs with HOME
+    set to a per-step folder, while the app it launches (`launchctl asuser`) keeps its state under the account's
+    home (c7aa89105590: `installedAt` under /Users/cmux while HOME was the step's, so the widget row found no
+    session folder)."""
+    homes = [Path.home()]
+    try:
+        homes.append(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except KeyError:
+        pass
+    roots: list[Path] = []
+    for home in homes:
+        root = home / "Library/Application Support"
+        if root not in roots:
+            roots.append(root)
+    return roots
+
+
 def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
     """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
     `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
     state (cmux-tui-core apps.rs `session_state_directory`)."""
+    by_process = open_state_dirs(ctx.daemon)
+    if by_process:
+        return by_process
     by_socket = socket_session_dirs(ctx.daemon)
     if by_socket:
         return by_socket
     marker = (ctx.pid_file.parent / ".side-instance").read_text()
     key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
-    root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
-    dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
-    return dirs or apps_state_dirs(since)
+    dirs: list[Path] = []
+    for support in support_roots():
+        root = support / "cmux-next/builds" / key / "tui"
+        if root.is_dir():
+            dirs.extend(p for p in root.iterdir() if p.is_dir())
+    return sorted(set(dirs)) or apps_state_dirs(since)
+
+
+def open_state_dirs(daemon_socket: str) -> list[Path]:
+    """The session folder the daemon listening on `daemon_socket` holds open: the folder of its session journal
+    database (cmux-tui-core mux/session_paths.rs `session_state_directory`, where the apps supervisor keeps
+    `apps.json` and `apps-widgets-layout.json`), read from the process's open files (`lsof`). The daemon's own
+    answer, wherever its build identity, a side root or a temp home put it: 7f4efb00 found no folder by name."""
+    try:
+        pids = subprocess.run(["lsof", "-t", "--", daemon_socket], capture_output=True, text=True, timeout=20).stdout
+        if not pids.strip():  # a socket path lsof does not match by name: the unix sockets' names instead
+            listing = subprocess.run(["lsof", "-U", "-F", "pn"], capture_output=True, text=True, timeout=20).stdout
+            pid, matched = "", []
+            for line in listing.splitlines():
+                if line.startswith("p"):
+                    pid = line[1:]
+                elif line.startswith("n") and daemon_socket in line and pid:
+                    matched.append(pid)
+            pids = "\n".join(matched)
+        found: list[Path] = []
+        for pid in sorted({p.strip() for p in pids.split() if p.strip().isdigit()}):
+            files = subprocess.run(["lsof", "-p", pid, "-F", "n"], capture_output=True, text=True, timeout=20).stdout
+            for line in files.splitlines():
+                name = Path(line[1:]) if line.startswith("n/") else None
+                if name and re.search(r"\.(sqlite3?|db)(-wal|-shm)?$", name.name) and (name.parent / "apps.json").is_file():
+                    found.append(name.parent)
+        return sorted(set(found))
+    except (OSError, subprocess.TimeoutExpired):
+        return []
 
 
 def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list[Path]:
@@ -463,13 +567,13 @@ def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list
     stem = Path(daemon_socket).name.removesuffix(".sock")
     if not stem:
         return []
-    support = support or Path.home() / "Library/Application Support"
     found: list[Path] = []
-    for top in ("cmux-next", "cmux", "cmux-tui"):
-        base = support / top
-        for pattern in ("tui", "*/*/tui"):
-            for tui in base.glob(pattern):
-                found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
+    for root in ([support] if support else support_roots()):
+        for top in ("cmux-next", "cmux", "cmux-tui"):
+            base = root / top
+            for pattern in ("tui", "*/*/tui"):
+                for tui in base.glob(pattern):
+                    found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
     return sorted(set(found))
 
 
@@ -478,10 +582,8 @@ def apps_state_dirs(since: float) -> list[Path]:
     `LAUNCHES_FILE`) names the customize app and was written since `since`: where this run's install landed,
     wherever the copy's build identity put its daemon state (`builds/<key>/tui`, `tags/<tag>/tui`, or the
     shared root of a NIGHTLY-keyed copy; build_identity.rs `daemon_state_dir`)."""
-    support = Path.home() / "Library/Application Support"
     found: list[Path] = []
-    for top in ("cmux-next", "cmux", "cmux-tui"):
-        base = support / top
+    for base in (root / top for root in support_roots() for top in ("cmux-next", "cmux", "cmux-tui")):
         if not base.is_dir():
             continue
         for here, subdirs, files in os.walk(base):
@@ -562,6 +664,70 @@ def row_widget(ctx: Ctx) -> dict:
 
 
 row_widget.needs_app = True
+
+
+NEWTAB_TILE = "w902"
+
+
+def row_newtab_widget(ctx: Ctx) -> dict:
+    """A widget made with `ext new --kind widget` shows on the New Tab page (#46186, the web grid on the daemon's
+    `apps.widgets.*`, #44828): the scaffold is built (`ext shot`) and installed as the copy's customize app, with
+    one line after its built script that logs each render's mount context and calls the scaffold's own export.
+    Its New Tab tile is seeded as the daemon saves a person's Add Widget (`apps-widgets-layout.json` in the
+    session folder the daemon holds open, the copy stopped); after a relaunch the daemon lists the tile and a new
+    tab's widget grid mounts it: the export ran with `place` newtab and the tile's instance (`apps-logs`).
+    Relaunches the copy: run it last."""
+    started = time.time() - 5
+    word = f"{ctx.token} newtab_widget"
+    folder = scaffold_folder(ctx, "newtab-widget")
+    made = ctx.ext(["ext", "new", "rows-newtab-widget", "--kind", "widget", "--dir", str(folder), "--json"],
+                   timeout=60)
+    shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / "newtab-widget.png")])
+    keep_in_work(ctx, folder)
+    scaffold = json.loads((folder / "cmux-app.json").read_text()) if (folder / "cmux-app.json").is_file() else {}
+    main_rel = (scaffold.get("runtime") or {}).get("main") or "dist/main.js"
+    built = folder / main_rel
+    entry = (scaffold.get("implements") or {}).get("cmux.widget/1") or {}
+    export = entry.get("export") or "renderWidget"
+    if not built.is_file() or not entry:
+        return {"checks": {"scaffolded": made.get("exit") == 0, "built": built.is_file(), "is_widget": bool(entry)},
+                "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "shot_exit": shot.get("exit")}
+    probe = ("\n;(() => {\n  const made = globalThis.__cmuxAppExports || {}\n"
+             f"  const render = made[{json.dumps(export)}]\n"
+             f"  globalThis.__cmuxAppExports = {{ ...made, [{json.dumps(export)}]: (ctx) => {{\n"
+             f"    console.log({json.dumps(word)} + ' ' + (ctx && ctx.place) + ' ' + (ctx && ctx.instance))\n"
+             "    return render(ctx)\n  } }\n})()\n")
+    manifest = {k: v for k, v in scaffold.items() if k not in ("$schema", "id", "version", "manifestVersion",
+                                                               "engines", "files")}
+    install = install_customize(ctx, manifest, {main_rel: built.read_text() + probe})
+    offered = store_op(ctx, "apps.widgets.list", {"place": "newtab"})
+    layout = {"revision": 1, "next": 903,
+              "newtab": [{"instance": NEWTAB_TILE, "app": CUSTOMIZE_APP, "size": entry.get("options", {})
+                          .get("defaultSize", "small")}]}
+    dirs = daemon_session_dirs(ctx, started)
+
+    def seed() -> list[str]:
+        for d in dirs:
+            (d / "apps-widgets-layout.json").write_text(json.dumps(layout, indent=2))
+        return [str(d) for d in dirs]
+
+    relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder (open_state_dirs, "
+                                                                  "socket_session_dirs, apps_state_dirs)"}
+    placed = store_op(ctx, "apps.widgets.list", {"place": "newtab"})
+    opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
+    drawn = logs_with(ctx, f"{word} newtab {NEWTAB_TILE}", wait=30)
+    return {"checks": {"scaffolded": made.get("exit") == 0, "built": True, "installed": install["installed"],
+                       "offered_for_newtab": any(w.get("app") == CUSTOMIZE_APP
+                                                 for w in ((offered.get("data") or {}).get("widgets") or [])),
+                       "state_folder_found": bool(dirs),
+                       "layout_read": NEWTAB_TILE in json.dumps((placed.get("data") or {}).get("layout")),
+                       "newtab_draws_it": bool(drawn)},
+            "new": {k: made.get(k) for k in ("exit", "json")}, "shot_exit": shot.get("exit"), "main": main_rel,
+            "export": export, "install": install, "dirs": [str(d) for d in dirs], "relaunch": relaunch,
+            "placed": placed, "open": opened, "log_lines": drawn, "any_render": logs_with(ctx, word, wait=2)}
+
+
+row_newtab_widget.needs_app = True
 
 
 def row_background_events(ctx: Ctx) -> dict:
@@ -937,8 +1103,9 @@ def row_fork(ctx: Ctx) -> dict:
     answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
     loaded = answer.get("ok") is True or (answer.get("phase") == "shot" and not answer.get("errors"))
     scene = scene_of(shot)
+    # The scene is drawn only with the Mac app; with no app the check is left out, not passed.
     return {"checks": {"forked": original != fork_id, "fork_loaded": loaded,
-                       "scene_drawn": bool(scene) or not ctx.control},
+                       **({"scene_drawn": bool(scene)} if ctx.control else {})},
             "app": FORK_APP, "original_id": original, "fork_id": fork_id,
             "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "shot", "next")},
             "scene": scene[:20], "shot_exit": shot.get("exit"),
@@ -1134,7 +1301,9 @@ def row_typed_sdk(ctx: Ctx) -> dict:
                        "typechecks": clean.get("exit") == 0,
                        "wrong_type_refused": broken.get("exit") not in (0, None),
                        "edit_rebuilt": edited != source and word in built,
-                       "edit_drawn": loaded and (word in json.dumps(scene) or not ctx.control),
+                       # With no Mac app nothing is drawn: the edit must load, the drawn check is left out.
+                       **({"edit_drawn": loaded and word in json.dumps(scene)} if ctx.control
+                          else {"edit_loaded": loaded}),
                        "on_npm_at_shipped_version": bool(npm.get("version"))
                        and npm.get("version") == package.get("version")},
             "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "sdk_version": package.get("version"),
@@ -1147,12 +1316,13 @@ def row_typed_sdk(ctx: Ctx) -> dict:
 
 # Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
-# open a tab last; ext_new uses folders of its own; widget relaunches the copy, so it runs last.
+# open a tab last; ext_new uses folders of its own; widget and newtab_widget relaunch the copy, so they
+# run last.
 ROWS = {
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
-    "chat_widget": (row_chat_widget, "#43030"),
+    "chat_widget": (row_chat_widget, "#43030 #43040"),
     "background_events": (row_background_events, "#43018 #49223"),
     "status": (row_status, "#47317"),
     "menus": (row_menus, "#43006"),
@@ -1161,8 +1331,10 @@ ROWS = {
     "fork": (row_fork, "#43005"),
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
+    "sidebar_list": (row_sidebar_list, "#43027"),
     "web_pane": (row_web_pane, "#41546 #43033"),
     "widget": (row_widget, "#45106"),
+    "newtab_widget": (row_newtab_widget, "#44828 #46186"),
     "settings": (row_settings, "#43022"),
     "git_install": (row_git_install, "#42068 #44897"),
     "toolbar": (row_toolbar, "#47325"),
@@ -1223,6 +1395,7 @@ def main() -> int:
     parser.add_argument("--pid-file", help="the copy's pid file")
     parser.add_argument("--cli", help="a cmux binary, with --daemon-socket (no Mac app)")
     parser.add_argument("--daemon-socket")
+    parser.add_argument("--bundle", help="with --cli: the NIGHTLY bundle the binary came from, for the receipt")
     parser.add_argument("--control-socket")
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
@@ -1243,6 +1416,9 @@ def main() -> int:
         control, daemon = attach_copy(app, cli, Path(args.pid_file), args.control_socket)
     elif args.cli and args.daemon_socket:
         cli, daemon, control = Path(args.cli).resolve(), args.daemon_socket, args.control_socket
+        receipt["mode"] = "cli"  # no Mac app: rows that need it are skipped, drawn-scene checks left out
+        if args.bundle:
+            receipt |= {"app": args.bundle, **reload_nightly.hot.app_commit_receipt(Path(args.bundle))}
     else:
         parser.error("give --app and --pid-file, or --cli and --daemon-socket")
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
