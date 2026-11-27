@@ -166,11 +166,14 @@ sys.exit(2)
     path
 }
 
+/// The fake's calls, the daemon's `--json auth token` reads aside (`hosted_mcp.rs` asks for a
+/// token on its own schedule; it is not a step of the move).
 fn calls(dir: &Path) -> Vec<Vec<String>> {
     std::fs::read_to_string(dir.join("calls.log"))
         .unwrap_or_default()
         .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
+        .map(|l| serde_json::from_str::<Vec<String>>(l).unwrap())
+        .filter(|a| !(a.len() >= 2 && a[0] == "--json" && a[1] == "auth"))
         .collect()
 }
 
@@ -198,8 +201,7 @@ async fn cloud_only_moves_the_chat_to_a_fresh_machine() {
     let asked = src.call("_acpmux/place_set", json!({"sessionId": id, "place": cloud})).await;
     assert_eq!(asked["state"], "needs_confirm", "{asked}");
     assert_eq!(asked["leftBehind"][0]["kind"], "outside_repo", "{asked}");
-    let early = calls(scratch.path());
-    assert!(early.is_empty(), "nothing starts before the person confirms: {early:?}");
+    assert!(calls(scratch.path()).is_empty(), "nothing starts before the person confirms");
 
     let go = src
         .call(

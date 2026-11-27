@@ -464,6 +464,9 @@ if Path(sys.argv[0]).name == "git":
         # first; the test gives the oldest one's age, else the read fails.
         if state.get("unpinned_age_min") is None: sys.exit(128)
         import time
+        if "--" in args and state.get("input_walk_hangs"):
+            # A treeless clone's walk of the inputs fetching a tree per commit (run 46002456039): it outlasts its bound.
+            time.sleep(30); sys.exit(0)
         print(int(time.time()) - 60 * min(5, state["unpinned_age_min"]))
         print(int(time.time()) - 60 * state["unpinned_age_min"]); sys.exit(0)
     if args[0] == "show":
@@ -633,7 +636,7 @@ class RePinPublication(unittest.TestCase):
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
                   rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None, head_runs=(),
-                  head_runs_read="ok", mergeable=None):
+                  head_runs_read="ok", mergeable=None, input_walk_hangs=False, env_extra=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -703,13 +706,15 @@ class RePinPublication(unittest.TestCase):
                 "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read,
                 "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read,
-                "head_runs": list(head_runs), "head_runs_read": head_runs_read}))
+                "head_runs": list(head_runs), "head_runs_read": head_runs_read,
+                "input_walk_hangs": input_walk_hangs}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
                        GITHUB_RUN_ID=RUN_ID, GITHUB_RUN_ATTEMPT="2", GITHUB_SERVER_URL="https://github.com",
-                       RUNNER_TEMP=temp, **({} if wait_bound is None else {"REPIN_RATE_LIMIT_WAIT_S": str(wait_bound)}))
+                       RUNNER_TEMP=temp, **({} if wait_bound is None else {"REPIN_RATE_LIMIT_WAIT_S": str(wait_bound)}),
+                       **(env_extra or {}))
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work,
                                     env=env, capture_output=True, text=True, timeout=10)
             state = json.loads(state_path.read_text())
@@ -838,6 +843,8 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
+                # A kept PR gets the stack-blocker and ready-to-land labels too (cmux#60965 sat unlabelled).
+                self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]])
 
     def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
         # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
@@ -1361,6 +1368,20 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
+
+    def test_a_walk_of_the_inputs_past_its_bound_reads_the_oldest_commit_since_the_pin(self):
+        # 2026-11-27, app FFI release run 46002456039: the walk of the FFI inputs since a pin 501 min behind fetched a
+        # tree per commit of the treeless checkout from 13:19Z until the job's timeout cancelled it at 13:47Z. Past
+        # its bound the clock reads the range's oldest commit, which is no younger, and the re-pin goes on.
+        newer = "7" * 40
+        result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                       ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=5,
+                                       unpinned_age_min=90, input_walk_hangs=True,
+                                       env_extra={"REPIN_INPUT_WALK_S": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("did not finish in 1 s", result.stderr)
+        self.assertNotIn("Re-pin held", result.stdout)
+        self.assertIn("no newer run holds its re-pin", result.stderr)
 
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
