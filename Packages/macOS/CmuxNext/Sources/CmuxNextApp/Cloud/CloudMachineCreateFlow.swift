@@ -112,7 +112,7 @@ struct CloudMachineCreateFlow {
         guard let (op, args, options) = CloudStartCore().createParams(name: machine.name, environment: environment, cpu: sized.cpu, memoryMb: sized.memoryMb,
                                                                        diskMb: sized.diskMb, request: request) else { throw Self.rulesUnavailable }
         try await validateOptions(options)
-        let answer = try await approvalLoop(op, args: request?.argsWithProvider(args) ?? args, key: key ?? newKey(), confirmed: true,
+        let answer = try await approvalLoop(op, args: args, key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }
