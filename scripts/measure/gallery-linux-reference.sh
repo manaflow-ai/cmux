@@ -38,5 +38,16 @@ status=0
 CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 bun runner.ts --manifest "$out/manifest.json" --gallery-dir "$out/gallery" \
   --output-dir "$out/render" --engines chromium,webkit || status=$?
 fc-match -- -apple-system > "$out/render/font.txt" 2>&1 || true
+# A failed exit still ships the render (the pair needs it); name what failed so the exit is not silent.
+python3 -c '
+import json, sys
+rows = json.load(open(sys.argv[1]))
+for r in rows:
+    play = (r.get("play") or {}).get("status")
+    if play == "fail" or (r.get("diff") or {}).get("passed") is False:
+        print("gallery-linux-reference: failed case id=%s engine=%s play=%s" % (r.get("id"), r.get("engine"), play), file=sys.stderr)
+' "$out/render/results.json" || true
 tar -czf "$root/artifacts/gallery-linux-reference.tgz" -C "$out" render
+# Under cmux-ci test only $FAST_CHECKS_OUT comes back as the --artifact.
+[ -z "${FAST_CHECKS_OUT:-}" ] || cp "$root/artifacts/gallery-linux-reference.tgz" "$FAST_CHECKS_OUT/"
 exit "$status"
