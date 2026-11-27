@@ -130,7 +130,7 @@
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
             "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
             "scripts/cmux-next/private-bun.sh", "scripts/check-webviews-bun-version.sh",
-            "scripts/webviews_bun_version.py",
+            "scripts/webviews_bun_version.py", "skills/cmux-extension-author/",
             "scripts/cmux-next/build-layout-reducer-ffi.sh", "scripts/ci/acpmux-build-features.sh",
             "scripts/ci/tailnet-go.sh", "scripts/cmux-next/build-acpmux.sh", "scripts/ci/cargo-groups.sh",
             "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
