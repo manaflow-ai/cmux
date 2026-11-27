@@ -61,6 +61,8 @@ on:
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/action-surfaces.json"
@@ -81,6 +83,7 @@ on:
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-settle.json"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
@@ -111,6 +114,8 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-extension-author/**"
+      - "schemas/motion-scale/motion-scale.json"
       - "web/public/tui/install-static.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
@@ -125,6 +130,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -134,10 +141,49 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
       - "schemas/design-scale/design-scale.json"
       - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
+      - "schemas/sidebar-item-info/vectors.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/AgentListStream/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "plans/cmux-next/action-catalog.json"
+      - "samples/apps/**"
+      - "samples/apps/hello-python/**"
+      - "samples/apps/standup/**"
+      - "scripts/ci/cargo-test-selected.sh"
+      - "scripts/ci/cargo-test-wine.sh"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/pinned-shell.sh"
+      - "scripts/cmux-next/**"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "skills/cmux-extension-author/recipes/**"
+      - "tests/fixtures/classic-to-next/session-groups.json"
+      - "web/app/globals.css"
+      - "webviews/bench/link-profiles.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
   workflow_dispatch:
 
 concurrency:
@@ -164,14 +210,14 @@ jobs:
     # Off pull requests (CI 10x, 2026-11-21: 1.33% of PR runner-minutes, 1.36% of heads it alone caught): it runs
     # after merge on feat-cmux-next pushes, and on a same-repository pull request only with the full-ci label.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
       windows_gnu_check_tree: ${{ steps.graph.outputs.windows_gnu_check_tree }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -187,13 +233,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # CI_LAND_KEEPS_SELECTOR=1 (repository variable, default off): the full-ci label follows the crate graph
+          # here as in cmux-tui-spec.yml (cmux#59250), instead of running every job; off, the call is unchanged.
+          FOLLOWS_GRAPH: ${{ vars.CI_LAND_KEEPS_SELECTOR == '1' && '--full-ci-follows-graph' || '' }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-windows-check.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" $FOLLOWS_GRAPH
 
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
@@ -201,11 +250,11 @@ jobs:
     # for this repository's own branches. It runs by the crate graph (the route job); a failed
     # router never skips it.
     needs: route
-    if: ${{ (inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 30
+    if: ${{ ((inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false'))) && (github.event_name != 'pull_request' || needs.route.result == 'success' || needs.route.result == 'skipped') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -227,8 +276,13 @@ jobs:
       - name: Install Linux and MinGW build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config gcc-mingw-w64-x86-64 >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config gcc-mingw-w64-x86-64: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          fi
 
       - name: Cache Zig package downloads
         if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
@@ -289,11 +343,18 @@ jobs:
           # libc::mkfifo) with no cfg landed through this check because it never compiled test
           # code, and then broke the Windows jobs that do (2026-11-16: cmux-tui.yml's test
           # (windows) checks acpmux --all-targets; cmux-tui-build-package.yml's long-path step
-          # builds cmux-tui-core's lib tests). Each line is what one of those compiles.
+          # builds cmux-tui-core's lib tests). Each line is what one of those compiles. cmux-host (the
+          # machine agent and updater) had no Windows check at all (RFD 0157 D2); it compiles for
+          # Windows today, and this keeps it so. cmux-browser-host's tests were the same gap: acpmux
+          # links its lib, but nothing compiled its unit tests for Windows (its integration tests read
+          # CARGO_BIN_EXE_*, which cargo check never sets, so they are left to cargo test).
           for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
                          "-p acpmux --all-targets" \
                          "-p cmux-tui-core --lib --tests" \
-                         "-p cmux-tui --lib --bins --tests"; do
+                         "-p cmux-tui --lib --bins --tests" \
+                         "-p cmux-host --lib --bins --tests" \
+                         "-p cmux-browser-host --lib --bins" \
+                         "-p cmux-browser-host --lib --profile test"; do
             # shellcheck disable=SC2086 # $targets is a list of cargo arguments
             if ! cargo check --locked --target x86_64-pc-windows-gnu $targets 2>&1 | tee "$log"; then
               if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
@@ -301,6 +362,26 @@ jobs:
               exit 1
             fi
           done
+
+      # The Windows tests Wine can run, on this Linux runner (scripts/ci/cargo-test-wine.sh): a unix-only
+      # change to them shows red here after merge instead of only on a dispatched Windows runner. What
+      # Wine cannot run (owner-only DACLs, job-object process reads, integrity levels) stays on cmux-tui.yml's
+      # test (windows). It runs after a red cargo check too, so one run names both.
+      - name: Install Wine
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' }}
+        run: |
+          # wine64 alone: the tests are 64-bit console programs. lld links them (MinGW's ld is minutes slower).
+          sudo apt-get install -y --no-install-recommends wine wine64 lld
+
+      - name: Windows tests under Wine (platform, SDK, daemon client)
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+        run: |
+          # windows_processes reads a child through a job object, which Wine does not implement.
+          ../scripts/ci/cargo-test-wine.sh --locked -p cmux-tui-platform --lib -- --test-threads=1 --skip windows_processes::
+          ../scripts/ci/cargo-test-wine.sh --locked -p cmux-sdk -p cmux-daemon-client --lib
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}

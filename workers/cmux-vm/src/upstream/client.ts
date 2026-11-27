@@ -25,6 +25,9 @@ import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
+/** The operation a create refused by the provider create queue fails with (limits/create-admission.ts); nothing was sent. */
+export const CREATE_QUEUE_FULL = "createQueueFull";
+
 export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
@@ -195,9 +198,10 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
   ) => Effect.Effect<number, UpstreamError>;
+  /** vm:files may read the state too: the paused-read replica answers only while the VM is unchanged. */
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
-    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> | KeyHasScope<C, "vm:files"> },
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   /** Reads a VM's state on the way to changing it. */
   readonly getVmForWrite: <C, R>(

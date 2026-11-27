@@ -1,4 +1,5 @@
-//! Cloud environment settings through the existing Cloud transport, with the native app's install token.
+//! Cloud environment settings through the existing Cloud transport, with an install token the app
+//! minted: its own, or the one `cmux env` asked it for (`auth.token`).
 //! Only these named routes are exposed; the web page cannot supply a URL or headers.
 
 use serde_json::{Value, json};
@@ -9,6 +10,44 @@ fn invalid() -> CloudError {
     CloudError::BadRequest(
         "Invalid cloud environment request. Check the fields and try again.".into(),
     )
+}
+
+/// The fields a create or an update may carry, the platform's own (cmux-platform
+/// `CreateCloudEnvironment` and `UpdateCloudEnvironment`). `repo`, `ref`, `maintenance_script`,
+/// `files` and `image` are newer than some deployments; an older one refuses them itself.
+const SHARED_FIELDS: &[&str] = &[
+    "name",
+    "setup_script",
+    "env_vars",
+    "network",
+    "repo",
+    "ref",
+    "maintenance_script",
+    "files",
+    "image",
+];
+/// `expected_revision`: the update applies only to the environment as it was read
+/// (cmux-platform#1144; a mismatch is 409 `cloud_environment.revision_conflict`).
+const UPDATE_ONLY: &[&str] = &["set_secrets", "remove_secrets", "expected_revision"];
+const CREATE_ONLY: &[&str] = &["scope", "secrets"];
+
+/// A project's default environment (`cmux env default`, cmux-platform#1144): read with `?repo=`
+/// (a list of `{scope, repo, environment, updated_at, updated_by}`), set with a `PUT` of
+/// `{repo, environment}`.
+const PROJECT_DEFAULT_PATH: &str = "/v1/cloud-environments/project-defaults";
+
+/// `OWNER/NAME` as GitHub spells them: nothing a query or a path could read as more than that.
+fn repository(value: Option<&Value>) -> Result<&str, CloudError> {
+    let part = |p: &str| {
+        (1..=100).contains(&p.len())
+            && p != "."
+            && p != ".."
+            && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    value
+        .and_then(Value::as_str)
+        .filter(|repo| repo.split_once('/').is_some_and(|(owner, name)| part(owner) && part(name)))
+        .ok_or_else(invalid)
 }
 
 fn identifier(value: Option<&Value>) -> Result<&str, CloudError> {
@@ -95,15 +134,7 @@ impl CloudConversations {
                 let id = identifier(params.get("id"))?;
                 let patch = params.get("patch").and_then(Value::as_object).ok_or_else(invalid)?;
                 if patch.keys().any(|key| {
-                    ![
-                        "name",
-                        "setup_script",
-                        "env_vars",
-                        "set_secrets",
-                        "remove_secrets",
-                        "network",
-                    ]
-                    .contains(&key.as_str())
+                    !SHARED_FIELDS.contains(&key.as_str()) && !UPDATE_ONLY.contains(&key.as_str())
                 }) {
                     return Err(invalid());
                 }
@@ -120,13 +151,23 @@ impl CloudConversations {
                     .and_then(Value::as_str)
                     .is_none_or(|name| name.trim().is_empty())
                     || environment.keys().any(|key| {
-                        !["name", "scope", "setup_script", "env_vars", "secrets", "network"]
-                            .contains(&key.as_str())
+                        !SHARED_FIELDS.contains(&key.as_str())
+                            && !CREATE_ONLY.contains(&key.as_str())
                     })
                 {
                     return Err(invalid());
                 }
                 send("POST", "/v1/cloud-environments", &json!(environment))?
+            }
+            // A project's default environment: read it for one repository, or set it.
+            "default-get" if params.len() == 1 => {
+                let repo = repository(params.get("repo"))?;
+                send("GET", &format!("{PROJECT_DEFAULT_PATH}?repo={repo}"), &Value::Null)?
+            }
+            "default-set" if params.len() == 2 => {
+                let repo = repository(params.get("repo"))?;
+                let id = identifier(params.get("environment"))?;
+                send("PUT", PROJECT_DEFAULT_PATH, &json!({"repo": repo, "environment": id}))?
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))

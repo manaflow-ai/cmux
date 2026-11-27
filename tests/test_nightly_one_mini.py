@@ -32,7 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import (HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS,  # noqa: E402
+from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS,  # noqa: E402
+                                           HOSTED_TAIL_JOBS,
                                            JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
@@ -42,11 +43,17 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
            "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
-           "sign-live-code-variant"}
+           "sign-live-code-variant",
+           # RFD 0134 cut 2 (#54859): the .pkg build and sign, on the signer label with the rest.
+           "nightly-next-pkg",
+           # The deltas hold the Sparkle key, so they take the signer label as nightly-next-one does: no runner
+           # carries both it and glaeda-nightly-mini, so the two as one array would never start.
+           "nightly-next-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build"}
+                   "check-nightly-app-store-shelf", "published-build",
+                   "check-nightly-webviews", "early-nightly-webviews"}
 # RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
 # label on a first push, schedule or dispatch attempt, and cmux-linux on a rerun or loop retry, in this mode too.
 PINNED_LINUX = "cmux-gcp-nightly-x64"
@@ -60,7 +67,7 @@ REPAIR_JIT = "cmux-gcp-repair-jit-x64"
 NIGHTLY_CALLER = "manaflow-ai/cmux/.github/workflows/nightly.yml@refs/heads/nightly-next"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str | list[str]:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
@@ -72,7 +79,8 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, f
     if name in LINUX_POOL_JOBS:
         return "cmux-linux"
     # A tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.hosted_route).
-    return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
+    return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS \
+        or name in HOSTED_DISPATCH_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:

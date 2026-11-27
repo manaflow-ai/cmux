@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 
 /// Checked item lookups for an item-based `NSBrowser`.
@@ -34,3 +35,4 @@ public extension NSBrowser {
         return item(ifValidRow: selectedRow(inColumn: column), inColumn: column) // index-allow: column checked above
     }
 }
+#endif

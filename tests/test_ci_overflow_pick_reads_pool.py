@@ -52,7 +52,6 @@ PICKS: dict[str, int] = {
     "app-ffi-release.yml": 3,
     "backend.yml": 1,
     "chief-evals.yml": 1,
-    "ci-artifact-canary.yml": 1,
     "ci-compile-attribution.yml": 1,
     "ci-health-report.yml": 1,
     "ci-macos.yml": 2,

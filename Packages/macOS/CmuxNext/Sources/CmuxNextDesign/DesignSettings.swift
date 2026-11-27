@@ -27,6 +27,31 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
+    /// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"); unset, each is the density's.
+    /// The gap between a sidebar row's fill and the sidebar's edges (`SidebarRowTuning.outerInset`).
+    case sidebarRowInset
+    /// The room between a sidebar row's fill and its content (`SidebarRowTuning.contentInset`).
+    case sidebarRowPadding
+    /// The gap between two sidebar rows (`SidebarRowTuning.rowGap`).
+    case sidebarRowGap
+    /// A sidebar row with a detail line (`SidebarDensityTokens.rowHeightWithSubtitle`), such as a two-line card.
+    case sidebarRowHeightWithSubtitle
+    /// The side of the chrome's icon buttons (`TopRowSpacing.buttonSide`).
+    case toolbarButtonSize
+    /// The gap between neighboring top-row buttons (`TopRowSpacing.groupGap`).
+    case toolbarButtonGap
+    /// The corner of a toolbar button's hover, pressed and active fill (`Metrics.toolbarButtonCornerRadius(side:)`).
+    case toolbarButtonCornerRadius
+    /// A share (not points) of the text color under a toolbar button that is on (`ChromeHover` lit).
+    case toolbarButtonActiveFill
+    /// A share (not points): the tab row's divider strength under the header (`Metrics.tabRowDividerStrength`).
+    case headerDivider
+    /// A multiplier (not points) on the spacing grid, `Metrics.space1`...`space6`.
+    case spacingScale
+    /// The chat composer's inner padding (`--cmux-composer-inset`).
+    case composerPadding
+    /// The chat composer's one-line box height (`--cmux-composer-box`).
+    case composerMinHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -87,17 +112,24 @@ public final class DesignSettings {
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// New Tab scales its Default page values together with one zoom.
+    /// The `appearance.metrics.*` values the page script carries (a look's composer padding and height): read in a page
+    /// host's observation, a look applied or removed re-sends the script, live.
+    public var pageMetrics: [CGFloat?] { [overrides[.composerPadding], overrides[.composerMinHeight]] }
     private var composerScript: String {
         let tokens = Metrics.tokens.tokens
         let values: [(String, String?)] = [
             ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
             ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
             ("--cmux-composer-pad-block", nil),
+            // A look's composer padding (`appearance.metrics.composerPadding`); unset keeps the density's.
+            ("--cmux-composer-inset", overrides[.composerPadding].map { "\(Self.cssNumber(Double($0)))px" }),
             ("--cmux-composer-text-size", nil),
             ("--cmux-composer-icon-size", nil),
             ("--cmux-composer-chip-text-size", nil),
             ("--cmux-composer-row-radius-extra", nil),
             ("--cmux-chat-editor-min", tokens["chatEditorMin"].map { "\(Self.cssNumber($0))px" }),
+            // A look's one-line composer height (`appearance.metrics.composerMinHeight`); unset keeps the density's.
+            ("--cmux-composer-box", overrides[.composerMinHeight].map { "\(Self.cssNumber(Double($0)))px" }),
         ]
         return values.map { name, value in
             "document.documentElement.style.setProperty('\(name)', '\(value ?? "")');"
@@ -176,6 +208,13 @@ public final class DesignSettings {
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.agentSignature`: sidebar agent rows and the agent pane's running line draw
+    /// each agent's dot glyph (acpmux `session/signature`). Off until the setting reaches it
+    /// (``SettingsApplier``); off, no glyph draws and no request goes out. A change repaints, so open
+    /// agent pages get it with the theme (`AgentPaneTheme`) and the sidebar rows redraw (`SidebarTunablesWatch`).
+    public var agentSignature = false {
+        didSet { if agentSignature != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
@@ -186,6 +225,12 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
+    /// Snapshot-first right split (goal instant-splits, prototype): a split to the right opens as a retained picture
+    /// that slides in from the screen's right edge on the compositor, to its final place fixed at the key press, while
+    /// the live panes mount underneath; the live view takes over once it showed. Off by default (flipping it is Leo's
+    /// call): the `CmuxNextSplitSnapshotOpen` user default (`-CmuxNextSplitSnapshotOpen YES` at launch) or
+    /// `debug.motion {"kind":"splitSnapshotOpen","on":true}` turns it on.
+    public var splitSnapshotOpen = UserDefaults.standard.bool(forKey: "CmuxNextSplitSnapshotOpen")
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
@@ -197,7 +242,13 @@ public final class DesignSettings {
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
-    public private(set) var overrides: [MetricKey: CGFloat] = [:]
+    public private(set) var overrides: [MetricKey: CGFloat] = [:] {
+        didSet {
+            // A look's active fill and header divider are paint: a change repaints, as the tab shape does.
+            let painted: [MetricKey] = [.toolbarButtonActiveFill, .headerDivider]
+            if painted.contains(where: { overrides[$0] != oldValue[$0] }) { ThemeScope.app.store.repaintAll() }
+        }
+    }
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
@@ -303,6 +354,8 @@ public final class DesignSettings {
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// Theme Flourishes: the accent glow, tab close colors, sidebar header and pane art.
+    public var flourishes = ThemeFlourishes.none
     /// `sidebar.border` and `sidebar.borderWidth`.
     public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
@@ -394,6 +447,8 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.toolbarButtonStyle`: how a pane's top right buttons and the tab bar's + draw (`ToolbarButtonStyle`).
+    public var toolbarButtonStyle: ToolbarButtonStyle = .standard
     /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
     /// row and the sidebar) is shaded, as a share of the theme's shade
     /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
@@ -423,6 +478,9 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.homeCardStyle`: how the cards on Home and the New Tab page draw (``HomeCardStyle``). The cards are
+    /// web: open pages follow through the pane's theme push, which observes this property (`AgentPaneView.observeMotion`).
+    public var homeCardStyle: HomeCardStyle = .standard
     /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
     /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
     /// without writing either setting. A change repaints, as the corner does.
@@ -501,6 +559,17 @@ public final class DesignSettings {
         case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
+        case .sidebarRowInset, .sidebarRowPadding: 0...24
+        case .sidebarRowGap: 0...12
+        case .sidebarRowHeightWithSubtitle: 28...96
+        case .toolbarButtonActiveFill: 0...0.4
+        case .headerDivider: 0...1
+        case .toolbarButtonSize: 16...40
+        case .toolbarButtonGap: 0...16
+        case .toolbarButtonCornerRadius: 0...20
+        case .spacingScale: 0.5...2
+        case .composerPadding: 0...24
+        case .composerMinHeight: 32...160
         }
     }
 

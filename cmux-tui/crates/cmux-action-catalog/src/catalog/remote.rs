@@ -62,6 +62,21 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "machine doctor",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Storage on This Mac: the card with this Mac's disk, what worktree cleanup could free and
+    // Clean up now (acpmux `_acpmux/worktree/report` and `_acpmux/worktree/clean`). A card the
+    // person reads and clicks; agents call the daemon's worktree methods instead.
+    Action {
+        id: "machine.storage",
+        group: GROUP,
+        title: t("RemoteActions", "action.machine.storage", "Storage on This Mac"),
+        keywords: &["storage", "disk", "space", "free", "clean", "cleanup", "clean up", "reclaim", "reclaimable", "worktree", "worktrees", "machine", "this mac"],
+        category: "remote",
+        symbol: "internaldrive",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action machine-storage",
         ..Action::DEFAULT
     },
     Action {
@@ -269,6 +284,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote install",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -316,6 +332,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote forget",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
