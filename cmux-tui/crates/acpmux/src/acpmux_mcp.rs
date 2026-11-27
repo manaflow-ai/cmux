@@ -568,6 +568,9 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
 /// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
+/// How long `team_send` waits for the next daemon through an update or restart.
+const TEAM_SEND_RESTART_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
@@ -575,7 +578,17 @@ async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     if body.trim().is_empty() {
         return error_result("body is empty".to_owned());
     }
-    match daemon.request(method::MUX_TEAM_SEND, json!({"to": to, "body": body})).await {
+    // One key for every attempt: sent again to the next daemon after an update or restart, the
+    // mesh hub keeps the first (`server/team.rs` `idempotencyKey`), so it lands once.
+    let params =
+        json!({"to": to, "body": body, "idempotencyKey": uuid::Uuid::now_v7().to_string()});
+    let deadline = tokio::time::Instant::now() + TEAM_SEND_RESTART_WAIT;
+    let sent = crate::cli::output::through_restart(daemon, deadline, |daemon, _resend| {
+        let params = params.clone();
+        async move { daemon.request(method::MUX_TEAM_SEND, params).await }
+    })
+    .await;
+    match sent.map(|(_, result)| result) {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
     }
@@ -987,6 +1000,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
+#[cfg(test)]
+#[path = "acpmux_mcp_restart_tests.rs"]
+mod restart_tests;
 #[cfg(test)]
 #[path = "acpmux_mcp_tests.rs"]
 mod tests;

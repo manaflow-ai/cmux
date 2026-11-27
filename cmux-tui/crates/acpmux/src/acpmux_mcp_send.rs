@@ -40,6 +40,9 @@ const _: () = assert!(
         <= CALL_BUDGET.as_millis(),
     "resolve, settle and relay must fit in the call's budget"
 );
+/// How long a send waits for the next daemon when the one it reached updates or restarts under
+/// it ([`queue`]); it goes to the relay only once that runs out, so the two never add up.
+const RESTART_WAIT: Duration = RELAY_WAIT;
 const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end before Codex's 60 s");
 
 pub(super) fn tool() -> Value {
@@ -463,7 +466,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
         Err(e) => return refusal(e),
     };
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
-    let (prompt, queued) = match queue(daemon, &target, sub, None).await {
+    let (daemon, prompt, queued) = match queue(daemon, &target, sub, None, call_end).await {
         Ok(sent) => sent,
         Err(e) => {
             return match relay(&target, &e, sub, call_end).await {
@@ -486,7 +489,8 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
             };
         }
     };
-    let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
+    let left = call_end.saturating_duration_since(tokio::time::Instant::now());
+    let row = settle(&daemon, &target, &prompt, queued, STATUS_WAIT.min(left)).await;
     let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let delivery = text_of("deliveryId");
@@ -573,8 +577,10 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
                 let daemon = &daemon;
                 let sub = sub.as_deref();
                 in_order(&targets, chain, deadline, move |target, wait, after| async move {
-                    match queue(daemon, target, sub, after.as_deref()).await {
-                        Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
+                    match queue(daemon, target, sub, after.as_deref(), call_end).await {
+                        Ok((daemon, prompt, queued)) => {
+                            settle(&daemon, target, &prompt, queued, wait).await
+                        }
                         Err(e) => match relay(target, &e, sub, call_end).await {
                             Some(row) => row,
                             None => target.row(false, "failed", Some(format!("{e:#}"))),
@@ -874,7 +880,8 @@ async fn queue(
     target: &Target,
     sub: Option<&Value>,
     after: Option<&str>,
-) -> Result<(PromptId, Value)> {
+    call_end: tokio::time::Instant,
+) -> Result<(Arc<Client>, PromptId, Value)> {
     let mut prompt = PromptId::new(None);
     prompt.subagent = sub.cloned();
     // Outside an acpmux session, where this server's MCP client or harness says it came from
@@ -910,14 +917,25 @@ async fn queue(
         .await?;
         prompt.attachments.extend(blocks);
     }
-    let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
-    if let Some(after) = after
-        && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
-    {
-        mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
-    }
-    let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
-    Ok((prompt, queued))
+    // Through a daemon update or restart: the same prompt id again, `resend: true`, to the next
+    // daemon until `call_end` (Leo, 2026-11-27: "ok well we should be able to just hold those
+    // messages"). The outbox runs an id once, so the message lands exactly once.
+    let deadline = call_end.min(tokio::time::Instant::now() + RESTART_WAIT);
+    let (daemon, queued) =
+        crate::cli::output::through_restart(daemon, deadline, |daemon, resend| {
+            let mut prompt = prompt.clone();
+            prompt.resend |= resend;
+            let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
+            if let Some(after) = after
+                && let Some(mux) =
+                    request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+            {
+                mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
+            }
+            async move { daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await }
+        })
+        .await?;
+    Ok((daemon, prompt, queued))
 }
 
 /// Wait up to `wait` for a queued message's delivery to settle; its row.
