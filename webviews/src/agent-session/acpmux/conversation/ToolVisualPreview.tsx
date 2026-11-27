@@ -40,7 +40,14 @@ function ToolVisualPreview({ source, label }: { source: string; label: string })
     );
   return (
     <>
-      <span ref={setAnchor} className="cv-tool-visual" {...hover.trigger}>
+      {/* `data-cmux-hover-card` names its card's bridge id, so `cmux app chat drive` finds the card
+          this preview opens (chatDrive.ts cardOpen). */}
+      <span
+        ref={setAnchor}
+        className="cv-tool-visual"
+        data-cmux-hover-card={hover.card["data-cmux-hover-bridge"]}
+        {...hover.trigger}
+      >
         {picture(true)}
       </span>
       <AnchoredCard

@@ -1,10 +1,10 @@
 import React, {
   useCallback,
   useImperativeHandle,
+  useInsertionEffect,
   useRef,
   useState,
   type RefObject,
-  useInsertionEffect,
   useLayoutEffect,
 } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
@@ -27,6 +27,7 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { composerProbe } from "./composerProbe";
 import { composerChanged } from "./launchInputEcho";
 import { holdFlag, setRef } from "./heldFlag";
 import { Slot } from "../../slots/Slot";
@@ -192,6 +193,7 @@ export function ComposerBox({
   chromeItems,
 }: ComposerBoxProps) {
   acpmuxPerf.render("composer:box");
+  composerProbe.render?.("box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
   // with + and the trailing actions on the lower row (composerLook.css).

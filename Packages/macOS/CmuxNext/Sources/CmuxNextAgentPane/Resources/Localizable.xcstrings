@@ -41037,6 +41037,3174 @@
         }
       }
     },
+    "agentPane.chatDrive.unknownParam": {
+      "comment": "A parameter `agent.chat.drive` does not take (%@ is its name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ isn't a parameter of agent.chat.drive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は agent.chat.drive のパラメーターではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ليس معاملًا في agent.chat.drive."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije parametar za agent.chat.drive."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en parameter til agent.chat.drive."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein Parameter von agent.chat.drive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es un parámetro de agent.chat.drive."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas un paramètre de agent.chat.drive."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è un parametro di agent.chat.drive."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមែនជាប៉ារ៉ាម៉ែត្ររបស់ agent.chat.drive ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) agent.chat.drive의 매개변수가 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en parameter for agent.chat.drive."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest parametrem agent.chat.drive."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é um parâmetro de agent.chat.drive."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не является параметром agent.chat.drive."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ใช่พารามิเตอร์ของ agent.chat.drive"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, agent.chat.drive için bir parametre değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не є параметром agent.chat.drive."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không phải là tham số của agent.chat.drive."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 agent.chat.drive 的参数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 agent.chat.drive 的參數。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.needsTab": {
+      "comment": "Driving a chat without naming its tab (`agent.chat.drive`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the chat tab to drive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作するチャットのタブを指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد علامة تبويب الدردشة المراد تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite karticu chata kojom želite upravljati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv den chatfane, der skal styres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Chat-Tab an, der gesteuert werden soll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la pestaña del chat que quieres controlar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’onglet de discussion à piloter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la scheda della chat da pilotare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមដាក់ឈ្មោះផ្ទាំងការជជែកដែលត្រូវបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조작할 채팅 탭을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi chattfanen som skal styres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż kartę czatu, którą chcesz sterować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indique a aba do chat a ser controlada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите вкладку чата, которой нужно управлять."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุแท็บแชทที่จะควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönlendirilecek sohbet sekmesini belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть вкладку чату, якою потрібно керувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chỉ định thẻ trò chuyện cần điều khiển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定要操控的聊天标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定要操控的聊天分頁。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.seconds": {
+      "comment": "A run length that is not a whole number of seconds from 1 to the maximum (`agent.chat.drive` `seconds`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds must be a whole number from 1 to %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds は 1 から %lld までの整数にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون seconds عددًا صحيحًا من 1 إلى %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds mora biti cijeli broj od 1 do %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds skal være et helt tal fra 1 til %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds muss eine ganze Zahl von 1 bis %lld sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds debe ser un número entero de 1 a %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds doit être un nombre entier de 1 à %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds deve essere un numero intero da 1 a %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds ត្រូវតែជាចំនួនគត់ពី 1 ដល់ %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds는 1부터 %lld까지의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds må være et heltall fra 1 til %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds musi być liczbą całkowitą od 1 do %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds deve ser um número inteiro de 1 a %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds должно быть целым числом от 1 до %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds 1 ile %lld arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds має бути цілим числом від 1 до %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds phải là số nguyên từ 1 đến %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds 必须是 1 到 %lld 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds 必須是 1 到 %lld 之間的整數"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.holdMilliseconds": {
+      "comment": "A hover hold that is not a whole number of milliseconds from 0 to 10000 (`agent.chat.drive` `hold_ms`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms must be a whole number from 0 to 10000"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms は 0 から 10000 までの整数にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون hold_ms عددًا صحيحًا من 0 إلى 10000"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms mora biti cijeli broj od 0 do 10000"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms skal være et helt tal fra 0 til 10000"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms muss eine ganze Zahl von 0 bis 10000 sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms debe ser un número entero de 0 a 10000"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms doit être un nombre entier de 0 à 10000"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms deve essere un numero intero da 0 a 10000"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms ត្រូវតែជាចំនួនគត់ពី 0 ដល់ 10000"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms는 0부터 10000까지의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms må være et heltall fra 0 til 10000"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms musi być liczbą całkowitą od 0 do 10000"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms deve ser um número inteiro de 0 a 10000"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms должно быть целым числом от 0 до 10000"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 10000"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms 0 ile 10000 arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms має бути цілим числом від 0 до 10000"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms phải là số nguyên từ 0 đến 10000"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms 必须是 0 到 10000 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold_ms 必須是 0 到 10000 之間的整數"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.allowBusy": {
+      "comment": "`agent.chat.drive` `allow_busy` that is not true or false.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy must be true or false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy は true か false にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون allow_busy إما true أو false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy mora biti true ili false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy skal være true eller false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy doit valoir true ou false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy deve essere true o false"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy ត្រូវតែជា true ឬ false"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy는 true 또는 false여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy må være true eller false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy musi mieć wartość true lub false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy deve ser true ou false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy должно быть true или false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy ต้องเป็น true หรือ false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy true ya da false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy має бути true або false"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy phải là true hoặc false"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy 必须是 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow_busy 必須是 true 或 false"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.target": {
+      "comment": "An `agent.chat.drive` `target` that is not exactly one of its three forms.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target takes one of test_id (1 to 80 letters, digits, - or _), sent_image or tool_screenshot (a whole number from 1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target には test_id（英字、数字、- または _ の 1〜80 文字）、sent_image、tool_screenshot（1 以上の整数）のいずれか 1 つを指定します"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يأخذ target واحدًا من: test_id (من 1 إلى 80 حرفًا أو رقمًا أو - أو _)، أو sent_image، أو tool_screenshot (عدد صحيح من 1)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target prima jedno od: test_id (1 do 80 slova, cifara, - ili _), sent_image ili tool_screenshot (cijeli broj od 1)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target tager én af test_id (1 til 80 bogstaver, cifre, - eller _), sent_image eller tool_screenshot (et helt tal fra 1)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target nimmt eines von test_id (1 bis 80 Buchstaben, Ziffern, - oder _), sent_image oder tool_screenshot (eine ganze Zahl ab 1)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target admite uno de test_id (de 1 a 80 letras, dígitos, - o _), sent_image o tool_screenshot (un número entero desde 1)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target accepte un seul élément parmi test_id (1 à 80 lettres, chiffres, - ou _), sent_image ou tool_screenshot (un nombre entier à partir de 1)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target accetta uno tra test_id (da 1 a 80 lettere, cifre, - o _), sent_image o tool_screenshot (un numero intero da 1)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target យកមួយក្នុងចំណោម test_id (អក្សរ លេខ - ឬ _ ពី 1 ដល់ 80) sent_image ឬ tool_screenshot (ចំនួនគត់ចាប់ពី 1)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target에는 test_id(영문자, 숫자, - 또는 _ 1~80자), sent_image, tool_screenshot(1 이상의 정수) 중 하나를 지정합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target tar én av test_id (1 til 80 bokstaver, sifre, - eller _), sent_image eller tool_screenshot (et heltall fra 1)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target przyjmuje jedno z: test_id (od 1 do 80 liter, cyfr, - lub _), sent_image lub tool_screenshot (liczba całkowita od 1)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target aceita um entre test_id (de 1 a 80 letras, dígitos, - ou _), sent_image ou tool_screenshot (um número inteiro a partir de 1)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target принимает одно из: test_id (от 1 до 80 букв, цифр, - или _), sent_image или tool_screenshot (целое число от 1)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target รับค่าใดค่าหนึ่งจาก test_id (ตัวอักษร ตัวเลข - หรือ _ 1 ถึง 80 ตัว), sent_image หรือ tool_screenshot (จำนวนเต็มตั้งแต่ 1)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target şunlardan birini alır: test_id (1 ile 80 arası harf, rakam, - veya _), sent_image ya da tool_screenshot (1'den başlayan bir tam sayı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target приймає одне з: test_id (від 1 до 80 літер, цифр, - або _), sent_image або tool_screenshot (ціле число від 1)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target nhận một trong: test_id (1 đến 80 chữ cái, chữ số, - hoặc _), sent_image hoặc tool_screenshot (số nguyên từ 1)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target 只接受以下之一：test_id（1 到 80 个字母、数字、- 或 _）、sent_image 或 tool_screenshot（从 1 起的整数）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "target 只接受以下之一：test_id（1 到 80 個字母、數字、- 或 _）、sent_image 或 tool_screenshot（從 1 起的整數）"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.wheel": {
+      "comment": "An `agent.chat.drive` `wheel` with a value out of range.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel takes ticks (0 to 200), delta (a whole number of pixels from -2000 to 2000, not 0) and tick_ms (8 to 200)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel には ticks（0〜200）、delta（-2000〜2000 の 0 以外の整数ピクセル）、tick_ms（8〜200）を指定します"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يأخذ wheel القيم ticks (من 0 إلى 200)، وdelta (عدد صحيح من البكسلات من -2000 إلى 2000، غير 0)، وtick_ms (من 8 إلى 200)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel prima ticks (0 do 200), delta (cijeli broj piksela od -2000 do 2000, ne 0) i tick_ms (8 do 200)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel tager ticks (0 til 200), delta (et helt antal pixels fra -2000 til 2000, ikke 0) og tick_ms (8 til 200)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel nimmt ticks (0 bis 200), delta (eine ganze Pixelzahl von -2000 bis 2000, nicht 0) und tick_ms (8 bis 200)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel admite ticks (de 0 a 200), delta (un número entero de píxeles de -2000 a 2000, distinto de 0) y tick_ms (de 8 a 200)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel accepte ticks (0 à 200), delta (un nombre entier de pixels de -2000 à 2000, différent de 0) et tick_ms (8 à 200)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel accetta ticks (da 0 a 200), delta (un numero intero di pixel da -2000 a 2000, diverso da 0) e tick_ms (da 8 a 200)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel យក ticks (0 ដល់ 200) delta (ចំនួនគត់ភីកសែលពី -2000 ដល់ 2000 មិនមែន 0) និង tick_ms (8 ដល់ 200)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel에는 ticks(0~200), delta(-2000~2000의 0이 아닌 정수 픽셀), tick_ms(8~200)를 지정합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel tar ticks (0 til 200), delta (et helt antall piksler fra -2000 til 2000, ikke 0) og tick_ms (8 til 200)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel przyjmuje ticks (od 0 do 200), delta (całkowita liczba pikseli od -2000 do 2000, różna od 0) i tick_ms (od 8 do 200)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel aceita ticks (de 0 a 200), delta (um número inteiro de pixels de -2000 a 2000, diferente de 0) e tick_ms (de 8 a 200)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel принимает ticks (от 0 до 200), delta (целое число пикселей от -2000 до 2000, не 0) и tick_ms (от 8 до 200)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel รับ ticks (0 ถึง 200), delta (จำนวนเต็มพิกเซลตั้งแต่ -2000 ถึง 2000 ที่ไม่ใช่ 0) และ tick_ms (8 ถึง 200)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel şunları alır: ticks (0 ile 200 arası), delta (-2000 ile 2000 arası, 0 olmayan tam sayı piksel) ve tick_ms (8 ile 200 arası)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel приймає ticks (від 0 до 200), delta (ціле число пікселів від -2000 до 2000, не 0) і tick_ms (від 8 до 200)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel nhận ticks (0 đến 200), delta (số nguyên pixel từ -2000 đến 2000, khác 0) và tick_ms (8 đến 200)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel 接受 ticks（0 到 200）、delta（-2000 到 2000 之间且不为 0 的整数像素）和 tick_ms（8 到 200）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wheel 接受 ticks（0 到 200）、delta（-2000 到 2000 之間且不為 0 的整數像素）和 tick_ms（8 到 200）"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.wheelNeedsTarget": {
+      "comment": "`agent.chat.drive` wheel ticks with no `target` to hold the pointer over.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A wheel needs a target to hold the pointer over."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホイールには、ポインタを置いておく target が必要です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج العجلة إلى target لإبقاء المؤشر فوقه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Točkiću treba target iznad kojeg se drži pokazivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et hjul skal have et target at holde markøren over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Mausrad braucht ein target, über dem der Zeiger bleibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La rueda necesita un target sobre el que mantener el puntero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La molette a besoin d’un target au-dessus duquel garder le pointeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La rotella ha bisogno di un target su cui tenere il puntatore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កង់រំកិលត្រូវការ target ដើម្បីទុកព្រួញនៅពីលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휠을 쓰려면 포인터를 올려 둘 target이 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et hjul trenger et target å holde pekeren over."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kółko wymaga elementu target, nad którym zostanie wskaźnik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A roda precisa de um target sobre o qual manter o ponteiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для колеса нужен target, над которым будет удерживаться указатель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้อเลื่อนต้องมี target ให้ตัวชี้ค้างอยู่เหนือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekerlek için işaretçinin üzerinde tutulacağı bir target gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для коліщатка потрібен target, над яким утримуватиметься вказівник."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con lăn cần một target để giữ con trỏ ở trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚轮需要一个让指针停留其上的 target。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滾輪需要一個讓指標停留其上的 target。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.typeText": {
+      "comment": "`agent.chat.drive` `type.text` with a control character or line separator, or a leading `!` (it would start a composer command).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text can't hold control characters or line separators, or start with !"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text には制御文字や行区切り文字を含めることも、! で始めることもできません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن يحتوي type.text على أحرف تحكم أو فواصل أسطر، ولا أن يبدأ بـ !"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ne smije sadržavati kontrolne znakove ni razdjelnike redova, niti počinjati znakom !"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text må ikke indeholde kontroltegn eller linjeskift-tegn eller begynde med !"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text darf keine Steuerzeichen oder Zeilentrenner enthalten und nicht mit ! beginnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text no puede contener caracteres de control ni separadores de línea, ni empezar por !"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ne peut contenir ni caractères de contrôle ni séparateurs de ligne, ni commencer par !"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text non può contenere caratteri di controllo o separatori di riga, né iniziare con !"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text មិនអាចមានតួអក្សរបញ្ជា ឬសញ្ញាបំបែកបន្ទាត់ ឬចាប់ផ្តើមដោយ ! បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text에는 제어 문자나 줄 구분 문자를 넣을 수 없고 !로 시작할 수도 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text kan ikke inneholde kontrolltegn eller linjeskilletegn, eller begynne med !"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text nie może zawierać znaków sterujących ani separatorów wierszy ani zaczynać się od !"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text não pode conter caracteres de controle nem separadores de linha, nem começar com !"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text не может содержать управляющие символы или разделители строк и не может начинаться с !"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ต้องไม่มีอักขระควบคุมหรือตัวคั่นบรรทัด และต้องไม่ขึ้นต้นด้วย !"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text denetim karakterleri ya da satır ayırıcılar içeremez, ! ile de başlayamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text не може містити керівні символи чи роздільники рядків і не може починатися з !"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text không được chứa ký tự điều khiển hay ký tự ngăn dòng, cũng không được bắt đầu bằng !"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text 不能包含控制字符或行分隔符，也不能以 ! 开头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text 不能包含控制字元或行分隔符，也不能以 ! 開頭"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.type": {
+      "comment": "An `agent.chat.drive` `type` with text of the wrong length or a wrong `allow_draft`.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type takes text (1 to 500 characters, at most 2000 UTF-16 units) and allow_draft (true or false)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type には text（1〜500 文字、UTF-16 で最大 2000 単位）と allow_draft（true または false）を指定します"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يأخذ type القيمتين text (من 1 إلى 500 حرف، وبحد أقصى 2000 وحدة UTF-16) وallow_draft (true أو false)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type prima text (1 do 500 znakova, najviše 2000 UTF-16 jedinica) i allow_draft (true ili false)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type tager text (1 til 500 tegn, højst 2000 UTF-16-enheder) og allow_draft (true eller false)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type nimmt text (1 bis 500 Zeichen, höchstens 2000 UTF-16-Einheiten) und allow_draft (true oder false)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type admite text (de 1 a 500 caracteres, como máximo 2000 unidades UTF-16) y allow_draft (true o false)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type accepte text (1 à 500 caractères, au plus 2000 unités UTF-16) et allow_draft (true ou false)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type accetta text (da 1 a 500 caratteri, al massimo 2000 unità UTF-16) e allow_draft (true o false)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type យក text (1 ដល់ 500 តួអក្សរ យ៉ាងច្រើន 2000 ឯកតា UTF-16) និង allow_draft (true ឬ false)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type에는 text(1~500자, UTF-16 단위 최대 2000)와 allow_draft(true 또는 false)를 지정합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type tar text (1 til 500 tegn, høyst 2000 UTF-16-enheter) og allow_draft (true eller false)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type przyjmuje text (od 1 do 500 znaków, najwyżej 2000 jednostek UTF-16) i allow_draft (true lub false)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type aceita text (de 1 a 500 caracteres, no máximo 2000 unidades UTF-16) e allow_draft (true ou false)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type принимает text (от 1 до 500 символов, не более 2000 единиц UTF-16) и allow_draft (true или false)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type รับ text (1 ถึง 500 อักขระ ไม่เกิน 2000 หน่วย UTF-16) และ allow_draft (true หรือ false)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type şunları alır: text (1 ile 500 karakter arası, en fazla 2000 UTF-16 birimi) ve allow_draft (true ya da false)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type приймає text (від 1 до 500 символів, не більше 2000 одиниць UTF-16) і allow_draft (true або false)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type nhận text (1 đến 500 ký tự, tối đa 2000 đơn vị UTF-16) và allow_draft (true hoặc false)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type 接受 text（1 到 500 个字符，最多 2000 个 UTF-16 单元）和 allow_draft（true 或 false）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type 接受 text（1 到 500 個字元，最多 2000 個 UTF-16 單元）和 allow_draft（true 或 false）"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.tooLong": {
+      "comment": "`agent.chat.drive` wheel ticks and hold that together last longer than its `seconds`.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The wheel ticks and the hold take longer than seconds allows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホイールの回数と保持時間の合計が seconds を超えています。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستغرق نقرات العجلة ومدة الإبقاء وقتًا أطول مما تسمح به seconds."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomaci točkića i zadržavanje traju duže nego što seconds dozvoljava."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hjulets trin og holdetiden varer længere, end seconds tillader."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Mausrad-Schritte und das Halten dauern länger, als seconds erlaubt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los pasos de la rueda y la espera duran más de lo que permite seconds."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les crans de molette et le maintien durent plus longtemps que seconds ne le permet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli scatti della rotella e l’attesa durano più di quanto consenta seconds."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរំកិលកង់ និងការទុកព្រួញ ចំណាយពេលយូរជាងអ្វីដែល seconds អនុញ្ញាត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휠 틱과 유지 시간이 seconds가 허용하는 시간보다 깁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hjultrinnene og holdetiden varer lenger enn seconds tillater."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kroki kółka i przytrzymanie trwają dłużej, niż pozwala seconds."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os passos da roda e a espera duram mais do que seconds permite."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаги колеса и удержание длятся дольше, чем позволяет seconds."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จังหวะล้อเลื่อนและการค้างไว้ใช้เวลานานกว่าที่ seconds อนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekerlek adımları ve bekleme, seconds değerinin izin verdiğinden uzun sürüyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кроки коліщатка й утримання тривають довше, ніж дозволяє seconds."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các nấc con lăn và thời gian giữ kéo dài hơn mức seconds cho phép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚轮步进和停留的总时长超过了 seconds 允许的时长。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滾輪步進和停留的總時長超過了 seconds 允許的時長。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.noTab": {
+      "comment": "Driving a chat tab that has since closed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That tab is no longer open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのタブはもう開いていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد علامة التبويب هذه مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kartica više nije otvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fane er ikke længere åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist nicht mehr geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa pestaña ya no está abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est plus ouvert."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella scheda non è più aperta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនោះលែងបើកទៀតហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 탭은 더 이상 열려 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fanen er ikke lenger åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta nie jest już otwarta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa aba não está mais aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка больше не открыта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนั้นไม่ได้เปิดอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme artık açık değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка більше не відкрита."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đó không còn mở nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该标签页已不再打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該分頁已不再開啟。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.notAgentChat": {
+      "comment": "Driving a tab that is not an agent chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That tab isn't an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのタブはエージェントチャットではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب هذه ليست دردشة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kartica nije chat s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fane er ikke en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist kein Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa pestaña no es un chat de agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est pas une discussion d’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella scheda non è una chat con un agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនោះមិនមែនជាការជជែកជាមួយភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 탭은 에이전트 채팅이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fanen er ikke en agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta nie jest czatem z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa aba não é um chat de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка не является чатом с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนั้นไม่ใช่แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme bir ajan sohbeti değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка не є чатом з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đó không phải là cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该标签页不是智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該分頁不是代理程式聊天。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.pageNotLoaded": {
+      "comment": "Driving an agent chat whose page was never loaded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page isn't loaded. Open the chat once, then drive it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは読み込まれていません。一度チャットを開いてから、もう一度操作してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة غير محمّلة. افتح الدردشة مرة واحدة، ثم شغّلها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata nije učitana. Otvorite chat jednom, pa njime ponovo upravljajte."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chats side er ikke indlæst. Åbn chatten én gang, og styr den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats ist nicht geladen. Öffne den Chat einmal und steuere ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no está cargada. Abre el chat una vez y vuelve a controlarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion n’est pas chargée. Ouvrez la discussion une fois, puis pilotez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non è caricata. Apri la chat una volta, poi pilotala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័ររបស់ការជជែកនោះមិនទាន់ផ្ទុកទេ។ សូមបើកការជជែកម្តង រួចបញ្ជាវាម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지가 로드되지 않았습니다. 채팅을 한 번 연 다음 다시 조작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til den chatten er ikke lastet inn. Åpne chatten én gang, og styr den så igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu nie jest załadowana. Otwórz czat raz, a potem steruj nim ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não está carregada. Abra o chat uma vez e controle-o novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата не загружена. Откройте чат один раз, затем снова управляйте им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นยังไม่ได้โหลด เปิดแชทหนึ่งครั้ง แล้วควบคุมอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası yüklenmedi. Sohbeti bir kez açın, sonra yeniden yönlendirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінку цього чату не завантажено. Відкрийте чат один раз, а потім знову керуйте ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó chưa được tải. Hãy mở cuộc trò chuyện một lần rồi điều khiển lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面尚未加载。请先打开一次该聊天，然后再操控它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面尚未載入。請先開啟一次該聊天，然後再操控它。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.pageAsleep": {
+      "comment": "Driving an agent chat whose hidden page the app put to sleep; driving never wakes it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page is asleep while it's hidden, and driving doesn't wake it. Show the chat, then drive it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは非表示の間スリープしており、操作しても起こしません。チャットを表示してから、もう一度操作してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة نائمة أثناء إخفائها، والتشغيل لا يوقظها. اعرض الدردشة، ثم شغّلها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata spava dok je skrivena, a upravljanje je ne budi. Prikažite chat, pa njime ponovo upravljajte."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chats side sover, mens den er skjult, og styring vækker den ikke. Vis chatten, og styr den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats schläft, solange sie ausgeblendet ist, und Steuern weckt sie nicht. Zeige den Chat an und steuere ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat está dormida mientras está oculta, y controlarla no la despierta. Muestra el chat y vuelve a controlarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion est en veille tant qu’elle est masquée, et le pilotage ne la réveille pas. Affichez la discussion, puis pilotez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat è sospesa mentre è nascosta, e pilotarla non la risveglia. Mostra la chat, poi pilotala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័ររបស់ការជជែកនោះកំពុងដេកពេលវាត្រូវបានលាក់ ហើយការបញ្ជាមិនដាស់វាទេ។ សូមបង្ហាញការជជែក រួចបញ្ជាវាម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 숨겨져 있는 동안 잠자기 상태이며, 조작해도 깨우지 않습니다. 채팅을 표시한 다음 다시 조작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til den chatten sover mens den er skjult, og styring vekker den ikke. Vis chatten, og styr den så igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu śpi, gdy jest ukryta, a sterowanie jej nie budzi. Pokaż czat, a potem steruj nim ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat está adormecida enquanto está oculta, e controlá-la não a acorda. Mostre o chat e controle-o novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата спит, пока скрыта, и управление её не будит. Покажите чат, затем снова управляйте им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นหลับอยู่ขณะซ่อน และการควบคุมไม่ปลุกมัน แสดงแชท แล้วควบคุมอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası gizliyken uykuda ve yönlendirmek onu uyandırmaz. Sohbeti gösterin, sonra yeniden yönlendirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка цього чату спить, поки прихована, і керування її не будить. Покажіть чат, а потім знову керуйте ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó đang ngủ khi bị ẩn, và việc điều khiển không đánh thức nó. Hãy hiện cuộc trò chuyện rồi điều khiển lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面在隐藏时处于休眠状态，操控不会唤醒它。请显示该聊天，然后再操控它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面在隱藏時處於休眠狀態，操控不會喚醒它。請顯示該聊天，然後再操控它。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.noWindow": {
+      "comment": "Driving an agent chat whose page is in no window, so it can take no pointer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat isn't in a window, so it can't take a pointer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはウインドウ内にないため、ポインタを受け付けられません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الدردشة ليست في نافذة، لذا لا يمكنها استقبال المؤشر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat nije u prozoru, pa ne može primiti pokazivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat er ikke i et vindue, så den kan ikke tage imod en markør."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat ist in keinem Fenster und kann daher keinen Zeiger annehmen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat no está en una ventana, así que no puede recibir un puntero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion n’est dans aucune fenêtre, elle ne peut donc pas recevoir de pointeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat non è in una finestra, quindi non può ricevere un puntatore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះមិននៅក្នុងបង្អួចទេ ដូច្នេះវាមិនអាចទទួលព្រួញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 윈도우 안에 없어서 포인터를 받을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten er ikke i et vindu, så den kan ikke ta imot en peker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat nie jest w oknie, więc nie może przyjąć wskaźnika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat não está em uma janela, então não pode receber um ponteiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат не находится в окне, поэтому не может принять указатель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นไม่ได้อยู่ในหน้าต่าง จึงรับตัวชี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet bir pencerede değil, bu yüzden işaretçi alamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат не перебуває у вікні, тому не може прийняти вказівник."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó không nằm trong cửa sổ nào nên không thể nhận con trỏ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天不在任何窗口中，因此无法接收指针。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天不在任何視窗中，因此無法接收指標。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.personBusy": {
+      "comment": "Driving an agent chat the person is using: their pointer is over it, or they just typed or clicked in it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The person is using that chat. Try again when they're done with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットは使用中です。使い終わってから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشخص يستخدم هذه الدردشة. حاول مجددًا عندما ينتهي منها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osoba koristi taj chat. Pokušajte ponovo kada završi s njim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen bruger den chat. Prøv igen, når vedkommende er færdig med den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Person verwendet diesen Chat gerade. Versuche es erneut, wenn sie damit fertig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La persona está usando ese chat. Vuelve a intentarlo cuando termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La personne utilise cette discussion. Réessayez quand elle aura terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La persona sta usando quella chat. Riprova quando ha finito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មនុស្សកំពុងប្រើការជជែកនោះ។ សូមព្យាយាមម្តងទៀតនៅពេលគេប្រើរួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자가 그 채팅을 사용 중입니다. 사용이 끝나면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen bruker den chatten. Prøv igjen når vedkommende er ferdig med den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ktoś używa tego czatu. Spróbuj ponownie, gdy skończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pessoa está usando esse chat. Tente novamente quando ela terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Человек сейчас пользуется этим чатом. Попробуйте снова, когда он закончит."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีคนกำลังใช้แชทนั้นอยู่ ลองอีกครั้งเมื่อเขาใช้เสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişi bu sohbeti kullanıyor. İşi bitince yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Людина зараз користується цим чатом. Спробуйте знову, коли вона закінчить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Người dùng đang dùng cuộc trò chuyện đó. Hãy thử lại khi họ dùng xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有人正在使用该聊天。请在对方用完后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有人正在使用該聊天。請在對方用完後再試。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.noDrive": {
+      "comment": "Driving an agent chat whose page has no drive support (an older page).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page can't be driven. Update cmux, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは操作できません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن تشغيل صفحة هذه الدردشة. حدّث cmux، ثم حاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranicom tog chata nije moguće upravljati. Ažurirajte cmux, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chats side kan ikke styres. Opdater cmux, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats kann nicht gesteuert werden. Aktualisiere cmux und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no se puede controlar. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion ne peut pas être pilotée. Mettez à jour cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non può essere pilotata. Aggiorna cmux, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័ររបស់ការជជែកនោះមិនអាចបញ្ជាបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 조작할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til den chatten kan ikke styres. Oppdater cmux, og prøv så igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stroną tego czatu nie można sterować. Zaktualizuj cmux, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não pode ser controlada. Atualize o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страницей этого чата нельзя управлять. Обновите cmux, затем попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ควบคุมหน้าของแชทนั้นไม่ได้ อัปเดต cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası yönlendirilemiyor. cmux'u güncelleyin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінкою цього чату не можна керувати. Оновіть cmux, а потім спробуйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể điều khiển trang của cuộc trò chuyện đó. Hãy cập nhật cmux rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面无法操控。请更新 cmux，然后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面無法操控。請更新 cmux，然後再試。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.running": {
+      "comment": "Driving an agent chat while another drive of the same chat runs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat is already being driven. Try again when that run ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはすでに操作中です。その操作が終わってから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري تشغيل هذه الدردشة بالفعل. حاول مجددًا عند انتهاء ذلك التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tim chatom se već upravlja. Pokušajte ponovo kada to završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat bliver allerede styret. Prøv igen, når den kørsel er færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wird bereits gesteuert. Versuche es erneut, wenn dieser Durchlauf endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat ya se está controlando. Vuelve a intentarlo cuando termine esa ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion est déjà pilotée. Réessayez quand ce pilotage sera terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat è già in fase di pilotaggio. Riprova quando quel pilotaggio finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះកំពុងត្រូវបានបញ្ជារួចហើយ។ សូមព្យាយាមម្តងទៀតនៅពេលការបញ្ជានោះបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 이미 조작 중입니다. 해당 조작이 끝나면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten blir allerede styrt. Prøv igjen når den kjøringen er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat jest już sterowany. Spróbuj ponownie, gdy to sterowanie się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat já está sendo controlado. Tente novamente quando essa execução terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этим чатом уже управляют. Попробуйте снова, когда это управление закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นกำลังถูกควบคุมอยู่แล้ว ลองอีกครั้งเมื่อการควบคุมนั้นสิ้นสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet zaten yönlendiriliyor. O çalışma bitince yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цим чатом уже керують. Спробуйте знову, коли це керування завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó đang được điều khiển. Hãy thử lại khi lần chạy đó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天已在被操控。请在那次操控结束后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天已在被操控。請在那次操控結束後再試。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.turnBusy": {
+      "comment": "Driving an agent chat whose turn is running, without `allow_busy`.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat is running a turn. Try again when it ends, or allow a busy chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはターンを実行中です。終わってからもう一度試すか、実行中のチャットを許可してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الدردشة تنفّذ دورًا الآن. حاول مجددًا عند انتهائه، أو اسمح بدردشة مشغولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat izvršava potez. Pokušajte ponovo kada završi ili dozvolite zauzet chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat kører en tur. Prøv igen, når den er færdig, eller tillad en optaget chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat führt gerade einen Durchgang aus. Versuche es erneut, wenn er endet, oder erlaube einen beschäftigten Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat está ejecutando un turno. Vuelve a intentarlo cuando termine o permite un chat ocupado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion exécute un tour. Réessayez quand il sera terminé, ou autorisez une discussion occupée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat sta eseguendo un turno. Riprova quando finisce, oppure consenti una chat occupata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះកំពុងដំណើរការវេនមួយ។ សូមព្យាយាមម្តងទៀតនៅពេលវាបញ្ចប់ ឬអនុញ្ញាតការជជែកដែលរវល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 턴을 실행 중입니다. 끝난 후 다시 시도하거나 실행 중인 채팅을 허용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten kjører en tur. Prøv igjen når den er ferdig, eller tillat en opptatt chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat wykonuje turę. Spróbuj ponownie, gdy się zakończy, albo zezwól na zajęty czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat está executando um turno. Tente novamente quando terminar ou permita um chat ocupado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат выполняет ход. Попробуйте снова, когда он закончится, или разрешите занятый чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นกำลังทำงานในรอบหนึ่งอยู่ ลองอีกครั้งเมื่อจบ หรืออนุญาตแชทที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet bir tur çalıştırıyor. Bitince yeniden deneyin ya da meşgul sohbete izin verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат виконує хід. Спробуйте знову, коли він завершиться, або дозвольте зайнятий чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó đang chạy một lượt. Hãy thử lại khi lượt kết thúc, hoặc cho phép cuộc trò chuyện đang bận."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天正在执行一轮。请在结束后再试，或允许忙碌中的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天正在執行一輪。請在結束後再試，或允許忙碌中的聊天。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.noTarget": {
+      "comment": "`agent.chat.drive` names a `target` the chat does not show.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat shows no such element."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットにはそのような要素がありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تعرض هذه الدردشة عنصرًا كهذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat ne prikazuje takav element."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat viser ikke et sådant element."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat zeigt kein solches Element."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat no muestra ese elemento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion n’affiche pas cet élément."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat non mostra un elemento del genere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះមិនបង្ហាញធាតុបែបនោះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅에는 그런 요소가 표시되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten viser ikke et slikt element."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat nie pokazuje takiego elementu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat não mostra esse elemento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом чате нет такого элемента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นไม่ได้แสดงองค์ประกอบดังกล่าว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet böyle bir öğe göstermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому чаті немає такого елемента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó không hiển thị phần tử như vậy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天中没有这样的元素。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天中沒有這樣的元素。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.targetCovered": {
+      "comment": "`agent.chat.drive` names a `target` that something else covers at its middle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something covers that element, so the pointer can't reach it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その要素は何かに覆われているため、ポインタが届きません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يغطي شيء ما هذا العنصر، لذا لا يمكن للمؤشر الوصول إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nešto prekriva taj element, pa ga pokazivač ne može dosegnuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noget dækker det element, så markøren kan ikke nå det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etwas verdeckt dieses Element, daher kann der Zeiger es nicht erreichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo cubre ese elemento, así que el puntero no puede alcanzarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelque chose recouvre cet élément, le pointeur ne peut donc pas l’atteindre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualcosa copre quell’elemento, quindi il puntatore non può raggiungerlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានអ្វីមួយគ្របធាតុនោះ ដូច្នេះព្រួញមិនអាចទៅដល់វាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무언가가 그 요소를 가리고 있어 포인터가 닿을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noe dekker det elementet, så pekeren kan ikke nå det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coś zasłania ten element, więc wskaźnik nie może do niego dotrzeć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo cobre esse elemento, então o ponteiro não consegue alcançá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что-то закрывает этот элемент, поэтому указатель не может до него добраться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีบางอย่างบังองค์ประกอบนั้นอยู่ ตัวชี้จึงไปถึงไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir şey bu öğeyi örtüyor, bu yüzden işaretçi ona ulaşamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щось закриває цей елемент, тому вказівник не може до нього дістатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có thứ gì đó che phần tử đó nên con trỏ không thể chạm tới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有东西遮住了该元素，指针无法到达。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有東西遮住了該元素，指標無法到達。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.draftNotEmpty": {
+      "comment": "`agent.chat.drive` would type into a composer that already holds a draft, without `allow_draft`.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's composer holds a draft. Clear it, or allow typing after the draft."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットの入力欄には下書きがあります。消去するか、下書きの後に入力することを許可してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي محرر هذه الدردشة على مسودة. امسحها، أو اسمح بالكتابة بعد المسودة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polje za pisanje tog chata sadrži skicu. Obrišite je ili dozvolite pisanje nakon skice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chats skrivefelt indeholder en kladde. Ryd den, eller tillad at skrive efter kladden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabefeld dieses Chats enthält einen Entwurf. Leere es oder erlaube das Tippen nach dem Entwurf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El editor de ese chat tiene un borrador. Bórralo o permite escribir después del borrador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La zone de saisie de cette discussion contient un brouillon. Effacez-le, ou autorisez la saisie après le brouillon."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il campo di scrittura di quella chat contiene una bozza. Cancellala, oppure consenti di scrivere dopo la bozza."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រអប់សរសេររបស់ការជជែកនោះមានសេចក្តីព្រាង។ សូមលុបវា ឬអនុញ្ញាតឱ្យវាយបន្តពីសេចក្តីព្រាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 입력창에 초안이 있습니다. 지우거나 초안 뒤에 입력하도록 허용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivefeltet i den chatten inneholder et utkast. Tøm det, eller tillat skriving etter utkastet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole tekstowe tego czatu zawiera wersję roboczą. Wyczyść je albo zezwól na pisanie po wersji roboczej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O editor desse chat tem um rascunho. Limpe-o ou permita digitar depois do rascunho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В поле ввода этого чата есть черновик. Очистите его или разрешите печатать после черновика."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ช่องพิมพ์ของแชทนั้นมีฉบับร่างอยู่ ล้างออก หรืออนุญาตให้พิมพ์ต่อจากฉบับร่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin yazma alanında bir taslak var. Temizleyin ya da taslağın ardından yazmaya izin verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У полі введення цього чату є чернетка. Очистьте її або дозвольте друкувати після чернетки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô soạn thảo của cuộc trò chuyện đó đang có bản nháp. Hãy xóa nó, hoặc cho phép gõ tiếp sau bản nháp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的输入框中有草稿。请清除它，或允许在草稿之后输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的輸入框中有草稿。請清除它，或允許在草稿之後輸入。"
+          }
+        }
+      }
+    },
+    "agentPane.chatDrive.noComposer": {
+      "comment": "`agent.chat.drive` would type into a chat that shows no composer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat has no composer to type in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットには入力欄がありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي هذه الدردشة على محرر للكتابة فيه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat nema polje za pisanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat har intet skrivefelt at skrive i."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat hat kein Eingabefeld zum Tippen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat no tiene un editor en el que escribir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion n’a pas de zone de saisie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat non ha un campo in cui scrivere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះគ្មានប្រអប់សរសេរសម្រាប់វាយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅에는 입력할 입력창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten har ikke noe skrivefelt å skrive i."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat nie ma pola tekstowego do pisania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat não tem um editor para digitar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом чате нет поля ввода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นไม่มีช่องให้พิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbette yazılacak bir yazma alanı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому чаті немає поля введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó không có ô soạn thảo để gõ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天没有可输入的输入框。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天沒有可輸入的輸入框。"
+          }
+        }
+      }
+    },
     "agentPane.chatPerf.seconds": {
       "comment": "A capture length that is not a whole number of seconds from 1 to the maximum (`cmux app chat perf --seconds`).",
       "extractionState": "manual",

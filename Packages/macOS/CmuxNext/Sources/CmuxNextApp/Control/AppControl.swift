@@ -148,13 +148,13 @@ final class AppControl {
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
-            // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
-            AgentChatPerfControl { [weak services] id in
-                guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
-                guard tab.agentSession != nil else { return .notAgentChat }
-                return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
+            ClickTraceControl.method(), // `cmux app clicks`: where the last presses went
         ])
+        service.router.register(AgentChatPerfControl { [weak services] id in
+            guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
+            guard tab.agentSession != nil else { return .notAgentChat }
+            return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
+        }.controlMethods(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }))
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())
