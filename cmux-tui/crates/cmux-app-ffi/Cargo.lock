@@ -253,6 +253,8 @@ dependencies = [
  "cmux-update-prewarm-core",
  "cmux-url-input",
  "cmux-wallpaper",
+ "libc",
+ "plist",
  "serde",
  "serde_json",
  "unicode-segmentation",
