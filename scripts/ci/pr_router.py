@@ -261,15 +261,13 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"{head_tier.RERUN_REASON}: this base merge's previous head ran it green; only what was "
                          f"red there runs again ({FULL_CI} or the land runs it)")
             continue
-        if (name == IOS_VERDICT_CALLEE and head_tier.land_affected((tier, tier_reason)) and ios_verdict_on()
+        if (name == IOS_VERDICT_CALLEE and not pr.get("draft", False) and ios_verdict_on()
                 and ios_touched(files)):
-            # A landing head on the affected tier starts no full-tier job, so without this nothing iOS compiles
-            # before the merge and the base breaks for the iOS developer an hour later (IOS_VERDICT_CALLEE).
+            # Ready PR heads do not otherwise run the full-tier iOS job. Start the fast verdict here so an iOS
+            # regression fails on the PR before merge instead of reaching the post-merge matrix or TestFlight.
             start.append(name)
-            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
-                         f"compiles the changed iOS targets before the merge")
-            gates = nightly_gates(config, files) if nightly_gate_on() else []
-            why[name] += f"; nightly gate: runs only {', '.join(gates)}" if gates else ""
+            why[name] = ("ready PR, iOS-affecting: the ios fast verdict alone (no table job) compiles the changed "
+                         "iOS targets before the merge")
             continue
         gates = nightly_gates(config, files) if landing_affected and nightly_gate_on() else []
         if gates:
@@ -561,10 +559,15 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     """The `cmux/ios-fast` commit status for EVENT's head (pr-router.yml posts it; the ios fast verdict's own result
     replaces a `pending` one, pr-router.yml's ios-fast-status job): ("", "") where the land rule does not apply.
     `success` at once for a head that touches nothing iOS builds (scripts/ci/ios_fast_verdict.py affects, the ios-kit
-    step's inputs, the Rust crates the FFI compiles among them), so a ruleset can require it; `pending` for an
-    iOS-affecting head until its verdict runs (pr-pipeline.yml's ios-fast); a head the router starts no pipeline on
-    carries `success` only where cmux/land-tier does (LAND, land_status), else waits for the land handoff."""
-    if not head_tier.land_rule_applies(event):
+    step's inputs, the Rust crates the FFI compiles among them), so a ruleset can require it; `pending` for a ready,
+    non-draft iOS-affecting head until its verdict runs (pr-pipeline.yml's ios-fast). Drafts, forks and other base
+    branches leave the status empty."""
+    pr = event.get("pull_request") or {}
+    base = (pr.get("base") or {}).get("ref")
+    head_repo = (pr.get("head") or {}).get("repo") or {}
+    base_repo = (pr.get("base") or {}).get("repo") or {}
+    if (pr.get("draft", False) or base != "feat-cmux-next"
+            or head_repo.get("full_name") != base_repo.get("full_name")):
         return "", ""
     if not ios_verdict_on():
         return "success", "iOS fast verdict is off (vars.CI_IOS_FAST_VERDICT=0): the ios job's kit tests still run"
@@ -574,7 +577,7 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
         return "pending", "iOS fast verdict runs on this head: the changed iOS targets, the app and its UI tests compile"
     if land == "success":
         return "success", "Carried: no pipeline runs on this head (land tier carried from its previous head)"
-    return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
+    return "pending", "iOS-affecting: the fast verdict runs on this ready PR before merge"
 
 
 def ui_status(event: dict, files: list[str] | None) -> tuple[str, str]:
