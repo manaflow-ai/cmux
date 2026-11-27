@@ -51,6 +51,7 @@ import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
 import type { ExportOutcome } from "../Inspector";
+import type { ReadInspectorHistory } from "../InspectorTiming";
 import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
@@ -427,6 +428,8 @@ export type PaneBodyDeps = NewTabShown &
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
+    /// `_acpmux/history` through the client connected now (the Inspector's Timing tab).
+    readInspectorHistory: ReadInspectorHistory;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
     /// The chat list's place and Evacuate calls (place/usePlace.ts).
@@ -711,6 +714,7 @@ export function drawPaneBody({
   setDisplayAnchor,
   closeInspector,
   sendPerf,
+  readInspectorHistory,
   setDock,
   paneToasts,
   chatListPlace,
@@ -1693,6 +1697,7 @@ export function drawPaneBody({
                     onClose={closeInspector}
                     onExport={saveLogNatively}
                     perf={sendPerf}
+                    readHistory={readInspectorHistory}
                   />
                 )}
               </div>
