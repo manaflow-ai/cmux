@@ -256,8 +256,18 @@ save() {
       tar -cf - -C "$dir" . | gzip -1 > "$work/archive"
     fi
     echo "r2-cache: archive is $(du -m "$work/archive" | cut -f1) MB"
-    status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
-      -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+    # A dropped connection (HTTP 000: no response, which curl's own --retry does not retry) or a 5xx
+    # sends the archive again, up to 3 times: the fat cargo legs' first 1483 MB save got 000 and
+    # published nothing (job 140187794318, 2026-11-26). An upload the bucket kept before the drop
+    # answers the retry with 412, read back below like a concurrent writer's.
+    local attempt
+    for attempt in 1 2 3; do
+      status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
+        -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+      echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
+      sleep "$((attempt * 5))"
+    done
     if [[ "$status" == 412 ]]; then
       status="$(request --head --dump-header "$work/headers" "$url")" || status=000
     elif [[ "$status" == 200 ]]; then
