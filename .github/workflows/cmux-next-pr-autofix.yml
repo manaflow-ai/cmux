@@ -605,6 +605,7 @@ jobs:
       contents: read
     outputs:
       # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the action exports alone.
+      fallback: ${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}
       verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
     steps:
@@ -702,6 +703,7 @@ jobs:
       contents: read
     outputs:
       # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the settings exports alone.
+      fallback: ${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}
       verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
     steps:
