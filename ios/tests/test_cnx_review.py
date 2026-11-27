@@ -13,11 +13,13 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import signal
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -119,6 +121,61 @@ read_ios_artifact() { echo "READ_STEP=$SIM_STEP"; REPORT_SIM="fleet simulator (a
                 r = self.run_review([(PHONE, 'iPhone')], setup + "\nfleet_start_sim() { echo SIM_STARTED; }")
                 self.assertIn('SIM_STARTED', r.stdout, r.stderr)
                 self.assertNotIn('reusing this head', r.stdout)
+
+    def test_a_rerun_downloads_a_passed_steps_artifact_again_instead_of_a_new_step(self):
+        # 2026-11-25: vcorp1125d's iPhone step 9fd70d54 passed but its artifact did not download; the rerun sent a new
+        # step, the controller refused its key ("409: step_key already names a different step"), and the run had
+        # nothing for the phone. The passed step is saved before the download, and a rerun fetches it again.
+        step = '9fd70d548f30e9577207cfc4'
+        again = f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+fleet_start_sim() {{ echo SIM_STARTED; }}
+fleet_finish_sim() {{ echo SIM_FINISHED; }}
+cmux_ci() {{ [ "$1" = artifact ] && echo "$2" > "$STATE/artifact-call" && echo zip > "$3"; }}
+read_ios_artifact() {{ echo "READ_STEP=$SIM_STEP ARTIFACT=$(cat "$STATE/artifact-call") ZIP=$(cat "$STATE/ios.zip")"; REPORT_SIM="fleet simulator (aws-m4pro-3, iPhone-17 on iOS-26-5), signed in: /e"; }}"""
+        r = self.run_review([(PHONE, 'iPhone')], again)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('SIM_STARTED', r.stdout)
+        self.assertIn(f'==> iPhone app: step {step} passed before; downloading its artifact again', r.stdout)
+        self.assertIn(f'ARTIFACT={step} ZIP=zip', r.stdout)
+        self.assertIn(f'READ_STEP={step}', r.stdout)
+        # A download that fails again forgets the step and sends a new one; a malformed id is never fetched.
+        for setup in (f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}""",
+                      'mkdir -p "$STATE"; echo not-a-step > "$STATE/sim-passed"'):
+            with self.subTest(setup=setup):
+                r = self.run_review([(PHONE, 'iPhone')], setup + '\nfleet_start_sim() { echo "SIM_STARTED KEY=$(sim_key)"; }')
+                self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+        # The passed step given up after a second failed download: the new step goes out under a new key, which the
+        # controller accepts (the old key names the old step: "409: step_key already names a different step").
+        r = self.run_review([(PHONE, 'iPhone')], f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}
+fleet_start_sim() {{ echo "SIM_STARTED KEY=$(sim_key)"; }}""")
+        self.assertIn(f'SIM_STARTED KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout, r.stderr)
+
+    def test_a_failed_simulator_check_is_never_fetched_again(self):
+        # A step that ran to its end but whose check failed (or whose artifact was rejected) is forgotten: the
+        # retry the report names sends a new step under a new key instead of downloading the same failure.
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            (state / 'sim-passed').write_text('0123456789abcdef01234567\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" SIM_STEP=0123456789abcdef01234567
+echo not-a-zip > "$STATE/ios.zip"
+rc=0; read_ios_artifact || rc=$?; echo "RC=$rc"; echo "KEY=$(sim_key)"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertFalse((state / 'sim-passed').exists())
+            self.assertIn(f'KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout)
+
+    def test_a_passed_step_is_saved_before_its_artifact_downloads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}"
+SIM_PID=$$; wait() {{ return 0; }}
+printf 'cmux-ci: step 0123456789abcdef01234567 (simulator)\\n' > "$STATE/sim-step.err"; : > "$STATE/sim-step.log"
+cmux_ci() {{ return 1; }}
+rc=0; fleet_finish_sim || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_SIM"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('passed but its artifact did not download', r.stdout)
+            self.assertEqual((state / 'sim-passed').read_text().strip(), '0123456789abcdef01234567')
 
     def test_two_phones_get_one_line_each(self):
         other = '00008110-000000000000001E'
@@ -974,7 +1031,26 @@ fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_BUILD
                 ref = args[args.index('--ref') + 1]
                 self.assertEqual(ref, base if want_base else head)
                 self.assertEqual('--any-tag' in args, want_base)
+                # The fleet client's swap-first default queues nothing for a change it can swap; the hand-off
+                # needs the tagged Mac app itself, for its head as for its base (vfix1125, 2026-11-25).
+                self.assertIn('--build', args)
                 self.assertEqual((state / 'mac-ref').read_text().strip(), ref)
+
+    def test_a_build_the_fleet_does_not_queue_says_what_the_client_said(self):
+        # Before: `KeyError: 'id'` on stderr and "printed no job id"; the client's reason was lost.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\necho "Nothing queued (swap first): pass --build to build anyway."\n')
+            ci.chmod(0o755)
+            state = Path(temp) / 'state'
+            state.mkdir()
+            (state / 'mac-ref').write_text(SHA + '\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}"
+rc=0; fleet_submit_mac || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_MAC"''', {'CMUX_CI': str(ci)})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('REPORT=BLOCKED: cmux-ci build cmux queued no job: Nothing queued (swap first)', r.stdout)
+            self.assertNotIn('KeyError', r.stderr)
+            self.assertFalse((state / 'cmux-job').exists())
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1123,10 +1199,12 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
 
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
-                           (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
-                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase'),
+                           # The shared tag rule (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag).
+                           (['handoff', 'tag=Bad_Tag'], "'Bad_Tag' is not a canonical tag"),
+                           (['handoff', 'tag=bad--tag'], "'bad--tag' is not a canonical tag"),
+                           (['handoff', 'tag=default'], 'reserved for the stable app instance'),
                            # The fleet controller's form of the same step.
-                           (['shots', 'handoff=Bad_Tag'], 'handoff tag= wants lowercase')):
+                           (['shots', 'handoff=Bad_Tag'], 'handoff tag=Bad_Tag refused')):
             with self.subTest(args=args):
                 r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
                                    env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)
@@ -2094,6 +2172,26 @@ class TryScriptTests(unittest.TestCase):
                 self.assertNotIn('--sign-in', args)
                 self.assertNotIn('--urgent', args)
 
+    def test_a_key_that_names_an_earlier_step_is_sent_again_under_the_next_key(self):
+        # 2026-11-26, a0a4b2d1: the ahead build's step was cancelled, and the controller refuses its key from then on
+        # ("409: step_key already names a different step"). The tap sends the step again under the next key.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text(f"""#!/bin/bash
+[ "$1" = run ] || exit 1
+for a in "$@"; do case "$a" in cnx-ios-try-*) echo "$a" >> "{temp}/keys";; esac; done
+case "$*" in *-r1*) echo "cmux-ci: step 0123456789abcdef01234567 (simulator)" >&2; exit 0;; esac
+echo "cmux-ci: controller HTTP 409: step_key already names a different step" >&2; exit 1
+""")
+            ci.chmod(0o755)
+            r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" CMUX_CI="{ci}"
+try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CMUX_CI': str(ci)})
+            keys = (Path(temp) / 'keys').read_text().split()
+            self.assertEqual(keys, [f'cnx-ios-try-try-{SHA[:12]}', f'cnx-ios-try-try-{SHA[:12]}-r1'], r.stdout + r.stderr)
+            self.assertIn('names an earlier step; sending it again under the next key', r.stdout)
+            # Past the submit: the artifact download is next (this fake has none).
+            self.assertIn('passed but its artifact did not download', r.stdout)
+
     def test_urgent_puts_the_step_first_with_a_reason(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
@@ -2128,6 +2226,113 @@ class TryScriptTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
             self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
+
+    def test_list_shows_the_iphone_prs_and_their_build_state(self):
+        check, fleet = 'cmux Dev try build (ahead)', 'cmux Dev try build (fleet)'
+        prs = [
+            {'number': 1, 'title': 'ios ahead', 'author': {'login': 'a'}, 'headRefOid': '1' * 40, 'updatedAt': '2026-11-22T01:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/x.swift'}],
+             'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]},
+            {'number': 2, 'title': 'web only', 'author': {'login': 'b'}, 'headRefOid': '2' * 40, 'updatedAt': '2026-11-22T02:00:00Z',
+             'isDraft': False, 'files': [{'path': 'webviews/x.ts'}], 'statusCheckRollup': []},
+            {'number': 3, 'title': 'ios building', 'author': {'login': 'c'}, 'headRefOid': '3' * 40, 'updatedAt': '2026-11-22T03:00:00Z',
+             'isDraft': True, 'files': [{'path': 'Packages/iOS/y.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
+            {'number': 4, 'title': 'ios cached', 'author': {'login': 'd'}, 'headRefOid': '4' * 40, 'updatedAt': '2026-11-22T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/z.swift'}], 'statusCheckRollup': []},
+            {'number': 5, 'title': 'ios failed', 'author': {'login': 'e'}, 'headRefOid': '5' * 40, 'updatedAt': '2026-11-21T00:00:00Z',
+             'isDraft': False, 'files': [], 'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]},
+            # The fleet gave no verdict (a host that could not set up): the fleet job is green, no verdict check.
+            {'number': 6, 'title': 'ios no verdict', 'author': {'login': 'f'}, 'headRefOid': '6' * 40, 'updatedAt': '2026-11-20T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/w.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, 'prs.json').write_text(json.dumps(prs))
+            gh = Path(temp, 'gh')
+            gh.write_text(f'#!/bin/sh\necho "$@" > "{temp}/gh-args"\ncat "{temp}/prs.json"\n')
+            gh.chmod(0o755)
+            Path(temp, 'cache', '4' * 40, 'device', 'CmuxMobileApp.app').mkdir(parents=True)
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
+            self.assertEqual([(p['number'], p['build']) for p in out['prs']],
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none')])
+            self.assertTrue(out['prs'][0]['draft'])
+            self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
+            gh.write_text('#!/bin/sh\nexit 1\n')
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('could not list pull requests', json.loads(r.stdout)['error'])
+
+    def test_the_ahead_workflow_submits_the_step_try_sh_attaches_to(self):
+        # Same script, scene, artifact and key as try_fleet: the controller answers try.sh's submit with that step.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        text = TRY.read_text()
+        for needle in ('--script scripts/ci/cmux-next-ios-sim.sh', '--artifact artifacts/ios-sim/evidence.zip',
+                       '--no-supersede', '--arg shots --arg try=dev'):
+            self.assertIn(needle, flow)
+        self.assertIn('--key "cnx-ios-try-try-${HEAD_SHA:0:12}"', flow)
+        self.assertIn('--key "cnx-ios-try-$mode-${SHA:0:12}', text)
+        self.assertIn('--background', flow)
+        self.assertIn('name: cmux Dev try build (ahead)', flow)
+        self.assertIn('name: cmux Dev try build (fleet)', flow)
+        self.assertIn('TRY_AHEAD_CHECK="cmux Dev try build (ahead)"', text)
+        self.assertIn('TRY_FLEET_CHECK="cmux Dev try build (fleet)"', text)
+
+    def test_the_ahead_verdict_is_success_only_when_the_fleet_built_it(self):
+        # 2026-11-26: the step failed at setup (exit 3) and the one check said success, so the picker said "ahead".
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        verdict = flow[flow.index('  verdict:'):]
+        self.assertIn("needs.build-ahead.outputs.outcome == 'built'", verdict)
+        self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
+        # The gateway's hook admits only build-ahead; the verdict job there was refused red at 7df749d8.
+        self.assertNotIn('CI_EVAL_STEP_GATEWAY', verdict)
+        self.assertIn("'cmux-linux'", verdict)
+        fleet = flow[:flow.index('  verdict:')]
+        self.assertEqual(fleet.count('outcome=built'), 1)
+        self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)
+        # Only events that bring a new head: a second run at one head cancelled the first one's step (a0a4b2d1).
+        self.assertIn('types: [opened, synchronize]\n', flow)
+
+    def test_the_fleet_job_reads_its_verdict_from_the_steps_own_state(self):
+        # 2026-11-26, a0a4b2d1: the controller refused the submit (HTTP 409, client exit 1, no step) and the job
+        # said the device app did not build. The outcome comes from the step's state and exit code alone.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        step = '0123456789abcdef01234567'
+        cases = [  # client run output, run exit, status JSON -> outcome, job exit
+            ('cmux-ci: controller HTTP 409: step_key already names a different step', 1, '', '', 0),
+            # a121379b: the controller was unreachable; the log names no step.
+            ('cmux-ci: controller unavailable, no verdict (infra): 9 tries over 600 s', 69, '', '', 0),
+            (f'cmux-ci: step {step} queued', 0, '{"state": "done", "exit_code": 0}', 'built', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 1}', 'failed', 1),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 3}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "cancelled"}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '', '', 0),  # status unreadable
+        ]
+        for out, rc, status, outcome, code in cases:
+            with self.subTest(out=out, status=status), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                (t / 'status.json').write_text(status)
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = status ]; then [ "$2" = {step} ] && cat "{t}/status.json"; exit 0; fi
+echo {shlex.quote(out)} >&2; exit {rc}
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'))
+                # The runner's shell: `bash -e {0}` (the step's own line adds -uo pipefail).
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
+                self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
 
 if __name__ == '__main__':
     unittest.main()

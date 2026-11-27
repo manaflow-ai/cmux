@@ -37,6 +37,7 @@ runs that step on every combination).
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import unittest
@@ -76,7 +77,7 @@ STEP_GATE_RUN = '[ "$HOLD" != 1 ] || continue'
 # missing on the head dispatches the gates rather than passing.
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "cmux-next-fast-gates.yml": (),
-    "gallery-advisory.yml": (),
+    # gallery-advisory.yml left: no pull request starts it since #48517, so it has no draft to skip.
     "cmux-next-hot-verify.yml": ("plan",),
     # Its job runs split-plan on a draft (it always did) and its pick step drops the other steps; a draft's
     # edit starts no runner. The rest run on ready_for_review.
@@ -88,6 +89,7 @@ NEVER_DRAFT_SKIPPED = (
 )
 DRAFT = "!github.event.pull_request.draft"
 PR_EVENTS = ("pull_request", "pull_request_target")
+ROUTED: dict[str, dict] = json.loads((ROOT / "scripts/ci/pr_router.json").read_text(encoding="utf-8"))["callees"]
 
 DELIVERY = re.compile(r"^(nightly.*|cmux-next-dev-daily.*|.*promote.*|release)\.ya?ml$")
 
@@ -172,6 +174,10 @@ def draft_violations(paths: list[Path] | None = None, listed: dict[str, tuple[st
             failures.append(f"{name} skips drafts in a job that produces a required check")
         workflow = workflows[path]
         triggers = events(workflow)
+        routed = ROUTED.get(name)
+        if routed is not None and "workflow_call" in triggers and not any(event in triggers for event in PR_EVENTS):
+            # A pr-router callee: the router listens for its pull_request types (scripts/ci/pr_router.json).
+            triggers = {**triggers, "pull_request": {"types": routed.get("types", [])}}
         pr_events = [event for event in PR_EVENTS if event in triggers]
         if not pr_events:
             failures.append(f"{name} has no pull request trigger to skip drafts on")

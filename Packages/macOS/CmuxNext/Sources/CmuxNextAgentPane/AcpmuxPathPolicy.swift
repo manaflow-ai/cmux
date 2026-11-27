@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import os
 
 /// Limits every path a page frame names (`params.cwd`, `params.path`) to the pane's workspace
 /// roots, the folders the Swift host knows for this pane (origin lead rule): the path is made
@@ -11,6 +12,15 @@ public import Foundation
 nonisolated enum AcpmuxPathPolicy {
     /// The params a page frame may name a folder in, at any depth (C1): each value is a path or a
     /// list of paths. Every one of them must be a directory, except `path`, which may be a file.
+    /// The reason of a `transport.path_invalid` whose folder is gone (``Refusal/missingPath``).
+    public static let missingReason = "path.missing"
+
+    /// The extra folders a new chat sees beside its cwd: one that is gone (a temporary folder a
+    /// reboot wiped, a removed worktree) is dropped from the start, never a refusal of it.
+    static let extraFolderKeys = ["additionalDirectories", "directories", "folders", "roots"]
+
+    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.paths")
+
     public static let keys = ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
                               "folder", "folders", "root", "roots", "worktree", "worktreePath"]
 
@@ -26,15 +36,19 @@ nonisolated enum AcpmuxPathPolicy {
         public var outsideIsHomeOrAbove = false
         /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``); nil for most refusals.
         public var reason: String?
+        /// The folder the person named that no longer exists (reason ``missingReason``): the page
+        /// says "The folder X no longer exists. Pick another folder." with it.
+        public var missingPath: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
-                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil) {
+                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil, missingPath: String? = nil) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
             self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
             self.reason = reason
+            self.missingPath = missingPath
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -65,9 +79,15 @@ nonisolated enum AcpmuxPathPolicy {
         /// The pane's cmux workspace key, from the host (never the page): a local `session/new`
         /// carries it as `_meta.acpmux.workspaceId` (``stampWorkspace(_:id:)``).
         public var workspaceID: String?
+        /// The folders the host itself handed the page as a new chat's folder (the handshake's,
+        /// the tab's, the workspace's), as given: a `session/new` cwd equal to one that no longer
+        /// exists was never the person's pick, so it re-resolves like a missing cwd (to
+        /// ``fillCwd``, else ``agentHome``) instead of refusing the start (a reboot wipes them).
+        public var inheritedCwds: [String] = []
 
         public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil,
-                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil) {
+                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil, inheritedCwds: [String] = []) {
+            self.inheritedCwds = inheritedCwds
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
@@ -154,10 +174,37 @@ nonisolated enum AcpmuxPathPolicy {
                 fields["_meta"] = meta
                 context.changed = true
             }
+            // A folder that no longer exists on this Mac (a reboot wiped a temporary folder, a
+            // worktree was removed): one the host handed the page re-resolves as no folder; an
+            // extra folder is dropped; only a cwd the person named is refused, naming it.
+            if !onPeer {
+                if let cwd = fields["cwd"] as? String, canonical(cwd) == nil {
+                    guard scope.inheritedCwds.contains(cwd) else {
+                        logger.error("agent pane start refused: folder \(cwd, privacy: .public) no longer exists")
+                        return .failure(Refusal(error: .pathInvalid, requestID: id, method: method,
+                                                reason: missingReason, missingPath: cwd))
+                    }
+                    logger.notice("agent pane start: inherited folder \(cwd, privacy: .public) no longer exists, re-resolving")
+                    fields.removeValue(forKey: "cwd")
+                    context.changed = true
+                }
+                for key in extraFolderKeys {
+                    guard let list = fields[key] as? [Any] else { continue }
+                    let kept = list.filter { item in
+                        guard let path = item as? String, canonical(path) == nil else { return true }
+                        logger.notice("agent pane start: dropped extra folder \(path, privacy: .public), it no longer exists")
+                        return false
+                    }
+                    guard kept.count != list.count else { continue }
+                    if kept.isEmpty { fields.removeValue(forKey: key) } else { fields[key] = kept }
+                    context.changed = true
+                }
+            }
             // A peer without an explicit folder chooses its own default. This Mac's workspace
             // and agent-home paths must never fill a request for another machine.
             if fields["cwd"] == nil, !onPeer {
-                if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
+                // A workspace root that is gone (after a reboot) fills nothing: agent-home does.
+                if !noProject, let fill = scope.fillCwd, let real = canonical(fill), !homeOrAbove(real) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
                     fields["cwd"] = path
@@ -197,7 +244,8 @@ nonisolated enum AcpmuxPathPolicy {
             }
         } catch let refusal as Refusal {
             return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath,
-                                    outsideIsHomeOrAbove: refusal.outsideIsHomeOrAbove))
+                                    outsideIsHomeOrAbove: refusal.outsideIsHomeOrAbove, reason: refusal.reason,
+                                    missingPath: refusal.missingPath))
         } catch {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
@@ -240,6 +288,10 @@ nonisolated enum AcpmuxPathPolicy {
     static func folder(_ value: Any, key: String, context: inout Context) throws -> Any {
         if let list = value as? [Any] { return try list.map { try folder($0, key: key, context: &context) } }
         guard let path = value as? String, let resolved = canonical(path), key == "path" || isDirectory(resolved) else {
+            // A folder that is gone names itself, so the page can say which and offer another.
+            if let path = value as? String, path.hasPrefix("/"), !path.utf8.contains(0), canonical(path) == nil {
+                throw Refusal(error: .pathInvalid, requestID: nil, method: nil, reason: missingReason, missingPath: path)
+            }
             throw Refusal(error: .pathInvalid, requestID: nil, method: nil)
         }
         if context.roots.contains(where: { contains(root: $0, path: resolved) }) { return resolved }

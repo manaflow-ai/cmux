@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "compaction.completedAccountSwitch" : {
+      "comment" : "Agent pane: transcript note where subrouter compacted the conversation and moved it to another subscription account",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم ضغط المحادثة للمتابعة على حساب آخر"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Razgovor sažet radi nastavka na drugom računu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samtalen er komprimeret for at fortsætte på en anden konto"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Unterhaltung komprimiert, um mit einem anderen Konto fortzufahren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversation compacted to continue on another account"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Conversación compactada para continuar en otra cuenta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Conversation compactée pour continuer sur un autre compte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Conversazione compattata per continuare su un altro account"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "別のアカウントで続けるために会話を圧縮しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានបង្រួមការសន្ទនាដើម្បីបន្តលើគណនីផ្សេង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다른 계정에서 계속하기 위해 대화를 압축함"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samtalen er komprimert for å fortsette på en annen konto"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozmowa skompaktowana, aby kontynuować na innym koncie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Conversa compactada para continuar em outra conta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Беседа сжата для продолжения в другом аккаунте"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บีบอัดการสนทนาแล้วเพื่อดำเนินต่อในบัญชีอื่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Başka bir hesapta devam etmek için konuşma sıkıştırıldı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розмову стиснуто, щоб продовжити в іншому обліковому записі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã thu gọn cuộc trò chuyện để tiếp tục trên tài khoản khác"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "对话已压缩，以便在另一个账户上继续"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "對話已壓縮，以便在另一個帳號上繼續"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

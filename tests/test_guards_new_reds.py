@@ -321,6 +321,29 @@ class NewReds(unittest.TestCase):
                             str(files), str(base)], check=True, capture_output=True)
             self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
 
+    def test_the_first_base_replay_never_stops_before_the_head_reds(self):
+        # cmux#53976, run 45519691376 job 138896898305: the job started 00:59:13, the replay's setup (bundles,
+        # browsers) took it to 01:24:09, and the fixed REPLAY_RESERVE put CMUX_WEB_TEST_STOP_AT at 01:25:53. Its one
+        # head-red file was "NOT RUN ... past CMUX_WEB_TEST_STOP_AT", so a red from the base had no base verdict
+        # and failed the job. The first replay holds only head reds: it gets a whole file's time from when it starts.
+        started, now = 1_700_000_000, 1_700_000_000 + 1496
+
+        def stop_at(*args):
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"),
+                                   "--first-replay-stop-at", *map(str, args)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return done.stdout.strip()
+
+        at = int(stop_at(started, 55, 1700, now))
+        self.assertGreaterEqual(at, now + 900)  # the runner's per-file ceiling
+        self.assertLessEqual(at, started + 55 * 60 - 120)  # never past the verdict's margin
+        # With time to spare the reserve for the head re-run still holds.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 60)), started + 55 * 60 - 1700)
+        # Late in the job it ends at the verdict's margin, not past the job's timeout.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 50 * 60)), started + 55 * 60 - 120)
+        # No job clock: no stop.
+        self.assertEqual(stop_at(0, 55, 1700, now), "")
+
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)
@@ -650,6 +673,22 @@ class AWarningLineIsNotAFailureName(unittest.TestCase):
         ])
         self.assertIn("tests/test_keychain.py::test_probe", names)
         self.assertFalse({name for name in names if name.startswith("sys")}, names)
+
+
+class AnObjectAddressIsNotAFailureName(unittest.TestCase):
+    """An object repr's address (`<function f at 0x758be97b8360>`) differs in every process. "0x" glued it into one
+    word the sha pattern never matched, so "Validate the Cloud chat proof script", red on the base for the same
+    reason, read new on every pull request (cmux-next CI guard group, 2026-11-26: `x0e0a0>`, `x0be0b0>`)."""
+
+    def test_two_runs_of_the_same_failure_name_the_same_things(self):
+        import guards_new_reds
+
+        head = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x758be97b8360>"])
+        base = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x7f01c0ea2de0>"])
+        self.assertEqual(head, base)
+        self.assertIn("_remove_cached_logins_on_exit", head)
 
 
 if __name__ == "__main__":

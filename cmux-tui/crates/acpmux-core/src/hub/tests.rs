@@ -129,9 +129,6 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_p95 = best_p95(&god_rounds);
     let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_p95 = p95(&all_god_samples);
-    // The row is written before the asserts: a failed assert then reads as a red row with its
-    // numbers (run-v2-gates.sh marks it gate_failed), not as a row the gate never reported.
-    gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
     // Each row's line goes out before its bounds: a bound that fails leaves the row in the
     // measures file, and the v2 home reads it red with its numbers rather than as no measure.
     gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
@@ -384,4 +381,31 @@ fn origin_state_is_one_record_and_removed_origin_hides_rows() {
     assert!(window.rows.is_empty());
     assert_eq!(window.origins.len(), 1);
     assert_eq!(window.origins[0].state, OriginState::Removed);
+}
+
+/// A resume's errors sort by variant and io kind: a cursor the log dropped
+/// (as the typed error or carried in an io error) is a gap, a socket error
+/// goes by its kind, and a refusal of ownership or bounds is no credential.
+#[test]
+fn cursor_gone_is_gap_too_old() {
+    use acpmux_list_types::resume::ResumeErrorClass;
+    assert_eq!(HubError::CursorGone.resume_class(), ResumeErrorClass::GapTooOld);
+    let carried: HubError = std::io::Error::other(acpmux_book::index::CursorGone).into();
+    assert!(matches!(carried, HubError::CursorGone));
+    assert_eq!(carried.resume_class(), ResumeErrorClass::GapTooOld);
+    assert_eq!(HubError::UnitOutOfOrder.resume_class(), ResumeErrorClass::GapTooOld);
+    let reset = HubError::Log(std::io::ErrorKind::ConnectionReset.into());
+    assert_eq!(reset.resume_class(), ResumeErrorClass::Transient);
+    let timed_out = HubError::Log(std::io::ErrorKind::TimedOut.into());
+    assert_eq!(timed_out.resume_class(), ResumeErrorClass::DeadlineExceeded);
+    assert_eq!(HubError::WriterGone.resume_class(), ResumeErrorClass::Transient);
+    assert_eq!(HubError::UnitQueueFull.resume_class(), ResumeErrorClass::Transient);
+    assert_eq!(HubError::OriginLimit.resume_class(), ResumeErrorClass::Unknown);
+    let refused = HubError::SourceRefused {
+        origin: "peer".to_owned(),
+        incoming: Source::Mirror,
+        owner: Source::V1,
+    };
+    assert_eq!(refused.resume_class(), ResumeErrorClass::Unknown);
+    assert_eq!(HubError::InvalidWindow.resume_class(), ResumeErrorClass::Unknown);
 }

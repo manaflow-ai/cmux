@@ -543,6 +543,19 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     fi
 fi
 
+# A staged string catalog only adds, removes or edits entries: no moved keys, no entry rewritten without a value
+# change (cmux#55547: #51769's merges rewrote 281k lines of one to add 3 keys). A conflicted merge finished with
+# `git commit` is judged against MERGE_HEAD's copy; a clean merge runs no pre-commit, and the pre-push gate judges it.
+# The checker is the installed checks copy's (it refreshes from feat-cmux-next); an install without it skips this.
+XCSTRINGS_CHECK="$HOOK_DIR/cmux-next-checks/check-xcstrings-diff.py"
+if "$TOOL_GIT" diff --cached --name-only --diff-filter=M -- '*.xcstrings' | "$TOOL_GREP" -q .; then
+    if [[ -f "$XCSTRINGS_CHECK" ]]; then
+        "$PYTHON3_BIN" -I "$XCSTRINGS_CHECK" staged || exit 1
+    else
+        echo "pre-commit: the checks copy has no check-xcstrings-diff.py yet; CI checks the string catalogs" >&2
+    fi
+fi
+
 # A merge commit combines base-owned files with the staged result. Do not
 # reformat that result while Git is resolving the merge; formatters run on the
 # authored files in the follow-up commit instead.
@@ -579,23 +592,15 @@ if "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT | "$TOOL_GREP" -Fxq
     fi
 fi
 
-# A missing formatter is a hard failure for agents and CI, never a silent skip
-# (lanes committed unformatted Rust and web code for days because rustfmt and
-# vp were missing on the agent host). People get a warning instead. Codex
-# shells set CODEX_CI and CODEX_THREAD_ID; Claude Code shells set CLAUDECODE.
-REQUIRE_FORMATTERS=0
-for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_CI CODEX_THREAD_ID CODEX_SANDBOX; do
-    if [[ -n "${!var:-}" && "${!var}" != 0 ]]; then
-        REQUIRE_FORMATTERS=1
-    fi
-done
+# A formatter that cannot run on this machine (none installed, no packages,
+# an install that failed or is held by another hook, a crash) says why in one
+# line and lets the commit through: CI checks formatting, and a missing tool
+# says nothing about the commit. It used to refuse every agent commit
+# (CMUX_AGENT, CLAUDECODE, CODEX_*, CI), which stopped commits for the machine's
+# state, not the change. A formatter that runs still rewrites and restages the
+# commit's own files.
 formatter_missing() { # message
-    if (( REQUIRE_FORMATTERS )); then
-        echo "pre-commit: $1" >&2
-        echo "pre-commit: refusing to commit unformatted files (an agent or CI environment requires formatters; do not pass --no-verify)." >&2
-        exit 1
-    fi
-    echo "pre-commit: $1; skipping (CI will check it)." >&2
+    echo "pre-commit: $1; committing without formatting (CI checks formatting)." >&2
 }
 
 # Keep the formatters on the fast path: only invoke them for files that are in
@@ -646,11 +651,12 @@ locked_version() { # package-dir name
 }
 # Temporary files and a held install lock go away however the hook ends.
 RUSTFMT_DEFAULTS=""
+RUSTFMT_OUT=""
 BOOTSTRAP_LOG=""
 BUN_PIN=""
 HELD_LOCK=""
 cleanup() {
-    "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${BOOTSTRAP_LOG:-}"
+    "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${RUSTFMT_OUT:-}" "${BOOTSTRAP_LOG:-}"
     release_install_lock
 }
 # Removes the lock only while it is still ours: a hook that ran past the
@@ -772,12 +778,10 @@ resolve_bun() { # pin (validated)
     echo "pre-commit: no bun ${want:-(no pin)} in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
     return 1
 }
-# Stops the commit when the hook would have to install packages with a bun it
-# cannot vouch for; the lines before say why and what fixes it.
-refuse_bun_install() { # package
-    echo "pre-commit: refusing to install $1 packages with a bun this hook cannot vouch for (see above)." >&2
-    release_install_lock
-    exit 1
+# Never installs packages with a bun it cannot vouch for; the lines before say
+# why and what fixes it. The commit goes on without that package's vp.
+skip_bun_install() { # package
+    echo "pre-commit: not installing $1 packages with a bun this hook cannot vouch for (see above)." >&2
 }
 # Runs an install step in a package directory with its output kept. When it
 # fails, prints what ran and with which tool, so a broken bootstrap is never
@@ -835,14 +839,16 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                     "$TOOL_SLEEP" 1
                 done
             elif [[ -f "$PACKAGE_DIR/bun.lock" ]]; then
-                BUN_PIN="$(pinned_bun_version)" || refuse_bun_install "$package"
-                BUN_BIN="$(resolve_bun "$BUN_PIN")" || refuse_bun_install "$package"
-                echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
-                bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
-                if [[ "$package" == webviews ]]; then
-                    # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
-                    # output since #21946); write them so a later typecheck in this checkout finds them.
-                    (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                if BUN_PIN="$(pinned_bun_version)" && BUN_BIN="$(resolve_bun "$BUN_PIN")"; then
+                    echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
+                    bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
+                    if [[ "$package" == webviews ]]; then
+                        # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
+                        # output since #21946); write them so a later typecheck in this checkout finds them.
+                        (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                    fi
+                else
+                    skip_bun_install "$package"
                 fi
             elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && NPM_BIN="$(resolve_tool npm)"; then
                 BUN_PIN=""
@@ -864,11 +870,17 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             formatter_missing "vp is unavailable for $package (install its packages)"
             continue
         fi
+        vp_status=0
         (
             cd "$PACKAGE_DIR"
             # A commit of only fmt-ignored files (webviews CSS) matches nothing.
             "$VP_BIN" fmt --no-error-on-unmatched-pattern "${PACKAGE_PATHS[@]}"
-        )
+        ) || vp_status=$?
+        if (( vp_status != 0 )); then
+            # Its files stay as staged; anything it did rewrite is left unstaged.
+            formatter_missing "vp fmt exited $vp_status in $package"
+            continue
+        fi
         "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]/#/$package/}"
     done
 fi
@@ -948,25 +960,16 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
         fi
     done
     RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | "$TOOL_CUT" -f1 | "$TOOL_SORT" -u)"
-    # rustfmt can follow `mod` declarations from a staged module and rewrite
-    # its children. Refuse that case within the affected Cargo package rather
-    # than touching an unstaged Rust file in the worktree.
-    while IFS= read -r package_root; do
-        [[ -n "$RUST_ENTRIES" ]] || break
-        if {
-            "$TOOL_GIT" diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
-            "$TOOL_GIT" ls-files --others --exclude-standard -- "${package_root:-.}"
-        } | "$TOOL_GREP" -Eq '\.rs$'; then
-            echo "pre-commit: ${package_root:-.} has unstaged Rust edits; stage or stash them before formatting." >&2
-            exit 1
-        fi
-    done <<<"$RUST_ROOTS"
+    # Each staged file is formatted through stdin, so rustfmt never follows its
+    # `mod` declarations into files this commit did not stage (it used to, so
+    # any unstaged or untracked .rs file in the package refused the commit).
     if [[ -n "$RUST_ENTRIES" ]]; then
         RUSTFMT_BIN="$(resolve_tool rustfmt || true)"
         if [[ -z "$RUSTFMT_BIN" ]]; then
             formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
         else
             RUSTFMT_DEFAULTS="$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+            RUSTFMT_OUT="$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-rustfmt-out.XXXXXX")"
             while IFS= read -r package_root; do
                 config="$(rust_config "$package_root")"
                 RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")
@@ -995,8 +998,31 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 # From /, so a rustup proxy picks no toolchain (or toolchain
                 # path) from a rust-toolchain file in the checkout: every
                 # argument is absolute.
-                (cd / && "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}")
-                "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]}"
+                for path in "${PACKAGE_PATHS[@]}"; do
+                    rel="${path#"$REPO_ROOT"/}"
+                    # A staged symlink is committed as the link: never write through it.
+                    [[ -L "$path" ]] && continue
+                    # Format the staged blob, not the worktree file, and write back
+                    # only when the file still holds exactly that blob: an edit saved
+                    # while rustfmt runs is kept, never overwritten.
+                    staged_blob="$("$TOOL_GIT" rev-parse --verify --quiet ":$rel" || true)"
+                    [[ -n "$staged_blob" ]] || continue
+                    rustfmt_status=0
+                    (cd / && "$TOOL_GIT" -C "$REPO_ROOT" cat-file blob "$staged_blob" \
+                        | "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" >"$RUSTFMT_OUT") || rustfmt_status=$?
+                    if (( rustfmt_status != 0 )); then
+                        formatter_missing "$PACKAGE_RUSTFMT exited $rustfmt_status on $rel"
+                        continue
+                    fi
+                    formatted_blob="$("$TOOL_GIT" hash-object --path="$rel" -- "$RUSTFMT_OUT")"
+                    [[ "$formatted_blob" == "$staged_blob" ]] && continue
+                    if [[ "$("$TOOL_GIT" hash-object -- "$path")" != "$staged_blob" ]]; then
+                        echo "pre-commit: $rel changed while rustfmt ran; left as is (committing it unformatted; CI checks formatting)." >&2
+                        continue
+                    fi
+                    "$TOOL_CAT" "$RUSTFMT_OUT" >"$path"
+                    "$TOOL_GIT" add -- "$path"
+                done
             done <<<"$RUST_ROOTS"
         fi
     fi

@@ -3,7 +3,7 @@
 // app shows up, permissions in plain words, its facts). Every listing draws through these, so a new
 // app looks like the others and a new surface is a few lines. Apps only: cmux's own features stay
 // in Settings (apps-web-DESIGN.md).
-import { memo, useState, type ReactNode } from "react";
+import { useState, type ReactNode, memo, type Ref } from "react";
 import type { Strings } from "../shared/i18n";
 import {
   categoryLabel,
@@ -17,6 +17,7 @@ import {
   type CardStyle,
 } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
+import { SourceLink } from "./SourceLink";
 import type { AppsStore } from "./store";
 import type { AppContribution, AppDetail, CatalogApp, ScopeRequest } from "./types";
 import { UseAsNewTab } from "./UseAsNewTab";
@@ -120,7 +121,15 @@ export const ItemCard = memo(function ItemCard({
   featured = false,
   position,
   count,
-}: ItemProps & { style: CardStyle; featured?: boolean; position?: number; count?: number }) {
+  ref,
+}: ItemProps & {
+  style: CardStyle;
+  featured?: boolean;
+  position?: number;
+  count?: number;
+  /** The windowed catalog measures its rows by their cards (AppsPage.tsx CatalogList). */
+  ref?: Ref<HTMLElement>;
+}) {
   const { t } = strings;
   const id = descriptionId(app);
   const classes = `apps-card${featured ? " featured" : ""}${style === "standard" ? "" : ` ${style}`}`;
@@ -151,6 +160,7 @@ export const ItemCard = memo(function ItemCard({
   );
   return (
     <article
+      ref={ref}
       className={classes}
       data-card-style={style}
       data-item-state={itemState(app)}
@@ -507,11 +517,7 @@ export function InfoFacts({ detail, strings }: { detail: AppDetail; strings: Str
           </div>
         ))}
       </dl>
-      {detail.repository?.startsWith("https://") && (
-        <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-          {t("store.action.repository")} ↗
-        </a>
-      )}
+      <SourceLink source={detail} strings={strings} />
     </DetailSection>
   );
 }

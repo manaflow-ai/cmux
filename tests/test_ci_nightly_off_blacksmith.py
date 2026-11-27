@@ -40,12 +40,13 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they stay on the
 # nightly-only minis.
 CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant")
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "published-build")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
-# for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun.
-NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
-NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun or loop retry.
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
+                       "published-build")
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
 # pool, or a picker's owned output (pick-nightly-build-runner, pick-nightly-sign-runner).
@@ -119,6 +120,27 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     self.assertEqual(evaluate(expression, context), want)
                     context["needs.decide.outputs.track"] = "nightly"
                     self.assertEqual(evaluate(expression, context), want)
+                    context["github.repository_owner"] = "fork-owner"
+                    self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
+
+    def test_loop_retries_use_the_same_linux_pool_as_reruns(self) -> None:
+        import yaml
+        from test_nightly_trusted_routing import evaluate, parse_expression
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        for name in NIGHTLY_PINNED_JOBS:
+            expression = parse_expression(runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}"))
+            for event, attempt, retry, expected in (
+                ("push", 1, "", "cmux-gcp-nightly-x64"),
+                ("schedule", 1, "", "cmux-gcp-nightly-x64"),
+                ("workflow_dispatch", 1, "", "cmux-gcp-nightly-x64"),
+                ("push", 2, "", "cmux-linux"),
+                ("workflow_dispatch", 1, "1", "cmux-linux"),
+                ("workflow_dispatch", 1, "2", "cmux-linux"),
+            ):
+                context = {"github.event_name": event, "github.run_attempt": attempt,
+                           "github.repository_owner": "manaflow-ai", "inputs.nightly_next_loop_retry": retry}
+                with self.subTest(job=name, event=event, attempt=attempt, retry=retry):
+                    self.assertEqual(evaluate(expression, context), expected)
                     context["github.repository_owner"] = "fork-owner"
                     self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
 
@@ -383,7 +405,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                         off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
                         self.assertFalse({label for label in on - off if "macos" in label.lower()},
                                          f"{path.name}#{name}: the overflow switch adds a macOS label")
-        self.assertGreater(checked, 10)
+        # The pickers that read the switch are frozen to labels (one_linux_label.py); a few still read it.
+        self.assertGreater(checked, 1)
         self.assertEqual(unread, set(OVERFLOW_UNREAD), "an OVERFLOW_UNREAD entry no longer names a job")
 
     def test_the_overflow_rules_fail_on_a_mac_overflow(self) -> None:

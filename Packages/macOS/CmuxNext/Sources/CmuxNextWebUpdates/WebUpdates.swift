@@ -50,6 +50,9 @@ public final class WebUpdates {
     /// Runs the app's bundled `cmux` CLI with the words given and returns its standard output (nil
     /// when it could not run): the App sets it, for `cmux app web-pieces check` (WebUpdates+Pieces.swift).
     @ObservationIgnored public var piecesCLI: (@Sendable ([String]) async -> Data?)?
+    /// The app's bundled `cmux`, which fetches a web update by `cas/1` while `updates.webCas` is on
+    /// (WebUpdates+Cas.swift).
+    @ObservationIgnored var bundledCLI: BundledExecutable?
     /// The last answer of `cmux app web-pieces check`: what each web piece is served from.
     var pieces: WebPiecesAnswer?
     /// The read of the switch file that runs now; the next one waits for it.
@@ -75,6 +78,7 @@ public final class WebUpdates {
     /// (WebUpdates+Pieces.swift); without it no piece is switched out.
     public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, cli: BundledExecutable? = nil) {
         if let cli {
+            bundledCLI = cli
             piecesCLI = { words in
                 guard let url = await cli.resolve(),
                       let ran = await BundledCLIRun.run(url, words, timeout: .seconds(20)), ran.status == 0 else { return nil }
@@ -176,7 +180,9 @@ public final class WebUpdates {
     private func follow(_ settings: UpdatesSettings, updater: WebUpdater) {
         updater.allowsConstrained = settings.meteredNetwork == .download
         updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
-        updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)
+        // RFD 0166: off by default; on, a miss of any kind takes the archive in the same check.
+        updater.casFetch = settings.webCas ? casFetcher() : nil
+        updater.follow(WebUpdater.Channel(rawValue: settings.webInEffect.rawValue) ?? .off)
     }
 
     /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs

@@ -204,6 +204,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// The grid is at rest (no zoom running): cards off screen are built
     /// ahead only then, so the zoom's frames build nothing but what it shows.
     var isSettled = true
+    /// The settle animation's scale and blur (`TabTransitionVariant`).
+    var transition: TabTransitionVariant = .safari
 
     var body: some View {
         let tabs = source.tabs
@@ -248,16 +250,18 @@ struct TabOverview<Source: TabsDataSource>: View {
                     if !interactive { endSelecting() }
                 }
                 .onChange(of: dragging) { _, owner in onPressChanged(owner) }
-                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
-                    if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
-                }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll, residency] _, y in
-                if scroll.offset != y { scroll.offset = y }
+            // The content's place comes from the scroll view's own offset,
+            // not a frame read under the grid's zoom scale (`GridScrollTracker`).
+            .onScrollGeometryChange(for: GridScrollTracker.Reading.self, of: {
+                GridScrollTracker.Reading(offset: $0.contentOffset.y + $0.contentInsets.top, insetTop: $0.contentInsets.top,
+                                          offsetX: $0.contentOffset.x)
+            }) { [scroll, residency] _, reading in
+                scroll.apply(reading)
                 // Builds and releases cards as they near or leave the
                 // screen, without re-running this body.
-                residency.scrolled(to: y)
+                residency.scrolled(to: reading.offset)
             }
             .onScrollPhaseChange { _, phase in
                 residency.setScrolling(phase.isScrolling)
@@ -280,8 +284,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .scaleEffect(1.06 - 0.06 * shown)
-            .blur(radius: 10 * (1 - shown))
+            .scaleEffect(transition.gridScale(shown: shown))
+            .blur(radius: transition.gridBlur(shown: shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are

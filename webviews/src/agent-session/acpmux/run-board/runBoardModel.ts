@@ -18,3 +18,29 @@ export function attachTicketExpired(ticket: AttachTicket, now = Date.now()): boo
   const millis = typeof ticket.expiresAt === "number" ? ticket.expiresAt : Date.parse(ticket.expiresAt);
   return Number.isFinite(millis) && millis <= now;
 }
+
+/// Opens a worker's terminal for the person's Attach click: asks for a one-use ticket and hands it
+/// to the host. A ticket that expired before it was used, or that the server says was already
+/// consumed, is the board's to replace, not the person's: requesting a fresh one is safe, so it asks
+/// once more on the same click instead of showing "Attach expired · Retry" (Leo, 2026-11-22: "vacuous
+/// decisions like that should be just done"). Answers the ticket opened, or undefined when no
+/// ticket bridge exists; throws what the last try failed with.
+export async function attachWithFreshTicket<T extends AttachTicket>(
+  request: () => Promise<T | void | undefined>,
+  open: (ticket: T) => Promise<void>,
+  now: () => number = Date.now,
+): Promise<T | undefined> {
+  const once = async (): Promise<T | undefined> => {
+    const ticket = (await request()) || undefined;
+    if (ticket && attachTicketExpired(ticket, now()))
+      throw new RunApiHttpError(410, "This attach ticket has expired.", "run_attach_expired");
+    if (ticket) await open(ticket);
+    return ticket;
+  };
+  try {
+    return await once();
+  } catch (error) {
+    if (attachFailureState(error) === "error") throw error;
+    return await once();
+  }
+}

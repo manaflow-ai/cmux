@@ -52,19 +52,75 @@ public final class PhoneTabPictures {
     /// Each live page's favicon follow, by the app's tab key.
     private var favicons: [String: Task<Void, Never>] = [:]
 
+    /// Whether a phone wants the pictures, in place of the iPhone service's answer (a seam for tests).
+    private let wantedNow: (@MainActor () -> Bool)?
+
     public init(iphone: IPhoneHostService, folder: URL = BuildStatePaths.current.phoneTabPicturesCache,
-                surface: @escaping @MainActor (_ key: String) -> UInt64?, encode: @escaping Encode) {
+                surface: @escaping @MainActor (_ key: String) -> UInt64?, encode: @escaping Encode,
+                wanted: (@MainActor () -> Bool)? = nil) {
         self.iphone = iphone
         self.folder = folder
         self.surface = surface
         self.encode = encode
+        wantedNow = wanted
     }
 
     /// Whether a phone can get the pictures: iPhone connections are on and one is paired. Until then nothing is
     /// encoded or written.
     public var wanted: Bool {
+        if let wantedNow { return wantedNow() }
         guard let iphone else { return false }
         return iphone.allowed && !(iphone.paired?.devices.isEmpty ?? true)
+    }
+
+    /// The tabs whose pictures the app holds, and one tab's picture (made off the main actor): while a phone wants the
+    /// pictures (``wanted``), each held tab's goes to it once its surface is known, so a tab pictured or hibernated
+    /// while no phone was paired, or restored and not shown since the relaunch (its surface known once the daemon's
+    /// tabs load), still has its card (Leo, 2026-11-24: "there are too many empty previews in the safari grid thing").
+    public var held: (keys: @MainActor () -> [String], picture: @MainActor (_ key: String) async -> CGImage?)? {
+        didSet { followWanted() }
+    }
+
+    private var wantedFollow: Task<Void, Never>?
+    /// The held tabs whose picture went (or is being asked for) since a phone came to want them; emptied when none does.
+    private var offeredHeld: Set<String> = []
+
+    /// The held tabs changed in a way no observation sees (the app's last pictures on disk were read): each new one's
+    /// picture goes now.
+    public func heldChanged() {
+        followWanted()
+    }
+
+    private func followWanted() {
+        wantedFollow?.cancel()
+        guard held != nil else { return }
+        // task-owner: wantedFollow; event-driven (Observation: wanted, and the tab lists `surface` reads), cancelled when
+        // held is set again or changes.
+        wantedFollow = Task { [weak self] in
+            for await keys in ObservationStream({ [weak self] in self?.heldToOffer() }) {
+                guard let self else { return }
+                guard let keys else { self.offeredHeld = []; continue }
+                for key in keys where self.offeredHeld.insert(key).inserted {
+                    if let image = await self.held?.picture(key) {
+                        self.offerThumbnail(image, tab: key)
+                    } else {
+                        // No picture yet (the disk read failed or the page has none): asked again at the next
+                        // change of the held tabs, so the card does not stay empty until the phone pairs again.
+                        self.offeredHeld.remove(key)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The held tabs not offered yet whose pictures can go out now (each has its surface, and none was sent of it);
+    /// nil while no phone wants them. Only those not offered are looked at, so a tab list change costs the new tabs.
+    private func heldToOffer() -> [String]? {
+        guard wanted, let held else { return nil }
+        return held.keys().filter { key in
+            guard !offeredHeld.contains(key), let surface = surface(key) else { return false }
+            return sent["\(surface)-\(Part.thumb.rawValue)"] == nil
+        }
     }
 
     /// The surface tab `key`'s pictures go out as now, nil while no phone wants them.
@@ -115,6 +171,7 @@ public final class PhoneTabPictures {
 
     /// Tab `key` closed: its pictures leave the phones' cache folder and the host's replay.
     public func forget(tab key: String) {
+        offeredHeld.remove(key)
         guard let surface = surfaces.removeValue(forKey: key) else { return }
         forget(surface: surface)
     }

@@ -43,7 +43,9 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     /// How it arrives and leaves.
     public var entrance: CmuxToastEntrance = .rise
     /// A rounded surface's corner (``Corner``); a capsule's is always half its height.
-    public var corner: Corner = .concentric
+    /// Leo 2026-11-24 00:34Z, on the "Option or Shift + drag selects text" hint: "it's a pill and i already told
+    /// you guys to fix this." A one-line toast takes the card corner (12), never the 16 pt concentric one.
+    public var corner: Corner = .points(12)
 
     /// A rounded toast's corner. Its buttons stay concentric inside it (the corner less the padding), as every
     /// container of buttons (``ConcentricContainer``). The Toast Playground's Corner row draws each (Leo,

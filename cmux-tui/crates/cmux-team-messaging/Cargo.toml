@@ -1,0 +1,20 @@
+[package]
+name = "cmux-team-messaging"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "RFD 0170 phase 0: one typed message contract for people and agents over the hosted forum, rooms and presence, with stable refs, bidirectional links and in-memory fake backends (no I/O, no UI)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-forum-hosted = { path = "../cmux-forum-hosted" }
+cmux-sync = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+serde_json = { workspace = true }

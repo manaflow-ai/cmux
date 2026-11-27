@@ -603,6 +603,11 @@ body {
   overflow-y: auto;
   padding: var(--ds-space-1);
 }
+/* The windowed list (ui/VirtualList) places rows from the top of its scroll content: a top padding
+   would push every row below where the list scrolls it to. The first group header keeps the gap. */
+.base-picker-list.ui-virtual {
+  padding-top: 0;
+}
 .base-picker-status {
   padding: 12px 9px;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
@@ -799,6 +804,15 @@ body {
 .menu-check {
   justify-self: end;
 }
+/* A row's quiet detail after its label ("3 of 30 viewed", hq #19495). */
+.menu-item[data-detail] {
+  grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+}
+.menu-detail {
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 #content {
   /* Sidebar resize and slide coordinates are physical; keep their grid LTR. */
   direction: ltr;
@@ -898,6 +912,7 @@ body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
    glass takes the file bars' film and blur, so its names never sit on crisp code. */
 #files-sidebar[data-files-motion] {
   background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+  /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur), set by the see-through diff theme, not a glass surface */
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
 }
@@ -1161,6 +1176,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     padding: 0;
     border: 0;
     background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
+    /* one-material-allow: a modal scrim's softening under the file-search dialog, not a glass surface */
     /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
     -webkit-backdrop-filter: blur(2px);
     /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
@@ -1183,6 +1199,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-rim);
     background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+    /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur), not a glass surface */
     -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
     backdrop-filter: var(--cmux-diff-glass-filter, none);
     box-shadow: var(--elevation-2);
@@ -1763,6 +1780,7 @@ body[data-status-only="true"] #status-text {
      an opaque window; over glass it is the file bars' film plus their blur (and Chromium's underlay,
      --cmux-diff-float-fill), so code under it frosts. */
   background: var(--cmux-diff-float-fill, color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg)));
+  /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur) under the hunk pill and bulk bar, not a glass surface */
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
   box-shadow:
@@ -2083,6 +2101,12 @@ svg[data-icon-fill] {
 .source-pill-stats {
   display: inline-flex;
   gap: var(--ds-space-1);
+}
+/* The pill-suffix arm's "· 3/30" (diff-viewer/viewedProgress.experiment.ts). */
+.source-pill-progress {
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .source-pill-additions {
   color: light-dark(
@@ -2406,6 +2430,11 @@ svg[data-icon-fill] {
   max-height: calc(100vh - 120px);
   overflow-y: auto;
 }
+/* A row with a detail ("Hide viewed files  3 of 30 viewed") widens the menu to show both whole. */
+#options-menu.options-menu:has(.menu-item[data-detail]) {
+  width: max-content;
+  max-width: calc(100vw - 16px);
+}
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
@@ -2445,6 +2474,8 @@ svg[data-icon-fill] {
    the code's Cmd-= zoom), a 15 px icon at 17 px, the counts and controls at
    the right edge. */
 .file-header {
+  /* The bar's gap, which its hover-only actions also use and their zero-width slot gives back. */
+  --file-header-gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -2559,6 +2590,40 @@ button.file-header-open:focus-visible {
   flex: 1 1 auto;
   min-width: 4px;
 }
+/* The bar's buttons (stage, revert, "...", the eye) show only on hover, so they take no width of
+   their own: they lie over the end of the path, in a zero-width slot after the spacer (Leo,
+   2026-11-24: "if the buttons show on hover, then we should show the whole line before ellipsis-ing.
+   and when the area is hovered over, there's that whatever some amount of good fading that makes it
+   all feel like one motion"; "you're early ellipsis-ing because of a button that doesnt even always
+   show"). The path (.ui-reveal-text, ui/motion/motion.css) fades its end under them while they show
+   (ui/revealCover.ts, data-reveal-overlap: a short path never reaches them). A viewed file's eye
+   stays shown, so only then has the slot its width. */
+.file-header-actions-anchor {
+  position: relative;
+  flex: 0 0 0;
+  align-self: stretch;
+  min-width: 0;
+  /* The flex gap this slot would otherwise add. */
+  margin-inline-start: calc(-1 * var(--file-header-gap));
+}
+.file-header[data-viewed-state="viewed"] .file-header-actions-anchor {
+  flex-basis: 22px;
+  margin-inline-start: 0;
+}
+.file-header-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--file-header-gap);
+}
+/* A bar with no badge or "Load diff" has no controls span to hold a gap for. */
+.file-header .file-review-controls:empty {
+  display: none;
+}
 .file-header [data-cmux-diff-metadata] {
   flex: 0 1 auto;
   min-width: 0;
@@ -2605,7 +2670,6 @@ button.file-header-open:focus-visible {
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: 6px;
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-control);

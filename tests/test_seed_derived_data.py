@@ -765,10 +765,14 @@ def evaluate(expression, context):
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
     tokens, at = [], 0
-    while text[at:].strip():
+    # Linear in the expression: re-slicing and stripping the rest per token made a 5 KB runs-on cost 0.1 s, and
+    # the cascade's release-compile sweep (7,500 cases x 2 expressions) ran past 30 minutes.
+    while True:
         match = TOKEN.match(text, at)
         if not match:
-            raise ValueError(f"cannot parse {text[at:]!r}")
+            if text[at:].strip():
+                raise ValueError(f"cannot parse {text[at:]!r}")
+            break
         tokens.append(match.group(1))
         at = match.end()
     position = [0]
@@ -1434,7 +1438,7 @@ class Wiring(unittest.TestCase):
             f"{path.name}:{number}"
             for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
             for number, line in enumerate(path.read_text().splitlines(), 1)
-            if bare.search(line)
+            if not line.lstrip().startswith("#") and bare.search(line)
         ]
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 

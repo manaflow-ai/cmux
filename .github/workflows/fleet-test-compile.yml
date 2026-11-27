@@ -24,12 +24,16 @@ name: fleet test-compile (advisory)
 # says "(advisory)" like its job's, so a reader that judges a whole check suite
 # (cmuxterm-hq now_pr_verdict.py, the head's verdict time) skips it as well.
 #
-# It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the
-# required compile's CI_COMPILE_CHECK_GATEWAY: each gateway job holds a fleet
-# runner while its client waits on the controller, and on 2026-10-22 this
-# advisory check held 13 of the 19 runners serving
-# glaeda-side-light-xcode-26.6 while 71 required app compiles queued behind it
-# (one over an hour). Unset, a plan skips this job and nothing queues.
+# Since 2026-11-25 the compile job runs on a Linux runner and reads the verdict
+# of the build fleet controller's own test-target compile of the pull request
+# head (scripts/ci/fleet_compile_result.py --phase test-compile, the trusted
+# base copy), as cmux-next.yml's app compile does: the read submits it, and no
+# Mac runner waits on the pool. Before, the job held a gateway Mac
+# (vars.CI_TEST_COMPILE_GATEWAY) only to wait for the client. That label is now
+# a fallback: the mac-fallback job runs the old client on it only when the read
+# gives no verdict and the variable is set (never the required compile's
+# CI_COMPILE_CHECK_GATEWAY: on 2026-10-22 this check held 13 of the 19 runners
+# serving mac-light while 71 required app compiles queued).
 #
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
 # its base) is the macOS package lane's packages whose sources or path
@@ -80,9 +84,9 @@ jobs:
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
     # A pull request compiles its test targets here only with full-ci (2026-11-21, below); the tip compile
     # (cmux-next-tip-test-compile.yml) checks every feat-cmux-next push that reaches a test target.
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 5
@@ -92,7 +96,7 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
     steps:
       - name: Checkout the merge commit and its base
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -156,32 +160,100 @@ jobs:
   compile:
     name: fleet/test-compile (advisory)
     needs: plan
-    # An empty plan reports on a Linux runner at once; only a plan takes the gateway and a fleet Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY || 'cmux-linux' }}
-    if: ${{ needs.plan.outputs.needed == 'false' || (needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY != '') }}
-    permissions: {}
-    # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
-    # report: a job timeout concludes as a failure, which would read as red.
-    # The run timeout fits a cold build: a change to a binary target's headers
-    # (the cmux-tui spec and its generated bindings) makes the binary-module guard
-    # purge every build output of the package, and that build took over 55 minutes.
-    timeout-minutes: 90
+    # A Linux runner reads the controller's verdict; no Mac waits on the pool (2026-11-25).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      contents: read
+    # The read waits up to 3600 s for the pool's compile (a cold build of a purged package took over 55 minutes).
+    timeout-minutes: 75
+    outputs:
+      verdict: ${{ steps.read.outputs.verdict }}
     steps:
-      # The gateway checks nothing out: the pool fetches the merge commit itself.
-      # Exit 0 is a pass. Exit 1 is a compile failure (this check goes red).
-      # Anything else (69, 75 or 124: no pool VM, queue or run timeout, the
-      # client) is no verdict: a warning, and this check stays green.
-      - name: Compile the planned test targets on the Linux pool
+      # The reader comes from the base, never the pull request's tree (as cmux-next.yml's app compile reads it).
+      - name: Checkout the trusted compile result reader
+        if: ${{ needs.plan.outputs.needed == 'true' }}
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      # The controller submits the head's test-target compile (`swift build --build-tests` of each planned package
+      # on the Linux pool) when this read names it, and answers its verdict. pass is green, fail is red, and
+      # anything else is no verdict: a warning, and the Mac fallback below runs when CI_TEST_COMPILE_GATEWAY is set.
+      - name: Read the Linux pool's test-target compile
+        id: read
         env:
           NEEDED: ${{ needs.plan.outputs.needed }}
-          REF: ${{ github.sha }}
+          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number }}
           PACKAGES: ${{ needs.plan.outputs.packages }}
         run: |
           set -uo pipefail
           if [[ "$NEEDED" != true ]]; then
             echo "The change reaches no test target: nothing to compile."
+            echo "verdict=skip" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          no_verdict() {
+            echo "::warning title=fleet test-compile::No test-compile verdict: $1"
+            echo "verdict=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          packages=""
+          for package in $PACKAGES; do
+            if ! [[ "$package" =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]]; then
+              no_verdict "the plan named '$package', not a package directory"
+            fi
+            packages="${packages:+$packages,}$package"
+          done
+          [[ -n "$packages" ]] || no_verdict "the plan named no package"
+          reader=scripts/ci/fleet_compile_result.py
+          if ! [[ -f "$reader" ]] || ! grep -q '"test-compile"' "$reader"; then
+            no_verdict "the trusted compile result reader predates the test-compile read"
+          fi
+          word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase test-compile \
+            --packages "$packages" --wait 3600 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
+          why=""
+          if [[ -f "$RUNNER_TEMP/fleet-result.err" ]]; then
+            cat "$RUNNER_TEMP/fleet-result.err" >&2
+            why="$(sed -n 's/^fleet compile result for [0-9a-f]*: [a-z]* (\(.*\))$/\1/p' "$RUNNER_TEMP/fleet-result.err" | tail -n 1)"
+          fi
+          case "$word" in
+            pass)
+              echo "verdict=pass" >> "$GITHUB_OUTPUT"
+              echo "Every planned test target compiled at $REF ($packages)." ;;
+            fail)
+              echo "verdict=fail" >> "$GITHUB_OUTPUT"
+              echo "::error title=fleet test-compile::A test target this change reaches does not compile (advisory): ${why:-no reason given}"
+              exit 1 ;;
+            *) no_verdict "${why:-$word}" ;;
+          esac
+
+  # Only when the read gives no verdict and CI_TEST_COMPILE_GATEWAY names a label: the old gateway client, which
+  # holds a fleet runner while the pool compiles. Unset, nothing queues.
+  mac-fallback:
+    name: fleet/test-compile fallback (advisory)
+    needs: [plan, compile]
+    if: ${{ needs.compile.outputs.verdict == 'none' && vars.CI_TEST_COMPILE_GATEWAY != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_TEST_COMPILE_GATEWAY (#54437)
+    permissions: {}
+    # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
+    # report: a job timeout concludes as a failure, which would read as red.
+    timeout-minutes: 90
+    steps:
+      - name: Say why this runs
+        run: echo "::warning title=mac fallback::The Linux read of the controller's test-target compile gave no verdict; compiling through the gateway client."
+      # The gateway checks nothing out: the pool fetches the merge commit itself.
+      # Exit 0 is a pass. Exit 1 is a compile failure (this check goes red).
+      # Anything else (69, 75 or 124: no pool VM, queue or run timeout, the
+      # client) is no verdict: a warning, and this check stays green.
+      - name: Compile the planned test targets through the gateway client
+        env:
+          REF: ${{ github.sha }}
+          PACKAGES: ${{ needs.plan.outputs.packages }}
+        run: |
+          set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
             echo "::warning title=fleet test-compile::$client is not installed on runner $RUNNER_NAME; no test-compile verdict."

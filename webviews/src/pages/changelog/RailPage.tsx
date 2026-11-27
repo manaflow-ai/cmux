@@ -4,7 +4,7 @@
 import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate, releaseView } from "./model";
-import { ChangesFold, Groups, Hero, ReleaseMeta, type PartsContext } from "./ReleaseParts";
+import { ChangesFold, Groups, Hero, NotesUnavailable, ReleaseMeta, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 
 export function RailPage({ store, strings, s }: { store: ChangelogStore; strings: Strings; s: ChangelogSnapshot }) {
@@ -49,7 +49,7 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
             {strings.format("changelog.page.updatedTo", s.span.to)}
           </h1>
         )}
-        {s.missing && <p className="cl-muted">{strings.t("changelog.page.unavailable")}</p>}
+        {s.missing && <NotesUnavailable strings={strings} onRetry={() => void store.retry(s.selected)} />}
         {s.notes && view && (
           <>
             <ReleaseMeta date={s.notes.date} version={s.notes.shortVersion} strings={strings} />

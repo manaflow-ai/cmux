@@ -15,15 +15,12 @@ export function LiveShimmer({
   label,
   verbs,
   lead,
-  elapsed,
 }: {
   label: string;
   /// The bare thinking word: every label the line may rotate through. Absent for a named step.
   verbs?: readonly string[];
   /// A step's leading verb, drawn in its own span before the rest of the words.
   lead?: { lead: string; rest: string };
-  /// The time drawn after the words ("12s"), lit by the same band.
-  elapsed?: string;
 }) {
   const sizes = useVerbSizes(verbs ?? NO_VERBS);
   const decorative = verbs !== undefined;
@@ -46,12 +43,11 @@ export function LiveShimmer({
         )
       }
       lit={
-        <>
-          <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-            {decorative && sizes}
-          </span>
-          {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
-        </>
+        // The words alone: the band stays in their box and never lights the time after them (Leo,
+        // 2026-11-25: "and the overlap when the glimmer goes to the end").
+        <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+          {decorative && sizes}
+        </span>
       }
     />
   );

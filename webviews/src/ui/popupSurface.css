@@ -193,15 +193,17 @@
 /* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
    inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
    same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
-   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). A look re-skins every dialog
+   with the component tokens --cmux-dialog-padding and --cmux-dialog-radius (ui/README.md "Component
+   tokens"); unset, these values. */
 .ui-dialog.ui-glass {
-  --ui-dialog-padding: var(--role-dialog-inset);
+  --ui-dialog-padding: var(--cmux-dialog-padding, var(--role-dialog-inset));
   --glass-tint: var(--transient-surface-veil);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: calc(var(--role-control-radius) + var(--ui-dialog-padding));
+  border-radius: var(--cmux-dialog-radius, calc(var(--role-control-radius) + var(--ui-dialog-padding)));
   background: var(--glass-tint);
 }
 /* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
@@ -232,6 +234,10 @@
   font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
+}
+/* The column's ink is already the secondary one: its key hint (ui/KeyHint) takes it as is. */
+.ui-menu-shortcut > .ui-key-hint {
+  color: inherit;
 }
 :where(.ui-field) {
   font-family: inherit;
@@ -593,6 +599,20 @@
   max-height: min(420px, var(--available-height, 420px));
   overflow-y: auto;
 }
+/* A popup keeps the box it opened with while its data changes (ui/popupSettle.ts writes the three
+   lengths once the box drew the same for two frames, and takes them away while the person types or
+   presses in it). The width holds and never narrows while open; the height is a floor, and the
+   whole height where the popup scrolls its rows ("box"). `!important`: a popup's own class or an
+   inline width must not win over the rule every popup shares; the sheet's `max-*` caps still bound
+   it, so a popup still gives way to a short window. */
+.ui-popup[data-popup-settled] {
+  width: var(--popup-settled-width) !important;
+  min-height: min(var(--popup-settled-height), var(--available-height, 100vh)) !important;
+}
+.ui-popup[data-popup-settled="box"] { height: var(--popup-settled-height) !important; }
+/* From its first settled frame until it closes, freed for the person's input or not: never narrower
+   than it has been (the floor is at least the sheet's own min-width, which it replaces). */
+.ui-popup[data-popup-floor] { min-width: min(var(--popup-settled-floor), calc(100vw - 16px)) !important; }
 
 /* A page-drawn context menu's submenu (ContextMenu `submenu`): its panel opens at the row's inline
    end, its edge on the parent panel's edge and its first row level with the row (the row sits the
@@ -675,9 +695,15 @@
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
   padding-block: var(--grid-half-step);
   opacity: 1;
+  --ui-menu-reason-row: 1;
 }
-.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
-  opacity: 0.45;
+/* The row's children ask for the row's custom property, not for its `:has()`: a `:has()` before a
+   subject that names nothing (`> :not(.ui-menu-text)`) made Chromium restyle every element of the
+   page on any `:has()` change (test/css-invalidation-scope.test.ts). */
+@container style(--ui-menu-reason-row: 1) {
+  .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled) > :not(.ui-menu-text) {
+    opacity: 0.45;
+  }
 }
 .ui-popup[data-menu-states] .ui-menu-async {
   display: inline-flex;

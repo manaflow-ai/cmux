@@ -8,9 +8,11 @@
 //! - The end is learned from the runner's own lock (`bg_run.rs`), which the runner holds until
 //!   it wrote its exit, or the kernel frees when the runner dies. One thread of the process
 //!   (`acpmux-bg-watch`, [`watcher`]) holds every watched task's lock file open and tries each
-//!   lock without blocking once a [`TICK`]: the threads stay constant at any task count (a host
-//!   at load 170 had 42 threads parked in `flock`, one per task, 2026-11-23). A purged chat's
-//!   tasks leave it ([`Hub::bg_unwatch_session`]).
+//!   lock without blocking: the threads stay constant at any task count (a host at load 170 had
+//!   42 threads parked in `flock`, one per task, 2026-11-23). On Linux it tries them when one of
+//!   the lock files is closed (inotify; the runner's end closes it), else once a [`TICK`]: 50
+//!   running tasks woke it 10 times in 10 idle seconds, and a task's end waited half a tick for
+//!   its notice (`idle_bench`). A purged chat's tasks leave it ([`Hub::bg_unwatch_session`]).
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
 //!   output. A chat whose turn runs reads it at that turn's next tool step, as a lane's report
@@ -34,7 +36,11 @@
 //!   (`lane_report_subagents.rs`): left in its folder, handed over after its next Bash or acpmux
 //!   MCP call, and marked sent once left. One it never took, or one that ended after it stopped
 //!   or while no subagent runs, goes to the chat, saying whose it was (W5-M, 2026-11-08: the end of a subagent's
-//!   `acpmux run` task carried a lane's reply into its lead's chat).
+//!   `acpmux run` task carried a lane's reply into its lead's chat). One that went well waits in
+//!   the chat's inbox for its next turn (or the held result's deadline), as a coordinator's does;
+//!   a failed one wakes it ([`holds_end`]). The lead's own end that went well, in an idle chat,
+//!   waits too, but only [`OWN_END_HOLD_MS`], so ends that come together wake it once
+//!   ([`end_hold`]).
 
 use super::bg_tasks::{bg_generation, bg_view};
 use super::*;
@@ -94,9 +100,18 @@ impl Hub {
     /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
+        // Only this hub's chats: an end goes nowhere but a chat it holds (`bg_notify`), and the
+        // first live watch of a lock keeps it (`Watcher::watch`), so a watch taken for another
+        // hub's chat (hubs of one home in one process) would swallow the end that hub owes.
+        let held: std::collections::HashSet<String> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
             // `.purged` and the like are no chat's.
             if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            // A chat's folder is named by its id (`bg_run`): another hub's is not read at all.
+            if !held.contains(entry.file_name().to_string_lossy().as_ref()) {
                 continue;
             }
             let dir = entry.path();
@@ -113,6 +128,7 @@ impl Hub {
                     continue;
                 }
                 if let Some(record) = bg_run::read_record(&dir, id)
+                    && held.contains(&record.session_id)
                     && record.generation == generation
                     && record.notify
                     && !bg_run::notified_path(&dir, &record.id).exists()
@@ -158,6 +174,9 @@ impl Hub {
         }
         let session = self.session_get(session_id);
         let Some(session) = session else { return };
+        // The task no longer holds its chat's idle period up (`idle_governor.rs`): the reaper
+        // takes the new deadline.
+        self.idle_wake.notify_one();
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
@@ -219,16 +238,25 @@ comes to you."
         if let Some(display) = display {
             provenance.set(DISPLAY, json!(display));
         }
-        // A coordinator's task end that went well starts no turn of its own: it waits in the
-        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`). One that
-        // failed wakes it, as does any end in a chat not on the list. Left in the inbox it
-        // counts as sent: the log restores it, and a send again finds it there.
+        // A task end that went well starts no turn of its own when it is a coordinator's, or
+        // when the subagent that started it ended before it ([`holds_end`]): it waits in the
+        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`), or its
+        // deadline brings it. One that failed wakes the chat, as does the lead's own end in a
+        // chat not on the list. Left in the inbox it counts as sent: the log restores it, and a
+        // send again finds it there.
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
-        if ok
-            && super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name)
-            && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
-        {
+        let listed = self.page_rule_lists(&session.meta().name);
+        // The lead's own exit-0 end in an idle plain chat that ran a turn waits too, but only
+        // [`OWN_END_HOLD_MS`]: ends that come close together, or with another message, wake the
+        // chat once ([`end_hold`]). Into a running turn it steers at the next tool step as
+        // before, and a chat that never ran a turn takes it as its first work.
+        let idle = session.turn().is_none() && session.meta().turn_count > 0;
+        let hold = end_hold(ok, listed, ended.is_some(), idle);
+        if let Some(within) = hold.flatten() {
+            provenance.set(crate::prompt_provenance::WITHIN, json!(within));
+        }
+        if hold.is_some() && self.inbox_hold_end(session, &prompt_id, &text, &provenance) {
             if let Err(e) = crate::home_fs::write(&mark, b"") {
                 tracing::warn!(mark = %mark.display(), "a held task end was not marked: {e}");
             }
@@ -334,6 +362,42 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
     json!({"sender": SENDER, "severity": severity, "title": summary})
 }
 
+/// Whether a task end waits in the chat's inbox instead of starting a turn of its own: one that
+/// went well (`ok`), in a coordinator's chat (`listed`, RFD 0041), or whose subagent ended before
+/// it (`orphan`). An orphan's end is the leftover of work its subagent already reported on: on one
+/// lane VM's transcripts (2026-11-26), 74 of 213 turns such an end started did nothing (35%,
+/// against 13% for the lead's own ends), and 167 of the 213 had another turn of the chat within
+/// the 15 minutes a held result waits at most (`prompt_class::due_at`), which now carries it.
+/// Leo, 2026-11-26: "simply clear th bullshit. theres noway tere's >100 of actually needed
+/// stuff much less >400". A failed end still wakes the chat: its exit is the news.
+fn holds_end(ok: bool, listed: bool, orphan: bool) -> bool {
+    ok && (listed || orphan)
+}
+
+/// How long the lead's own exit-0 end waits in a plain chat's inbox before it wakes the chat.
+/// One lane's 24 h (one lane VM, 2026-11-26): 1,177 of its 3,060 wakes (38%) were task
+/// ends, each a turn of its own, and 28% of all its wakes came less than 5 minutes after the one
+/// before. Held this long in an idle chat, ends that come close together, and an end that comes
+/// just before another message, go in as one notice. Leo: "us not getting fucking swamped by our
+/// own fucking wake-ups, our own tool calls". A failed end, an end while a turn runs (the turn
+/// may be waiting on it: it steers in at the next tool step) and an end to a chat that never ran
+/// a turn are not held so.
+pub(super) const OWN_END_HOLD_MS: u64 = 5 * 60 * 1000;
+
+/// Whether a task end waits in the chat's inbox, and its own deadline there: `None` sends it as
+/// a prompt (a failure: its exit is the news); `Some(None)` holds it to its class's deadline
+/// ([`holds_end`]); `Some(Some(ms))` holds the lead's own exit-0 end [`OWN_END_HOLD_MS`] when
+/// its chat is `idle` (no turn runs, and it ran one).
+fn end_hold(ok: bool, listed: bool, orphan: bool, idle: bool) -> Option<Option<u64>> {
+    if holds_end(ok, listed, orphan) {
+        Some(None)
+    } else if ok && idle {
+        Some(Some(OWN_END_HOLD_MS))
+    } else {
+        None
+    }
+}
+
 /// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
 const DISPLAY: &str = "display";
 
@@ -374,8 +438,16 @@ fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     (body, !tail.is_empty())
 }
 
-/// How often the watcher tries the watched locks.
+/// How often the watcher tries the watched locks when it cannot be told of their close: on macOS,
+/// and on Linux while a watched lock has no close watch (no inotify, or a lock let go before its
+/// watch was added).
 const TICK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How often the watcher tries every lock anyway while each has its close watch (Linux). A
+/// runner's lock is its own open file, which it closes at its end (`drop(lock)` in `bg_run.rs`,
+/// or the kernel at its death), so the close event is the news; this only bounds one missed.
+#[cfg(target_os = "linux")]
+const CLOSE_FALLBACK: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The process's one watcher of background tasks' locks (module docs).
 fn watcher() -> &'static Watcher {
@@ -399,6 +471,20 @@ struct WatchState {
     watches: HashMap<std::path::PathBuf, Watch>,
     /// The watcher thread runs.
     running: bool,
+    /// Linux: the close watches of the locks, and the wake of the thread's wait for them.
+    #[cfg(target_os = "linux")]
+    closes: Option<Closes>,
+}
+
+/// One inotify instance asked only for closes of the watched lock files: the watcher thread
+/// sleeps in `poll` on it (and on `wake`) instead of probing every lock once a [`TICK`], so an
+/// idle daemon with running background tasks does not wake each second, and a task's end is
+/// seen when it comes rather than up to a tick later.
+#[cfg(target_os = "linux")]
+struct Closes {
+    watches: inotify::Watches,
+    /// An eventfd: a watch added without a close watch shortens the thread's wait to a tick.
+    wake: std::os::fd::OwnedFd,
 }
 
 struct Watch {
@@ -410,6 +496,103 @@ struct Watch {
     /// Whether the hub that watched still runs (not dropped, not stopping).
     alive: Box<dyn Fn() -> bool + Send>,
     end: Box<dyn FnOnce() + Send>,
+    /// Its close watch; none: the thread probes it each tick.
+    #[cfg(target_os = "linux")]
+    close: Option<inotify::WatchDescriptor>,
+}
+
+impl WatchState {
+    /// Removes the watch of `path`, and its close watch.
+    fn remove(&mut self, path: &Path) -> Option<Watch> {
+        let watch = self.watches.remove(path)?;
+        #[cfg(target_os = "linux")]
+        if let (Some(closes), Some(wd)) = (self.closes.as_mut(), watch.close.clone()) {
+            let _ = closes.watches.remove(wd);
+        }
+        Some(watch)
+    }
+
+    /// Removes every watch `drop` names, firing none.
+    fn remove_where(&mut self, gone_if: impl Fn(&Watch) -> bool) {
+        let gone: Vec<_> =
+            self.watches.iter().filter(|(_, w)| gone_if(w)).map(|(p, _)| p.clone()).collect();
+        for path in gone {
+            self.remove(&path);
+        }
+    }
+
+    /// How long the thread may wait before it probes every lock again.
+    fn wait(&self) -> std::time::Duration {
+        #[cfg(target_os = "linux")]
+        if self.closes.is_some() && self.watches.values().all(|w| w.close.is_some()) {
+            return CLOSE_FALLBACK;
+        }
+        TICK
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Closes {
+    fn open() -> std::io::Result<(Self, inotify::Inotify)> {
+        use std::os::fd::FromRawFd;
+        let inotify = inotify::Inotify::init()?;
+        // SAFETY: eventfd takes no pointers; a nonnegative return is a new descriptor owned here.
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `fd` was just opened and nothing else owns it.
+        let wake = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
+        Ok((Self { watches: inotify.watches(), wake }, inotify))
+    }
+
+    /// The close watch of the lock at `path`, opened as `file`. None when it cannot be had, or
+    /// when the lock was let go before it was added (that close came before the watch, so no
+    /// event will): such a watch is probed each tick, and the thread is woken to wait a tick.
+    fn add(&mut self, path: &Path, file: &std::fs::File) -> Option<inotify::WatchDescriptor> {
+        use inotify::WatchMask;
+        let wd = self.watches.add(path, WatchMask::CLOSE_WRITE | WatchMask::CLOSE_NOWRITE).ok();
+        if wd.as_ref().is_some_and(|_| !unlocked(file)) {
+            return wd;
+        }
+        if let Some(wd) = wd {
+            let _ = self.watches.remove(wd);
+        }
+        self.wake_thread();
+        None
+    }
+
+    fn wake_thread(&self) {
+        use std::os::fd::AsRawFd;
+        let one = 1u64.to_ne_bytes();
+        // SAFETY: writes the 8 bytes of `one` to the eventfd this owns.
+        let _ = unsafe { libc::write(self.wake.as_raw_fd(), one.as_ptr().cast(), one.len()) };
+    }
+}
+
+/// Waits up to `wait` for a close of a watched lock (or a wake), then drains what came.
+#[cfg(target_os = "linux")]
+fn wait_for_close(
+    inotify: &mut inotify::Inotify,
+    wake: std::os::fd::RawFd,
+    wait: std::time::Duration,
+    buffer: &mut [u8],
+) {
+    use std::os::fd::AsRawFd;
+    let mut fds = [
+        libc::pollfd { fd: inotify.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: wake, events: libc::POLLIN, revents: 0 },
+    ];
+    let ms = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX);
+    // SAFETY: `fds` is a valid array of two pollfd for the call.
+    let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, ms) };
+    if ready <= 0 {
+        return;
+    }
+    while inotify.read_events(buffer).is_ok_and(|mut events| events.next().is_some()) {}
+    let mut count = [0u8; 8];
+    // SAFETY: reads at most the 8 bytes of `count` from the eventfd (nonblocking).
+    let _ = unsafe { libc::read(wake, count.as_mut_ptr().cast(), count.len()) };
 }
 
 impl Watcher {
@@ -426,25 +609,61 @@ impl Watcher {
             return end();
         };
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        // The first watch of a lock keeps it, unless its hub is gone or stopping: a hub shut down in
-        // this process (a restart) leaves its watches behind, and keeping one sends that end nowhere.
-        let watch = Watch { file, owner, session, alive: Box::new(alive), end: Box::new(end) };
-        match state.watches.entry(path) {
-            std::collections::hash_map::Entry::Occupied(mut old) if !(old.get().alive)() => {
-                old.insert(watch);
-            }
-            std::collections::hash_map::Entry::Occupied(_) => {}
-            std::collections::hash_map::Entry::Vacant(slot) => {
-                slot.insert(watch);
+        #[cfg(target_os = "linux")]
+        let mut reader = None;
+        #[cfg(target_os = "linux")]
+        if !state.running && state.closes.is_none() {
+            match Closes::open() {
+                Ok((closes, inotify)) => {
+                    state.closes = Some(closes);
+                    reader = Some(inotify);
+                }
+                Err(e) => tracing::debug!("background tasks' ends are probed each tick: {e}"),
             }
         }
+        // The first watch of a lock keeps it, unless its hub is gone or stopping: a hub shut down in
+        // this process (a restart) leaves its watches behind, and keeping one sends that end nowhere.
+        let keep = state.watches.get(&path).is_some_and(|old| (old.alive)());
+        if !keep {
+            #[cfg(target_os = "linux")]
+            let close = match state.watches.get_mut(&path) {
+                // The same path's close watch: inotify gives one per file, so it carries over.
+                Some(old) => old.close.take(),
+                None => state.closes.as_mut().and_then(|c| c.add(&path, &file)),
+            };
+            let watch = Watch {
+                file,
+                owner,
+                session,
+                alive: Box::new(alive),
+                end: Box::new(end),
+                #[cfg(target_os = "linux")]
+                close,
+            };
+            state.watches.insert(path, watch);
+        }
         if !state.running {
+            #[cfg(target_os = "linux")]
+            let spawned = std::thread::Builder::new()
+                .name("acpmux-bg-watch".into())
+                .spawn(move || watcher().run(reader));
+            #[cfg(not(target_os = "linux"))]
             let spawned = std::thread::Builder::new()
                 .name("acpmux-bg-watch".into())
                 .spawn(|| watcher().run());
             match spawned {
                 Ok(_) => state.running = true,
-                Err(e) => tracing::warn!("background tasks' ends cannot be watched: {e}"),
+                Err(e) => {
+                    tracing::warn!("background tasks' ends cannot be watched: {e}");
+                    // The close watches went with the reader; a later watch opens them again.
+                    #[cfg(target_os = "linux")]
+                    {
+                        state.closes = None;
+                        for watch in state.watches.values_mut() {
+                            watch.close = None;
+                        }
+                    }
+                }
             }
         }
         self.added.notify_one();
@@ -453,19 +672,22 @@ impl Watcher {
     /// Drops the watches of chat `session` of hub `owner`, firing none.
     fn unwatch(&self, owner: usize, session: &str) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.watches.retain(|_, w| w.owner != owner || w.session != session);
+        state.remove_where(|w| w.owner == owner && w.session == session);
     }
 
     /// Drops every watch of hub `owner`, firing none.
     fn unwatch_owner(&self, owner: usize) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.watches.retain(|_, w| w.owner != owner);
+        state.remove_where(|w| w.owner == owner);
     }
 
-    /// The watcher thread: idle while nothing is watched, else a probe of every lock a tick.
-    fn run(&self) {
+    /// The watcher thread: idle while nothing is watched, else a probe of every lock after each
+    /// close of one (Linux; at most [`CLOSE_FALLBACK`] apart), or each tick.
+    fn run(&self, #[cfg(target_os = "linux")] mut reader: Option<inotify::Inotify>) {
+        #[cfg(target_os = "linux")]
+        let mut buffer = vec![0u8; 4096];
         loop {
-            let ended: Vec<Watch> = {
+            let (ended, wait, wake): (Vec<Watch>, _, Option<i32>) = {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 while state.watches.is_empty() {
                     state = self.added.wait(state).unwrap_or_else(|e| e.into_inner());
@@ -476,13 +698,27 @@ impl Watcher {
                     .filter(|(_, w)| unlocked(&w.file))
                     .map(|(p, _)| p.clone())
                     .collect();
-                free.iter().filter_map(|p| state.watches.remove(p)).collect()
+                let ended = free.iter().filter_map(|p| state.remove(p)).collect();
+                #[cfg(target_os = "linux")]
+                let wake = state.closes.as_ref().map(|c| {
+                    use std::os::fd::AsRawFd;
+                    c.wake.as_raw_fd()
+                });
+                #[cfg(not(target_os = "linux"))]
+                let wake = None;
+                (ended, state.wait(), wake)
             };
             // Outside the lock: an end may watch again.
             for watch in ended {
                 (watch.end)();
             }
-            std::thread::sleep(TICK);
+            #[cfg(target_os = "linux")]
+            if let (Some(inotify), Some(wake)) = (reader.as_mut(), wake) {
+                wait_for_close(inotify, wake, wait, &mut buffer);
+                continue;
+            }
+            let _ = wake;
+            std::thread::sleep(wait.min(TICK));
         }
     }
 }
@@ -659,7 +895,14 @@ mod tests {
         let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
         let record = ended("ok1", &session, 0);
-        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        let writer = hub.config.write().await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            hub.bg_end_to_chat(&session, dir.path(), &record, None),
+        )
+        .await
+        .expect("an exit notice reaches the inbox while configuration is being written");
+        drop(writer);
         hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
         {
@@ -708,16 +951,152 @@ mod tests {
         }
     }
 
-    /// A chat not on the list gets its exit-0 end as before: a prompt, not an inbox item.
+    /// Which ends wait in the inbox: one that went well, in a listed chat or of an ended subagent.
+    #[test]
+    fn which_task_ends_are_held() {
+        assert!(holds_end(true, true, false), "a coordinator's own exit 0");
+        assert!(holds_end(true, false, true), "an ended subagent's exit 0, any chat");
+        assert!(!holds_end(true, false, false), "the lead's own exit 0 in a plain chat wakes");
+        assert!(!holds_end(false, true, true), "a failure always wakes");
+        assert!(!holds_end(false, false, true));
+    }
+
+    /// In a chat not on the list, the exit-0 end of a task whose subagent ended starts no turn:
+    /// it waits in the inbox, counts as sent, and names whose it was. Its failed end still wakes.
     #[tokio::test]
-    async fn an_unlisted_chats_exit_zero_end_is_unchanged() {
+    async fn an_ended_subagents_exit_zero_end_waits_in_any_chat() {
+        let (hub, session) = hub_with_chat("plain-bg-orphan", false).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-orphan");
+        let mut spool = bg_run::Spool::create(dir.path(), "o1", 1 << 20).unwrap();
+        spool.write(b"3 passed\n").unwrap();
+        let sub = json!({"id": "a9d84c88ffff", "type": "fork"});
+        hub.bg_end_to_chat(&session, dir.path(), &ended("o1", &session, 0), Some(&sub)).await;
+        assert!(bg_run::notified_path(dir.path(), "o1").exists(), "held: no restart owes it");
+        {
+            let inbox = session.inbox();
+            assert_eq!(inbox.items.len(), 1);
+            let item = &inbox.items[0];
+            assert_eq!(item.prompt_id, "bg-done-o1");
+            assert!(!item.noticed && inbox.in_flight.is_none(), "no turn was tried");
+            assert!(item.text.contains("3 passed") && item.text.contains("fork subagent a9d84c88"));
+        }
+        hub.bg_end_to_chat(&session, dir.path(), &ended("o2", &session, 1), Some(&sub)).await;
+        assert_eq!(session.inbox().items.len(), 1, "a failed end is a prompt, not an inbox item");
+        assert!(!bg_run::notified_path(dir.path(), "o2").exists(), "o2 took the prompt path");
+    }
+
+    /// Which ends wait, and how long: a coordinator's or an orphan's to its class's deadline,
+    /// the lead's own exit 0 in an idle chat [`OWN_END_HOLD_MS`], a failure not at all.
+    #[test]
+    fn how_long_task_ends_wait() {
+        assert_eq!(end_hold(true, true, false, true), Some(None));
+        assert_eq!(end_hold(true, false, true, false), Some(None));
+        assert_eq!(end_hold(true, false, false, true), Some(Some(OWN_END_HOLD_MS)));
+        assert_eq!(end_hold(true, false, false, false), None, "a running turn may wait on it");
+        assert_eq!(end_hold(false, false, false, true), None, "a failure always wakes");
+        assert_eq!(end_hold(false, true, true, true), None);
+    }
+
+    /// A chat not on the list holds its own exit-0 end [`OWN_END_HOLD_MS`]: an inbox item due
+    /// then, marked sent, no turn tried; a second end in that window joins it, one wake for both.
+    #[tokio::test]
+    async fn an_unlisted_chats_exit_zero_end_waits_briefly() {
         let (hub, session) = hub_with_chat("plain-bg-ok", false).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted");
         hub.bg_end_to_chat(&session, dir.path(), &ended("u1", &session, 0), None).await;
+        hub.bg_end_to_chat(&session, dir.path(), &ended("u2", &session, 0), None).await;
+        for id in ["u1", "u2"] {
+            assert!(bg_run::notified_path(dir.path(), id).exists(), "{id} held, so marked sent");
+        }
+        let inbox = session.inbox();
+        assert_eq!(inbox.items.len(), 2);
+        for item in &inbox.items {
+            assert_eq!(item.within, Some(OWN_END_HOLD_MS));
+            assert_eq!(item.due(), item.at + OWN_END_HOLD_MS, "due in 5 minutes, not 15");
+        }
+        assert!(inbox.in_flight.is_none() && inbox.refused_at == 0, "no turn was tried yet");
+        assert!(inbox.timer.is_some(), "its wake is timed");
+    }
+
+    /// Its failed end is still a prompt, at once.
+    #[tokio::test]
+    async fn an_unlisted_chats_failed_end_is_unchanged() {
+        let (hub, session) = hub_with_chat("plain-bg-bad", false).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted-bad");
+        hub.bg_end_to_chat(&session, dir.path(), &ended("u3", &session, 1), None).await;
         assert!(session.inbox().items.is_empty());
-        assert!(
-            !bg_run::notified_path(dir.path(), "u1").exists(),
-            "it took the prompt path, not held"
+        assert!(!bg_run::notified_path(dir.path(), "u3").exists(), "it took the prompt path");
+    }
+}
+
+/// `cargo test -p acpmux --lib bg_watch_idle_bench -- --ignored --nocapture`: with 50 background
+/// tasks running, the watcher thread's context switches over 10 idle seconds, then the delay
+/// from each task's end (its lock let go) to its end firing. Touches only `watcher().watch`, so
+/// the same bench runs on a tree without the close watch.
+#[cfg(all(test, target_os = "linux"))]
+mod idle_bench {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn watch_thread_switches() -> u64 {
+        let task = std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .find(|t| {
+                std::fs::read_to_string(t.path().join("comm"))
+                    .is_ok_and(|c| c.trim() == "acpmux-bg-watch")
+            })
+            .expect("the watcher thread runs");
+        std::fs::read_to_string(task.path().join("status"))
+            .unwrap()
+            .lines()
+            .filter(|l| l.contains("ctxt_switches:"))
+            .filter_map(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .sum()
+    }
+
+    #[test]
+    #[ignore = "bench: run alone with --ignored --nocapture"]
+    fn bg_watch_idle_bench() {
+        let dir = cmux_unix_socket::short_test_dir("bg-bench");
+        let (tx, rx) = std::sync::mpsc::channel::<Instant>();
+        let mut held = Vec::new();
+        for i in 0..50 {
+            let path = dir.path().join(format!("b{i}.lock"));
+            let file = crate::home_fs::create_file(&path).unwrap();
+            held.push(
+                cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).unwrap(),
+            );
+            let tx = tx.clone();
+            watcher().watch(
+                path,
+                0xbe_0001,
+                "bench".into(),
+                || true,
+                move || {
+                    let _ = tx.send(Instant::now());
+                },
+            );
+        }
+        std::thread::sleep(Duration::from_secs(2));
+        let before = watch_thread_switches();
+        std::thread::sleep(Duration::from_secs(10));
+        let wakes = watch_thread_switches() - before;
+        let mut delays = Vec::new();
+        for lock in held.drain(..).take(30) {
+            let let_go = Instant::now();
+            drop(lock);
+            let fired = rx.recv_timeout(Duration::from_secs(60)).expect("its end fired");
+            delays.push(fired.duration_since(let_go).as_secs_f64() * 1000.0);
+            // Apart from the tick, so each delay is its own.
+            std::thread::sleep(Duration::from_millis(137));
+        }
+        delays.sort_by(f64::total_cmp);
+        println!(
+            "BENCH bg_watch idle_switches_10s={wakes} end_delay_ms p50={:.3} p90={:.3} max={:.3}",
+            delays[delays.len() / 2],
+            delays[delays.len() * 9 / 10],
+            delays[delays.len() - 1]
         );
     }
 }
