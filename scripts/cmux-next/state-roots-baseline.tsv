@@ -21,7 +21,7 @@ cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/daemon.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/hub/turns.rs	1	move	unreviewed at S7 (cx-is1kf.8)
-cmux-tui/crates/acpmux/src/peer.rs	2	keep	~/.acpmux on a remote SSH host
+cmux-tui/crates/acpmux/src/peer.rs	1	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/hand/policy.rs	1	keep	security classifier keyword, not a filesystem state root
 cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	2	keep	resolver: build_identity
 cmux-tui/crates/cmux-agent-pane-policy/src/environment.rs	2	keep	resolver: acpmux home

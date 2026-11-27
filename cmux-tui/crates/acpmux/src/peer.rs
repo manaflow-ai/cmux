@@ -110,8 +110,16 @@ mod pipeline_tests;
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
-/// The remote daemon config path read over SSH; this is the peer's intentional machine-wide path.
-const REMOTE_ACPMUX_CONFIG_PATH: &str = "~/.acpmux/config.json";
+/// The remote daemon's state root, as the remote shell spells it; a macro so the paths and
+/// commands below can `concat!` it. This is the peer's intentional machine-wide path.
+macro_rules! remote_root {
+    () => {
+        "~/.acpmux"
+    };
+}
+
+/// The remote daemon config path read over SSH.
+const REMOTE_ACPMUX_CONFIG_PATH: &str = concat!(remote_root!(), "/config.json");
 
 /// Instances created before this point cannot repopulate a signed-out account's snapshots.
 pub(crate) fn generation_boundary() -> u64 {
@@ -1113,7 +1121,11 @@ pub use crate::ws_auth::carries_peer_token;
 /// `LISTENER_COMMAND`'s text, a macro so `READ_CONFIG_COMMAND` can `concat!` it.
 macro_rules! listener_command {
     () => {
-        r#"sed -n 's/.*"listen":"\([^"]*\)".*/\1/p' ~/.acpmux/listener.json 2>/dev/null"#
+        concat!(
+            r#"sed -n 's/.*"listen":"\([^"]*\)".*/\1/p' "#,
+            remote_root!(),
+            "/listener.json 2>/dev/null"
+        )
     };
 }
 
@@ -1122,7 +1134,11 @@ macro_rules! listener_command {
 /// [`SSH_PEER_PORT`] when that port was taken as it started. Only the address leaves the
 /// machine: the record's key stays there.
 const READ_CONFIG_COMMAND: &str = concat!(
-    "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null; ",
+    "cat ",
+    remote_root!(),
+    "/config.json; printf '\\0'; cat ",
+    remote_root!(),
+    "/run/peer.token 2>/dev/null; ",
     "printf '\\0'; ",
     listener_command!(),
 );
@@ -1428,7 +1444,7 @@ mod remote_config_tests {
     #[test]
     fn the_remote_commands_print_the_recorded_address_and_not_the_key() {
         let home = tempfile::tempdir().unwrap();
-        let acpmux = home.path().join(".acpmux");
+        let acpmux = home.path().join(remote_root!().trim_start_matches("~/"));
         std::fs::create_dir_all(acpmux.join("run")).unwrap();
         let key = "b".repeat(64);
         let record = serde_json::to_vec(&json!({
