@@ -41,6 +41,8 @@ echo "swift $* SDKROOT=${SDKROOT:-unset}" >> "$FAKE_SEEN"
 case "$1" in
   build) echo "Build complete!"; exit 0 ;;
   test)
+    # `swift test list` (the lane's discovery, ccbe7d0d86a) prints one Module.Suite/test record a line.
+    if [ "${2:-}" = list ] && [ "$FAKE_MODE" = ok ]; then echo "FakeTests.FakeSuite/one()"; exit 0; fi
     case "$FAKE_MODE" in
       ok) echo "✔ Test run with 3 tests in 1 suite passed after 0.1 seconds."; exit 0 ;;
       mismatch)

@@ -39,7 +39,8 @@ case "$1" in
       echo "error: undefined symbols"; exit 1
     fi
     echo "Build complete!"; exit 0 ;;
-  test) echo "✔ Test run with 3 tests in 1 suite passed after 0.1 seconds."; exit 0 ;;
+  # `swift test list` (the lane's discovery, ccbe7d0d86a) prints one Module.Suite/test record a line.
+  test) [ "${2:-}" != list ] || { echo "FakeTests.FakeSuite/one()"; exit 0; }; echo "✔ Test run with 3 tests in 1 suite passed after 0.1 seconds."; exit 0 ;;
 esac
 exit 0
 SH
