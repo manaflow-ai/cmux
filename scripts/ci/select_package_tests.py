@@ -24,6 +24,9 @@ GLOBAL_INPUTS = (
     ".github/workflows/ci.yml",
     ".github/workflows/ci-macos.yml",
     "scripts/build-ghostty-cli-helper.sh",
+    "cmux-next-ios/rust/scripts/build-xcframework.sh",
+    "scripts/ci/fleet-test-products.py",
+    "scripts/ci/ios_ffi_cache.py",
     "scripts/build-xcframework.sh",
     "scripts/ci/git-seed.sh",
     "scripts/ci/release-build-archs.sh",
@@ -38,6 +41,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/package_input_key.py",
     "scripts/ci/package_interface_fingerprint.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py",
     "scripts/ci/reuse_package_results.py",
     "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",
@@ -46,6 +50,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
     "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/run_swift_test_bundle.py",
@@ -62,6 +67,7 @@ GLOBAL_INPUTS = (
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
     ".xcode-version",
+    "cmux-next-ios/rust/scripts/build-xcframework.sh",
     "ghostty",
 )
 
