@@ -791,3 +791,52 @@ async fn a_program_notice_an_older_pass_opened_stops_counting_at_the_next_pass()
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     assert_eq!(need_you(&hub, &s), 0, "the pass counts it again under the rule");
 }
+
+/// RFD 0158 §16: three votes run, and only what two of them agree on is decided.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consensus_runs_three_votes_and_keeps_the_majority() {
+    let (hub, _s) = chat(None).await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = calls.clone();
+    hub.set_surge_triager(Some(Arc::new(move |_| {
+        let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(["1 noise\n2 this", "1 noise\n2 handled", "1 this\n2 noise"][n % 3].to_owned())
+    })));
+    let list = vec![
+        triage::Held {
+            prompt_id: "p1".into(),
+            thread_id: "t1".into(),
+            from: "a".into(),
+            class: "fyi".into(),
+            text: "green".into(),
+            program: false,
+        },
+        triage::Held {
+            prompt_id: "p2".into(),
+            thread_id: "t2".into(),
+            from: "a".into(),
+            class: "fyi".into(),
+            text: "hmm".into(),
+            program: false,
+        },
+    ];
+    let batch = triage::batches("coord", list).remove(0);
+    let owners = Owners::default();
+    let kept = hub.surge_triage_voted(None, &batch, &owners, CONSENSUS_VOTES).await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(kept[0].as_ref().map(|d| d.category), Some(triage::Category::Noise));
+    assert_eq!(kept[1], None, "a three-way split stays held");
+    let one = hub.surge_triage_voted(None, &batch, &owners, 1).await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 4, "one vote is one call");
+    assert!(one.iter().all(Option::is_some));
+}
+
+#[test]
+fn consensus_is_off_unless_turned_on() {
+    let on = json!({"agents": {"harnessMagic": {"consensus": {"enabled": true}}}});
+    assert!(!consensus_enabled_with(None, None));
+    assert!(!consensus_enabled_with(Some(&json!({})), None));
+    assert!(consensus_enabled_with(Some(&on), None));
+    assert!(!consensus_enabled_with(Some(&on), Some("0")));
+    assert!(consensus_enabled_with(None, Some("1")));
+}
