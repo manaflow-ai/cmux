@@ -46,6 +46,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
     /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
     public var statusLeads = false
+    /// The unread (done) dot draws in the theme's secondary text color, not the status blue
+    /// (`sidebar.workspaceRow.unreadDot` `neutral`, the Claude Code app's gray session dots).
+    public var neutralUnreadDot = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.

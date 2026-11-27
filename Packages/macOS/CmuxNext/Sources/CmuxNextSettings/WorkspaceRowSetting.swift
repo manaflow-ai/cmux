@@ -60,20 +60,23 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
             if !change.isEmpty { overrides[kind] = change }
         }
         return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides,
-                                       statusPlacement: placement(root, &diagnostics),
+                                       statusPlacement: choice(root, Self.statusPlacementPath, fallback: Self.statusPlacementDefault, &diagnostics),
+                                       unreadDot: choice(root, Self.unreadDotPath, fallback: Self.unreadDotDefault, &diagnostics),
                                        layouts: WorkspaceRowLayoutResolver().parse(root, diagnostics: &diagnostics))
     }
 
-    /// `statusPlacement`: its default when absent or invalid (with a diagnostic).
-    private func placement(_ root: JSONValue, _ diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowStatusPlacement {
-        let path = Self.statusPlacementPath
-        guard let value = root.value(at: path) else { return Self.statusPlacementDefault }
-        guard let placement = value.stringValue.flatMap(WorkspaceRowStatusPlacement.init(rawValue:)) else {
-            let names = WorkspaceRowStatusPlacement.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+    /// A one-value-for-every-kind choice (`statusPlacement`, `unreadDot`): `fallback` when absent or
+    /// invalid (with a diagnostic).
+    private func choice<Choice: RawRepresentable & CaseIterable>(
+        _ root: JSONValue, _ path: [String], fallback: Choice, _ diagnostics: inout [SettingsDiagnostic]
+    ) -> Choice where Choice.RawValue == String {
+        guard let value = root.value(at: path) else { return fallback }
+        guard let choice = value.stringValue.flatMap(Choice.init(rawValue:)) else {
+            let names = Choice.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected one of " + names))
-            return Self.statusPlacementDefault
+            return fallback
         }
-        return placement
+        return choice
     }
 
     private func flag(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> Bool? {

@@ -54,6 +54,16 @@ public nonisolated enum WorkspaceRowKind: String, CaseIterable, Hashable, Sendab
     case mixed
 }
 
+/// The color of a workspace row's unread (done) dot (`sidebar.workspaceRow.unreadDot`): the sidebar's
+/// status blue, or the theme's secondary text color, a gray dot like the Claude Code app's session list
+/// (customize-app-profiles). Every other status mark keeps its color.
+public nonisolated enum WorkspaceRowUnreadDot: String, CaseIterable, Hashable, Sendable {
+    /// The sidebar's unread blue (`Palette.statusUnread`), as every row draws it by default.
+    case blue
+    /// The theme's secondary text color: a quiet gray dot.
+    case neutral
+}
+
 /// Where a workspace row draws its status mark (`sidebar.workspaceRow.statusPlacement`): the
 /// spinner, the blocked, done and error glyphs, or the agent mark standing in for them.
 public nonisolated enum WorkspaceRowStatusPlacement: String, CaseIterable, Hashable, Sendable {

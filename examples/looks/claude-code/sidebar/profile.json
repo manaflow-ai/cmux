@@ -9,6 +9,7 @@
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
     "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.unreadDot": "neutral",
     "sidebar.showColors": false,
     "sidebar.showTimestamps": false,
     "sidebar.detailedStatusIcons": false,

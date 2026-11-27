@@ -215,6 +215,7 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.statusLeads = workspaceRow.statusPlacement == .leading
+        content.neutralUnreadDot = workspaceRow.unreadDot == .neutral
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).

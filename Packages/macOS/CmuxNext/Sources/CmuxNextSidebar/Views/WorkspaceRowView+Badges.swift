@@ -35,6 +35,7 @@ extension WorkspaceRowView {
         let previous = shownBadges?.workspace == ws.id ? shownBadges?.states : nil
         shownBadges = (ws.id, states)
         let settles = previous.map { WorkspaceRowBadges.settles(from: $0, to: states) } ?? false
+        rowBadge.unreadColor = shown.neutralUnreadDot ? Palette.textSecondary : nil
         rowBadge.configure(states, look: states.count > 1 ? .stack : .plain, settles: settles)
         // What the badges say goes to VoiceOver; the row's hover card shows the same (a1315's cut 3: no tooltip).
         rowBadge.setAccessibilityHelp(Self.badgeSummary(badges, stacked: !corner))

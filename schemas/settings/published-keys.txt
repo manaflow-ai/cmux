@@ -874,6 +874,7 @@ sidebar.workspaceRow.terminal.pullRequest
 sidebar.workspaceRow.terminal.secondLineOrder
 sidebar.workspaceRow.terminal.tabCount
 sidebar.workspaceRow.terminal.working
+sidebar.workspaceRow.unreadDot
 sidebar.workspaceRow.working
 sidebar.workspacesAsTabs
 ssh.linkAllowedHosts

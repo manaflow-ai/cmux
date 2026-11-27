@@ -67,6 +67,10 @@ final class RowBadgeView: NSView {
         didSet { rings.forEach { $0.backgroundColor = ringColor } }
     }
     /// The stack chips' tone.
+    /// The unread dot's ink, nil for the status blue (`sidebar.workspaceRow.unreadDot`).
+    var unreadColor: NSColor? {
+        didSet { if unreadColor != oldValue { glyphs.forEach { $0.unreadColor = unreadColor } } }
+    }
     var chipColor: CGColor = NSColor.clear.cgColor {
         didSet { chips.forEach { $0.backgroundColor = chipColor } }
     }
@@ -108,6 +112,7 @@ final class RowBadgeView: NSView {
             let glyph = StatusIndicatorView()
             glyph.usesStatusColors = true // blue unread, yellow attention, red error (Lawrence msg 11983)
             glyph.ignoresScaleSetting = true
+            glyph.unreadColor = unreadColor
             addSubview(glyph)
             glyphs.append(glyph)
         }

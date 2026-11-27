@@ -790,6 +790,7 @@
               "sidebar.workspaceRow.notification",
               "sidebar.workspaceRow.secondLineOrder",
               "sidebar.workspaceRow.statusPlacement",
+              "sidebar.workspaceRow.unreadDot",
               "sidebar.workspaceRow.lines",
               "sidebar.workspaceRow.linesByKind",
               "sidebar.workspaceRow.linesByAgent"
@@ -99642,6 +99643,160 @@
       "title" : {
         "key" : "settings.workspaceRow.statusPlacement",
         "text" : "Status Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "blue",
+        "neutral"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.unreadDot.blue",
+            "text" : "Blue"
+          },
+          "value" : "blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.unreadDot.neutral",
+            "text" : "Gray"
+          },
+          "value" : "neutral"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "blue",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.unreadDot.help",
+        "text" : "The color of the dot a row shows when its work finished unseen: the status blue, or a quiet gray in the theme's secondary text color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.unreadDot",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "unread",
+        "dot",
+        "blue",
+        "gray",
+        "color"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "unreadDot"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.unreadDot"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.unreadDot",
+        "text" : "Unread Dot"
       },
       "validation" : "portable"
     },

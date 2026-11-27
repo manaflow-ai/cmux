@@ -2790,6 +2790,54 @@
           }
         },
         {
+          "key": "sidebar.workspaceRow.unreadDot",
+          "title": {
+            "key": "settings.workspaceRow.unreadDot",
+            "text": "Unread Dot"
+          },
+          "help": {
+            "key": "settings.workspaceRow.unreadDot.help",
+            "text": "The color of the dot a row shows when its work finished unseen: the status blue, or a quiet gray in the theme's secondary text color."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "WorkspaceRowUnreadDot",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "blue",
+              "title": {
+                "key": "settings.workspaceRow.unreadDot.blue",
+                "text": "Blue"
+              }
+            },
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.workspaceRow.unreadDot.neutral",
+                "text": "Gray"
+              }
+            }
+          ],
+          "default": "blue",
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "unread",
+            "dot",
+            "blue",
+            "gray",
+            "color"
+          ],
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.workspaceRow.lines",
           "title": {
             "key": "settings.workspaceRow.lines",
