@@ -315,6 +315,8 @@ import {
   prependOlderEventRecords,
   sessionUpdate,
   heldMapBySeq,
+  heldBySeq,
+  journalEndOf,
 } from "./direct/records";
 import {
   OLDER_PAGE_RECORDS,
