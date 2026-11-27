@@ -34,7 +34,11 @@ fn hub_of(n: usize) -> Arc<crate::hub::Hub> {
             "createdAt": 1, "updatedAt": i + 1, "preview": "A short synthetic reply",
         }))
         .unwrap();
-        hub.insert_test_session(meta);
+        let session = hub.insert_test_session(meta);
+        // An attach starts the chat's time-breakdown seed in the background, and its row notice
+        // wakes every connection attached to the chat whenever it lands: under load, inside a
+        // window a test counts. Seeded here, before any connection, it wakes none.
+        hub.seed_time_breakdown_for_test(&session);
     }
     hub
 }

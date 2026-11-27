@@ -217,7 +217,7 @@ export default componentEntry<Props>({
         initialRetrying: false,
         withRetry: true,
       },
-      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing shows; the pane keeps connecting (Leo, 2026-11-24: \"let's just keep optimistically connecting\"). No chip, no Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.",
+      note: 'Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing shows; the pane keeps connecting (Leo, 2026-11-24: "let\'s just keep optimistically connecting"). No chip, no Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.',
     },
     "outage-named": {
       props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },

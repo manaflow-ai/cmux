@@ -513,14 +513,16 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, false)
+        self.summary_with_tools(session, true, None)
     }
 
     /// The whole row of a chat for the `session_changed` that follows one of its records: its
     /// summary, with the time breakdown only when the row owes it
     /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
-    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, true)
+    /// `seq` is the record it follows; `lean`: the row goes to a client that draws no breakdown
+    /// (`omitTimeBreakdown`), so it neither builds nor spends the one the chat's rows owe.
+    pub(crate) fn session_change_summary(&self, session: &Session, seq: u64, lean: bool) -> Value {
+        self.summary_with_tools(session, true, Some(ChangeRow { seq, lean }))
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -748,7 +750,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false, false)
+        self.summary_with_tools(session, false, None)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -764,7 +766,12 @@ impl Hub {
 
     /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
     /// time breakdown only when owed.
-    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
+    fn summary_with_tools(
+        &self,
+        session: &Session,
+        with_tools: bool,
+        change_row: Option<ChangeRow>,
+    ) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -1024,12 +1031,13 @@ impl Hub {
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: match (with_tools, change_row) {
                 (false, _) => None,
-                (true, false) => self.cached_time_breakdown(session),
-                (true, true) => session
+                (true, None) => self.cached_time_breakdown(session),
+                (true, Some(ChangeRow { lean: true, .. })) => None,
+                (true, Some(ChangeRow { seq, lean: false })) => session
                     .time_breakdown
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .row_snapshot(crate::store::now_ms()),
+                    .row_snapshot(crate::store::now_ms(), seq),
             },
             // Set from the row's own fields below (`set_composer_status`).
             composer_status: None,
@@ -1414,6 +1422,14 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
     let first = args.next();
     first.is_some_and(|a| std::path::Path::new(a.as_ref()).file_name() == Some("cmux-tui".as_ref()))
         && args.next().is_some_and(|a| a.as_ref() == "acp")
+}
+
+/// A change row (`Hub::session_change_summary`): the record it follows, and whether it goes to a
+/// client that draws no time breakdown.
+#[derive(Clone, Copy)]
+struct ChangeRow {
+    seq: u64,
+    lean: bool,
 }
 
 #[cfg(test)]

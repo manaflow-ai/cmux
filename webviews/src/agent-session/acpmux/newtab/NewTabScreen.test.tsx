@@ -285,7 +285,7 @@ test("Add harness keeps the typed draft through setup", async () => {
   expect(asks[0]?.[1]).toBe("keep my draft");
 });
 
-test("New Tab's box and its suggestions are the App's one popover glass", async () => {
+test("New Tab's box uses host glass and its suggestions share the page material", async () => {
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -303,8 +303,9 @@ test("New Tab's box and its suggestions are the App's one popover glass", async 
   await typePrompt("fix the flaky test");
   const popover = document.querySelector(".nt-popover");
   expect(popover).toBeTruthy();
-  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
-  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+  expect(popover!.hasAttribute("data-page-glass")).toBe(true);
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
   const box = document.querySelector(".nt-box");
   expect(box!.getAttribute("data-host-glass")).toBe("popover");
   expect(box!.classList.contains("ui-glass")).toBe(true);
@@ -1414,7 +1415,9 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
+  // The tray is the default view (#55723): the document shows once, in the tray, not in the text.
+  expect(container.querySelectorAll(".acpmux-attachments .acpmux-attachment").length).toBe(1);
+  expect(container.querySelector(".acpmux-md-inline-chip")).toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());
@@ -1997,7 +2000,9 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toHaveLength(1);
   const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
-  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  // In the default tray view (#55723) the text holds no mark; the attachment goes with the draft.
+  expect(attachment.id).toBeTruthy();
+  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 async function clickProjectOption(label: string) {
