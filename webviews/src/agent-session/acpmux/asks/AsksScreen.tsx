@@ -5,6 +5,7 @@
 // status acpmux gives it: open, has a pull request, or merged. The page only renders; acpmux decides
 // what an ask is and what links to it.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { age } from "../homeListsModel";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
@@ -78,9 +79,9 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
         <output className="ask-status">
           {status}
           {state.phase === "failed" && (
-            <button type="button" className="ask-link" onClick={read}>
+            <Button bare className="ask-link" onClick={read}>
               {t("ledger.retry")}
-            </button>
+            </Button>
           )}
         </output>
       )}
@@ -127,14 +128,19 @@ function AskRow({
           )}
         </div>
         <div className="ask-sub">
-          <button type="button" className="ask-chat" onClick={() => openSession(ask.sessionId)}>
+          <Button
+            bare
+            className="ask-chat"
+            aria-description={t("asks.openChat")}
+            onClick={() => openSession(ask.sessionId)}
+          >
             {chat}
-          </button>
+          </Button>
           {ask.prs.map((pr) => (
-            <button key={pr.url} type="button" className="ask-pr" data-state={pr.state} onClick={() => openUrl(pr.url)}>
+            <Button bare key={pr.url} className="ask-pr" data-state={pr.state} onClick={() => openUrl(pr.url)}>
               {prLabel(pr)}
               <span className="ask-pr-state">{t(`asks.pr.${pr.state}`)}</span>
-            </button>
+            </Button>
           ))}
           <span className="ask-id">{ask.id}</span>
         </div>

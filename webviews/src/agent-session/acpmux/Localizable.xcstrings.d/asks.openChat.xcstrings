@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "asks.openChat" : {
-      "comment" : "Agent pane: Your asks, tooltip of a row's chat link",
+      "comment" : "Agent pane: Your asks, accessible description of a row's chat link",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
