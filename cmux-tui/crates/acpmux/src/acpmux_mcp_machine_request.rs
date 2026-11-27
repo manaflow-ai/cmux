@@ -25,15 +25,15 @@ const MAX_REPLY: u64 = 1 << 20;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Ask for more vCPU or memory for THIS cmux Cloud machine (`cmux machine request`). Answers at once: fits (has it), grow (resizing now), over_plan (the plan's largest, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines, each id in a handle), or unavailable.",
+        "description": "Ask for more vCPU or memory for THIS cmux Cloud machine (`cmux machine request`). Answers at once: fits (has it), grow (resizing now, within the plan), over_plan (the plan's largest, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, a handle with each id), or unavailable. Cloud machines only.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "vcpu": {"type": "integer", "minimum": 1, "description": "Total vCPUs wanted."},
-                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total GiB of memory (default 2 per vCPU)."},
+                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total memory GiB (default 2 per vCPU)."},
                 "fanout": {"type": "integer", "minimum": 1, "maximum": 64, "description": "Split over this many machines."},
                 "kind": {"type": "string", "enum": ["linux", "mac", "gpu"]},
-                "for": {"type": "string", "description": "What the capacity is for."},
+                "for": {"type": "string", "description": "What it is for."},
                 "until": {"type": "string", "description": "DONE (default) or a duration: 30m, 2h, 1d."}
             },
             "required": ["vcpu", "for"]
@@ -109,27 +109,5 @@ async fn ask_socket(socket: &std::path::Path, line: &Value) -> Result<Value, Str
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn grow_is_a_result_and_a_refusal_an_error() {
-        let ok = result_for(
-            &json!({"ok": true, "outcome": "grow", "message": "Growing", "machine": "vm_1"}),
-        );
-        assert_eq!(ok["isError"], false);
-        assert_eq!(ok["content"][0]["text"], "grow: Growing");
-        assert_eq!(
-            ok["structuredContent"],
-            json!({"outcome": "grow", "message": "Growing", "machine": "vm_1"})
-        );
-        let no =
-            result_for(&json!({"ok": false, "error": {"code": "auth.refused", "message": "no"}}));
-        assert_eq!(no["isError"], true);
-    }
-
-    #[tokio::test]
-    async fn a_bad_ask_never_reaches_the_socket() {
-        assert_eq!(call(&json!({"vcpu": 4})).await["isError"], true);
-    }
-}
+#[path = "acpmux_mcp_machine_request_tests.rs"]
+mod tests;

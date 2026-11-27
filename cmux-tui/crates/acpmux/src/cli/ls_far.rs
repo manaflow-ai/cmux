@@ -542,7 +542,6 @@ fn refresh_detached(cache: &Path) {
         return;
     }
     // Not marked: start none, or two could race.
-    #[cfg_attr(test, allow(unused_variables))]
     let Some(lease) = claim_refresh(cache) else { return };
     #[cfg(not(test))]
     {
@@ -559,10 +558,12 @@ fn refresh_detached(cache: &Path) {
             );
             lease.hand_off();
         }
+        drop(lease);
     }
-    // A test starts no child, and stands in for one that is still coming.
+    // This process is the test binary, so no child runs: the lease stands for the child's,
+    // held (with its mark) for as long as that read would run, here the rest of the test.
     #[cfg(test)]
-    lease.hand_off();
+    std::mem::forget(lease);
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the

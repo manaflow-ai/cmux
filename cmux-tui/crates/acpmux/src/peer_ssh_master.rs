@@ -20,7 +20,6 @@
 //! A home too long for a unix socket's path gets no options: the ssh config decides, as before.
 
 use super::Peer;
-use crate::home_fs::OpenOptions;
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs::TryLockError;
@@ -76,7 +75,7 @@ pub(crate) fn key(destination: &str) -> String {
 /// ignores them: its channel rides the master's connection.
 pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     let dir = path.parent()?;
-    private_dir(dir).ok()?;
+    crate::home_fs::private_dir(dir).ok()?;
     // ssh expands `%` and `~` in ControlPath: a literal `%` is written `%%`.
     let path = path.to_str()?.replace('%', "%%");
     Some([
@@ -93,13 +92,9 @@ pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     ])
 }
 
-fn private_dir(dir: &Path) -> std::io::Result<()> {
-    // Under the home (`<home>/run/ssh`): made through `home_fs`, never by path.
-    crate::home_fs::private_dir(dir)
-}
-
+// test-hook-allow: keyed by peer name and never cleared: each test registers its own peer
+// names (peer_ssh_master_tests.rs), so no test can replace or clear another's entry
 #[cfg(test)]
-// test-hook-allow: keyed by peer name, and each test names its own peer, so no test replaces another's
 static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshMux>>> =
     std::sync::Mutex::new(None);
 
@@ -160,7 +155,7 @@ impl Peer {
         let Some(path) = path.filter(|path| !path.exists()) else {
             return Ok(None);
         };
-        let lock = match OpenOptions::new()
+        let lock = match crate::home_fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)

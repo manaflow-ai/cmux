@@ -22,12 +22,18 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # when PowerShell 7 starts (about 470 ms per terminal for the 41 MB daemon);
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
-windows-thin-exe = []
+# The DLL is the whole daemon, so it carries the `identify` reply itself (cmux-tui-core
+# server/identify_reply.rs); the thin executable installs nothing.
+windows-thin-exe = ["cmux-tui-core/bundled-identify"]
 # Debug only: patch the running daemon in place under `dx serve --hot-patch`
 # (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
 # It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
 # depends on an edited one, and fails on one its first build never compiled.
-hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
+hotpatch = [
+    "cmux-tui-core/hotpatch",
+    "cmux-tui-core/bundled-identify",
+    "dep:cmux-terminal-client",
+]
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
@@ -76,6 +82,7 @@ cmux-intent.workspace = true
 cmux-egress.workspace = true
 cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
+cmux-phone-page.workspace = true
 cmux-cloud-client.workspace = true
 # `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
 # `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
@@ -126,8 +133,12 @@ cmux-config.workspace = true
 cmux-theme-pack.workspace = true
 cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
+# `cmux customize docs keybindings`: every action a key can run, with no app open.
+cmux-action-catalog.workspace = true
 # `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
 cmux-web-pieces.workspace = true
+# `cmux app web-cas fetch` (cli/app/web_cas.rs): a web update by cas/1 Range GETs (RFD 0166).
+cmux-cas.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
@@ -175,6 +186,7 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+cmux-vault-e2e.workspace = true
 # `cmux link sync pull` merges a text file both sides changed by line.
 diffy.workspace = true
 uuid.workspace = true
@@ -234,6 +246,9 @@ cmux-no-checkout.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
+# `cmux link sync` writes: the per-part codec choice (cmux-bytes) and its zstd frames.
+cmux-bytes.workspace = true
+zstd.workspace = true
 # `cmux customize use pr:N` unpacks a published web bundle archive (cli/customize/pr.rs).
 tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
@@ -247,6 +262,7 @@ plist = "1.10"
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
+cmux-proxy.workspace = true
 cmux-remote.workspace = true
 cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
@@ -330,6 +346,9 @@ path = "tests/windows_terminal_hosts.rs"
 serde_json.workspace = true
 
 [dev-dependencies]
+# The library's tests serve `identify` in process, with no cmux-tui binary to install it
+# (cmux-tui-core server/identify_reply.rs).
+cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
 # tests/it/main.rs: the list of test files (tests/it/modules/build.rs).
 cmux-tui-test-modules = { path = "tests/it/modules" }
 cmux-build-space = { workspace = true, features = ["testing"] }
@@ -355,8 +374,6 @@ cmux-fault.workspace = true
 cmux-composer-send.workspace = true
 # cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
 cmux-layout-reducer.workspace = true
-# cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
-cmux-action-catalog.workspace = true
 # Seeded-secret tests: the gate sends each payload path's request to a local capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
 

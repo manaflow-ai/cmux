@@ -127,7 +127,7 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !said_nothing(value)
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
@@ -173,7 +173,23 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
             retain(Some(warning), &["text"]);
         }
     }
+    // A retain can leave an object empty (tags that held only unlisted keys).
+    values.retain(|_, value| !said_nothing(value));
     Value::Object(values)
+}
+
+/// A null, an empty list or an empty object tells a reader nothing a missing key does not: every
+/// reader of the extra (`cli::list_read`, the sidebar, a peer's `cmux ls`) already treats a missing
+/// key as unset, since an older peer's row lacks the newer keys. Each record replaces the whole
+/// row, so leaving one off clears nothing stale. A typical row carried about 20 of them, and with
+/// the peer form, which holds a second copy of the extra, they pushed it past the 2 KiB bound.
+fn said_nothing(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(values) => values.is_empty(),
+        Value::Object(values) => values.is_empty(),
+        _ => false,
+    }
 }
 
 fn extra(row: &Map<String, Value>, state: &str) -> Value {
@@ -444,7 +460,8 @@ mod tests {
         assert_eq!(extra["cwd"], "/work/project///");
         assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
         assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        assert!(extra.get("forkSeq").is_some());
+        // A null forkSeq says nothing (`said_nothing`); a fork's seq rides on the typed `fork_of`.
+        assert!(extra.get("forkSeq").is_none(), "{extra}");
         assert!(extra.get("spawnedBy").is_none());
         assert!(extra.get("queue").is_none());
         assert!(extra.get("usageStats").is_none());

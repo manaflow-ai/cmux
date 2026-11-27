@@ -373,6 +373,7 @@ public final class MacScreenSession {
             socketPath = path
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
+                                turnStream: servers.turnStream,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
             for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
             laterCandidates = nil
@@ -390,9 +391,11 @@ public final class MacScreenSession {
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
         // `clock` and `ledger`: every frame's stage times, on the host's clock.
         // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
+        // `video.ltr`: the decode pipeline acknowledges each decoded frame (`noteDecoded(frame:)`),
+        // so a host started with `--ltr 1` recovers a loss without a keyframe; others ignore it.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
                                   caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
-                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap]
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap, RemoteRdHello.ltrCap]
                                       + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true, clipboard: offersClipboard) else {
@@ -610,6 +613,8 @@ public final class MacScreenSession {
         var peerKey: String
         var stun: [String]
         var turn: [MacScreenRdServers.Turn]
+        /// TCP and TLS relays, after the UDP ones, for a network that blocks UDP.
+        var turnStream: [MacScreenRdServers.Turn]
         var candidates: [String]
         var socket: String
         var relayOnly: Bool
@@ -617,6 +622,7 @@ public final class MacScreenSession {
         enum CodingKeys: String, CodingKey {
             case session, stun, turn, candidates, socket
             case peerKey = "peer_key"
+            case turnStream = "turn_stream"
             case relayOnly = "relay_only"
         }
     }

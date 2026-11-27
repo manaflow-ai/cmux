@@ -103,6 +103,41 @@ fn dir(tag: &str) -> PathBuf {
     d
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_status_exposes_presence_and_key_precedence_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let program = root.path().join("claude");
+    let store = root.path().join(".claude");
+    std::fs::create_dir(&store).unwrap();
+    std::fs::write(store.join("settings.json"), br#"{"env":{"ANTHROPIC_API_KEY":"fixture"}} "#)
+        .unwrap();
+    std::fs::write(
+        &program,
+        r#"#!/bin/sh
+[ "$*" = "auth status --json" ] || exit 10
+printf '%s
+' '{"loggedIn":true,"authMethod":"claude.ai","email":"fixture@example.com"}'
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let cli = Cli {
+        program: program.to_string_lossy().into_owned(),
+        globals: Vec::new(),
+        env: BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), store.to_string_lossy().into_owned())]),
+    };
+    let machine = Machine { root: root.path().to_owned(), home: root.path().to_owned() };
+    assert_eq!(
+        claude_status(&machine, &cli).await.unwrap(),
+        serde_json::json!({"signedIn": true, "apiKey": true})
+    );
+    std::fs::create_dir_all(root.path().join("etc/cmux")).unwrap();
+    std::fs::write(root.path().join("etc/cmux/vm-kind"), "team").unwrap();
+    assert_eq!(claude_status(&machine, &cli).await.unwrap_err().reason, reason::SHARED_MACHINE);
+}
+
 #[test]
 fn shared_machine_by_vm_kind() {
     let root = dir("kind");
@@ -128,7 +163,7 @@ async fn shared_machine_refuses_start_and_key() {
     let m = Machine { root: root.clone(), home: root.join("home") };
     // Refused before anything runs: the program does not exist.
     let cli = Cli { program: root.join("no-such-cli").display().to_string(), ..Cli::default() };
-    let e = start(&m, &cli, Agent::Claude).await.unwrap_err();
+    let e = start(&m, &cli, Agent::Claude, None).await.unwrap_err();
     assert_eq!(e.reason, reason::SHARED_MACHINE);
     let e = save_api_key(&m, &cli, Agent::Claude, "sk-ant-test-1234").await.unwrap_err();
     assert_eq!(e.reason, reason::SHARED_MACHINE);
@@ -141,7 +176,7 @@ async fn a_missing_cli_is_cli_missing() {
     let m = Machine { root: root.clone(), home: root.join("home") };
     let mut cli = Cli { program: root.join("no-such-cli").display().to_string(), ..Cli::default() };
     cli.env.insert("CODEX_HOME".into(), root.join("codex").display().to_string());
-    let e = start(&m, &cli, Agent::Codex).await.unwrap_err();
+    let e = start(&m, &cli, Agent::Codex, None).await.unwrap_err();
     assert_eq!(e.reason, reason::CLI_MISSING, "{e:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -645,7 +680,20 @@ fn gemini_and_grok_signed_in() {
     assert!(!signed_in_at(Agent::Grok, &store));
     std::fs::write(store.join("auth.json"), " \n").unwrap();
     assert!(!signed_in_at(Agent::Grok, &store));
-    std::fs::write(store.join("auth.json"), r#"{"x":1}"#).unwrap();
+    for signed_out in [
+        "{}",
+        r#"{"x":1}"#,
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":""}}"#,
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":null}}"#,
+    ] {
+        std::fs::write(store.join("auth.json"), signed_out).unwrap();
+        assert!(!signed_in_at(Agent::Grok, &store));
+    }
+    std::fs::write(
+        store.join("auth.json"),
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":"r"}}"#,
+    )
+    .unwrap();
     assert!(signed_in_at(Agent::Grok, &store));
     let _ = std::fs::remove_dir_all(&store);
 }
@@ -656,21 +704,21 @@ async fn unsupported_ways_and_team_machines_for_gemini_and_grok() {
     let m = Machine { root: root.clone(), home: root.join("home") };
     let mut cli = Cli { program: root.join("no-such-cli").display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.join("home").display().to_string());
-    let e = start(&m, &cli, Agent::Gemini).await.unwrap_err();
+    let e = start(&m, &cli, Agent::Gemini, None).await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED);
     let e = save_api_key(&m, &cli, Agent::Grok, "xai-test-1234").await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED);
     // An owner machine saves the Gemini key with no CLI run.
     save_api_key(&m, &cli, Agent::Gemini, "AIzaOwner1").await.unwrap();
     assert!(signed_in_at(Agent::Gemini, &root.join("home/.gemini")));
-    // A paste's spaces are dropped (`key_check::without_whitespace`), so a bad key is one with
-    // a character no Gemini key has.
-    let e = save_api_key(&m, &cli, Agent::Gemini, "not#a#key").await.unwrap_err();
+    // Whitespace is stripped from a paste (`key_check::without_whitespace`), so a bad key
+    // needs a character no Gemini key has.
+    let e = save_api_key(&m, &cli, Agent::Gemini, "not/a key").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE);
     // A team machine: refused before anything runs or is written.
     std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
     std::fs::write(root.join("etc/cmux/vm-kind"), "team\n").unwrap();
-    let e = start(&m, &cli, Agent::Grok).await.unwrap_err();
+    let e = start(&m, &cli, Agent::Grok, None).await.unwrap_err();
     assert_eq!(e.reason, reason::SHARED_MACHINE);
     let e = save_api_key(&m, &cli, Agent::Gemini, "AIzaTeam2").await.unwrap_err();
     assert_eq!(e.reason, reason::SHARED_MACHINE);
@@ -783,13 +831,13 @@ async fn cursor_sign_in_end_to_end_against_a_stub_cli() {
     cli.env.insert("HOME".into(), home.display().to_string());
     cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
     cli.env.insert("CURSOR_API_KEY".into(), "team-key-must-not-reach-the-login".into());
-    let started = start(&m, &cli, Agent::Cursor).await.expect("started");
+    let started = start(&m, &cli, Agent::Cursor, None).await.expect("started");
     assert_eq!(started.url, "https://cursor.com/loginDeepControl?challenge=stub&uuid=1&mode=login");
     assert_eq!(started.user_code, None);
     assert!(!started.needs_code);
     assert_eq!(started.auto_url, None);
     std::fs::write(&approve, "").unwrap();
-    let finished = finish(&started.login_id, None).await.expect("finished");
+    let finished = finish(&started.login_id, None, None).await.expect("finished");
     assert!(finished.signed_in);
     assert_eq!(finished.store, home.join(".config/cursor"));
     let env = std::fs::read_to_string(&seen).unwrap();
@@ -875,11 +923,10 @@ async fn opencode_signs_in_with_a_key_only() {
     let mut cli = Cli { program: root.join("no-such-cli").display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), home.display().to_string());
     cli.env.insert("XDG_DATA_HOME".into(), String::new());
-    let e = start(&m, &cli, Agent::OpenCode).await.unwrap_err();
+    let e = start(&m, &cli, Agent::OpenCode, None).await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED, "{e:?}");
     assert!(Agent::OpenCode.takes_api_key() && !Agent::OpenCode.signs_in_by_link());
-    // A paste's spaces are dropped; a character no key holds is refused.
-    let e = save_api_key(&m, &cli, Agent::OpenCode, "sk-oc-k\u{e9}y").await.unwrap_err();
+    let e = save_api_key(&m, &cli, Agent::OpenCode, "two wörds").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE, "{e:?}");
     save_api_key(&m, &cli, Agent::OpenCode, "  sk-oc-0123456789 \n").await.expect("saved");
     let store = home.join(".local/share/opencode");
@@ -1036,16 +1083,16 @@ async fn a_second_home_sign_in_leaves_the_default_store_alone() {
         Cli { program: codex_stub(&root, &approve).display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), home.display().to_string());
     cli.env.insert("CODEX_HOME".into(), home.join(".codex").display().to_string());
-    let started = start_in(&m, &cli, Agent::Codex, Some(&account)).await.expect("started");
+    let started = start_in(&m, &cli, Agent::Codex, Some(&account), None).await.expect("started");
     assert_eq!(started.user_code.as_deref(), Some("ABCD-EFGH"));
     std::fs::write(&approve, "").unwrap();
-    let done = finish(&started.login_id, None).await.expect("finished");
+    let done = finish(&started.login_id, None, None).await.expect("finished");
     assert!(done.signed_in);
     assert_eq!(done.store, account);
     assert!(signed_in_at(Agent::Codex, &account));
     assert!(!home.join(".codex/auth.json").exists(), "the default store was touched");
     // Gemini and Cursor have no variable that moves their store.
-    let e = start_in(&m, &cli, Agent::Cursor, Some(&account)).await.unwrap_err();
+    let e = start_in(&m, &cli, Agent::Cursor, Some(&account), None).await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1061,15 +1108,15 @@ async fn two_homes_of_one_agent_sign_in_side_by_side() {
     let mut cli =
         Cli { program: codex_stub(&root, &approve).display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.display().to_string());
-    let first = start_in(&m, &cli, Agent::Codex, Some(&a)).await.expect("first");
-    let second = start_in(&m, &cli, Agent::Codex, Some(&b)).await.expect("second");
+    let first = start_in(&m, &cli, Agent::Codex, Some(&a), None).await.expect("first");
+    let second = start_in(&m, &cli, Agent::Codex, Some(&b), None).await.expect("second");
     assert!(running(&first.login_id) && running(&second.login_id));
     // A new start in the same home stops the one there, and only it.
-    let again = start_in(&m, &cli, Agent::Codex, Some(&a)).await.expect("again");
+    let again = start_in(&m, &cli, Agent::Codex, Some(&a), None).await.expect("again");
     assert!(!running(&first.login_id) && running(&again.login_id) && running(&second.login_id));
     std::fs::write(&approve, "").unwrap();
-    assert!(finish(&again.login_id, None).await.expect("a").signed_in);
-    assert!(finish(&second.login_id, None).await.expect("b").signed_in);
+    assert!(finish(&again.login_id, None, None).await.expect("a").signed_in);
+    assert!(finish(&second.login_id, None, None).await.expect("b").signed_in);
     assert!(signed_in_at(Agent::Codex, &a) && signed_in_at(Agent::Codex, &b));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1099,11 +1146,11 @@ async fn github_sign_in_end_to_end_against_a_stub_gh() {
     // Unset, whatever this test process has (a fleet worker sets its own).
     cli.env.insert("GH_CONFIG_DIR".into(), String::new());
     cli.env.insert("GH_TOKEN".into(), "daemon-token-must-not-reach-gh".into());
-    let started = start_in(&m, &cli, Agent::Github, None).await.expect("started");
+    let started = start_in(&m, &cli, Agent::Github, None, None).await.expect("started");
     assert_eq!(started.url, "https://github.com/login/device");
     assert_eq!(started.user_code.as_deref(), Some("1A2B-3C4D"));
     assert!(!started.needs_code);
-    let done = finish(&started.login_id, None).await.expect("finished");
+    let done = finish(&started.login_id, None, None).await.expect("finished");
     assert!(done.signed_in);
     let env = std::fs::read_to_string(&seen).unwrap();
     assert!(!env.contains("GH_TOKEN"), "gh saw the daemon's token");
@@ -1114,7 +1161,7 @@ async fn github_sign_in_end_to_end_against_a_stub_gh() {
     assert!(env.lines().any(|l| l == config), "{env}");
     // No gh: a typed reason.
     let missing = Cli { program: root.join("no-gh").display().to_string(), ..cli.clone() };
-    let e = start_in(&m, &missing, Agent::Github, None).await.unwrap_err();
+    let e = start_in(&m, &missing, Agent::Github, None, None).await.unwrap_err();
     assert_eq!(e.reason, reason::NOT_INSTALLED, "{e:?}");
     let _ = std::fs::remove_dir_all(&root);
 }

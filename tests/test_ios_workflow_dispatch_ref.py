@@ -141,10 +141,11 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing jobs check out the workflow revision itself; every other
-        # checkout, including the retry after a failed seeded checkout, is
-        # pinned to the one resolved commit SHA.
-        routing = {"runner", "detect-ios-changes"}
+        # The routing jobs check out the workflow revision itself (full-carry:
+        # the base's scripts/ci, for head_tier.py); every other checkout,
+        # including the retry after a failed seeded checkout, is pinned to the
+        # one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes", "full-carry"}
         jobs = yaml.safe_load(workflow)["jobs"]
         pinned = 0
         for name, job in jobs.items():
@@ -342,7 +343,7 @@ class IOSChangeDetectionTests(unittest.TestCase):
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
                     if step.get("id") == "detect")
         script = (step["run"].replace("${{ github.event_name }}", "pull_request")
-                  .replace("${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "false")
+                  .replace("${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}", "false")
                   .replace("python3 scripts/ci/ios_simulator_inputs.py",
                            f"python3 {ROOT / 'scripts/ci/ios_simulator_inputs.py'}"))
         self.assertNotIn("${{", script)

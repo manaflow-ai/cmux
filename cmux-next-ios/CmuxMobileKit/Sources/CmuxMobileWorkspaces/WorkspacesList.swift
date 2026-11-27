@@ -1077,8 +1077,10 @@ public struct WorkspacesList: View {
         } else {
             EmptyState(
                 symbol: "moon.zzz",
-                title: "Your Macs are asleep",
-                message: "Wake a Mac or open cmux on it to see its workspaces."
+                // The service only knows no Mac has cmux connected (quit, restarting, no network
+                // or asleep): never claim the Mac sleeps (Aziz, 2026-11-25: "it says mac is asleep incorrect").
+                title: "Your Macs are offline",
+                message: "Open cmux on a Mac and make sure it's awake and online to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.asleep")
         }
@@ -2000,6 +2002,7 @@ final class ShimmerHighlightView: UIView {
         CATransaction.commit()
         // motion: allow the sweep is the shimmer itself; Reduce Motion never mounts it (ShimmerText).
         let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         sweep.fromValue = -width * 0.4
         sweep.toValue = width
         sweep.duration = 1.6
