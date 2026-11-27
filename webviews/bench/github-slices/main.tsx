@@ -38,18 +38,31 @@ const files = Array.from({ length: FILES }, (_, index) => ({
   additions: (index * 7) % 90,
   deletions: (index * 3) % 40,
 }));
-const conversation: ConversationEntry[] = Array.from({ length: ENTRIES }, (_, index) => ({
-  kind: index % 3 === 0 ? "review" : "comment",
-  author: `reviewer${index % 9}`,
-  body: `Point ${index}: the **sidebar** keeps its order after a drag; see \`File${index}.swift\`.`,
-  at: new Date(Date.UTC(2026, 10, 5) - index * 60_000).toISOString(),
-  url: `${MOCK_URL}#discussion-${index}`,
-  state: index % 3 === 0 ? "commented" : null,
-  comments:
-    index % 3 === 0
-      ? [{ path: files[index % FILES]!.path, line: index, body: `Nit ${index}.`, url: `${MOCK_URL}#r${index}`, thread: `T${index}`, resolved: false }]
-      : [],
-}) as ConversationEntry);
+const conversation: ConversationEntry[] = Array.from(
+  { length: ENTRIES },
+  (_, index) =>
+    ({
+      kind: index % 3 === 0 ? "review" : "comment",
+      author: `reviewer${index % 9}`,
+      body: `Point ${index}: the **sidebar** keeps its order after a drag; see \`File${index}.swift\`.`,
+      at: new Date(Date.UTC(2026, 10, 5) - index * 60_000).toISOString(),
+      url: `${MOCK_URL}#discussion-${index}`,
+      state: index % 3 === 0 ? "commented" : null,
+      comments:
+        index % 3 === 0
+          ? [
+              {
+                path: files[index % FILES]!.path,
+                line: index,
+                body: `Nit ${index}.`,
+                url: `${MOCK_URL}#r${index}`,
+                thread: `T${index}`,
+                resolved: false,
+              },
+            ]
+          : [],
+    }) as ConversationEntry,
+);
 
 let snapshot: GitHubSnapshot = {
   target: { url: MOCK_URL, repo: "example/app", number: 482 },
@@ -89,7 +102,10 @@ window.benchWrite = (sending) =>
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key, ...args) => [key, ...args].join(" ") };
 createRoot(document.getElementById("root")!).render(
-  <Profiler id="github" onRender={(_id, _phase, actual, _base, _start, commit) => window.benchCommits.push([commit, actual])}>
+  <Profiler
+    id="github"
+    onRender={(_id, _phase, actual, _base, _start, commit) => window.benchCommits.push([commit, actual])}
+  >
     <GitHubPage store={store} strings={strings} now={() => Date.UTC(2026, 10, 5, 3)} />
   </Profiler>,
 );
