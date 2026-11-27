@@ -220,8 +220,11 @@ await requireBrowserLane("agent-pane-jump-unseen.browser.test.ts", async () => {
         const w = window as unknown as { __focused: boolean };
         w.__focused = true;
         Document.prototype.hasFocus = () => w.__focused;
-        // Jump up is off by default (jumpUp.experiment.ts, #42247): these test the control turned up.
-        (globalThis as { cmuxExperiments?: { [key: string]: string } }).cmuxExperiments = { "jump-up": "on" };
+        // Enable both Jump up and its look: the default single look deliberately suppresses Up.
+        (globalThis as { cmuxExperiments?: { [key: string]: string } }).cmuxExperiments = {
+          "jump-up": "on",
+          "jump-pair-look": "frosted",
+        };
       });
       await tab.goto(url());
     } else await tab.reload();
