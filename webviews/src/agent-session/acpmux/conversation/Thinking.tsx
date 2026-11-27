@@ -60,6 +60,7 @@ import { useAgentSignature } from "./agentSignatureModel";
 import { AgentSignature } from "./AgentSignature";
 import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
 import "../../../ui/motion/motion.css";
+import { motionToken } from "../../../ui/motion/motionTokens";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -505,8 +506,10 @@ function countsMove(node: Element): boolean {
 }
 
 /// The arrival step (`--agent-motion-arrive`), in ms.
+/// Kept per page and theme (motionTokens.ts): read here, after the commit's writes, a glide recalculated
+/// the page's style each time the counts moved.
 function arriveMs(node: Element): number {
-  const value = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-arrive").trim();
+  const value = motionToken(node, "--agent-motion-arrive");
   const ms = value?.endsWith("ms")
     ? Number.parseFloat(value)
     : value?.endsWith("s")

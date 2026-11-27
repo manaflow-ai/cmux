@@ -79,7 +79,13 @@ import {
 import { writeScrollBy, writeScrollTop } from "./conversation/scrollController";
 import { AnchoredTranscript, anchoredListEnabled } from "./conversation/AnchoredTranscript";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
-import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
+import {
+  arriveTiming,
+  createTailGlide,
+  type PlacedRows,
+  TAIL_GLIDE_TOKENS,
+  type TailGlide,
+} from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned, pinnedLiveRow } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
@@ -635,6 +641,8 @@ const SEND_RISE_MS = 1000;
 
 /// The tokens a send's commit reads on the scroller and the thread (warmMotionTokens keeps them read).
 const SEND_MOTION_TOKENS = ["--agent-motion-send", "--agent-motion-move", "--agent-motion-in"] as const;
+/// The thread's: a send's and each streamed record's tail glide (tailGlide.ts), kept warm so no commit reads one.
+const THREAD_MOTION_TOKENS = [...new Set([...SEND_MOTION_TOKENS, ...TAIL_GLIDE_TOKENS])];
 
 /// A send's clock on `node` (`--agent-motion-send`, the scale's send step scaled by the host's speed).
 /// The product's is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just do
@@ -5604,14 +5612,11 @@ function TranscriptView({
       () => ref.current?.getBoundingClientRect(),
     );
     refreshPinned(thread.current);
-    finishCarry(thread.current, carry, (px) => {
-      const style = thread.current ? getComputedStyle(thread.current) : undefined;
-      const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;
-      return {
-        ms: floor > 0 ? arrivalStepMs(px, 1, floor) : 0,
-        easing: ARRIVAL_EASE,
-      };
-    });
+    // The arrival token is kept per page and theme (motionTokens.ts): no style recalc in this pass.
+    const carried = thread.current;
+    finishCarry(carried, carry, (px) =>
+      carried ? arriveTiming(carried, px) : { ms: arrivalStepMs(px, 1, MOTION_MS.quick), easing: ARRIVAL_EASE },
+    );
     // A send's hold (motionTransaction.ts `expect`): what this pass moved at once stays drawn where
     // the hold began, and the prompt's rows landing release the whole shift as one motion.
     const held = thread.current && transactionOn(thread.current) ? threadTransaction(thread.current) : undefined;
@@ -6236,7 +6241,7 @@ function TranscriptView({
   useEffect(() => {
     const stops = [ref.current, thread.current]
       .filter((node): node is HTMLDivElement => node !== null)
-      .map((node) => warmMotionTokens(node, SEND_MOTION_TOKENS));
+      .map((node) => warmMotionTokens(node, node === thread.current ? THREAD_MOTION_TOKENS : SEND_MOTION_TOKENS));
     // The motion gate's own read (motionMode, on the root).
     const root = ref.current?.ownerDocument.documentElement;
     if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in"]));
