@@ -121,7 +121,7 @@ import Testing
         "npm" + "_0123456789abcdefghijklmnopqrstuvwxyz",
         "hf" + "_0123456789abcdefghijklmnopqrstuvwx",
         "AIz" + "aSyA0123456789abcdefghijklmnopqrstuv",
-    ])
+    ] as [String])
     func redactsMoreProviderTokens(token: String) {
         #expect(scrubber.scrub("push with \(token) now") == "push with <redacted-secret> now")
     }

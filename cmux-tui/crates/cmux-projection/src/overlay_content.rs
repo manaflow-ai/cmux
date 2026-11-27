@@ -19,14 +19,20 @@
 //!   ([`Content::age`]). A read thaws it back into `blobs/`; one still unread [`DELETE_AFTER`]
 //!   after its last read is deleted unless a pin covers it. A blob's file mtime is its last read
 //!   (kept to the hour), so the ages outlive the daemon.
+//! - `recipes/<sha256 hex>`: for a blob over [`crate::cdc::PROJECTION_MIN_FILE`], its
+//!   content-defined chunks (RFD 0065 piece 13), so a chunk of a blob held here is found by its
+//!   own hash when a shared store ([`super::shared`], piece 12, off by default) sends a newer
+//!   version of the file as a recipe.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use super::shared::{Shared, Transfer, decode_recipe, encode_recipe};
 
 use sha2::Digest as _;
 
@@ -72,6 +78,9 @@ struct Inner {
     /// Records in the index file, live or not.
     records: usize,
     index: Option<fs::File>,
+    /// Each chunk of a chunked blob: the blob, its offset and length; and each blob's chunks.
+    chunks: HashMap<Hash, (Hash, u64, u32)>,
+    recipes: HashMap<Hash, Vec<Hash>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -105,7 +114,21 @@ impl Inner {
         if let Some((_, tick)) = self.blobs.remove(hash) {
             self.order.remove(&tick);
         }
+        for chunk in self.recipes.remove(hash).unwrap_or_default() {
+            if self.chunks.get(&chunk).is_some_and(|(blob, _, _)| blob == hash) {
+                self.chunks.remove(&chunk);
+            }
+        }
         self.read_at.remove(hash);
+    }
+
+    fn index_recipe(&mut self, blob: Hash, chunks: &[(Hash, u32)]) {
+        let mut offset = 0u64;
+        for (chunk, len) in chunks {
+            self.chunks.insert(*chunk, (blob, offset, *len));
+            offset += u64::from(*len);
+        }
+        self.recipes.insert(blob, chunks.iter().map(|(chunk, _)| *chunk).collect());
     }
 
     fn holds(&self, hash: &Hash) -> bool {
@@ -191,6 +214,11 @@ fn mtime_secs(meta: &fs::Metadata) -> u64 {
 /// The store of one projection's state folder.
 pub(super) struct Content {
     blobs: PathBuf,
+    recipes: PathBuf,
+    shared: Option<Arc<dyn Shared>>,
+    hits: AtomicU64,
+    fetched: AtomicU64,
+    reused: AtomicU64,
     cold: PathBuf,
     index_file: PathBuf,
     floor: AtomicU64,
@@ -215,6 +243,19 @@ pub(crate) fn unhex(text: &str) -> Option<Hash> {
 
 pub(super) fn hash_of(bytes: &[u8]) -> Hash {
     sha2::Sha256::digest(bytes).into()
+}
+
+/// The recipe of `bytes` when the projection chunks them (over
+/// [`crate::cdc::PROJECTION_MIN_FILE`]): each chunk's hash and length.
+fn recipe_of(bytes: &[u8]) -> Option<Vec<(Hash, u32)>> {
+    use crate::cdc::{PROJECTION, PROJECTION_MIN_FILE, spans};
+    if (bytes.len() as u64) <= PROJECTION_MIN_FILE {
+        return None;
+    }
+    spans(&PROJECTION, bytes)
+        .into_iter()
+        .map(|(at, len)| Some((hash_of(bytes.get(at..at + len)?), u32::try_from(len).ok()?)))
+        .collect()
 }
 
 fn record(name: &Name, hash: &Hash) -> Vec<u8> {
@@ -257,6 +298,8 @@ impl Content {
         use std::os::unix::fs::MetadataExt as _;
         let blobs = dir.join("blobs");
         fs::create_dir_all(&blobs).ok()?;
+        let recipes = dir.join("recipes");
+        fs::create_dir_all(&recipes).ok()?;
         let cold = dir.join("cold");
         let index_file = dir.join("index");
         let mut inner = Inner::default();
@@ -303,10 +346,27 @@ impl Content {
                 inner.names.insert(name, hash);
             }
         }
+        for entry in fs::read_dir(&recipes).ok()?.filter_map(Result::ok) {
+            let blob = entry.file_name().to_str().and_then(unhex);
+            let recipe = fs::read(entry.path()).ok().and_then(|bytes| decode_recipe(&bytes));
+            match (blob, recipe) {
+                (Some(blob), Some((_, chunks))) if inner.holds(&blob) => {
+                    inner.index_recipe(blob, &chunks);
+                }
+                _ => {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
         let Inner { names, blobs: hot, cold: frozen, .. } = &mut inner;
         names.retain(|_, hash| hot.contains_key(hash) || frozen.contains_key(hash));
         let store = Self {
             blobs,
+            recipes,
+            shared: None,
+            hits: AtomicU64::new(0),
+            fetched: AtomicU64::new(0),
+            reused: AtomicU64::new(0),
             cold,
             index_file,
             floor: AtomicU64::new(DEFAULT_CONTENT_FLOOR),
@@ -333,6 +393,33 @@ impl Content {
 
     fn blob_path(&self, hash: &Hash) -> PathBuf {
         self.blobs.join(hex(hash))
+    }
+
+    fn recipe_path(&self, hash: &Hash) -> PathBuf {
+        self.recipes.join(hex(hash))
+    }
+
+    /// Drops blob `hash` and its recipe from the disk.
+    fn drop_blob(&self, inner: &mut Inner, hash: &Hash) {
+        inner.forget(hash);
+        let _ = fs::remove_file(self.blob_path(hash));
+        let _ = fs::remove_file(self.recipe_path(hash));
+    }
+
+    /// This store reading through to `shared` (RFD 0065 piece 12; `None`, the default, reads
+    /// nothing from and publishes nothing to any shared store).
+    pub(super) fn with_shared(mut self, shared: Option<Arc<dyn Shared>>) -> Self {
+        self.shared = shared;
+        self
+    }
+
+    /// What reads through to the shared store moved.
+    pub(super) fn transfer(&self) -> Transfer {
+        Transfer {
+            hits: self.hits.load(Ordering::Relaxed),
+            fetched: self.fetched.load(Ordering::Relaxed),
+            reused: self.reused.load(Ordering::Relaxed),
+        }
     }
 
     /// Writes the index again with only the live names.
@@ -379,9 +466,33 @@ impl Content {
             Some(bytes) if hash_of(&bytes) == hash => Some((hash, bytes)),
             _ => {
                 let mut inner = self.lock();
-                inner.forget(&hash);
+                self.drop_blob(&mut inner, &hash);
                 inner.names.remove(name);
-                let _ = fs::remove_file(self.blob_path(&hash));
+                None
+            }
+        }
+    }
+
+    /// Whether the store holds the blob `hash` (a listing's hash of a whole file, RFD 0065 piece
+    /// 6): found by what the bytes are, so a renamed or touched file is a hit with no index record.
+    pub(super) fn has_hash(&self, hash: &Hash) -> bool {
+        self.lock().blobs.contains_key(hash)
+    }
+
+    /// Blob `hash`'s bytes, checked against it (a damaged blob is dropped, never served).
+    pub(super) fn get_hash(&self, hash: &Hash) -> Option<Vec<u8>> {
+        {
+            let mut inner = self.lock();
+            if !inner.blobs.contains_key(hash) {
+                return None;
+            }
+            inner.touch(*hash);
+        }
+        match fs::read(self.blob_path(hash)) {
+            Ok(bytes) if hash_of(&bytes) == *hash => Some(bytes),
+            _ => {
+                self.lock().forget(hash);
+                let _ = fs::remove_file(self.blob_path(hash));
                 None
             }
         }
@@ -418,38 +529,12 @@ impl Content {
     }
 
     /// Keeps `bytes` as `name`'s, making room down to the floor first (least recently used blobs
-    /// go). Returns the hash it is kept under, or `None` when the disk has no room for it.
+    /// go). Returns the hash it is kept under, or `None` when the disk has no room for it. A new
+    /// blob is published to the shared store when this machine publishes.
     pub(super) fn put(&self, name: Name, bytes: &[u8]) -> Option<Hash> {
         let hash = hash_of(bytes);
-        let size = bytes.len() as u64;
         let have = self.lock().blobs.contains_key(&hash);
-        if !have {
-            let temp = self.blobs.join(format!(
-                "tmp-{}-{}",
-                std::process::id(),
-                self.temp.fetch_add(1, Ordering::Relaxed)
-            ));
-            if fs::write(&temp, bytes).is_err() {
-                let _ = fs::remove_file(&temp);
-                return None;
-            }
-            let mut inner = self.lock();
-            // The temp file already took its bytes: room means the floor holds with it written.
-            let floor = self.floor.load(Ordering::Relaxed);
-            while disk_free(&self.blobs) < floor {
-                let Some((_, oldest)) = inner.order.iter().next().map(|(t, h)| (*t, *h)) else {
-                    break;
-                };
-                inner.forget(&oldest);
-                let _ = fs::remove_file(self.blob_path(&oldest));
-            }
-            if disk_free(&self.blobs) < floor || fs::rename(&temp, self.blob_path(&hash)).is_err() {
-                drop(inner);
-                let _ = fs::remove_file(&temp);
-                return None;
-            }
-            inner.add(hash, size, now_secs());
-        }
+        let recipe = if have { None } else { self.keep(hash, bytes)? };
         let mut inner = self.lock();
         if let Some(cold) = inner.cold.remove(&hash) {
             let _ = fs::remove_file(self.cold.join(cold_name(&hash, cold.bytes)));
@@ -464,7 +549,145 @@ impl Content {
             inner.names.insert(name, hash);
             self.append(&mut inner, &line);
         }
+        drop(inner);
+        if !have {
+            self.publish(&hash, bytes, recipe.as_deref());
+        }
         Some(hash)
+    }
+
+    /// Writes blob `hash` (`bytes`) and, when it is chunked, its recipe, which it returns.
+    /// `None` when the disk has no room for it.
+    fn keep(&self, hash: Hash, bytes: &[u8]) -> Option<Option<Vec<(Hash, u32)>>> {
+        let temp = self.blobs.join(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            self.temp.fetch_add(1, Ordering::Relaxed)
+        ));
+        if fs::write(&temp, bytes).is_err() {
+            let _ = fs::remove_file(&temp);
+            return None;
+        }
+        let recipe = recipe_of(bytes);
+        let mut inner = self.lock();
+        // The temp file already took its bytes: room means the floor holds with it written.
+        let floor = self.floor.load(Ordering::Relaxed);
+        while disk_free(&self.blobs) < floor {
+            let Some(oldest) = inner.order.values().next().copied() else { break };
+            self.drop_blob(&mut inner, &oldest);
+        }
+        if disk_free(&self.blobs) < floor || fs::rename(&temp, self.blob_path(&hash)).is_err() {
+            drop(inner);
+            let _ = fs::remove_file(&temp);
+            return None;
+        }
+        inner.add(hash, bytes.len() as u64, now_secs());
+        if let Some(chunks) = &recipe {
+            let size = bytes.len() as u64;
+            if fs::write(self.recipe_path(&hash), encode_recipe(size, chunks)).is_ok() {
+                inner.index_recipe(hash, chunks);
+            }
+        }
+        Some(recipe)
+    }
+
+    /// Puts blob `hash` in the shared store when this machine publishes: a chunked blob as the
+    /// chunks the store lacks and its recipe under the blob's hash, any other whole.
+    fn publish(&self, hash: &Hash, bytes: &[u8], recipe: Option<&[(Hash, u32)]>) {
+        let Some(shared) = self.shared.as_ref().filter(|shared| shared.publishes()) else {
+            return;
+        };
+        if shared.has(hash) {
+            return;
+        }
+        let Some(chunks) = recipe else {
+            shared.put(hash, bytes);
+            return;
+        };
+        let mut at = 0usize;
+        for (chunk, len) in chunks {
+            let len = *len as usize;
+            let Some(piece) = bytes.get(at..at + len) else { return };
+            if !shared.has(chunk) && !shared.put(chunk, piece) {
+                // A recipe naming a chunk the store lacks would fail every reader.
+                return;
+            }
+            at += len;
+        }
+        shared.put(hash, &encode_recipe(bytes.len() as u64, chunks));
+    }
+
+    /// Blob `hash`'s bytes, checked against it: from this disk, else read through to the shared
+    /// store (a chunked blob takes only the chunks this disk lacks) and kept here. `None` when
+    /// neither holds it.
+    // The overlay asks by the listing's hash of a file (RFD 0065 piece 6, cmux#54805, where it
+    // takes the place of `get_hash`); until that lands only the tests ask by hash.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn fetch(&self, hash: &Hash) -> Option<Vec<u8>> {
+        let local = {
+            let mut inner = self.lock();
+            let held = inner.blobs.contains_key(hash);
+            if held {
+                inner.touch(*hash);
+            }
+            held
+        };
+        if local {
+            match fs::read(self.blob_path(hash)) {
+                Ok(bytes) if hash_of(&bytes) == *hash => return Some(bytes),
+                _ => self.drop_blob(&mut self.lock(), hash),
+            }
+        }
+        let shared = self.shared.as_ref()?;
+        let answer = shared.get(hash)?;
+        let bytes = if hash_of(&answer) == *hash {
+            self.fetched.fetch_add(answer.len() as u64, Ordering::Relaxed);
+            answer
+        } else {
+            let (size, chunks) = decode_recipe(&answer)?;
+            let mut bytes = Vec::with_capacity(usize::try_from(size).ok()?);
+            for (chunk, len) in &chunks {
+                let piece = match self.chunk(chunk, *len) {
+                    Some(piece) => {
+                        self.reused.fetch_add(u64::from(*len), Ordering::Relaxed);
+                        piece
+                    }
+                    None => {
+                        let piece = shared.get(chunk).filter(|piece| hash_of(piece) == *chunk)?;
+                        self.fetched.fetch_add(piece.len() as u64, Ordering::Relaxed);
+                        piece
+                    }
+                };
+                bytes.extend_from_slice(&piece);
+            }
+            if hash_of(&bytes) != *hash {
+                return None;
+            }
+            bytes
+        };
+        self.hits.fetch_add(1, Ordering::Relaxed);
+        // Kept when the disk has room; served either way.
+        let _ = self.keep(*hash, &bytes);
+        Some(bytes)
+    }
+
+    /// Chunk `chunk` (`len` bytes) from a blob this disk holds, checked against its hash.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn chunk(&self, chunk: &Hash, len: u32) -> Option<Vec<u8>> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let (blob, offset, held) = {
+            let inner = self.lock();
+            let found = *inner.chunks.get(chunk)?;
+            inner.blobs.contains_key(&found.0).then_some(found)?
+        };
+        if held != len {
+            return None;
+        }
+        let mut file = fs::File::open(self.blob_path(&blob)).ok()?;
+        file.seek(SeekFrom::Start(offset)).ok()?;
+        let mut piece = vec![0u8; len as usize];
+        file.read_exact(&mut piece).ok()?;
+        (hash_of(&piece) == *chunk).then_some(piece)
     }
 
     fn append(&self, inner: &mut Inner, line: &[u8]) {
