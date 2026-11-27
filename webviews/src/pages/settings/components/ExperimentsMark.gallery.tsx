@@ -154,8 +154,7 @@ export default componentEntry<Props>({
   styles: async () => {
     await import("../../shared/pageBase.css");
     await import("../../../ui/ui.css");
-    await import("../../../app-health/appHealth.css");
-    await import("../../../app-health/AppHealthFooterRow.gallery.css");
+    await import("./ExperimentsMarkFooter.gallery.css");
     await import("./ExperimentsMark.gallery.css");
   },
   variants,

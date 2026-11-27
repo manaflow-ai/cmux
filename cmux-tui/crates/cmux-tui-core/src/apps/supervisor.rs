@@ -125,6 +125,18 @@ pub trait OpRouter: Send + Sync {
     fn close_backend_terminal(&self, surface: crate::SurfaceId) {
         let _ = surface;
     }
+    /// The effective value of the dotted cmux setting `key` (a setting-backed App Store entry's
+    /// switch, `store.rs`); None when unset or without a settings owner.
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        let _ = key;
+        None
+    }
+    /// Writes the dotted cmux setting `key` as the person's own change (the store checked the
+    /// request's origin is the user).
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), ApiError> {
+        let _ = (key, value);
+        Err(ApiError::new("apps.setting.unavailable", "no settings owner"))
+    }
 }
 
 pub struct Config {
@@ -223,6 +235,11 @@ pub(super) struct Host {
     /// Kept up by the manifest's `activation` (`activation.rs`): stopped
     /// when the app may no longer run in the background.
     pub background: bool,
+    /// The last `state` the host sent (`cmux.state`), in memory only. A
+    /// restart of this record (a local reload, a grant change) hands it to
+    /// the next host's `init`; a crash drops it, and it goes with the record
+    /// when the app stops, is removed or idles out.
+    pub kept_state: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -307,6 +324,8 @@ pub(super) struct Inner {
     pub widgets: super::widgets::WidgetState,
     /// Extension signal sources' last values and floors (`signal_sources.rs`).
     pub signal_sources: super::signal_sources::SignalSources,
+    /// `cmux.pane/1` opens with arguments, waiting for the pane's result (`pane_flow.rs`).
+    pub pane_opens: super::pane_flow::PaneOpens,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -354,6 +373,8 @@ pub struct Supervisor {
     /// The App Store's Community source (`community.rs`), made on first use.
     pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
+    /// Synced app storage's cloud link and outbox sender (`synced.rs`).
+    pub(super) synced: super::synced::SyncState,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
@@ -514,6 +535,7 @@ impl Supervisor {
                 pages: Default::default(),
                 widgets: Default::default(),
                 signal_sources: Default::default(),
+                pane_opens: Default::default(),
             }),
             config,
             router,
@@ -523,6 +545,7 @@ impl Supervisor {
             signals: Mutex::default(),
             community: OnceLock::new(),
             storage: Mutex::new(None),
+            synced: super::synced::SyncState::default(),
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
@@ -709,6 +732,8 @@ impl Supervisor {
         }
         if outcome.changed {
             outs.extend(self.sync_server_locked(inner, &app));
+            // An app that starts syncing here reads the rows other devices wrote.
+            self.appkv_refresh_locked(inner);
         }
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
@@ -930,7 +955,12 @@ impl Supervisor {
         let storage = self.storage();
         let value = storage
             .as_ref()?
-            .call(app, "app.storage.get", &json!({ "key": super::page_keys::OVERRIDES_KEY }))
+            .call(
+                app,
+                "app.storage.get",
+                &json!({ "key": super::page_keys::OVERRIDES_KEY }),
+                Self::synced_locked(inner, app),
+            )
             .ok()?;
         value.is_object().then_some(value)
     }
@@ -1124,6 +1154,9 @@ pub(super) fn entry(
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
+        // `contributes.keybindings` in keybindings.json form, for the
+        // client's app binding layer (an own op runs as `app.command.run`).
+        "keybindings": package.map(Package::keybindings).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
         // The web panes the client may host (`render: web`): each page's
         // file root inside `bundle_dir` and its entry file, as the manifest

@@ -48,6 +48,7 @@ mod send_gate;
 #[cfg(test)]
 mod send_gate_tests;
 mod single_path;
+mod stall_trace;
 mod stream;
 #[cfg(test)]
 mod tcp_model_tests;
@@ -68,7 +69,10 @@ mod watchdog;
 mod wire;
 
 pub use cmux_transport::{Medium, PathId, PathKind, PathState, SelectorConfig};
-pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
+pub use config::{
+    ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, OVERHEAD_V4, OVERHEAD_V6,
+    SMALLEST_CLOUD_PATH_MTU, WgConfig, inner_mtu_for_path,
+};
 pub use ip_network::IpNetwork;
 pub use mesh::{WgMesh, WgMeshConfig, WgMeshListener, WgPeer};
 pub use mesh_paths::{MeshPathView, PeerCandidate};

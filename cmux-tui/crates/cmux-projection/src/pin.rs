@@ -233,7 +233,7 @@ impl Overlay {
     }
 
     /// Every file under every pin this manifest has, and their bytes.
-    fn pinned_files(&self) -> (HashSet<u32>, u64) {
+    pub(super) fn pinned_files(&self) -> (HashSet<u32>, u64) {
         let mut all = HashSet::new();
         for path in self.pins() {
             if let Ok((files, _)) = self.files_under(&path) {
@@ -288,7 +288,7 @@ impl Overlay {
     }
 
     /// The cache keys file `file` of `size` bytes is stored under.
-    fn keys_of(file: u32, size: u64) -> impl Iterator<Item = Key> {
+    pub(super) fn keys_of(file: u32, size: u64) -> impl Iterator<Item = Key> {
         let chunks = if size <= CHUNK { 0 } else { size.div_ceil(CHUNK) };
         let whole = (chunks == 0).then_some((file, WHOLE));
         whole
@@ -321,10 +321,11 @@ impl Overlay {
                 let got = if key.1 == WHOLE {
                     self.whole(file).map(drop)
                 } else {
-                    self.chunk(file, key.1, size).map(drop)
+                    self.chunk(file, key.1).map(drop)
                 };
                 if let Err(errno) = got {
-                    failed = Some(errno);
+                    // A file re-listed under the pin is left for the next one.
+                    failed = Some(if errno == RETRY { EIO } else { errno });
                     break;
                 }
             }

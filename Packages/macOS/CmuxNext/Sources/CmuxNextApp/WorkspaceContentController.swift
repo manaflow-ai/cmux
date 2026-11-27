@@ -181,6 +181,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.dividerMenu = { [weak services, weak self] split in // the catalog's divider rows (DividerActions), on the split
             self.flatMap { services?.registry.makeContextMenu(for: .divider, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id), arguments: ["split": .string(split.rawValue)], machineID: $0.daemon.machineID).themeRows(in: $0.themeScope.fullStrength) }
         }
+        layoutView.frameTiming = services.frameTiming
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
@@ -436,6 +437,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let content = panes[pane]?.currentContent else { return false }
         if case .agent = content { return true }
         return false
+    }
+
+    /// The frame-timing log's `surface` and blank signal (`TransitionFrameLog`): the shown content's kind and whether it presented.
+    func transitionSurface(for pane: LayoutPaneID) -> (kind: String, presented: Bool)? {
+        guard let content = panes[pane]?.currentContent else { return nil }
+        if case .terminal(let entry) = content { return ("terminal", entry.session.showsContent) }
+        return (PaneController.kind(of: content), PaneController.pageVisibility(of: content)?.isVisible ?? true)
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {

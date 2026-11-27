@@ -25,6 +25,9 @@ test("a start shows the message and the folder by its name", () => {
     cwd: "/Users/me/src/paint",
   });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
+  expect(
+    cloudStartBegun("k", "t", undefined, undefined, undefined, undefined, undefined, undefined, "env_1").environment,
+  ).toBe("env_1");
 });
 
 test("a start waiting on its browser sign-in is marked until it signs in or ends", () => {
@@ -506,4 +509,14 @@ test("each step's clock starts when the page saw it begin, and a running copy ke
     2_000,
   );
   expect(hosted?.machineStartedAt).toBe(500);
+});
+
+test("the host's waking push says Waking machine on the machine step until it ends, keeping the step", () => {
+  const machine = cloudStartPushed(begun(), { key: "k-1", step: "machine" });
+  const waking = cloudStartPushed(machine, { key: "k-1", waking: true });
+  expect(waking?.waking).toBe(true);
+  expect(waking?.step).toBe("machine");
+  expect(cloudStartPushed(waking, { key: "k-2", waking: false })?.waking).toBe(true);
+  expect(cloudStartPushed(waking, { key: "k-1", waking: false })?.waking).toBeUndefined();
+  expect(cloudStartPushed(machine, { key: "k-1", waking: "yes" })?.waking).toBeUndefined();
 });

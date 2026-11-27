@@ -127,7 +127,7 @@ fn run_reader(hang_up: bool, setup: impl FnOnce(&mut File)) -> String {
 
     let (mut master, slave) = open_pty();
     let mut child = Command::new(std::env::current_exe().expect("test binary path"))
-        .arg(CHILD_TEST)
+        .arg(own_test_name(CHILD_TEST))
         .arg("--exact")
         .arg("--nocapture")
         .env(CHILD_DIR_ENV, directory)
@@ -300,4 +300,13 @@ fn open_pty() -> (File, OwnedFd) {
     }
     // SAFETY: both descriptors are fresh, owned, and valid.
     unsafe { (File::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) }
+}
+
+/// The full name of the test `name` of this file, for `--exact`: its file's module path in
+/// tests/it (`dead_tty_input::NAME`), or `NAME` when the file is a test binary of its own.
+fn own_test_name(name: &str) -> String {
+    match module_path!().split_once("::") {
+        Some((_, module)) => format!("{module}::{name}"),
+        None => name.to_owned(),
+    }
 }

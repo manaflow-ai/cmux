@@ -16,6 +16,8 @@ import WebKit
     @Test func aBrowserLeftForAnotherTabKeepsItsPictureOnItsCard() async throws {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(), clock: GridTestClock())
+        source.paneFilter = PaneFilterSetting(defaults: nil)
+        source.paneFilter.showsBrowsers = true
         source.opened()
         let docs = try #require(source.workspace?.tabs.first { $0.id == "t-docs" })
         let page = source.localBrowser(docs)

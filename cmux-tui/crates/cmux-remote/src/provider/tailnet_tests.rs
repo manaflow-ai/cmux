@@ -104,6 +104,7 @@ async fn a_blackholed_tailnet_candidate_falls_back_on_the_next_hedge() {
         super::super::hedge::HedgePolicy {
             stagger: Duration::from_millis(10),
             attempt_timeout: Duration::from_millis(50),
+            last_attempt_timeout: Duration::from_millis(50),
             max_in_flight: 2,
             max_attempts: 2,
         },
@@ -119,6 +120,7 @@ async fn a_blackholed_tailnet_candidate_falls_back_on_the_next_hedge() {
     .await
     .expect("ordinary route should win when tailnet is black-holed");
     assert_eq!(connected, existing[0]);
+    eprintln!("blackholed tailnet fallback: won after {:?} (virtual)", started.elapsed());
     assert!(started.elapsed() < Duration::from_millis(80));
 }
 
@@ -213,4 +215,46 @@ fn no_view_or_a_stopped_tailscaled_gives_no_candidate() {
         Some(stopped.clone())
     }));
     assert_eq!(add_candidates(&existing, "box", TailnetCarrierMode::DirectOnly, &hints), existing);
+}
+
+/// The default (direct-only) with tailscaled absent or hung: each race reads the
+/// cached snapshot from memory, never waits on tailscaled, and adds no candidate.
+#[test]
+fn an_absent_or_hung_tailscaled_never_delays_a_race() {
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    use cmux_tailnet_local::{Error, Fetcher, SnapshotConfig, TailnetLocal};
+
+    const RACES: u32 = 2_000;
+    let existing = [address("192.0.2.50:7319")];
+    let absent: Fetcher = Arc::new(|_| Err(Error::Unavailable("no tailscaled")));
+    let hung: Fetcher = Arc::new(|_| {
+        std::thread::sleep(Duration::from_secs(2));
+        Err(Error::Timeout)
+    });
+    let off = super::hints_for_mode(TailnetCarrierMode::Off);
+    let mut sources: Vec<(&str, TailnetCarrierMode, Arc<dyn TailnetHints>)> =
+        vec![("off", TailnetCarrierMode::Off, off)];
+    for (name, fetch) in [("absent", absent), ("hung", hung)] {
+        let local = Arc::new(TailnetLocal::with_fetcher(SnapshotConfig::default(), fetch));
+        let hints = super::LocalApiTailnetHints::with_reader(Arc::new(move || local.snapshot()));
+        sources.push((name, TailnetCarrierMode::DirectOnly, Arc::new(hints)));
+    }
+    for (name, mode, hints) in sources {
+        let mut each = Vec::with_capacity(RACES as usize);
+        for _ in 0..RACES {
+            let started = Instant::now();
+            let candidates = add_candidates(&existing, "box", mode, hints.as_ref());
+            each.push(started.elapsed());
+            assert_eq!(candidates, existing, "{name}: no tailnet candidate");
+        }
+        each.sort();
+        let mean = each.iter().sum::<Duration>() / RACES;
+        let p99 = each[each.len() * 99 / 100];
+        let worst = each[each.len() - 1];
+        eprintln!("tailnet race cost {name} ({mode:?}): mean {mean:?} p99 {p99:?} worst {worst:?}");
+        assert!(mean < Duration::from_millis(1), "{name}: mean {mean:?} per race");
+        assert!(p99 < Duration::from_millis(1), "{name}: p99 {p99:?} per race");
+    }
 }

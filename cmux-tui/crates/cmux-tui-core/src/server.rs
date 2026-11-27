@@ -198,6 +198,7 @@ pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_features;
 mod attachment_http;
 mod bookmarks;
 mod bookmarks_routed;
@@ -235,6 +236,8 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
 pub(crate) use launch_snapshot::{
     LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
 };
@@ -295,6 +298,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
@@ -366,6 +370,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod phone_link;
 mod shell_wire;
 mod url_open;
 #[cfg(test)]
@@ -596,6 +601,9 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// Keep Workspace Awake mirrored from a Mac: `keep_awake` on `set-workspace-metadata` and the
+/// `keep_awake` workspace field. The freeing timer never ends a kept-awake workspace's shells.
+pub const WORKSPACE_KEEP_AWAKE_CAPABILITY: &str = "workspace-keep-awake-v1";
 /// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
@@ -919,6 +927,13 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Answered while the owner restores its session too, with
+        /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
+        /// without it, held until the restore ends. A ready owner ignores it.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     BrowserHostProvider,
     /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
@@ -987,6 +1002,12 @@ enum Command {
         request_id: String,
         opened: bool,
     },
+    /// The Mac app asks before it opens a link a terminal program asked a browser for: the phone
+    /// that drives the terminal gets it (`phone_link.rs`). Unix, this Mac's own app only.
+    OfferLinkToPhone {
+        terminal_id: String,
+        url: String,
+    },
     TerminalClipboardSubscribe {
         terminal_ids: Vec<String>,
     },
@@ -1012,6 +1033,12 @@ enum Command {
     /// optional sections (`resource_projection`); unknown names are ignored.
     ServerStats {
         include: Option<Vec<String>>,
+        /// While the owner restores: refused with `server.restoring` and the
+        /// restore's progress at once, instead of held until it ends.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
@@ -1606,6 +1633,11 @@ enum Command {
         /// same request (`{kind: "browser", url, engine, ...}`).
         #[serde(default)]
         first_tab: Option<frontend_browser_history::FirstTabParams>,
+        /// `user`: `name` is exactly what the caller asked for (`agents chat
+        /// new --name`), pinned like a rename (#56422). Absent or `auto`: a
+        /// starting name the automatic namer may replace.
+        #[serde(default)]
+        name_source: Option<crate::resource_name::NameSource>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2061,7 +2093,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin, manual unread mark
+    /// and Keep Awake.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2077,6 +2110,9 @@ enum Command {
         pinned: Option<bool>,
         #[serde(default)]
         marked_unread: Option<bool>,
+        /// Keep Workspace Awake (`workspace-keep-awake-v1`).
+        #[serde(default)]
+        keep_awake: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3023,9 +3059,10 @@ use worker_admission::{
 };
 
 mod render_service;
+pub use render_service::ATTACH_FRAMES_CAPABILITY;
 use render_service::{
-    BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
-    write_kitty_image_aliases_json, write_kitty_replay_state_json,
+    BudgetedFrame, BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io,
+    write_base64_json_string, write_kitty_image_aliases_json, write_kitty_replay_state_json,
 };
 #[cfg(test)]
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
@@ -3340,12 +3377,19 @@ mod starter_exit_tests;
 mod terminal_resume_tests;
 
 #[cfg(test)]
+#[path = "server/new_workspace_room_pin_tests.rs"]
+mod new_workspace_room_pin_tests;
+#[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/attach_frames_tests.rs"]
+mod attach_frames_tests;
 
 #[cfg(test)]
 #[path = "server/agent_cli_hybrid_tests.rs"]
@@ -3398,6 +3442,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

@@ -4,10 +4,14 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
+  // A WebKit that cannot launch here (no host libraries on a fleet worker) skips its tests; on
+  // GitHub Actions it fails the file (probeEngineOrSkip).
+  const webkitRuns = await probeEngineOrSkip("settings-sidebar-more-browser.test.ts", "webkit", webkit);
+  const webkitTest = test.if(webkitRuns);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>>;
@@ -44,7 +48,7 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryReady));
   }
 
-  for (const engine of [chromium, webkit]) {
+  for (const engine of webkitRuns ? [chromium, webkit] : [chromium]) {
     test(`${engine.name()}: More's links grow in flow while it opens and closes`, async () => {
       const browser = await engine.launch({ headless: true, timeout: 30_000 });
       try {
@@ -100,11 +104,12 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     }, 30_000);
   }
 
-  test("deep links open fully, and both motion preferences can turn off the transition", async () => {
+  webkitTest("deep links open fully, and both motion preferences can turn off the transition", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "devices");
+      // Keys is one of More's categories (Devices left More for Accounts and Devices, #51582).
+      await open(page, "keys");
       const children = page.locator(group);
       const height = () => children.evaluate((element) => element.getBoundingClientRect().height);
       const transitions = () => children.evaluate((element) => getComputedStyle(element).transitionProperty);
@@ -128,12 +133,13 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     }
   });
 
-  test("holding a hovered sidebar link keeps its fill and animates its contents", async () => {
+  webkitTest("holding a hovered sidebar link keeps its fill and animates its contents", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "devices");
-      const sounds = page.locator('[data-section-link="devices"]');
+      // Two of More's categories, so both links are in its open list (Devices left More, #51582).
+      await open(page, "integrations");
+      const sounds = page.locator('[data-section-link="integrations"]');
       const theme = page.locator('[data-section-link="keys"]');
       const content = (link: typeof theme) => link.locator(".section-link-content");
       const fill = (link: typeof theme) => content(link).evaluate((row) => getComputedStyle(row).backgroundColor);
@@ -160,7 +166,7 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
       expect(await fill(theme)).toBe(selected);
       expect(await scale(theme)).toBe(1);
 
-      await open(page, "devices", { reducedMotion: true });
+      await open(page, "integrations", { reducedMotion: true });
       await theme.hover();
       await page.mouse.down();
       expect(await scale(theme)).toBe(1);
@@ -170,7 +176,7 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     }
   });
 
-  test("in Subtle Tone the cutout follows the selection on release", async () => {
+  webkitTest("in Subtle Tone the cutout follows the selection on release", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
@@ -199,7 +205,7 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     }
   });
 
-  test("a narrow pane keeps More and its links in the scrollable category strip", async () => {
+  webkitTest("a narrow pane keeps More and its links in the scrollable category strip", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
@@ -208,6 +214,8 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
       const keys = page.locator('[data-section-link="keys"]');
       await keys.click();
       expect(await keys.getAttribute("aria-current")).toBe("page");
+      // The link marks itself on click; the route draws the section a moment later.
+      await page.waitForSelector('[data-section="keys"]');
       expect(await page.locator('[data-section="keys"]').count()).toBe(1);
     } finally {
       await browser.close();

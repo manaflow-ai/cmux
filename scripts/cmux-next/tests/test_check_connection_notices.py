@@ -214,6 +214,15 @@ IOS_FIXED = """\
     }
 """
 
+DROP_SET = """\
+    const SELF_HEALING: ReadonlySet<string> = new Set([
+      "Reconnecting",
+    ]);
+    export function readStatusItem(raw: Raw): Item | undefined {
+      if (SELF_HEALING.has(raw.words)) return undefined;
+      return { words: raw.words };
+    }
+"""
 WEB = "webviews/src/agent-session/acpmux"
 PAGE = "webviews/src/pages/editor"
 MAC = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote"
@@ -284,6 +293,165 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_per_key_hold_at_the_bound_passes(self):
+        """useConnectionQuietKeys (ui/lasting.ts) holds each pending row for the bound, as useConnectionQuiet does."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", HELD_NOTICE.replace(
+            "useConnectionQuiet } from", "useConnectionQuietKeys } from").replace(
+            "useConnectionQuiet(retry !== undefined)", "useConnectionQuietKeys(retry ? [\"r\"] : []).has(\"r\")"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_the_text_for_a_failed_send_or_start_is_an_outcome(self):
+        """The words for a send or start the person asked for that did not go through answer their action."""
+        for name in ("failedSendText", "startFailureNotice"):
+            with self.subTest(name=name):
+                tree = Tree(self)
+                tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+                tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", name))
+                code, out = tree.check()
+                self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", "failedSendBadge"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
+
+    def test_a_view_drawing_its_own_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_view_drawing_an_imported_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/RetryButton.tsx", """\
+    export function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+""")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    import { RetryButton } from "./RetryButton";
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_drawn_component_without_an_action_is_no_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function MarkButton() {
+      return <span className="mark" />;
+    }
+    export function AutoResumeNotice({ retry, t }: Props) {
+      return <output className="notice"><MarkButton />{retry ? retryLabel(t, retry.attempt, retry.of) : null}</output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
+    def test_inline_copy_is_judged_at_each_row_that_draws_it(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/strings.ts", PAGE_STRINGS)
+        tree.write(f"{WEB}/StateWord.tsx", """
+            import { L } from "./strings";
+            export function StateWord({ t }) { return <span>{t(L.disconnected)}</span>; }
+        """)
+        tree.write(f"{WEB}/Rows.tsx", """
+            import { StateWord as Badge } from "./StateWord";
+            function LocalWord() { return <Badge />; }
+            export function PairedRow({ connect }) {
+              const pill = <LocalWord />;
+              return <Card pill={pill} action={<button onClick={connect}>Connect</button>} />;
+            }
+            export function BareRow() { return <section><LocalWord /></section>; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("BareRow shows a connection state", out)
+        self.assertNotIn("PairedRow shows", out)
+        self.assertNotIn("StateWord shows", out)
+        self.assertNotIn("LocalWord shows", out)
+
+    def test_unresolved_or_unmounted_inline_copy_stays_a_finding(self):
+        for extra in ["", "export const registry = [StateWord];",
+                      'export { StateWord } from "./StateWord";',
+                      'export const load = () => import("./StateWord");',
+                      'export const load = () => require("./StateWord");',
+                      'export function Nested() { return <StateWord.Other />; }',
+                      'export const example = "<StateWord />";']:
+            with self.subTest(extra=extra):
+                tree = Tree(self)
+                tree.write(f"{WEB}/StateWord.tsx", """
+                    export function StateWord() { return <span>Offline</span>; }
+                """)
+                if extra:
+                    tree.write(f"{WEB}/Use.tsx", f"""
+                        import {{ StateWord }} from "./StateWord";
+                        export function ActionRow() {{ return <button onClick={{connect}}><StateWord /></button>; }}
+                        {extra}
+                    """)
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("StateWord shows a connection state", out)
+
+    def test_relative_action_does_not_cover_unresolved_alias_consumer(self):
+        for declaration, tag in [
+            ('import { StateWord as Badge } from "@/other/component";', "Badge"),
+            ('import Badge from "@/other/StateWord";', "Badge"),
+            ('import * as labels from "@/other/StateWord";', "labels.StateWord"),
+        ]:
+            with self.subTest(declaration=declaration):
+                tree = Tree(self)
+                tree.write(f"{WEB}/StateWord.tsx", """
+                    export function StateWord() { return <span>Offline</span>; }
+                """)
+                tree.write(f"{WEB}/ActionRow.tsx", """
+                    import { StateWord } from "./StateWord";
+                    export function ActionRow() { return <button onClick={connect}><StateWord /></button>; }
+                """)
+                tree.write(f"{WEB}/BareRow.tsx", declaration + f"\nexport function BareRow() {{ return <{tag} />; }}")
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("StateWord shows a connection state", out)
+
+    def test_live_region_keeps_its_own_finding(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/Notice.tsx", """
+            function Notice() { return <span role="status">Offline</span>; }
+            export function Page() { return <section><Notice /><button onClick={save}>Save</button></section>; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Notice shows a connection state", out)
+
+    def test_recursive_presenter_keeps_a_finding(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/Cycle.tsx", """
+            function Word() { return <span>Offline</span>; }
+            function Left() { return <Right><Word /></Right>; }
+            function Right() { return <Left />; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("shows a connection state", out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
@@ -310,6 +478,18 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{PAGE}/PhaseBadge.tsx", NOT_TEXT)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+
+    def test_a_word_set_read_only_to_drop_what_it_names_shows_nothing(self):
+        """composerStatusModel.ts (cmux#55968) keeps the self-healing link words to drop an older acpmux's item."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET.replace(
+            "if (SELF_HEALING.has(raw.words)) return undefined;", "const shown = SELF_HEALING.has(raw.words);"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "a set read for anything but a drop still carries its words to its reader")
 
 
 class NativeShapes(unittest.TestCase):
@@ -413,6 +593,76 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    # The iOS terminal's stalled cover (TerminalLoadStalledPanel, cmux#57933): failure copy with the shared
+    # `RetryButton(action: retry)` beside it, the Button inside RetryButton, in another module.
+    RETRY_BUTTON = ("public struct RetryButton: View {\n"
+                    "    let action: @MainActor () async -> Void\n"
+                    "    public var body: some View { Button { Task { await action() } } label: { Text(\"Retry\") } }\n}\n")
+    DESIGN = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign"
+
+    @staticmethod
+    def stalled_panel(control: str) -> str:
+        return ("struct TerminalLoadStalledPanel: View {\n"
+                "    let retry: @MainActor () async -> Void\n"
+                "    var body: some View {\n"
+                "        VStack {\n"
+                "            Text(verbatim: \"Can't reach this terminal\")\n"
+                f"            {control}\n"
+                "        }\n    }\n}\n")
+
+    def test_a_swift_view_composing_an_action_view_carries_its_action(self):
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("RetryButton(action: retry)"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        # A trailing closure draws it too, and a button wrapping the shared one lends it on.
+        tree.write(f"{IOS}/Screen/PanelRetryButton.swift",
+                   "struct PanelRetryButton: View {\n    let retry: @MainActor () async -> Void\n"
+                   "    var body: some View { RetryButton(style: .inline, action: retry) }\n}\n")
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("PanelRetryButton { await retry() }"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_swift_view_composing_no_action_keeps_its_finding(self):
+        """Each shape fails at the panel: a *Button with no action of its own, one declared out of sight (a system
+        or kit view the scan cannot read), a component not named for an action, a static member or a type
+        annotation (no drawing), and a namesake declared only on another surface."""
+        cases = {
+            "no action": ("StatusButton(action: retry)",
+                          {f"{self.DESIGN}/StatusButton.swift":
+                           "public struct StatusButton: View {\n    let action: () async -> Void\n"
+                           "    public var body: some View { Image(systemName: \"bolt\") }\n}\n"}),
+            "out of sight": ("KitRetryButton(action: retry)", {}),
+            "not an action's name": ("RetryRow(action: retry)",
+                                     {f"{self.DESIGN}/RetryRow.swift":
+                                      self.RETRY_BUTTON.replace("RetryButton", "RetryRow")}),
+            "a static member": ("Text(RetryButton.defaultTitle)", {f"{self.DESIGN}/RetryButton.swift": self.RETRY_BUTTON}),
+            "another surface": ("RetryButton(action: retry)",
+                                {f"{MAC}/RetryButton.swift": self.RETRY_BUTTON}),
+        }
+        for label, (control, files) in cases.items():
+            with self.subTest(label):
+                tree = Tree(self)
+                for path, text in files.items():
+                    tree.write(path, text)
+                tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel(control))
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("TerminalLoadStalledPanel shows a connection state (\"Can't reach this terminal\") with "
+                              "no action and no time bound", out)
+
+    def test_a_swift_declaration_of_an_action_view_is_not_a_drawing(self):
+        """`extension RetryButton {` and `-> RetryButton {` name the type; they draw nothing beside the words."""
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift",
+                   "struct TerminalLoadStalledPanel: View {\n"
+                   "    var body: some View { Text(verbatim: \"Can't reach this terminal\") }\n"
+                   "    func make() -> RetryButton { fatalError() }\n}\n")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_a_model_that_names_its_action_type_is_an_action_and_a_text_field_is_not(self):
         """A row model's `var action: Action?` (Mac Home chief connections) carries the person's action; a field
         that only holds words (`var action: String?`, a subagent's description) does not."""
@@ -465,6 +715,22 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
+
+    def test_a_web_button_component_is_an_action(self):
+        """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
+        tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
+        button = ('export function ConnectCard() {\n'
+                  '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
+        bare = ('export function ConnectLine() {\n'
+                '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
+        tree = Tree(self)
+        tree.write(f"{WEB}/ConnectCard.tsx", button)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/ConnectLine.tsx", bare)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectLine shows a connection state", out)
 
     def test_a_scheduler_signature_is_not_a_run_action(self):
         """`run: () => void` is a timer's parameter type, not a row the person clicks."""

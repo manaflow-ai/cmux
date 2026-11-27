@@ -845,13 +845,11 @@ When the agent requests permission (ACP `session/request_permission`):
 
 - `PlanCard`: `surface` radius 20; header `list.bullet.clipboard` + "Plan" (`headline`) +
   trailing `meta` step count; body markdown capped at 10 lines with fade + "Show full plan"
-  (opens a `.large` sheet with the full plan and the same actions); todo-style plans render each
-  step with a 16 pt status glyph (`circle`, `circle.dotted` animated while in progress,
-  `checkmark.circle.fill` in `success`).
+  (opens a `.large` sheet with the full plan and the same actions). An agent's to-do list (ACP
+  `plan` updates) is not shown.
 - Actions when the agent awaits approval (ExitPlanMode / plan mode): "Approve plan"
   (`PrimaryCapsule.inline`), "Keep planning" (`SecondaryCapsule.inline`); the composer stays
   available to send feedback.
-- Live todo updates animate checkmarks with `.symbolEffect(.bounce)` once.
 
 ### 6.8 Diffs in the transcript
 
@@ -927,7 +925,7 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 | Screen | Symbol | Title | Message | Primary | Secondary |
 | --- | --- | --- | --- | --- | --- |
 | Workspaces, no Macs | `desktopcomputer` | Connect your Mac | Open cmux on your Mac and choose Pair iPhone to get a code. | Scan QR code | Enter code manually |
-| Workspaces, Macs offline | `moon.zzz` | Your Macs are asleep | Wake a Mac or open cmux on it to see its workspaces. | (none) | Show offline Macs |
+| Workspaces, Macs offline | `moon.zzz` | Your Macs are offline | Open cmux on a Mac and make sure it's awake and online to see its workspaces. | (none) | Show offline Macs |
 | Mac with no workspaces | `square.stack.3d.up` | No workspaces | Create one on your Mac or start one here. | New workspace | |
 | Feed empty | `bubble.left.and.text.bubble.right` | Nothing yet | Agent updates, questions and finished tasks show up here. | (none) | |
 | Feed filter empty | `line.3.horizontal.decrease` | No matching events | Try another filter. | Show all | |
@@ -1256,7 +1254,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
   → "<Mac> isn't connected" + Connect; under All, such a Mac is a "<Mac> · Not connected"
-  line that links it on a tap. Every Mac asleep → "Your Macs are asleep" header above the
+  line that links it on a tap. Every Mac offline → "Your Macs are offline" header above the
   unfolded offline lines. No results → `ContentUnavailableView.search`.
 - Accessibility: one element per row ("cmux, Claude is waiting, Refactor transport layer,
   1 minute ago"), hint "<Mac> is offline" for offline rows, custom actions Rename and Close.
@@ -1409,7 +1407,6 @@ Every transition in the app. "System" means do not customize.
 | Tool row expand/collapse | `smooth`; chevron rotation 0 → 90 degrees | |
 | Permission card / question card arrival | Rise 16 pt + fade, `snappy`; composer ↔ action bar crossfade `snap` + height `smooth` | |
 | Card resolved → summary row | `smooth` height collapse + crossfade | |
-| Plan step check | `.symbolEffect(.bounce)` once | |
 | Jump-to-bottom show/hide | Scale 0.85 ↔ 1 + opacity, `snap`; emerges from composer via glass morph | |
 | Scroll to bottom | `.smooth(duration: 0.35)` | |
 | Copy confirmation | Symbol replace doc.on.doc → checkmark, revert after 1.5 s | |

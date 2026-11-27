@@ -60,6 +60,20 @@ fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
     assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
 }
 
+#[test]
+fn top_level_engine_verbs_are_engine_commands_and_free_cmux_words() {
+    // `cmux send` / `cmux inbox` run the engine's own grammar (no second implementation), so
+    // each word must be an engine command, and never a cmux scope a person already uses.
+    for verb in TOP_LEVEL_ENGINE_VERBS {
+        assert!(acpmux::cli::entry::is_command(verb), "{verb} is not an engine command");
+        let mut args = strings(&["--json", verb, "list"]);
+        hoist_leading_json(&mut args);
+        assert_eq!(args, strings(&[verb, "--json", "list"]), "{verb}");
+        let plan = command::parse(&strings(&[verb]), Surface::Cmux);
+        assert!(plan.is_err(), "{verb} is also a cmux scope");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
@@ -284,6 +298,7 @@ mod remote_cli_docs {
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
                 || agent_engine_requested(&parser_words)
+                || TOP_LEVEL_ENGINE_VERBS.contains(&parser_words[0].as_str())
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
@@ -501,6 +516,26 @@ fn global_value_options_accept_inline_equals_values() {
     assert_eq!(global.session.as_deref(), Some("review-session"));
     assert_eq!(global.machine.as_deref(), Some("builder"));
     assert_eq!(command, strings(&["workspace", "list"]));
+}
+
+/// `cmux file open --machine B --path P` (own-machine parity's file step):
+/// the `--machine` after `file open` is the action's own argument, sent
+/// beside the path, so the app opens that machine's file in a file page.
+#[cfg(unix)]
+#[test]
+fn file_open_takes_its_own_machine_beside_the_path() {
+    let line = strings(&["file", "open", "--machine", "studio", "--path", "/Users/me/hello.txt"]);
+    let (global, command) = parse_action_globals(&line).unwrap();
+    assert_eq!(global.machine, None);
+    assert_eq!(command, line);
+    let app::AppCommand::Call { params, .. } =
+        app::run_action("file open", &command[2..], app::ActionName::Cli).unwrap()
+    else {
+        panic!("expected a call")
+    };
+    assert_eq!(params["action"], "file open", "{params}");
+    assert_eq!(params["args"]["machine"], "studio", "{params}");
+    assert_eq!(params["args"]["path"], "/Users/me/hello.txt", "{params}");
 }
 
 /// `cmux workspace new-on-machine --machine m`: an app action run by its CLI

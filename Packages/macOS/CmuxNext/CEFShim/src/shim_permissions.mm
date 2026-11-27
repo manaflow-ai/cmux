@@ -1,7 +1,7 @@
 // Permission prompts (CefPermissionHandler). Chromium's own bubble anchors to
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The kinds the host asks about in its prompt bar
-// (kHostPermissions, and notifications alone) go to the host as PERMISSION_PROMPT, answered
+// (kHostPermissions, clipboard alone, or notifications alone) go to the host as PERMISSION_PROMPT, answered
 // with cmux_shim_permission_continue; every other kind keeps Chromium's default
 // (permission_prompt_policy.h).
 // Chromium persists Accept and Deny in its own content settings.
@@ -18,6 +18,7 @@ namespace cmux_shim {
 namespace {
 
 // permission_prompt_policy.h names CEF's bits without CEF's headers.
+static_assert(kPermissionClipboard == CEF_PERMISSION_TYPE_CLIPBOARD, "clipboard bit");
 static_assert(kPermissionGeolocation == CEF_PERMISSION_TYPE_GEOLOCATION, "geolocation bit");
 static_assert(kPermissionNotifications == CEF_PERMISSION_TYPE_NOTIFICATIONS, "notifications bit");
 static_assert(kPermissionCamera == CEF_PERMISSION_TYPE_CAMERA_STREAM, "camera bit");

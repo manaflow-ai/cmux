@@ -17,7 +17,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
-import { trayItemKey, type TrayItem } from "./runningTray";
+import { SILENT_TURN_ICON, trayItemKey, type TrayItem } from "./runningTray";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -36,6 +36,7 @@ function markOf(item: TrayItem, chatHarness: string | undefined): Mark {
     return { harness: item.agent.harness ?? chatHarness, tone: agentTone(item.agent.id), icon: SUBAGENT_FALLBACK };
   if (item.kind === "session")
     return { harness: item.session.harness, tone: agentTone(item.session.sessionId), icon: "agent.chat" };
+  if (item.kind === "turn") return { icon: SILENT_TURN_ICON };
   return { icon: "terminal" };
 }
 
@@ -43,6 +44,7 @@ export function HatHeadDeck({
   items,
   chatHarness,
   look,
+  at = "lead",
   peeked,
   onPeek,
   onOpenItem,
@@ -51,6 +53,9 @@ export function HatHeadDeck({
   items: readonly TrayItem[];
   chatHarness: string | undefined;
   look: "strip" | "cards";
+  /// Where it sits in the row: leading the words in the icon column, or after them (the one-line hat's
+  /// `trail` arm, hatLine.experiment.ts).
+  at?: "lead" | "trail";
   /// The key of the line the header names now (runningTray.ts `trayItemKey`), if one.
   peeked: string | undefined;
   onPeek: (key: string | undefined) => void;
@@ -59,6 +64,9 @@ export function HatHeadDeck({
   const t = useT();
   const shown = items.slice(0, DECK_MARKS);
   const rest = items.length - shown.length;
+  // After the one line's words (`trail`) the deck keeps all DECK_MARKS slots, empty ones too, so "+N
+  // more" sits in one place however many lines run and the bar never re-lays out as lines come and go.
+  const blanks = at === "trail" ? DECK_MARKS - shown.length : 0;
   const wheel = useRef(0);
   // The `cards` look: the wheel over the deck thumbs from card to card, wrapping, from the one in front.
   const onWheel = (event: WheelEvent<HTMLSpanElement>) => {
@@ -78,6 +86,7 @@ export function HatHeadDeck({
     <span
       className="acpmux-hat-deck"
       data-look={look}
+      data-at={at}
       data-peeking={peeked !== undefined || undefined}
       aria-hidden="true"
       onPointerLeave={() => {
@@ -114,6 +123,11 @@ export function HatHeadDeck({
           </span>
         );
       })}
+      {Array.from({ length: blanks }, (_, index) => (
+        <span key={`blank-${index}`} className="acpmux-hat-deck__mark" data-blank aria-hidden="true">
+          <span className="acpmux-hat-deck__face" style={{ width: ROW_ICON, height: ROW_ICON }} />
+        </span>
+      ))}
       {rest > 0 && <span className="acpmux-summary-meta acpmux-hat-deck__rest">{t("tools.more", { n: rest })}</span>}
     </span>
   );

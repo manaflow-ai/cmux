@@ -15,7 +15,15 @@ scripts/ios-live/ios-live lease release
 
 Run it from your cmux checkout. "Your change" is that checkout against its merge base with
 `origin/feat-cmux-next`: commits, staged, unstaged and untracked files under `cmux-next-ios/` and
-`scripts/`. Nothing is pushed. Hosts are reached with `reach`; `ios-live help` lists every command.
+`scripts/`. Nothing is pushed. Hosts are reached with `reach` (from a lane VM through the lane-gh broker, which relays the slot commands on an `ios` pool host with no whole-host fleet lease: the slot lease is the admission, so a CI step or another lane on the host does not block you; `ios-live` sets `REACH_AUTO_LEASE=0` so reach never takes the host); `ios-live help` lists every command.
+
+The broker relay takes a command of at most 16384 bytes and carries no stdin, so no command carries
+host.sh. The client names a commit on origin that has its host.sh (HEAD when it is pushed, else the
+merge base with `origin/feat-cmux-next`), and the host reads host.sh at that commit from the fleet's
+git mirror (else fetches that one commit) and caches it as `~/ios-live/bin/SHA/host.sh`. An
+unpushed host.sh edit is not used, and stderr says so: push it to try it. A `swift` or `swap` patch
+rides in the command, so it must fit there (a diff of about 11 KB); a bigger one is refused with
+its size: commit and push it, then `ios-live up SHA`.
 
 ## Slots
 
@@ -47,6 +55,45 @@ The person-mirroring iPhone stays as it was: set `IOS_LIVE_HOST=air-blue` and le
 `IOS_LIVE_HOSTS` unset, and every command behaves exactly as before slots (one device,
 `cmux-ios-live`, one lease).
 
+## Person slots
+
+Leo, 2026-11-25: "the bigger win possible for aziz is a persistent one that him and his agents can
+work against". A person slot is one simulator for one person and their agents. It never lapses, is
+never reset on release and is never handed to anyone else:
+
+```bash
+scripts/ios-live/ios-live person create aziz          # on the least-loaded of IOS_LIVE_HOSTS (or name a HOST)
+IOS_LIVE_PERSON=aziz scripts/ios-live/ios-live swift  # or: ios-live --person aziz swift
+scripts/ios-live/ios-live people                      # every person slot: host, base, state, RSS, restarts
+```
+
+- It lives at `~/ios-live/people/NAME` on its host, with the same layout as a slot, and its device
+  is `cmux-ios-live-NAME`. The client remembers the host in `~/.cache/ios-live/person-NAME`.
+- Owners `NAME` and `NAME/*` drive it (the client makes the owner `NAME/HOST/session` for you);
+  any other owner is refused. There is no lease: commands that change it (`swift`, `swap`, `up`,
+  `erase`, `relaunch`, `undo`, `tap`, `type`) wait in turn on a per-slot lock
+  (`lease/drive.lock`), so two agents' swaps run one after the other, never into each other.
+- `lease release` does nothing to it. `erase` is the only thing that wipes its device state.
+
+## Supervision
+
+`host.sh supervise` runs every 15 s from a per-user launchd agent
+(`~/Library/LaunchAgents/com.cmux.ios-live.supervise.plist`, installed by `person create` or
+`host.sh supervise-install`; the agent runs its own copy, `~/ios-live/bin/supervise-host.sh`). It
+looks after every person slot and every held shared slot, skipping any slot whose drive lock is
+held (a swap in progress):
+
+- **Device not Booted**: boot it; if CoreSimulator wedges, shut it down and boot it; as a last
+  resort, kill that device's own `launchd_sim` process tree and boot. It never touches another
+  device and never quits Simulator.
+- **App not running**: relaunch it with the slot's launch environment, then re-apply the newest
+  live code patch (`swift` patches are cumulative, kept in `live-patches/`), so a crash does not
+  lose your edits. `swap`, `up` and `undo --all` clear that stack.
+- It never erases a device.
+- Each restart is recorded in `state.json` `restarts` (time, cause, what it did, ms to back);
+  `ios-live status` shows the last few and the device's RSS (its `launchd_sim` tree). Memory per
+  device is bounded by the slimmed device.
+
 ## Which command
 
 | Change | Command | Edit to visible |
@@ -75,7 +122,10 @@ refuses a change it can't apply, names the functions involved, and leaves the ap
 
 - **One driver per device** (a slot, or air-blue's iPhone). Anything that changes or touches the app (`swift`, `swap`, `up`, `relaunch`,
   `tap`, `type`, `undo`) needs the lease. Looking at it (`status`, `shot`, `tree`, `log`) does not.
-  The lease names you (`IOS_LIVE_OWNER`, default `HOST/session`) and lapses on its own.
+  The lease names you and lapses on its own. The name is `IOS_LIVE_OWNER` when set, else
+  `HOST/SESSION/CHECKOUT` (the Claude Code or Codex session id), else `HOST/CHECKOUT-TOKEN` with the
+  token kept in the checkout's git dir (`ios-live-owner`): the same on every call, so a lease taken in
+  one shell holds in the next. `ios-live whoami` prints it.
 - **Read-mostly.** The live app is signed in to the person's own account and paired with their Macs:
   it is their sessions you see. Never send a message, answer a prompt or approve anything in a
   session it shows. A test that needs to send makes its own scratch session and sends only there.

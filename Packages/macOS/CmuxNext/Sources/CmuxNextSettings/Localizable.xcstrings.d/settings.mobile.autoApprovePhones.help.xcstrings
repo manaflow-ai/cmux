@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.mobile.autoApprovePhones.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتصل الهاتف الجديد المسجّل الدخول بحسابك دون أن يسألك أولًا، وكذلك الهواتف التي تنتظر. لا تتصل الحسابات الأخرى أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novi telefon prijavljen na vaš račun povezuje se bez prethodnog pitanja, kao i telefoni koji već čekaju. Drugi računi se nikad ne povezuju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ny telefon, der er logget ind på din konto, opretter forbindelse uden at spørge dig først, og det gør telefoner, der allerede venter, også. Andre konti opretter aldrig forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein neues Telefon, das mit deinem Konto angemeldet ist, verbindet sich ohne vorherige Frage, ebenso Telefone, die schon warten. Andere Konten verbinden sich nie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un teléfono nuevo con tu cuenta se conecta sin preguntarte antes, y también los que ya esperan. Otras cuentas nunca se conectan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nouveau téléphone connecté à votre compte se connecte sans vous demander d’abord, tout comme les téléphones déjà en attente. Les autres comptes ne se connectent jamais."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nuovo telefono con il tuo account si collega senza chiedertelo prima, così come quelli già in attesa. Gli altri account non si collegano mai."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あなたのアカウントでサインインした新しい電話は、確認なしで接続します。待機中の電話も同じです。ほかのアカウントは接続できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទូរសព្ទថ្មីដែលបានចូលគណនីរបស់អ្នក ភ្ជាប់ដោយមិនសួរអ្នកមុន ហើយទូរសព្ទដែលកំពុងរង់ចាំក៏ដូច្នោះដែរ។ គណនីផ្សេងទៀតមិនដែលភ្ជាប់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "계정에 로그인한 새 전화는 먼저 묻지 않고 연결되며, 이미 기다리는 전화도 마찬가지입니다. 다른 계정은 연결되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ny telefon som er logget på kontoen din, kobler til uten å spørre deg først, og det gjør telefoner som allerede venter også. Andre kontoer kobler aldri til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nowy telefon zalogowany na Twoje konto łączy się bez pytania, podobnie jak telefony, które już czekają. Inne konta nigdy się nie łączą."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um telefone novo com a sua conta se conecta sem perguntar antes, assim como os que já estão esperando. Outras contas nunca se conectam."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый телефон с вашей учётной записью подключается без вопроса, как и телефоны, которые уже ждут. Другие учётные записи не подключаются никогда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โทรศัพท์เครื่องใหม่ที่ลงชื่อเข้าใช้บัญชีของคุณจะเชื่อมต่อโดยไม่ถามก่อน รวมถึงโทรศัพท์ที่รออยู่แล้วด้วย บัญชีอื่นจะไม่เชื่อมต่อเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hesabınla giriş yapmış yeni bir telefon önce sana sormadan bağlanır; zaten bekleyen telefonlar da öyle. Diğer hesaplar asla bağlanmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новий телефон із вашим обліковим записом підключається без запиту, як і телефони, що вже чекають. Інші облікові записи ніколи не підключаються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Điện thoại mới đăng nhập tài khoản của bạn sẽ kết nối mà không hỏi trước, các điện thoại đang chờ cũng vậy. Tài khoản khác không bao giờ kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录你账户的新手机无需先询问即可连接，已在等待的手机也一样。其他账户永远无法连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登入你帳號的新手機無需先詢問即可連線，已在等待的手機也一樣。其他帳號永遠無法連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

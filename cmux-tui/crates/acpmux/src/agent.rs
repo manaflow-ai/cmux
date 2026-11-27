@@ -15,11 +15,17 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
+mod attach;
 mod command;
+mod exit_wait;
 pub(crate) mod foreign_login;
+mod host_recovery;
+mod host_state;
 pub(crate) mod leader_exit;
+mod requests;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
+mod writes;
 /// Tests read a built command without starting it; every spawn builds through
 /// `harness_command_ready`.
 #[cfg(test)]
@@ -280,6 +286,28 @@ pub enum Attached {
 
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Logs how one stop of agent `name` ended: on its SIGTERM within `grace` (`by = "term"`), or
+/// past it, to the SIGKILL (`by = "kill"`), and how long it took. The data a stop's grace is
+/// derived from: the hibernation's `exit_ms` counts its locks and drain too, and a stop cut at
+/// the grace hides how long the agent would have taken.
+fn log_stop(
+    name: &str,
+    path: &'static str,
+    grace: std::time::Duration,
+    began: std::time::Instant,
+    on_term: bool,
+) {
+    let ms = |d: std::time::Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+    tracing::info!(
+        agent = %name,
+        path,
+        grace_ms = ms(grace),
+        stop_ms = ms(began.elapsed()),
+        by = if on_term { "term" } else { "kill" },
+        "agent stopped"
+    );
+}
 
 /// How often the reader checks that the agent process is still running, where the kernel gives
 /// no exit event for it (`agent/leader_exit.rs`).
@@ -887,12 +915,19 @@ pub struct ChildAgent {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its harness was put in `run_class` (once).
     run_class_entered: std::sync::atomic::AtomicBool,
+    /// Whether its harness's tree is in background class now, and for how long it was
+    /// (`cpu_class/pressure.rs`): what `session info` shows as `cpuClass`.
+    demotion: crate::cpu_class::pressure::Demotion,
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    /// Unix: for an agent in the unattended folder, the watchdog that ends its process group
+    /// when this daemon dies by any means (`Spawned::child`).
+    #[cfg(unix)]
+    _tether: Option<cmux_process::GroupTether>,
     /// The simulation's in-process agent (`sim_agent.rs`): true while it runs, in place of a
     /// child's `try_wait`.
     #[cfg(feature = "sim")]
@@ -928,6 +963,8 @@ struct Spawned {
     plugin_hook_home: Option<std::path::PathBuf>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    #[cfg(unix)]
+    tether: Option<cmux_process::GroupTether>,
     #[cfg(feature = "sim")]
     sim_alive: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -991,6 +1028,32 @@ impl Spawned {
             }
         };
         let pid = child.id();
+        // An agent no person works with (a model probe, model list or titler, `unattended_cwd`)
+        // ends with this daemon, however it ends: a restart under systemd's `KillMode=process`,
+        // a crash, the stop watchdog's exit. Its daemon ends it only while it runs, and an ACP
+        // harness such as `cursor-agent acp` waits on its stdin forever (image roll 45732114266:
+        // two cursor-agent probes outlived the bake's restart of acpmux by minutes). A person's
+        // agent is left alone: its harness's work outlives a daemon restart on purpose. The
+        // agent keeps leading its own group (every kill here signals it by its pid).
+        #[cfg(unix)]
+        let tether = match pid {
+            Some(pid) if cwd.starts_with(crate::protected_folders::unattended_cwd()) => {
+                match i32::try_from(pid)
+                    .map_err(std::io::Error::other)
+                    .and_then(cmux_process::GroupTether::join)
+                {
+                    Ok(tether) => Some(tether),
+                    Err(e) => {
+                        tracing::warn!(
+                            agent = name,
+                            "unattended agent: no watchdog for its group: {e}"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
         let exit = pid.and_then(leader_exit::LeaderExit::open);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
@@ -1009,6 +1072,8 @@ impl Spawned {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive: None,
         })
@@ -1031,6 +1096,8 @@ impl Spawned {
             plugin_hook_home: None,
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            tether: None,
             sim_alive: Some(pipes.alive),
         }
     }
@@ -1123,6 +1190,8 @@ impl ChildAgent {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
@@ -1158,11 +1227,14 @@ impl ChildAgent {
             preview_format,
             run_class,
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
+            demotion: Default::default(),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            _tether: tether,
             #[cfg(feature = "sim")]
             sim_alive,
         });
@@ -1219,6 +1291,38 @@ impl ChildAgent {
             drop(queue);
         });
         let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended, writing });
+
+        // Stdin replies the Claude translator works out off the stdout reader (a repo-sync
+        // hook's answer, `claude_stdio/hook_callback.rs`) go out when they are ready, not
+        // with the next stdout line.
+        if let Some(tr) = agent.translator.as_ref() {
+            let tx = agent.stdin_tx.clone();
+            let tap = tap.clone();
+            let ready = tr.replies_ready();
+            let weak = Arc::downgrade(tr);
+            // Ends when the stdin writer ends (its channel closes) or the translator does.
+            tr.scope().spawn_until_cancelled("claude-replies-write", async move {
+                loop {
+                    tokio::select! {
+                        () = ready.notified() => {}
+                        () = tx.closed() => return,
+                    }
+                    let Some(tr) = weak.upgrade() else { return };
+                    for l in tr.take_stdin_replies().await {
+                        tap(
+                            Direction::Out,
+                            &Message::notification("claude.stdin", l.clone()),
+                            None,
+                        );
+                        let mut s = l.to_string();
+                        s.push('\n');
+                        if tx.send((s, None)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
 
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = &agent.codex {
@@ -1502,119 +1606,6 @@ impl ChildAgent {
         None
     }
 
-    /// Mark the agent replaced (a failover) or stopping: a /context breakdown or usage limits it
-    /// still sends, answering a turn that ended before, are dropped (`tap_live`). Waits for a breakdown being
-    /// logged right now, so what the caller logs next comes after it.
-    pub fn retire(&self) {
-        *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = true;
-    }
-
-    /// Mark the agent ended on purpose ([`Self::ended_on_purpose`]).
-    pub fn end_on_purpose(&self) {
-        self.ended_on_purpose.store(true, Ordering::SeqCst);
-    }
-
-    /// Whether [`Self::end_on_purpose`] ran.
-    pub fn ended_on_purpose(&self) -> bool {
-        self.ended_on_purpose.load(Ordering::SeqCst)
-    }
-
-    /// How many requests wait on this agent's answer now (as `Peer::pending_requests`).
-    pub async fn pending_requests(&self) -> usize {
-        self.pending.lock().await.map.len()
-    }
-
-    /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
-    /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
-    pub async fn fail_pending(&self) {
-        let mut p = self.pending.lock().await;
-        for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-        }
-    }
-
-    /// `fail_pending` while this agent's link is still broken or stopped: a reattach clears those
-    /// under the same lock, so a late notice of an old link never fails the open requests of the
-    /// link that replaced it (review 2 of #26059).
-    pub async fn fail_pending_if_unheard(&self) {
-        self.fail_pending_if_unheard_with(AGENT_CLOSED).await;
-    }
-
-    /// [`Self::fail_pending_if_unheard`] with `why` as each request's error: a link that broke
-    /// because an entry could not be stored answers its open requests with the store's refusal
-    /// (`disk.full` on a full disk) at once, rather than leaving them to the client's limit.
-    pub async fn fail_pending_if_unheard_with(&self, why: &str) {
-        let mut p = self.pending.lock().await;
-        if !self.is_broken() && !self.is_stopped() {
-            return;
-        }
-        for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal(why.to_owned())));
-        }
-    }
-
-    /// Whether [`Self::retire`] ran.
-    pub fn is_retired(&self) -> bool {
-        *self.retired.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Runs `log` for `m`, unless `m` is a /context breakdown or usage limits update
-    /// (`process_state`) from a retired agent (None).
-    /// For such an update the retire lock is held across the check and `log`.
-    fn tap_live<R>(&self, m: &Message, log: impl FnOnce() -> R) -> Option<R> {
-        let context = matches!(m, Message::Notification { method, params }
-            if method == crate::rpc::method::SESSION_UPDATE
-                && params.as_ref().is_some_and(process_state));
-        if !context {
-            return Some(log());
-        }
-        let retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
-        (!*retired).then(log)
-    }
-
-    pub async fn kill(&self) {
-        self.retire();
-        #[cfg(feature = "sim")]
-        self.end_sim();
-        if self.hosted.is_some() {
-            self.terminate(KILL_GRACE).await;
-            return;
-        }
-        let mut guard = self.child.lock().await;
-        #[cfg(unix)]
-        let under = under_unreaped(guard.as_ref()).await;
-        // The saved group id, not `child.id()`: once the leader is reaped
-        // that is None, and its background processes would survive.
-        if let Some(pid) = self.pid {
-            // TERM the whole group first so children get a chance to exit,
-            // then KILL whatever is left. The wait ends as soon as the
-            // agent exits; 300 ms is only the most it gets.
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid as i32, libc::SIGTERM);
-            }
-            // Windows: Ctrl+Break to the agent's process group first.
-            #[cfg(windows)]
-            crate::job::ctrl_break(pid);
-            if let Some(child) = guard.as_mut() {
-                let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
-            }
-            // Then the job ends, stragglers included (SIGKILL on Unix).
-            #[cfg(windows)]
-            self.kill_job();
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid as i32, libc::SIGKILL);
-            }
-        }
-        if let Some(child) = guard.as_mut() {
-            let _ = child.kill().await;
-        }
-        *guard = None;
-        #[cfg(unix)]
-        end_still_running(under).await;
-    }
-
     /// Stop the agent within a bound: SIGTERM to its process group, wait up
     /// to `grace` for it to exit, then SIGKILL the group (stragglers
     /// included). Never waits on a lock or a pipe without a deadline.
@@ -1636,13 +1627,18 @@ impl ChildAgent {
             // Its caller ends that host by its nonce (`host_unended`). The send goes on in its
             // own task past the bound, so a host whose queue clears later still takes it.
             let link = h.link();
+            let began = std::time::Instant::now();
             let mut send = tokio::spawn(async move { link.terminate(grace).await });
             let told = tokio::time::timeout(grace, &mut send).await;
             if matches!(told, Ok(Ok(Ok(())))) {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
-                let _ =
-                    tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited).await;
+                let on_term =
+                    tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited)
+                        .await
+                        .is_ok();
+                // The host escalates on its own past `grace`: an exit after it is a kill's.
+                log_stop(&self.name, "hosted", grace, began, on_term && began.elapsed() <= grace);
             }
             return;
         }
@@ -1672,14 +1668,17 @@ impl ChildAgent {
         if let Some(pg) = pgid {
             crate::job::ctrl_break(pg as u32);
         }
-        let _ = tokio::time::timeout(grace, async {
+        let began = std::time::Instant::now();
+        let on_term = tokio::time::timeout(grace, async {
             // The exit watcher may hold this lock while it reaps, and frees
             // it once the child is gone; otherwise wait on the exit here.
             if let Some(child) = self.child.lock().await.as_mut() {
                 let _ = child.wait().await;
             }
         })
-        .await;
+        .await
+        .is_ok();
+        log_stop(&self.name, "direct", grace, began, on_term);
         // Then the job ends, stragglers included (SIGKILL on Unix, by the guard's drop).
         #[cfg(windows)]
         self.kill_job();
@@ -1692,694 +1691,6 @@ impl ChildAgent {
         }
         #[cfg(unix)]
         end_still_running(under).await;
-    }
-
-    /// The simulation's in-process agent ends, as a killed child does: its task stops and its
-    /// stdout closes.
-    #[cfg(feature = "sim")]
-    fn end_sim(&self) {
-        if let Some(alive) = &self.sim_alive {
-            alive.store(false, Ordering::SeqCst);
-        }
-    }
-
-    pub async fn is_alive(&self) -> bool {
-        if let Some(h) = &self.hosted {
-            return !h.exit_seen.load(Ordering::SeqCst)
-                && !h.broken.load(Ordering::SeqCst)
-                && !h.link().is_closed();
-        }
-        #[cfg(feature = "sim")]
-        if let Some(alive) = &self.sim_alive {
-            return alive.load(Ordering::SeqCst);
-        }
-        let mut guard = self.child.lock().await;
-        match guard.as_mut() {
-            Some(child) => matches!(child.try_wait(), Ok(None)),
-            None => false,
-        }
-    }
-
-    async fn write(&self, msg: &Message) -> Result<()> {
-        self.write_fenced(msg, None).await
-    }
-
-    /// [`Self::write`], `fence` held to it: one line (or frame) each, so a cut drops it whole.
-    async fn write_fenced(&self, msg: &Message, fence: Option<&Fence>) -> Result<()> {
-        if let Some(f) = fence {
-            let _ = f.0.writer.set(match &self.hosted {
-                Some(h) => Writer::Hosted(h.link().record.clone()),
-                None => Writer::Direct {
-                    child: Arc::downgrade(&self.child),
-                    pid: self.pid,
-                    stop: self.writer_stop.get().cloned(),
-                },
-            });
-        }
-        // Not handed to a writer (an error, or dropped while it waits for room): it is never
-        // written, also once a translator took it (review 87 of #23322).
-        let mut unsent = Unsent(fence);
-        let handed = self.hand_on(msg, fence).await;
-        if handed.is_ok() {
-            unsent.0 = None;
-        }
-        handed
-    }
-
-    async fn hand_on(&self, msg: &Message, fence: Option<&Fence>) -> Result<()> {
-        if let Some(h) = &self.hosted {
-            // The host writes it and logs it back as an `out` entry. An answer is kept until then,
-            // whatever this write returns: a reattach sends it again if the host never took it.
-            // Kept under the link's lock: a reattach swaps the link under it, so an answer written
-            // through the old link is kept before the reattach looks (`resend_unlogged_answers`).
-            let link = {
-                let current = h.link.read_or_recover();
-                if let Message::Response { id, .. } = msg {
-                    let mut unlogged = h.unlogged_answers.lock_or_recover();
-                    unlogged.retain(|a| a.id != key(id));
-                    let link = Arc::downgrade(&current);
-                    let (id, msg, fence) = (key(id), msg.to_value(), fence.cloned());
-                    unlogged.push(UnloggedAnswer { id, msg, fence, link });
-                }
-                current.clone()
-            };
-            return link.line_fenced(msg.to_value(), fence.cloned()).await;
-        }
-        // A translator's state moves on with what it translates (Claude's permission asks, the
-        // app-server's approvals), so a message it takes is as good as taken: never cut while
-        // queued, which could leave its agent waiting on an ask the translator let go of; a cut
-        // ends that agent instead (review 88 of #23322).
-        if (self.codex.is_some() || self.translator.is_some()) && fence.is_some_and(|f| !f.begin())
-        {
-            return Err(anyhow!("agent {}: {FENCE_CUT}", self.name));
-        }
-        if let Some(cx) = &self.codex {
-            let safe = crate::codex_app_server::redact(&msg.to_value());
-            let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
-            (self.tap)(Direction::Out, &safe_message, None);
-            let order = cx.order.lock().await;
-            let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
-            let written = self.codex_lines(split.server, fence).await;
-            drop(order);
-            if !written {
-                return Err(anyhow!("agent {} stdin closed", self.name));
-            }
-            self.codex_to_hub(cx, split.hub).await;
-            return Ok(());
-        }
-        (self.tap)(Direction::Out, msg, None);
-        if let Some(tr) = &self.translator {
-            match tr.outbound(msg).await {
-                crate::claude_stdio::Outbound::Lines(lines) => {
-                    self.claude_lines(lines, fence).await
-                }
-                crate::claude_stdio::Outbound::Reply(reply) => {
-                    if let Some(f) = fence.filter(|f| f.begin()) {
-                        f.written();
-                    }
-                    self.answer_locally(reply).await;
-                    Ok(())
-                }
-                // Written first, so Claude Code reads them; then answered without it.
-                crate::claude_stdio::Outbound::LinesThenReply(lines, reply) => {
-                    self.claude_lines(lines, fence).await?;
-                    self.answer_locally(reply).await;
-                    Ok(())
-                }
-            }
-        } else {
-            self.stdin_tx
-                .send((msg.to_line(), fence.cloned()))
-                .await
-                .map_err(|_| anyhow!("agent {} stdin closed", self.name))
-        }
-    }
-
-    /// The translator's own answer to a request of ours, as if claude replied.
-    async fn answer_locally(&self, reply: Message) {
-        if let Message::Response { id, result, error } = reply
-            && let Some(tx) = self.pending.lock().await.take(&id)
-        {
-            let _ = tx.send(match error {
-                Some(e) => Err(e),
-                None => Ok(result.unwrap_or(Value::Null)),
-            });
-        }
-    }
-
-    /// ACP messages the Codex translator produced for the hub: an answer
-    /// to a request of ours resolves it, as if Codex replied; requests and
-    /// notifications go to the session's inbound queue.
-    async fn codex_to_hub(&self, cx: &CodexLink, hub: Vec<Message>) {
-        for m in hub {
-            if !matches!(m, Message::Response { .. }) {
-                (self.tap)(Direction::In, &m, None);
-            }
-            match m {
-                Message::Response { id, result, error } => {
-                    if let Some(tx) = self.pending.lock().await.take(&id) {
-                        let _ = tx.send(match error {
-                            Some(e) => Err(e),
-                            None => Ok(result.unwrap_or(Value::Null)),
-                        });
-                    }
-                }
-                Message::Request { id, method, params } => {
-                    let _ = cx
-                        .inbound
-                        .send(Inbound::Request {
-                            id,
-                            method,
-                            params,
-                            host_seq: None,
-                            host_incarnation: Some(self.direct_incarnation()),
-                        })
-                        .await;
-                }
-                Message::Notification { method, params } => {
-                    let _ = cx
-                        .inbound
-                        .send(Inbound::Notification {
-                            method,
-                            params,
-                            host_seq: None,
-                            host_incarnation: Some(self.direct_incarnation()),
-                            persisted: None,
-                            agent: self.generation,
-                        })
-                        .await;
-                }
-            }
-        }
-    }
-
-    /// Writes the Claude translator's stream-json lines to the agent's stdin, each logged.
-    async fn claude_lines(&self, lines: Vec<Value>, fence: Option<&Fence>) -> Result<()> {
-        // Nothing for the agent (a late answer to a withdrawn elicitation): nothing is queued,
-        // as before the fence (review 82 of #23322), and a fenced one is settled.
-        if lines.is_empty() {
-            if let Some(f) = fence.filter(|f| f.begin()) {
-                f.written();
-            }
-            return Ok(());
-        }
-        let mut s = String::new();
-        for l in lines {
-            (self.tap)(Direction::Out, &Message::notification("claude.stdin", l.clone()), None);
-            s.push_str(&format!("{l}\n"));
-        }
-        self.stdin_tx
-            .send((s, fence.cloned()))
-            .await
-            .map_err(|_| anyhow!("agent {} stdin closed", self.name))
-    }
-
-    /// Writes translator lines to the app-server's stdin, each logged.
-    /// Returns false once stdin is closed.
-    async fn codex_lines(&self, lines: Vec<Value>, fence: Option<&Fence>) -> bool {
-        // Nothing for the app-server (the translator answered itself): nothing is queued, so
-        // this never waits on a full stdin (review 81 of #23322), and a fenced message is
-        // settled, as nothing of it is left to write.
-        if lines.is_empty() {
-            if let Some(f) = fence.filter(|f| f.begin()) {
-                f.written();
-            }
-            return true;
-        }
-        let mut s = String::new();
-        for l in lines {
-            let safe = crate::codex_app_server::redact(&l);
-            (self.tap)(
-                Direction::Out,
-                &Message::notification(crate::codex_app_server::STDIN_KIND, safe),
-                None,
-            );
-            s.push_str(&crate::codex_app_server::line(&l));
-        }
-        self.stdin_tx.send((s, fence.cloned())).await.is_ok()
-    }
-
-    /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far, waiting for room.
-    /// False when the queue is closed.
-    pub async fn queue_replay_done(&self) -> bool {
-        self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
-    }
-
-    /// Where a cancelled request's `$/cancel_request` goes ([`Abandoned`]).
-    fn cancel_sink(&self) -> CancelSink {
-        if let Some(h) = &self.hosted {
-            CancelSink::Hosted(h.link())
-        } else if self.translator.is_some() || self.codex.is_some() {
-            CancelSink::None
-        } else {
-            CancelSink::Direct(self.stdin_tx.clone())
-        }
-    }
-
-    /// Send a request and wait for its response.
-    pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.request_with_hook(method, params, None, || {}).await
-    }
-
-    /// Send a request and run `on_written` only after its frame reached the agent write path.
-    /// Used by first-message title generation to start beside the turn, after the harness can
-    /// publish its own session title. `fence`: held to the request's write; once cut, the
-    /// request fails.
-    pub async fn request_with_hook<F: FnOnce()>(
-        &self,
-        method: &str,
-        params: Value,
-        fence: Option<&Fence>,
-        on_written: F,
-    ) -> Result<Value, RpcError> {
-        self.request_hook(method, params, fence, false, on_written).await
-    }
-
-    /// Like `request_with_hook`, but the callback requires confirmation from the stdin writer
-    /// (or hosted harness receipt), not acceptance into the transport queue.
-    pub(crate) async fn request_with_confirmed_hook<F: FnOnce()>(
-        &self,
-        method: &str,
-        params: Value,
-        fence: Option<&Fence>,
-        on_written: F,
-    ) -> Result<Value, RpcError> {
-        let own_fence = Fence::default();
-        let fence = fence.unwrap_or(&own_fence);
-        let _unsent = CutOnDrop(Some(fence));
-        self.request_hook(method, params, Some(fence), true, on_written).await
-    }
-
-    async fn request_hook<F: FnOnce()>(
-        &self,
-        method: &str,
-        params: Value,
-        fence: Option<&Fence>,
-        confirmed: bool,
-        on_written: F,
-    ) -> Result<Value, RpcError> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut p = self.pending.lock().await;
-            // A link that broke on an entry it could not store (`start_reader`) is marked under
-            // this lock, and its notice answers every request open then: one added after it would
-            // wait for a reattach nothing starts. It is answered now; the next request reattaches.
-            if self.is_broken() {
-                return Err(RpcError::internal(LINK_UNLOGGED));
-            }
-            p.map.insert(key(&Value::from(id)), tx);
-        }
-        let mut abandoned = Abandoned {
-            pending: self.pending.clone(),
-            sink: self.cancel_sink(),
-            id,
-            method: method.to_owned(),
-            armed: true,
-            forget_on_drop: false,
-        };
-        let msg = Message::request(id, method, params);
-        let answer = async {
-            // Dropped before its message is handed on (a turn that ends first): it is cut, so
-            // no holder waits on it.
-            let mut unhanded = CutOnDrop(fence);
-            self.write_fenced(&msg, fence).await.map_err(|e| RpcError::internal(e.to_string()))?;
-            unhanded.0 = None;
-            let mut rx = rx;
-            if confirmed && let Some(fence) = fence {
-                // A legacy host may answer without a write receipt. Return its answer, but
-                // never consume information or report read from an unconfirmed transport.
-                tokio::select! {
-                    () = fence.settled() => {}
-                    answer = &mut rx => {
-                        // A direct child may answer its line before its writer, preempted
-                        // between the write and `written()`, marks it: every direct writer
-                        // settles it, so that answer waits for it. Only a host can answer with
-                        // no receipt to come.
-                        if self.hosted.is_none() { fence.settled().await; }
-                        if fence.now() == Fence::WRITTEN { on_written(); }
-                        return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
-                    }
-                }
-                if fence.now() != Fence::WRITTEN {
-                    return Err(RpcError::internal(
-                        "agent process closed before the prompt write was confirmed",
-                    ));
-                }
-            }
-            on_written();
-            // A line whose write failed never reaches its agent, so no answer comes: a writer
-            // that panicked on it (#54378) answers it here, where before it waited forever.
-            let never_written = async {
-                match fence {
-                    Some(f) => {
-                        f.settled().await;
-                        if f.now() != Fence::FAILED {
-                            std::future::pending::<()>().await;
-                        }
-                    }
-                    None => std::future::pending().await,
-                }
-            };
-            let answer = tokio::select! {
-                answer = rx => answer,
-                () = never_written => {
-                    return Err(RpcError::internal("the agent's line was never written"));
-                }
-            };
-            // No answer proves its line was written: an error may be this side's own "closed" or
-            // made up by a translator once its harness's output ended, and a translator answers
-            // prompts it gave up on too (Claude's `cancelled`). A direct agent's writer, a host's
-            // receipt or its end settle it (review 87 of #23322).
-            answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
-        };
-        let cut = async {
-            match fence {
-                Some(f) => f.was_cut().await,
-                None => std::future::pending().await,
-            }
-        };
-        let answer = tokio::select! {
-            answer = answer => answer,
-            () = cut => Err(RpcError::internal(FENCE_CUT)),
-        };
-        abandoned.armed = false;
-        if answer.is_err() {
-            // Not written by now, it never is: its answer is not awaited.
-            if let Some(f) = fence {
-                f.cut();
-            }
-            self.pending.lock().await.map.remove(&key(&Value::from(id)));
-        }
-        answer
-    }
-
-    /// [`Self::request`], given up after `limit`: the pending entry goes too, so an agent that
-    /// never answers leaves nothing waiting, and a late answer to this id (never reused: ids
-    /// only grow) finds no one and is dropped. None on timeout.
-    pub async fn request_within(
-        &self,
-        method: &str,
-        params: Value,
-        limit: std::time::Duration,
-    ) -> Option<Result<Value, RpcError>> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
-        // Dropped before its answer (review F4 of #41285): its entry goes, and under its client's
-        // cancel the agent hears it too, as for `request`.
-        let mut abandoned = Abandoned {
-            pending: self.pending.clone(),
-            sink: self.cancel_sink(),
-            id,
-            method: method.to_owned(),
-            armed: true,
-            forget_on_drop: true,
-        };
-        let msg = Message::request(id, method, params);
-        if let Err(e) = self.write(&msg).await {
-            abandoned.armed = false;
-            self.pending.lock().await.map.remove(&key(&Value::from(id)));
-            return Some(Err(RpcError::internal(e.to_string())));
-        }
-        let answer = tokio::time::timeout(limit, rx).await;
-        abandoned.armed = false;
-        match answer {
-            Ok(answer) => Some(
-                answer
-                    .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
-            ),
-            Err(_) => {
-                self.pending.lock().await.map.remove(&key(&Value::from(id)));
-                None
-            }
-        }
-    }
-
-    pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        self.write(&Message::notification(method, params)).await
-    }
-
-    /// Answer a request the agent sent to us.
-    pub async fn respond(&self, id: Id, result: Result<Value, RpcError>) -> Result<()> {
-        self.respond_fenced(id, result, None).await
-    }
-
-    /// [`Self::respond`], `fence` held to the answer's write.
-    pub async fn respond_fenced(
-        &self,
-        id: Id,
-        result: Result<Value, RpcError>,
-        fence: Option<&Fence>,
-    ) -> Result<()> {
-        let msg = match result {
-            Ok(v) => Message::ok(id, v),
-            Err(e) => Message::err(id, e),
-        };
-        self.write_fenced(&msg, fence).await
-    }
-
-    /// Register interest in the response to a request a previous controller
-    /// sent this agent (a recovered turn); it arrives like any other.
-    pub async fn await_response(&self, id: Id) -> oneshot::Receiver<Result<Value, RpcError>> {
-        let (tx, rx) = oneshot::channel();
-        let mut p = self.pending.lock().await;
-        let orphan =
-            p.orphans.iter().position(|(k, _)| *k == key(&id)).and_then(|i| p.orphans.remove(i));
-        if let Some((_, answer)) = orphan {
-            let _ = tx.send(answer);
-        } else {
-            p.map.insert(key(&id), tx);
-        }
-        rx
-    }
-
-    /// Wait until the entries through `h` are in the session log, as long as
-    /// they keep coming: it gives up when no entry is logged for `stall` (a
-    /// stalled, broken or closed link), and in any case after `ceiling`, so
-    /// one large replay cannot hold daemon startup without end.
-    pub async fn wait_replayed(
-        &self,
-        h: u64,
-        stall: std::time::Duration,
-        ceiling: std::time::Duration,
-    ) -> bool {
-        let Some(hosted) = &self.hosted else { return true };
-        let mut rx = hosted.logged.subscribe();
-        let progress = async {
-            loop {
-                if *rx.borrow_and_update() >= h {
-                    return true;
-                }
-                // `changed` ends only with progress: the sender lives as long
-                // as this agent, so a dead link ends the wait by the stall.
-                if tokio::time::timeout(stall, rx.changed()).await.is_err() {
-                    return false;
-                }
-            }
-        };
-        tokio::time::timeout(ceiling, progress).await.unwrap_or(false)
-    }
-
-    /// Whether the agent answers now: a hosted agent's host answers a query
-    /// within `budget` (a wedged host keeps its link open but never
-    /// answers); a direct child is alive.
-    pub async fn answers_within(&self, budget: std::time::Duration) -> bool {
-        if let Some(h) = &self.hosted {
-            return h.link().query_within(budget).await.is_ok();
-        }
-        self.is_alive().await
-    }
-
-    /// Whether Claude Code's translator runs this agent: here, or in its host
-    /// (only that translator answers the host's query with modes). A host that
-    /// does not answer within [`HOST_KIND_BUDGET`] gives [`HostKind::Late`]: its
-    /// answer still comes, behind the replay the inbound loop drains, which on a
-    /// loaded Mac takes longer than any fixed budget.
-    pub async fn host_kind(&self) -> HostKind {
-        if self.translator.is_some() {
-            return HostKind::Known(true);
-        }
-        let Some(h) = &self.hosted else { return HostKind::Known(false) };
-        let Ok(mut answer) = h.link().query_answer().await else { return HostKind::Unknown };
-        if !host_kind_waits() {
-            return HostKind::Late(LateHostKind(answer));
-        }
-        match crate::agent_host::within("query", HOST_KIND_BUDGET, &mut answer).await {
-            Ok(Ok(reply)) => HostKind::Known(reply.modes.is_some()),
-            Ok(Err(_)) => HostKind::Unknown,
-            Err(_) => HostKind::Late(LateHostKind(answer)),
-        }
-    }
-
-    /// Whether Claude Code's translator runs this agent, known without asking its host: a direct
-    /// child's own, or one its host's record says it runs (`HostRecord::claude_translator`).
-    /// False for a host of an older build, which never says.
-    pub fn runs_claude_translator(&self) -> bool {
-        self.translator.is_some()
-            || self.hosted.as_ref().is_some_and(|h| h.link().record.claude_translator)
-    }
-
-    /// The Claude translator's state, wherever the translator runs.
-    pub async fn claude_state(&self) -> Option<ClaudeState> {
-        if let Some(tr) = &self.translator {
-            return Some(ClaudeState {
-                session_id: tr.session_id.lock().await.clone(),
-                modes: tr.modes_value().await,
-                config_options: tr.config_options_value().await,
-            });
-        }
-        let link = self.hosted.as_ref()?.link();
-        let reply = link.query().await.ok()?;
-        Some(ClaudeState {
-            session_id: reply.claude_session_id,
-            modes: reply.modes?,
-            config_options: reply.config_options.unwrap_or(Value::Null),
-        })
-    }
-
-    /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`): the
-    /// start that attached a hosted harness sets it (a direct one has it from its spawn). Only
-    /// the first value counts.
-    pub fn set_run_class(&self, class: crate::cpu_class::CpuClass) {
-        let _ = self.run_class.set(class);
-    }
-
-    /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
-    /// True when this call lowered it. A harness with no class set (another daemon started it)
-    /// takes [`crate::cpu_class::CpuClass::Normal`]; one that ended is left alone.
-    pub async fn enter_run_class(&self) -> bool {
-        // A harness adopted from another daemon has no class here: one whose start that daemon
-        // did not see end (a restart mid-start) would keep the start's priority for good, so it
-        // takes [`CpuClass::Normal`]: a terminal shell's priority on macOS, the agent tier on
-        // Linux, and it only lowers.
-        let class = self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal);
-        if self.run_class_entered.swap(true, Ordering::SeqCst) {
-            return false;
-        }
-        self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
-    }
-
-    /// A person's own turn runs (`on`) or ended: a `background` harness leaves background class
-    /// for the turn and goes back after it (`cpu_class.rs`, item 6), so the tools it starts while
-    /// a person waits run at the agent tier, still below the app, not at background class. Only a
-    /// harness this daemon put in background class moves. True when its class changed.
-    pub async fn person_turn(&self, on: bool) -> bool {
-        let background =
-            self.run_class.get().copied() == Some(crate::cpu_class::CpuClass::Background);
-        if !background || !self.run_class_entered.load(Ordering::SeqCst) {
-            return false;
-        }
-        self.with_live_harness(|pid| crate::cpu_class::person_turn(pid, on)).await.unwrap_or(false)
-    }
-
-    /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
-    pub async fn harness_seen(&self) -> crate::cpu_class::HarnessSeen {
-        use crate::cpu_class::HarnessSeen;
-        match self.with_live_harness(crate::cpu_class::harness_state).await {
-            None => HarnessSeen::Ended,
-            Some(None) => HarnessSeen::Unread,
-            Some(Some(state)) => HarnessSeen::Running(state),
-        }
-    }
-
-    /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped
-    /// (its slot locked across `f`, so no reap can free the pid meanwhile), or a hosted one its
-    /// host has not reported ended. None otherwise.
-    async fn with_live_harness<T>(&self, f: impl FnOnce(u32) -> T) -> Option<T> {
-        let pid = self.pid?;
-        if self.hosted.is_some() {
-            return self.is_alive().await.then(|| f(pid));
-        }
-        let mut guard = self.child.lock().await;
-        let child = guard.as_mut()?;
-        matches!(child.try_wait(), Ok(None)).then(|| f(pid))
-    }
-
-    /// The processes under its harness, for ending some of them (`hub/silent_listing.rs`),
-    /// never found from a bare pid, which a reaped process gives up: a direct child's
-    /// descendants read while it is not reaped, under its slot's lock; a hosted one's, every
-    /// process that carries its host's start nonce (`HOST_MARK`).
-    #[cfg(unix)]
-    pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
-        if let Some(record) = self.host_record() {
-            let mark = self.hosted.as_ref().and_then(|h| h.harness_mark.lock_or_recover().clone());
-            let nonce = mark.unwrap_or(record.start_nonce);
-            return tokio::task::spawn_blocking(move || {
-                crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
-            })
-            .await
-            .unwrap_or_default();
-        }
-        let guard = self.child.lock().await;
-        under_unreaped(guard.as_ref()).await
-    }
-
-    /// The host record when this agent runs under a host.
-    pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
-        self.hosted.as_ref().map(|h| h.link().record.clone())
-    }
-
-    /// Whether this agent runs under a host whose record says a level below `level`
-    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
-    pub fn host_below(&self, level: u32) -> bool {
-        self.hosted.as_ref().is_some_and(|h| {
-            let link = h.link();
-            link.record.host_level < level && link.record.host_build != crate::build_info::build()
-        })
-    }
-
-    /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
-    pub fn host_build(&self) -> Option<String> {
-        self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
-    }
-
-    /// Tests only: its child's slot, which its reaper locks (`Fence::cut_or_end`).
-    #[cfg(test)]
-    pub(crate) fn child_slot(&self) -> Arc<Mutex<Option<Child>>> {
-        self.child.clone()
-    }
-
-    /// The hosted harness exited (its host is finishing).
-    pub fn has_exited(&self) -> bool {
-        self.hosted.as_ref().is_some_and(|h| h.exited.load(Ordering::SeqCst))
-    }
-
-    /// Its host is still connected and reported no exit: after a [`Self::terminate`], the host
-    /// did not take it (its link stopped reading) or could not end the agent within the grace.
-    /// A host whose link closed is not judged here.
-    pub fn host_unended(&self) -> bool {
-        self.hosted.as_ref().is_some_and(|h| {
-            !h.exit_seen.load(Ordering::SeqCst)
-                && !h.exited.load(Ordering::SeqCst)
-                && !h.link().is_closed()
-        })
-    }
-
-    /// The reader stopped because an entry could not be logged.
-    pub fn is_broken(&self) -> bool {
-        self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
-    }
-
-    /// Take the one retry of this broken link (`Hub::reach_broken_link`): false while another
-    /// runs, or for an agent with no host.
-    pub fn claim_broken_retry(&self) -> bool {
-        self.hosted.as_ref().is_some_and(|h| {
-            h.broken_retry.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok()
-        })
-    }
-
-    /// End the retry [`Self::claim_broken_retry`] took.
-    pub fn release_broken_retry(&self) {
-        if let Some(h) = &self.hosted {
-            h.broken_retry.store(false, Ordering::SeqCst);
-        }
-    }
-
-    /// The reader of the current host link stopped otherwise (`Hosted::stopped`): what the host
-    /// reports is not heard until a reattach.
-    pub fn is_stopped(&self) -> bool {
-        self.hosted.as_ref().is_some_and(|h| h.stopped.load(Ordering::SeqCst))
     }
 
     /// Reconnect to the same host after the reader stopped, keeping every
@@ -2543,127 +1854,6 @@ impl ChildAgent {
             }
             None => self.terminate(grace).await,
         }
-    }
-
-    /// Become the owner of a running host and resume after `resume_after`,
-    /// the last entry of it already in the session log.
-    pub async fn attach_hosted(
-        name: &str,
-        record: crate::agent_host::HostRecord,
-        resume_after: u64,
-        awaiting: Vec<Id>,
-        inbound: mpsc::Sender<Inbound>,
-        tap: Tap,
-    ) -> Result<Attached> {
-        use crate::agent_host::link::{Connect, connect};
-        let (link, adopted): (Arc<crate::agent_host::link::Link>, _) =
-            match connect(record, resume_after).await? {
-                Connect::Ready(link, adopted) => (Arc::from(link), adopted),
-                Connect::Incompatible { min, max, host_build } => {
-                    return Ok(Attached::Incompatible { min, max, host_build });
-                }
-            };
-        let (agent, responses) =
-            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap);
-        Ok(Attached::Ready(agent, adopted, responses))
-    }
-
-    /// The agent over an owner connection that is already open; starts its
-    /// reader.
-    pub(crate) fn from_link(
-        name: &str,
-        link: Arc<crate::agent_host::link::Link>,
-        adopted: &crate::agent_host::link::Adopted,
-        resume_after: u64,
-        awaiting: Vec<Id>,
-        inbound: mpsc::Sender<Inbound>,
-        tap: Tap,
-    ) -> (Arc<Self>, Vec<Response>) {
-        // Never reuse an id the harness may still answer.
-        let (stdin_tx, _unused) = mpsc::channel(1);
-        // Answers to requests a previous controller sent may be among the
-        // replayed entries: register them before the reader starts.
-        let mut map = HashMap::new();
-        let mut responses = Vec::new();
-        for id in awaiting {
-            let (tx, rx) = oneshot::channel();
-            map.insert(key(&id), tx);
-            responses.push(rx);
-        }
-        let pending = Arc::new(Mutex::new(Pending {
-            map,
-            orphans: Default::default(),
-            cancelled: Default::default(),
-        }));
-        let agent = Arc::new(Self {
-            name: name.to_owned(),
-            child: Arc::new(Mutex::new(None)),
-            stdin_tx,
-            next_id: AtomicI64::new(adopted.max_out_id.max(0) + 1),
-            pending,
-            tap,
-            inbound: inbound.clone(),
-            pid: adopted.harness_pid,
-            translator: None,
-            codex: None,
-            codex_repo_gated: false,
-            hosted: Some(Hosted {
-                link: std::sync::RwLock::new(link.clone()),
-                inbound,
-                detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                logged: tokio::sync::watch::channel(resume_after).0,
-                log_turn: tokio::sync::Mutex::new(()),
-                broken: std::sync::atomic::AtomicBool::new(false),
-                broken_retry: std::sync::atomic::AtomicBool::new(false),
-                replay_to: std::sync::atomic::AtomicU64::new(0),
-                stopped: std::sync::atomic::AtomicBool::new(false),
-                unlogged_answers: std::sync::Mutex::new(Vec::new()),
-                reattach_turn: tokio::sync::Mutex::new(()),
-                #[cfg(unix)]
-                custody: std::sync::Mutex::new(None),
-                logged_o: std::sync::atomic::AtomicU64::new(0),
-                harness_mark: std::sync::Mutex::new(None),
-                exited: std::sync::atomic::AtomicBool::new(false),
-                exit_seen: std::sync::atomic::AtomicBool::new(false),
-                exit: tokio::sync::Notify::new(),
-            }),
-            all_tools: std::sync::atomic::AtomicBool::new(false),
-            given_servers: std::sync::Mutex::new(None),
-            launch: std::sync::Mutex::new(None),
-            retired: std::sync::Mutex::new(false),
-            ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
-            generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
-            preview_format: None,
-            run_class: std::sync::OnceLock::new(),
-            run_class_entered: std::sync::atomic::AtomicBool::new(false),
-            writer_stop: std::sync::OnceLock::new(),
-            #[cfg(test)]
-            input_seam: InputSeam::default(),
-            #[cfg(windows)]
-            job: None,
-            #[cfg(feature = "sim")]
-            sim_alive: None,
-        });
-        agent.start_reader(link);
-        (agent, responses)
-    }
-
-    /// Sets `flag` (`Hosted::broken` or `stopped`) while `link` is still this agent's link, under
-    /// the requests' lock a reattach replaces the link and clears those flags under (`reattach`):
-    /// a reader of a replaced link marks nothing on the one that replaced it (review 3 of #26059).
-    /// False once the link was replaced or the agent detached.
-    async fn mark_link_unheard(
-        &self,
-        hosted: &Hosted,
-        link: &Arc<crate::agent_host::link::Link>,
-        flag: &std::sync::atomic::AtomicBool,
-    ) -> bool {
-        let _pending = self.pending.lock().await;
-        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
-            return false;
-        }
-        flag.store(true, Ordering::SeqCst);
-        true
     }
 
     /// Read `link`'s entries: log each, act on it, then acknowledge it (one ack for a run of
@@ -2865,266 +2055,6 @@ impl ChildAgent {
             }
         });
     }
-
-    /// The agent holder (`agent_host/custody.rs`): when this agent's host died while its harness
-    /// runs and this daemon holds custody of it, start a replacement host on the harness's stdio
-    /// and reattach to it, keeping every open request and the turn. True when the current link
-    /// is good after it (replaced here, or by another caller meanwhile); false when the host is
-    /// not dead, there is no custody, the harness ended, or the replacement failed: the caller
-    /// goes on as without the holder.
-    #[cfg(unix)]
-    pub async fn recover_host(self: &Arc<Self>) -> bool {
-        let Some(h) = &self.hosted else { return false };
-        if !crate::agent_host::custody::holder_on() {
-            return false;
-        }
-        let _turn = h.reattach_turn.lock().await;
-        let link = h.link();
-        let lost =
-            link.is_closed() || h.broken.load(Ordering::SeqCst) || h.stopped.load(Ordering::SeqCst);
-        let custody = h.custody.lock_or_recover().clone();
-        let Some(custody) = custody else { return !lost && !link.is_closed() };
-        if custody.record.start_nonce != link.record.start_nonce {
-            // Custody of an earlier host: the link was replaced meanwhile.
-            return !lost;
-        }
-        if h.detached.load(Ordering::SeqCst) || h.exit_seen.load(Ordering::SeqCst) {
-            return false;
-        }
-        // Its socket may close a moment before its live lock frees: a short bounded wait, as
-        // `hub/hosts.rs` `readopt` waits. A host that lives on is reached as a lost link instead.
-        let dead = crate::agent_host::host_dead_now(&link.record)
-            || crate::agent_host::wait_dead_async(
-                custody.spec.hosts_dir.clone(),
-                link.record.session_id.clone(),
-                link.record.start_nonce.clone(),
-                std::time::Duration::from_millis(500),
-            )
-            .await;
-        if !dead {
-            return false;
-        }
-        if !custody.harness_alive() {
-            return false;
-        }
-        let started = std::time::Instant::now();
-        let last_h = *h.logged.borrow();
-        let replay_from = h.logged_o.load(Ordering::SeqCst);
-        let max_out_id = self.next_id.load(Ordering::SeqCst).saturating_sub(1);
-        let launcher = match crate::agent_host::link::HostLauncher::current() {
-            Ok(l) => l,
-            Err(e) => {
-                tracing::warn!(agent = %self.name, "agent holder: no launcher: {e:#}");
-                return false;
-            }
-        };
-        let record = match crate::agent_host::custody::respawn(
-            &launcher,
-            &custody,
-            last_h,
-            max_out_id,
-            replay_from,
-        )
-        .await
-        {
-            Ok(record) => record,
-            Err(e) => {
-                tracing::warn!(agent = %self.name, "agent holder: no replacement host: {e:#}");
-                return false;
-            }
-        };
-        // The dead host's lock file; its record and socket are the replacement's now.
-        crate::agent_host::remove_own_artifacts(&custody.spec.hosts_dir, &custody.record);
-        *h.custody.lock_or_recover() = None;
-        if let Err(e) = self.reattach_to(h, record).await {
-            tracing::warn!(agent = %self.name, "agent holder: replacement host not reached: {e:#}");
-            return false;
-        }
-        tracing::warn!(
-            agent = %self.name,
-            ms = started.elapsed().as_millis() as u64,
-            "agent holder: its host died; a replacement host took over the running harness"
-        );
-        true
-    }
-
-    /// The open requests of a link whose reader stopped while its host lived fail once that host is
-    /// proven gone ([`crate::agent_host::link::host_ended`]), or at once when its live lock can not
-    /// be watched (no proof keeps them open), unless a reattach or a detach took them first.
-    async fn fail_pending_once_host_ends(&self, link: &Arc<crate::agent_host::link::Link>) {
-        let Some(hosted) = &self.hosted else { return };
-        let _ = crate::agent_host::link::host_ended(&link.record).await;
-        let mut p = self.pending.lock().await;
-        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
-            return;
-        }
-        for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-        }
-    }
-
-    /// Log one host entry, then act on it. Returns whether its record was
-    /// stored (only then may it be acknowledged).
-    async fn on_host_entry(
-        &self,
-        h: u64,
-        entry: crate::agent_host::Entry,
-        inbound: &mpsc::Sender<Inbound>,
-    ) -> bool {
-        use crate::agent_host::{Entry, TapDir};
-        // Debug builds only: `ACPMUX_TEST_UNLOGGED_ONCE=TEXT` fails to log the first host entry
-        // whose text holds TEXT, once per process, as a full disk does: the link breaks and the
-        // entry stays with the host for the next attach. Release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Ok(text) = std::env::var("ACPMUX_TEST_UNLOGGED_ONCE") {
-            static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-            let msg = match &entry {
-                Entry::Tap { msg, .. } | Entry::In { msg } => Some(msg.to_string()),
-                _ => None,
-            };
-            if msg.is_some_and(|m| m.contains(&text)) && !FIRED.swap(true, Ordering::SeqCst) {
-                return false;
-            }
-        }
-        match entry {
-            Entry::Tap { dir, msg } => match Message::from_value(msg) {
-                Ok(m) => {
-                    let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
-                    if let (Direction::Out, Message::Response { id, .. }, Some(hosted)) =
-                        (d, &m, &self.hosted)
-                    {
-                        // The host took this answer: it is never sent again.
-                        hosted.unlogged_answers.lock_or_recover().retain(|a| a.id != key(id));
-                    }
-                    (self.tap)(d, &m, Some(h))
-                }
-                Err(_) => true,
-            },
-            Entry::In { msg } => {
-                let Ok(m) = Message::from_value(msg) else { return true };
-                let host_incarnation =
-                    self.hosted.as_ref().map(|host| host.link().record.incarnation.clone());
-                let needs_durable_cancel = matches!(
-                    &m,
-                    Message::Notification { method, params }
-                        if method == crate::rpc::method::CANCEL_REQUEST
-                            && params.as_ref().and_then(|p| p.get("requestId")).is_some()
-                );
-                // The incarnation-bearing marker is this entry's durable
-                // checkpoint. Store it before acknowledging the cancellation.
-                if needs_durable_cancel {
-                    let Message::Notification { method, params } = &m else { return false };
-                    let (done, persisted) = oneshot::channel();
-                    if inbound
-                        .send(Inbound::Notification {
-                            method: method.clone(),
-                            params: params.clone(),
-                            host_seq: Some(h),
-                            host_incarnation: host_incarnation.clone(),
-                            persisted: Some(done),
-                            agent: self.generation,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        return false;
-                    }
-                    if !persisted.await.unwrap_or(false) {
-                        return false;
-                    }
-                }
-                // The incarnation-bearing durable marker owns a cancellation's
-                // checkpoint. Its delayed raw copy must never advance a new host.
-                let raw_seq = (!needs_durable_cancel).then_some(h);
-                match self.tap_live(&m, || (self.tap)(Direction::In, &m, raw_seq)) {
-                    None => return true,
-                    Some(false) => return false,
-                    Some(true) => {}
-                }
-                match m {
-                    Message::Response { id, result, error } => {
-                        let answer = match error {
-                            Some(e) => Err(e),
-                            None => Ok(result.unwrap_or(Value::Null)),
-                        };
-                        let mut p = self.pending.lock().await;
-                        if let Some(tx) = p.map.remove(&key(&id)) {
-                            let _ = tx.send(answer);
-                        } else if !p.cancelled.take_late(&key(&id), "agent host") {
-                            if p.orphans.len() >= ORPHAN_ANSWERS {
-                                p.orphans.pop_front();
-                            }
-                            p.orphans.push_back((key(&id), answer));
-                        }
-                    }
-                    Message::Request { id, method, params } => {
-                        let _ = inbound
-                            .send(Inbound::Request {
-                                id,
-                                method,
-                                params,
-                                host_seq: Some(h),
-                                host_incarnation,
-                            })
-                            .await;
-                    }
-                    Message::Notification { method, params } => {
-                        if needs_durable_cancel {
-                            return true;
-                        }
-                        let _ = inbound
-                            .send(Inbound::Notification {
-                                method,
-                                params,
-                                host_seq: Some(h),
-                                host_incarnation: host_incarnation.clone(),
-                                persisted: None,
-                                agent: self.generation,
-                            })
-                            .await;
-                    }
-                }
-                true
-            }
-            Entry::Err { line } => {
-                let note = Message::notification(HOST_STDERR, serde_json::json!({"text": line}));
-                if !(self.tap)(Direction::In, &note, Some(h)) {
-                    return false;
-                }
-                let _ = inbound
-                    .send(Inbound::Stderr(
-                        line,
-                        Some(h),
-                        Some((self.generation, StderrPipe::Stderr)),
-                    ))
-                    .await;
-                true
-            }
-            Entry::Exit { code } => {
-                let note = Message::notification(HOST_EXIT, serde_json::json!({"code": code}));
-                if !(self.tap)(Direction::In, &note, Some(h)) {
-                    return false;
-                }
-                // Not alive from here: no turn may set the session ready on
-                // a harness that is gone while the ack is still being written.
-                // What its host had for it is never written now (its link settled it).
-                if let Some(hosted) = &self.hosted {
-                    hosted.exit_seen.store(true, Ordering::SeqCst);
-                }
-                let mut p = self.pending.lock().await;
-                for (_, tx) in p.map.drain() {
-                    let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-                }
-                drop(p);
-                // `exited` and the exit notify follow the Exit entry's ack
-                // (`start_reader`), so a terminate that waits on them never
-                // returns before the host knows its Exit is logged.
-                let _ =
-                    inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
-                true
-            }
-        }
-    }
 }
 
 /// SIGKILL to an agent's process group once dropped: at the end of `ChildAgent::terminate`'s
@@ -3219,539 +2149,11 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 }
 
 #[cfg(all(test, unix))]
-mod spawn_error_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Result<()> {
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["python3", "-c", "import sys; sys.stdin.read()"]
-        }))?;
-        let cursors = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let recorded = cursors.clone();
-        let tap: Tap = Arc::new(move |_, _, seq| {
-            recorded.lock().unwrap_or_else(|e| e.into_inner()).push(seq);
-            true
-        });
-        let (tx, mut rx) = mpsc::channel(8);
-        let agent =
-            ChildAgent::spawn("old", &profile, &std::env::temp_dir(), tx.clone(), tap).await?;
-        let cancel = Message::notification(
-            crate::rpc::method::CANCEL_REQUEST,
-            serde_json::json!({"requestId": 7}),
-        );
-        let pending =
-            agent.on_host_entry(900, crate::agent_host::Entry::In { msg: cancel.to_value() }, &tx);
-        let persist = async {
-            if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) =
-                rx.recv().await
-            {
-                assert_eq!(host_seq, Some(900), "the durable marker owns the checkpoint");
-                assert!(cursors.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
-                let _ = done.send(true);
-            }
-        };
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            tokio::join!(pending, persist).0
-        })
-        .await;
-        agent.kill().await;
-        assert!(result?, "the cancellation was not stored");
-        assert_eq!(
-            *cursors.lock().unwrap_or_else(|e| e.into_inner()),
-            vec![None],
-            "raw cancellation has no incarnation fence"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::Result<()> {
-        let ask = Message::request(7, crate::rpc::method::SESSION_REQUEST_PERMISSION, Value::Null);
-        let cancel = Message::notification(
-            crate::rpc::method::CANCEL_REQUEST,
-            serde_json::json!({"requestId": 7}),
-        );
-        let script = format!(
-            "import sys; print({:?}, flush=True); print({:?}, flush=True); sys.stdin.read()",
-            ask.to_line().trim(),
-            cancel.to_line().trim()
-        );
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["python3", "-c", script]
-        }))?;
-        let mut owners = Vec::new();
-        for _ in 0..2 {
-            let (inbound, mut rx) = mpsc::channel(8);
-            let agent = ChildAgent::spawn(
-                "direct",
-                &profile,
-                &std::env::temp_dir(),
-                inbound,
-                Arc::new(|_, _, _| true),
-            )
-            .await?;
-            let messages = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                (rx.recv().await, rx.recv().await)
-            })
-            .await;
-            agent.kill().await;
-            let (
-                Some(Inbound::Request { host_incarnation: request, .. }),
-                Some(Inbound::Notification { host_incarnation: cancel, .. }),
-            ) = messages?
-            else {
-                anyhow::bail!("the direct child did not ask and withdraw its request");
-            };
-            assert!(request.is_some(), "a direct request needs its child's identity");
-            assert_eq!(request, cancel, "a withdrawal must carry its request's owner");
-            owners.push(request);
-        }
-        assert_ne!(owners[0], owners[1], "a replacement child reused its predecessor's owner");
-        Ok(())
-    }
-
-    #[test]
-    fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
-        let error = spawn_error("start host", std::io::Error::from_raw_os_error(libc::EMFILE));
-        let text = format!("{error:#}");
-        assert!(text.starts_with("start host: the acpmux daemon is out of open files"), "{text}");
-        assert!(text.contains("acpmux daemon shutdown"), "{text}");
-        let other = spawn_error("start host", std::io::Error::from_raw_os_error(libc::ENOENT));
-        assert!(format!("{other:#}").starts_with("start host: "), "{other:#}");
-    }
-
-    #[tokio::test]
-    async fn direct_spawn_failure_does_not_expose_harness_argv() {
-        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
-        }))
-        .unwrap();
-        let (inbound, _rx) = mpsc::channel(1);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let error =
-            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
-            {
-                Ok(_) => panic!("a missing harness started"),
-                Err(error) => error,
-            };
-        assert!(
-            !error.to_string().contains(SENTINEL),
-            "spawn failure exposed harness argv: {error:#}"
-        );
-    }
-}
+mod spawn_error_tests;
 
 #[cfg(all(test, unix))]
-mod fence_tests {
-    use super::*;
-
-    /// #54378: an agent's stdin writer that panicked while it had a message left that message
-    /// unsettled, so its holder waited on it until the agent ended. It fails now.
-    #[tokio::test]
-    async fn a_writer_that_panics_fails_the_message_it_had() {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let profile: HarnessProfile =
-            serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
-                .unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the stand-in agent starts");
-        let needle = "writer-panics-54378";
-        crate::supervise::arm_panic("agent writer", needle);
-        let fence = Fence::default();
-        let note = Message::notification("note", serde_json::json!({"text": needle}));
-        agent.write_fenced(&note, Some(&fence)).await.unwrap();
-        let settled =
-            tokio::time::timeout(std::time::Duration::from_secs(5), fence.settled()).await;
-        let failed = fence.now() == Fence::FAILED;
-        agent.kill().await;
-        assert!(settled.is_ok(), "the message a panicked writer had never settled");
-        assert!(failed, "it is failed, not written or cut");
-    }
-
-    /// Review 81 of #23322: the Codex bridge's empty batch (a translation that gives the
-    /// app-server nothing) queues nothing on the agent's stdin, so the reader that sends one
-    /// before it hands on an answer never waits on a full stdin queue.
-    #[tokio::test]
-    async fn an_empty_batch_of_server_lines_queues_nothing() {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let profile: HarnessProfile =
-            serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
-                .unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the stand-in agent starts");
-        // Its writer holds one line, so what is queued after it stays queued.
-        let (arrived_tx, arrived) = oneshot::channel();
-        let (release, release_rx) = oneshot::channel();
-        *agent.input_seam.lock().unwrap() =
-            Some(("held-line".to_owned(), false, arrived_tx, release_rx));
-        agent.stdin_tx.send(("\"held-line\"\n".to_owned(), None)).await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(10), arrived)
-            .await
-            .expect("the writer holds the line")
-            .unwrap();
-        let room = agent.stdin_tx.capacity();
-        assert!(agent.codex_lines(Vec::new(), None).await);
-        assert_eq!(agent.stdin_tx.capacity(), room, "an empty batch took a place on stdin");
-        // Review 82: Claude's translator gives no line too (a late answer to a withdrawn
-        // elicitation, `claude_stdio/outbound.rs`).
-        agent.claude_lines(Vec::new(), None).await.unwrap();
-        assert_eq!(agent.stdin_tx.capacity(), room, "an empty Claude batch took a place on stdin");
-        let _ = release.send(());
-        agent.kill().await;
-    }
-
-    /// Review 87 of #23322: an agent whose leader exited and left a descendant holding its
-    /// stdin: a cut of the message its writer has stops that writer, so nothing more of the
-    /// message reaches the descendant after the cut.
-    #[tokio::test]
-    async fn a_cut_stops_the_writer_of_a_stdin_a_descendant_kept() {
-        let out = std::env::temp_dir().join(format!("acpmux-kept-{}", std::process::id()));
-        let _ = std::fs::remove_file(&out);
-        // A background job gets /dev/null for stdin unless it is passed on explicitly; the
-        // descendant leaves the agent's process group, so only a stopped writer keeps it out.
-        let copy = "import os, time; os.setsid(); time.sleep(3); os.execvp('cat', ['cat'])";
-        let script =
-            format!("exec 3<&0; python3 -c \"{copy}\" <&3 3<&- > '{}' & exit 0", out.display());
-        let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
-        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent = ChildAgent::spawn("kept", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the agent starts");
-        let fence = Fence::default();
-        let line = "x".repeat(1 << 20);
-        let note = Message::notification("note", serde_json::json!({"text": line}));
-        agent.write_fenced(&note, Some(&fence)).await.unwrap();
-        // The pipe is full and its leader is gone.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        assert!(fence.cut_or_end(std::time::Duration::from_secs(1)).await, "the cut is proven");
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let read = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
-        let _ = std::fs::remove_file(&out);
-        assert!(read < (1 << 20), "a cut message reached the agent after the cut ({read} bytes)");
-    }
-
-    /// Review 87 of #23322, round 2: a direct agent whose leader exited while a descendant that
-    /// never reads kept its stdin: the message its writer has settles once the agent ended,
-    /// with no cut, so a family hold on it is not held for ever.
-    #[tokio::test]
-    async fn a_message_a_descendant_never_reads_settles_once_its_agent_ended() {
-        let pid_file = std::env::temp_dir().join(format!("acpmux-stuck-{}", std::process::id()));
-        let _ = std::fs::remove_file(&pid_file);
-        let hold = format!(
-            "import os, time; os.setsid(); open('{}', 'w').write(str(os.getpid())); time.sleep(30)",
-            pid_file.display()
-        );
-        let script = format!("exec 3<&0; python3 -c \"{hold}\" <&3 3<&- >/dev/null 2>&1 & exit 0");
-        let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
-        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent = ChildAgent::spawn("stuck", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the agent starts");
-        let fence = Fence::default();
-        let line = "x".repeat(1 << 20);
-        let note = Message::notification("note", serde_json::json!({"text": line}));
-        agent.write_fenced(&note, Some(&fence)).await.unwrap();
-        let settled =
-            tokio::time::timeout(std::time::Duration::from_secs(10), fence.settled()).await;
-        if let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|p| p.parse().ok()) {
-            // SAFETY: the descendant this test started, still holding its pid while it sleeps.
-            unsafe { libc::kill(pid, libc::SIGKILL) };
-        }
-        let _ = std::fs::remove_file(&pid_file);
-        assert!(settled.is_ok(), "a message its ended agent never took was still unsettled");
-        assert!(!fence.is_cut(), "it was written in part, so it is not a cut");
-    }
-
-    /// Review 88 of #23322: Claude's translator lets go of a permission ask once it translated
-    /// the answer, so a translated answer is as good as taken: a cut never drops it while it is
-    /// queued, which would leave Claude waiting on an ask nothing can answer again; the cut
-    /// ends that agent instead.
-    #[tokio::test]
-    async fn an_answer_a_translator_took_is_not_cut_while_queued() {
-        let ask = serde_json::json!({"type": "control_request", "request_id": "ask-1",
-            "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {}}});
-        let script = format!("echo '{ask}'; exec sleep 30");
-        let argv = serde_json::json!({"argv": ["/bin/sh"]});
-        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
-        let (inbound, mut rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let tr =
-            crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
-        let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), script]));
-        let agent = ChildAgent::spawn_with(
-            "translated",
-            &profile,
-            &std::env::temp_dir(),
-            inbound,
-            tap,
-            command,
-            Some(tr),
-            None,
-        )
-        .await
-        .expect("the agent starts");
-        let id = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                match rx.recv().await {
-                    Some(Inbound::Request { id, .. }) => break id,
-                    Some(_) => continue,
-                    None => panic!("the agent ended before it asked"),
-                }
-            }
-        })
-        .await
-        .expect("Claude's ask reaches the hub");
-        // Its writer holds one line, so the answer stays queued behind it.
-        let (arrived_tx, arrived) = oneshot::channel();
-        let (release, release_rx) = oneshot::channel();
-        *agent.input_seam.lock().unwrap() =
-            Some(("held-line".to_owned(), false, arrived_tx, release_rx));
-        agent.stdin_tx.send(("\"held-line\"\n".to_owned(), None)).await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(10), arrived)
-            .await
-            .expect("the writer holds the line")
-            .unwrap();
-        let fence = Fence::default();
-        let allow =
-            serde_json::json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}});
-        agent.respond_fenced(id, Ok(allow), Some(&fence)).await.unwrap();
-        fence.cut();
-        assert!(!fence.is_cut(), "a cut dropped an answer its translator had already let go of");
-        assert!(fence.cut_or_end(std::time::Duration::from_secs(1)).await, "its agent ended");
-        assert!(!agent.is_alive().await, "the agent of a translated answer was left running");
-        let _ = release.send(());
-    }
-
-    /// Review 87 of #23322, round 3: a direct agent's message is written only once its writer
-    /// wrote it. An answer that came first (one the Codex bridge makes up once its app-server
-    /// exits) does not settle it while its writer still has it.
-    #[tokio::test]
-    async fn only_its_writer_settles_a_direct_agents_message() {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let profile: HarnessProfile =
-            serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
-                .unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the stand-in agent starts");
-        // Its writer holds the request while it writes it.
-        let (arrived_tx, arrived) = oneshot::channel();
-        let (release, release_rx) = oneshot::channel();
-        *agent.input_seam.lock().unwrap() =
-            Some(("held-request".to_owned(), true, arrived_tx, release_rx));
-        let fence = Fence::default();
-        let request = {
-            let (agent, fence) = (agent.clone(), fence.clone());
-            tokio::spawn(async move {
-                let params = serde_json::json!({});
-                agent.request_with_hook("held-request", params, Some(&fence), || {}).await
-            })
-        };
-        tokio::time::timeout(std::time::Duration::from_secs(10), arrived)
-            .await
-            .expect("the writer holds the request")
-            .unwrap();
-        let waiting: Vec<_> = agent.pending.lock().await.map.drain().map(|(_, tx)| tx).collect();
-        for tx in waiting {
-            let _ = tx.send(Err(RpcError::internal("the app-server exited")));
-        }
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), request).await;
-        let settled = fence.is_settled();
-        let _ = release.send(());
-        agent.kill().await;
-        assert!(!settled, "an answer settled a message its writer had not written");
-    }
-
-    /// Review 87 of #23322, round 3: a message a translator took (`hand_on`) that its agent's
-    /// closed writer never takes settles, so no holder waits on it.
-    #[tokio::test]
-    async fn a_translated_message_its_closed_writer_never_took_settles() {
-        let argv = serde_json::json!({"argv": ["/bin/sh"]});
-        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let tr =
-            crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
-        let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), "exit 0".to_owned()]));
-        let agent = ChildAgent::spawn_with(
-            "gone",
-            &profile,
-            &std::env::temp_dir(),
-            inbound,
-            tap,
-            command,
-            Some(tr),
-            None,
-        )
-        .await
-        .expect("the agent starts");
-        tokio::time::timeout(std::time::Duration::from_secs(10), agent.stdin_tx.closed())
-            .await
-            .expect("its writer stops once it ended");
-        let fence = Fence::default();
-        // Claude's translator turns a cancel into an interrupt line for its stdin.
-        let params = serde_json::json!({"sessionId": "acp-1"});
-        let cancel = Message::notification(crate::rpc::method::SESSION_CANCEL, params);
-        assert!(agent.write_fenced(&cancel, Some(&fence)).await.is_err());
-        assert!(fence.is_settled(), "a message its closed writer never took was left unsettled");
-    }
-
-    /// Review 87 of #23322, round 4: a cut that stops a writer before it ever ran still settles
-    /// what that writer had queued, one a translator took included.
-    #[tokio::test]
-    async fn a_writer_stopped_before_it_ran_settles_its_queue() {
-        let argv = serde_json::json!({"argv": ["/bin/sh"]});
-        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
-        let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let tr =
-            crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
-        let command =
-            Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), "exec sleep 30".to_owned()]));
-        let agent = ChildAgent::spawn_with(
-            "unpolled",
-            &profile,
-            &std::env::temp_dir(),
-            inbound,
-            tap,
-            command,
-            Some(tr),
-            None,
-        )
-        .await
-        .expect("the agent starts");
-        // Two translated messages, queued before the writer first runs (this runtime has one
-        // thread, and nothing here yields to it).
-        let params = serde_json::json!({"sessionId": "acp-1"});
-        let cancel = Message::notification(crate::rpc::method::SESSION_CANCEL, params);
-        let (first, second) = (Fence::default(), Fence::default());
-        agent.write_fenced(&cancel, Some(&first)).await.unwrap();
-        agent.write_fenced(&cancel, Some(&second)).await.unwrap();
-        assert!(second.cut_or_end(std::time::Duration::from_secs(1)).await, "the cut is proven");
-        let settled = first.is_settled();
-        agent.kill().await;
-        assert!(settled, "a message its unstarted writer had queued was left unsettled");
-    }
-}
+mod fence_tests;
 
 /// Review findings F1 and F4 of #41285 on a cancelled agent request (`request_cancel.rs`).
 #[cfg(test)]
-mod cancel_tests {
-    use super::*;
-    use serde_json::json;
-
-    fn pending() -> Arc<Mutex<Pending>> {
-        Arc::new(Mutex::new(Pending {
-            map: HashMap::new(),
-            orphans: Default::default(),
-            cancelled: Default::default(),
-        }))
-    }
-
-    /// F1: the agent's answer comes between the cancel and the cleanup of its entry (the pending
-    /// map was busy as the request was dropped). It reaches a waiter that is gone, so it is
-    /// dropped and logged as late, never lost unlogged, and an agent that already answered hears
-    /// no cancel.
-    #[tokio::test]
-    async fn an_answer_between_the_cancel_and_the_cleanup_is_dropped_as_late() {
-        let pending = pending();
-        let (waiter, waiting) = oneshot::channel();
-        pending.lock().await.map.insert(key(&Value::from(7)), waiter);
-        let (stdin, mut written) = mpsc::channel(8);
-        let abandoned = Abandoned {
-            pending: pending.clone(),
-            sink: CancelSink::Direct(stdin),
-            id: 7,
-            method: "session/set_mode".into(),
-            armed: true,
-            forget_on_drop: false,
-        };
-        let mut busy = pending.lock().await;
-        let (cancel, cancelled) = oneshot::channel();
-        cancel.send(()).unwrap();
-        let served = crate::request_cancel::until_cancelled(cancelled, async move {
-            let _abandoned = abandoned;
-            let _waiting = waiting;
-            std::future::pending::<()>().await
-        })
-        .await;
-        assert!(served.is_none(), "the request gave up");
-        // The reader takes the answer's entry while the cleanup waits for the map.
-        let late = busy.take(&Value::from(7)).expect("the entry is still there");
-        assert!(late.send(Ok(json!({}))).is_err(), "its waiter is gone");
-        drop(busy);
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while pending.lock().await.cancelled.dropped == 0 && tokio::time::Instant::now() < deadline
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        let p = pending.lock().await;
-        assert_eq!(p.cancelled.dropped, 1, "dropped as late, and logged");
-        assert!(p.cancelled.is_empty(), "no id kept for an answer that came");
-        assert!(p.map.is_empty());
-        drop(p);
-        assert!(written.try_recv().is_err(), "an agent that answered hears no cancel");
-    }
-
-    /// F4: `request_within` dropped by its client's cancel forgets its pending entry and tells the
-    /// agent, as `request` does, instead of holding the agent request until it answers.
-    #[tokio::test]
-    async fn a_cancelled_request_within_forgets_its_entry_and_tells_the_agent() {
-        let hold = std::env::temp_dir().join(format!("amx-within-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&hold).unwrap();
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let profile: HarnessProfile = serde_json::from_value(json!({
-            "argv": ["python3", fake],
-            "env": {"FAKE_SET_MODE_HOLD": hold.display().to_string()},
-        }))
-        .unwrap();
-        let (tx, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| true);
-        let agent =
-            ChildAgent::spawn("acp", &profile, &std::env::temp_dir(), tx, tap).await.unwrap();
-        let (cancel, cancelled) = oneshot::channel();
-        let asking = agent.clone();
-        let task = tokio::spawn(async move {
-            let within = std::time::Duration::from_secs(120);
-            let ask = asking.request_within(
-                "session/set_mode",
-                json!({"sessionId": "s", "modeId": "m"}),
-                within,
-            );
-            crate::request_cancel::until_cancelled(cancelled, ask).await
-        });
-        let read = |name: &str| std::fs::read_to_string(hold.join(name)).unwrap_or_default();
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
-        while read("held").trim() != "1" {
-            assert!(tokio::time::Instant::now() < deadline, "the agent never held the request");
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert_eq!(agent.pending_requests().await, 1);
-        cancel.send(()).unwrap();
-        assert!(task.await.unwrap().is_none(), "the request gave up");
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
-        while read("cancels").is_empty() && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert_eq!(agent.pending_requests().await, 0, "no entry left behind");
-        let cancels: Vec<Value> =
-            serde_json::from_str(&read("cancels")).expect("the agent heard one cancel");
-        assert_eq!(cancels.len(), 1, "{cancels:?}");
-        agent.kill().await;
-        let _ = std::fs::remove_dir_all(&hold);
-    }
-}
+mod cancel_tests;

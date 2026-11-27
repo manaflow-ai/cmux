@@ -73,9 +73,13 @@ impl Hub {
             let trigger = o.get("trigger") == Some(&Value::Bool(true));
             o.insert("unread".into(), Value::Bool(!trigger && !self.attended(session)));
         }
-        msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
+        // The count alone: building the whole row here masked its title and step again on every
+        // turn's end (goal sessions-2000-attached).
+        msg.set("pendingPermissions", json!(session.pending_permission_count()));
         // Which harness-magic features ran this turn, for the scorecard's like-with-like split.
         super::harness_magic::stamp(&mut msg);
+        super::turn_checkpoint::count(&mut msg);
+        self.cache_alarm(session, &mut msg);
         self.turn_rules_end(session, &mut msg);
         self.record_last_turn(session, &msg);
         // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.

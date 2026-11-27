@@ -36,15 +36,86 @@ pub(crate) async fn before_deadline<T>(
     }
 }
 
+/// When a prompt path that saw its daemon go away now stops dialing the next one.
+pub(crate) fn update_reconnect_deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + UPDATE_RECONNECT_BUDGET
+}
+
 pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
     reconnect_after_update_with_budget(UPDATE_RECONNECT_BUDGET).await
 }
 
 pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Result<Arc<Client>> {
     let budget = budget.min(UPDATE_RECONNECT_BUDGET);
-    tokio::time::timeout(budget, crate::daemon::connect(true))
+    let deadline = tokio::time::Instant::now() + budget;
+    until_daemon_answers(deadline, || crate::daemon::connect(true))
         .await
-        .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
+        .map_err(|e| anyhow!("daemon did not come back within {budget:?}: {e:#}"))
+}
+
+/// Dial `socket` again until a daemon there answers initialize, or `deadline`: the next daemon
+/// of an update or restart. A dial that finds no listener yet, or the old daemon still draining
+/// (it answers `daemon.restarting`), is tried again, not the sender's failure.
+pub(crate) async fn redial(
+    socket: &std::path::Path,
+    deadline: tokio::time::Instant,
+) -> Result<Arc<Client>> {
+    until_daemon_answers(deadline, || Client::connect(socket)).await
+}
+
+/// The first daemon `dial` reaches by `deadline`, dialing again on any failure with a pause of
+/// 50 ms doubling to 1 s (an update's gap is a few seconds: RFD 0082).
+pub(crate) async fn until_daemon_answers<F, Fut>(
+    deadline: tokio::time::Instant,
+    dial: F,
+) -> Result<Arc<Client>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<Arc<Client>>>,
+{
+    let mut pause = Duration::from_millis(50);
+    loop {
+        let error = match tokio::time::timeout_at(deadline, dial()).await {
+            Ok(Ok(client)) => return Ok(client),
+            Ok(Err(e)) => e,
+            Err(_) => anyhow!("no daemon answered by the deadline"),
+        };
+        if tokio::time::Instant::now() + pause >= deadline {
+            return Err(error);
+        }
+        tokio::time::sleep(pause).await;
+        pause = (pause * 2).min(Duration::from_secs(1));
+    }
+}
+
+/// Run `attempt` on `client`, and again on a redialed client while the daemon goes away under it
+/// ([`daemon_closed_error`]) until `deadline`. Each later attempt is told it is a resend, so it
+/// sends the same prompt id with `resend: true`: the outbox runs an id once
+/// (`hub::outbox::Outbox::add`), so a message the old daemon took before it closed is not
+/// delivered twice. Returns the client that answered, for the caller's next request.
+pub(crate) async fn through_restart<T, F, Fut>(
+    client: &Arc<Client>,
+    deadline: tokio::time::Instant,
+    mut attempt: F,
+) -> Result<(Arc<Client>, T)>
+where
+    F: FnMut(Arc<Client>, bool) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut client = client.clone();
+    let mut resend = false;
+    loop {
+        match attempt(client.clone(), resend).await {
+            Ok(value) => return Ok((client, value)),
+            Err(e) if daemon_closed_error(&e) && tokio::time::Instant::now() < deadline => {
+                client = redial(client.socket(), deadline).await.map_err(|again| {
+                    e.context(format!("reconnecting after daemon restart: {again:#}"))
+                })?;
+                resend = true;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 async fn reconnect_prompt(
@@ -982,12 +1053,6 @@ pub(crate) fn print_item(item: &Item) {
         Item::Thought { text } => println!("\x1b[2mthought: {}\x1b[0m", short(text, 200)),
         Item::Tool { title, kind, status, .. } => {
             println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
-        }
-        Item::Plan { entries } => {
-            println!("\x1b[35mplan:\x1b[0m");
-            for (s, c) in entries {
-                println!("  [{s}] {c}");
-            }
         }
         Item::Permission { title, decided, .. } => match decided {
             Some(d) => println!("\x1b[33mpermission {title}: {d}\x1b[0m"),

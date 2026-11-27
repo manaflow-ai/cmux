@@ -5,6 +5,9 @@ import { startFailureView } from "../startFailure";
 
 /// A New Tab start that failed: who it was for, the raw words, and whether it was on this Mac.
 /// `retry` runs the same request again with the same draft, folder and model.
+/// retry-prompt-ok: each `retry` here has a cost or a side effect the person chooses: a start sends the
+/// draft to the agent again (a paid model request), an open moves them to a workspace, a Compress or
+/// Decompress changes the chat. None is asked again on its own.
 export type NewTabStartFailure = {
   harness?: string;
   error: string;
@@ -64,6 +67,7 @@ export function StartFailure({
           </button>{" "}
         </>
       )}
+      {/* retry-prompt-ok: re-sends the start (a paid model request) or re-runs an open or compress the person chose. */}
       {failure.retry && (
         <>
           <button type="button" className="acpmux-folder-choice-button" onClick={failure.retry}>
@@ -77,7 +81,7 @@ export function StartFailure({
       {view.detail && (
         <>
           {" "}
-          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" />
+          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" chipChevron />
         </>
       )}
     </output>

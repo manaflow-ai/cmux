@@ -84,6 +84,7 @@ NON_PRODUCT_TOOLING = frozenset({
     "scripts/check-pbxproj.sh",
     "scripts/check-test-determinism.py",
     "scripts/install-git-hooks.sh",
+    "scripts/merge-cargo-lock.py",
     "scripts/merge-pbxproj.py",
     "scripts/merge-xcstrings.py",
     "scripts/normalize-pbxproj.py",

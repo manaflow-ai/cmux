@@ -58,10 +58,7 @@ fn a_codex_agent_chat_keeps_working_until_it_reports_completion() {
     ])
     .unwrap();
     let meta = session_meta(&chat, "0123456789abcdef0123456789abcdef");
-    assert_eq!(
-        meta.get("stopCondition"),
-        Some(&json!(CODEX_AGENT_CHAT_STOP_CONDITION))
-    );
+    assert_eq!(meta.get("stopCondition"), Some(&json!(CODEX_AGENT_CHAT_STOP_CONDITION)));
 }
 
 fn strings(list: &[&str]) -> Vec<String> {

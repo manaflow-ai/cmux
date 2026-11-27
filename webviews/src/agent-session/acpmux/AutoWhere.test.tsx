@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AutoAddingMachineLine } from "./AutoWhere";
+import { renderToStaticMarkup } from "react-dom/server";
+import { AutoAddingMachineLine, AutoIcon } from "./AutoWhere";
 import { autoAddingMachineLine } from "./autoWhereModel";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -49,4 +50,21 @@ test("the scale-up line renders in Auto styling and clears with the warning", as
   expect(cleared).toBeUndefined();
   await act(async () => root!.render(cleared ? <AutoAddingMachineLine text={cleared} look="orbit" /> : null));
   expect(container.querySelector(".acpmux-auto-arrival")).toBeNull();
+});
+
+// cmux#51731: Auto's icon reads as this Mac and Cloud at once, a laptop with a cloud badge, in the
+// other rows' 14px box (DevicesIcon, EnvironmentIcon) and stroke.
+test("Auto's shipped icon is a laptop with a cloud badge, the other icons' size", () => {
+  const html = renderToStaticMarkup(<AutoIcon look="split" />);
+  expect(html).toContain('data-look="split"');
+  expect(html).toContain('width="14"');
+  expect(html).toContain('height="14"');
+  expect(html).toContain('viewBox="0 0 16 16"');
+  expect(html).toContain('stroke-width="1.25"');
+  // The laptop: a screen and its base, cut where the badge sits.
+  expect(html).toMatch(/<g mask="url\(#[^)]+\)"><rect [^>]*width="10.5"/);
+  expect(html).toContain('d="M.75 13.25h13"');
+  // The badge: a filled cloud in Cloud's colour, and no slash between two halves.
+  expect(html).toMatch(/class="acpmux-auto-split-cloud"[^>]*fill="var\(--agent-ansi-4, currentColor\)"/);
+  expect(html).not.toContain("acpmux-auto-split-slash");
 });

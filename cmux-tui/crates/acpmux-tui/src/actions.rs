@@ -40,6 +40,8 @@ pub enum Action {
     Model,
     ReloadCatalog,
     Mode,
+    /// Toggle Plan Mode: into the agent's Plan mode and back (`modes.rs`).
+    Plan,
     Policy,
     Effort,
     Directory,
@@ -59,6 +61,7 @@ pub enum Action {
     Export,
     Import,
     Undo,
+    Find,
 }
 
 pub struct ActionDef {
@@ -264,14 +267,21 @@ impl App {
                 group: String::new(),
                 note: String::new(),
             });
-            for cmd in &t.available_commands {
-                let cmd = cmd.trim_start_matches('/');
+            for name in &t.available_commands {
+                let cmd = name.trim_start_matches('/');
+                // What the command does, as the GUI's / rows say (#50541); a harness that names
+                // none keeps the generic note.
+                let note = t
+                    .command_descriptions
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| "provided by the selected harness".into());
                 rows.push(PickRow {
                     value: format!("agent:/{cmd}"),
                     label: format!("{}{cmd}", self.palette_prefix),
                     header: false,
                     group: String::new(),
-                    note: "provided by the selected harness".into(),
+                    note,
                 });
             }
         }
@@ -411,14 +421,7 @@ impl App {
                 }
             }
             Action::Model => match (sid, args.first(), self.on_draft()) {
-                (Some(id), Some(m), false) => {
-                    self.request_then(
-                        method::SESSION_SET_MODEL,
-                        json!({"sessionId": id.clone(), "modelId": m}),
-                        Some(format!("model {m}")),
-                        Reread::Detail(id.clone()),
-                    );
-                }
+                (Some(id), Some(m), false) => self.set_model_keeping_level(&id, m),
                 (_, Some(m), true) => {
                     if let Some(d) = self.draft_mut() {
                         d.model = Some(m.to_string());
@@ -437,6 +440,25 @@ impl App {
                 }
                 _ => self.open_mode_picker(),
             },
+            Action::Plan => {
+                let Some(id) = sid else { return };
+                if self.on_draft() {
+                    self.status = "Plan is set once the session runs".into();
+                    return;
+                }
+                let detail = self.details.get(&id).cloned().unwrap_or(Value::Null);
+                let current =
+                    self.transcripts.get(&id).and_then(|t| t.mode.clone()).unwrap_or_default();
+                match crate::modes::plan_toggle(&current, &crate::modes::real_modes(&detail)) {
+                    Ok(m) => self.request_then(
+                        method::SESSION_SET_MODE,
+                        json!({"sessionId": id.clone(), "modeId": m}),
+                        Some(format!("mode {m}")),
+                        Reread::Detail(id.clone()),
+                    ),
+                    Err(e) => self.report_error(e.into()),
+                }
+            }
             Action::Effort => match args.first() {
                 Some(level) => self.set_effort(level.to_string()),
                 None => self.open_thinking_picker(),
@@ -610,6 +632,19 @@ impl App {
                 None => self.prompt_command("import"),
             },
             Action::Undo => self.editor_mut().undo(),
+            Action::Find => match self.selected_id() {
+                Some(id) => {
+                    let mut find = chat_find::Find::open(id);
+                    let query = args.join(" ");
+                    let query = match (&self.find, query.is_empty()) {
+                        (Some(open), true) => open.query.clone(),
+                        _ => query,
+                    };
+                    query.chars().for_each(|c| find.type_char(c));
+                    self.find = Some(find);
+                }
+                None => self.status = "no chat to find in".into(),
+            },
         }
     }
 

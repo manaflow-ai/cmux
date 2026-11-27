@@ -19,12 +19,30 @@
 //     rows               transcript rows at the keydown
 //   switchArm()      / switchStatus() / switchResult(): from the page turning visible (visibilitychange) to the
 //                    first frame with transcript rows: { visibleToPaintMs, rows }
+//   watchArm(kind)   / watchResult(): every layout shift (no recent input) of one other turn transition, from now to
+//                    watchResult(): "mid-turn" (Enter while a turn runs: a steer, or the queued prompt and its
+//                    dequeue) and "compaction" (/compact: its running note, its end). { kind, shifts, shiftScore,
+//                    shiftWhat, ms }. A send's own shifts are result()'s; snappy-bench adds them up as one counter,
+//                    shifts per transition (shadow-leo for Leo, 2026-11-25: "count layout shifts across every turn
+//                    transition (send, steer, compaction) in one counter").
+//   seen(text)       whether a transcript row holds `text`; compacted(): whether a compaction note ended since watchArm
 (() => {
   if (window.__snappyProbe) return true;
   const ROW = ".acpmux-row";
   const REPLY = ".acpmux-row.acpmux-assistant";
   let run = null;
+  // The row ids of the compaction notes drawn as ended (any state but running).
+  const endedNotes = () =>
+    [...document.querySelectorAll(".cv-compaction")]
+      .filter((note) => note.getAttribute("data-state") !== "running")
+      .map((note) => note.closest("[data-row-id]")?.getAttribute("data-row-id") ?? "");
   let switching = null;
+  let watch = null;
+  const shiftsOf = (list) => ({
+    shifts: list.length,
+    shiftScore: Math.round(list.reduce((s, e) => s + e.value, 0) * 10000) / 10000,
+    shiftWhat: [...new Set(list.map((s) => s.what))].slice(0, 3),
+  });
   const describe = (node) => {
     if (!node || !node.tagName) return "";
     const first = node.classList && node.classList.item(0);
@@ -119,9 +137,7 @@
         sameFrame: run.user !== undefined && run.reserved === run.user,
         reservedWhat: run.reservedWhat ?? null,
         firstTokenMs: r1(run.token !== undefined ? run.token - k : undefined),
-        shifts: run.shifts.length,
-        shiftScore: Math.round(run.shifts.reduce((s, e) => s + e.value, 0) * 10000) / 10000,
-        shiftWhat: [...new Set(run.shifts.map((s) => s.what))].slice(0, 3),
+        ...shiftsOf(run.shifts),
         reservedJumpPx: r1(
           run.tokenBottom !== undefined && run.reservedBottom !== undefined
             ? Math.abs(run.tokenBottom - run.reservedBottom)
@@ -132,6 +148,30 @@
       };
       elementEntries = elementEntries.filter((e) => e !== element);
       return out;
+    },
+    watchArm(kind) {
+      if (watch?.stop) watch.stop();
+      const shifts = [];
+      watch = { kind, shifts, start: performance.now(), endedBefore: new Set(endedNotes()) };
+      watch.stop = shiftObserver((entry) => {
+        if (entry.hadRecentInput || !(entry.value > 0)) return;
+        shifts.push({ value: entry.value, what: describe(entry.sources?.[0]?.node), at: entry.startTime });
+      });
+      return true;
+    },
+    watchResult() {
+      if (!watch) return { error: "not armed" };
+      watch.stop();
+      const w = watch;
+      watch = null;
+      return { kind: w.kind, ...shiftsOf(w.shifts), ms: r1(performance.now() - w.start) };
+    },
+    seen(text) {
+      return [...document.querySelectorAll(ROW)].some((row) => row.textContent.includes(text));
+    },
+    // A note that ended since the last watchArm: an earlier /compact's note, still on screen, is not this one's end.
+    compacted() {
+      return endedNotes().some((id) => !watch?.endedBefore?.has(id));
     },
     switchArm() {
       switching = { armed: true };

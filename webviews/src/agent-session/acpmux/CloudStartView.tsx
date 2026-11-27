@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState, useRef } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook, cloudStartQuietLook } from "./cloudStart.experiment";
@@ -26,14 +26,14 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
+  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
-  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
-import { gitHubPickerStore, githubFullName, useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
+import { useGitHubPicker, type GitHubPickerStore, gitHubPickerStore, githubFullName } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist, type QuietStage, quietStage, stageClock } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
@@ -406,6 +406,7 @@ function SizeLockedActions({
         )}
         {onRetry && (
           <button type="button" className="acpmux-cloud-ask__button acpmux-cloud-start__retry" onClick={onRetry}>
+            {/* retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine. */}
             {t("retry.action")}
           </button>
         )}
@@ -593,6 +594,7 @@ function WayOnActions({
   const label = (id: (typeof shown)[number]["id"]) => {
     switch (id) {
       case "retry":
+        // retry-prompt-ok: the start prompt goes again and starts a billed Cloud machine.
         return t("retry.action");
       case "pick-folder":
         return t("cloudStart.pickFolder");
@@ -717,7 +719,9 @@ export function CloudStartView({
   const stage = look === "thinking" ? undefined : quietStage(start, rows, t);
   const openEnvironment = () => {
     const options = {
-      ...(start.environmentId ? { environmentId: start.environmentId } : {}),
+      ...((start.environmentId ?? start.environment)
+        ? { environmentId: start.environmentId ?? start.environment }
+        : {}),
       ...(start.repository ? { repository: start.repository } : {}),
       section: "script" as const,
     };
@@ -775,6 +779,7 @@ export function CloudStartView({
           waiting={!failed}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
+          {...(onSetUpDismiss && !failed ? { onCancel: onSetUpDismiss } : {})}
         />
       </section>
     );
@@ -949,12 +954,21 @@ export function CloudStartView({
                   {step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}
                   {step.id === "setup" && step.action ? (
                     <span className="acpmux-cloud-start__detail">
+                      {step.detail && start.setup?.hasScript !== false && <span>{step.detail} </span>}
                       {onOpenEnvironment ? (
                         <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
-                          {t("cloudStartup.setupHint")}
+                          {t(
+                            start.setup?.hasScript === false
+                              ? "cloudStartup.setupHint"
+                              : "cloudRepository.editEnvironment",
+                          )}
                         </button>
                       ) : (
-                        t("cloudStartup.setupHint")
+                        t(
+                          start.setup?.hasScript === false
+                            ? "cloudStartup.setupHint"
+                            : "cloudRepository.editEnvironment",
+                        )
                       )}
                     </span>
                   ) : step.detail ? (
@@ -1091,6 +1105,7 @@ export function CloudStartView({
               {...(needsGitHub ? {} : { "data-role": "default" })}
               onClick={onRetry}
             >
+              {/* retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine. */}
               {t("retry.action")}
             </button>
           )}

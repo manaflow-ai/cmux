@@ -32,7 +32,12 @@ name: gallery visual evidence (advisory)
 # post reads it, and a capture that breaks on a push never reddens the base. A pull
 # request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
 # on the PR, and bot pushes change no UI, so neither runs.
-# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day).
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day
+# when every webview PR ran it). Back on pull requests on 2026-11-25 for the component library only: a PR touching
+# webviews/src/kit, webviews/src/ui, the shared token CSS (desktop.css, pageDensity.css), scripts/gallery-matrix or
+# this file gets the before/after receipt, so a "unify" PR shows zero pixel change (RFD hq#25960 item 9; Leo, 2026-11-25:
+# "ofc take screenshots of the recommendations later too when it's applyable to the stuff"). Other webview PRs still
+# skip it. Still advisory: never in branch protection, and it warns only.
 # The receipt after a direct push to feat-cmux-next stays.
 on:
   push:
@@ -43,7 +48,24 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
+      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
+      # No render reads Markdown (as on pull requests below).
+      - "!**/*.md"
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+    paths:
+      - "webviews/src/kit/**"
+      - "webviews/src/ui/**"
+      - "webviews/src/pages/shared/desktop.css"
+      - "webviews/src/pages/shared/pageDensity.css"
+      - "scripts/gallery-matrix/**"
+      # Prose renders no gallery state: a docs-only pull request starts no capture (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
+      - ".github/workflows/gallery-advisory.yml"
+      # No render reads Markdown: a docs-only pull request starts nothing here (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -78,13 +100,14 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the status scripts from the base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -110,7 +133,7 @@ jobs:
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -129,7 +152,7 @@ jobs:
       # (2026-11-12). The capture step fetches the base branch's commits, no trees or blobs,
       # for the merge base.
       - name: Checkout the PR head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
@@ -140,6 +163,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -163,6 +187,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -174,7 +199,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
@@ -256,7 +281,11 @@ jobs:
             # Only what a gallery build reads, as the checkout above: the whole tree was ~47,000
             # files to write for one build.
             git worktree add -f -f -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
-            git sparse-checkout list | git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin
+            # The patterns file actions/checkout wrote, not `git sparse-checkout list`: on a reused
+            # runner a `core.sparseCheckout=false` an earlier job left in config.worktree masks
+            # checkout's `true`, and `list` then exits 128 "this worktree is not sparse" (cmux#46599
+            # job 140195097506; hq docs/handbook/sparse-checkout-left-on-a-reused-runner.md).
+            git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin < "$(git rev-parse --git-path info/sparse-checkout)"
             git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
             if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
               cd "$RUNNER_TEMP/base/webviews"
@@ -273,6 +302,8 @@ jobs:
             cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
             bun install --frozen-lockfile
             "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+            # The Mac's UI face on Linux: Inter, not DejaVu Sans (pin-browser-test-font.sh, as gallery-health).
+            "$GITHUB_WORKSPACE/scripts/ci/pin-browser-test-font.sh"
           }
           for part in head_build base_build browser_setup; do
             ( set -euo pipefail; "$part" ) > "$RUNNER_TEMP/$part.log" 2>&1 &
@@ -453,13 +484,14 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the status scripts from the base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true
