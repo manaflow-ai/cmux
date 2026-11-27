@@ -38,7 +38,7 @@ use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
@@ -81,6 +81,10 @@ struct Listed {
     served: Vec<Option<Served>>,
     /// The symlinks kept as symlinks, as a push records them.
     links: BTreeMap<String, super::Linked>,
+    /// The folder, and its device and inode when listed: a file re-listed after a change is
+    /// opened below it again, one name at a time ([`super::place::open_beneath`]).
+    root: PathBuf,
+    root_identity: Option<(u64, u64)>,
 }
 
 /// The depth-1 pack and its base that a projected machine may carry into its own git object
@@ -117,7 +121,11 @@ fn code(answer: &Value) -> Option<&str> {
 
 /// One file of the manifest as this Mac reads it.
 struct Served {
-    file: LocalFile,
+    /// What it is read from: the file listed, or the file at its path since a change re-listed it
+    /// (a rewrite by rename, as git writes its index, is a new inode).
+    file: Mutex<LocalFile>,
+    relative: String,
+    /// Its size and modification time in the manifest.
     size: u64,
     mtime_ns: i64,
 }
@@ -169,8 +177,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
-/// turned it off.
+/// Whether chats from attached local folders are projected: on unless [`ENV`] or
+/// `cmux link project disable` turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
@@ -377,6 +385,9 @@ pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
+    // `start` creates a new process group whose id is its pid. Signalling that group avoids
+    // terminating an unrelated process if the pid file outlives the server and the pid is reused.
+    let process_group = format!("-{pid}");
     if !still_serving(remote) {
         // A server that ended (it gives up, or the Mac restarted) leaves its pid file; that pid
         // may be another process's now.
@@ -384,7 +395,7 @@ pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
     let stopped = cmux_process::Command::new("kill")
-        .arg(pid.to_string())
+        .args(["-TERM", "--", &process_group])
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
@@ -917,8 +928,7 @@ fn ask(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
-        // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
-        // the dial as a `mux-control` stream, which moves whole lines only.
+        // The carrier only preserves complete lines; frame all bytes after the dial line too.
         "lines": true,
         // This Mac reads binary lines and packed answers; it writes them once the answer says
         // the machine does too (an older machine ignores this and keeps base64 lines).
@@ -949,7 +959,11 @@ fn ask(
     if reader.read_line(&mut answer).map_err(unanswered)? == 0 {
         bail!(UNANSWERED);
     }
-    reader.get_ref().set_read_timeout(None)?;
+    // The machine pings every few seconds: a stream silent for `MAC_IDLE`, or one that takes an
+    // answer no further for as long, is dead without having ended (a half-open connection, a
+    // stalled carrier), and the server dials again rather than wait on it forever.
+    reader.get_ref().set_read_timeout(Some(cmux_projection::link::MAC_IDLE))?;
+    reader.get_ref().set_write_timeout(Some(cmux_projection::link::MAC_IDLE))?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
     Ok((reader, answer))
@@ -1007,7 +1021,10 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
             mtime_ns: mtime,
             link: None,
         });
-        kept.push((relative, Served { file, size, mtime_ns: mtime }));
+        kept.push((
+            relative.clone(),
+            Served { file: Mutex::new(file), relative, size, mtime_ns: mtime },
+        ));
     }
     for (relative, linked) in &set.links {
         let mtime = std::fs::symlink_metadata(folder.join(relative))
@@ -1053,7 +1070,8 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served, links: set.links })
+    let root_identity = std::fs::metadata(folder).ok().map(|meta| (meta.dev(), meta.ino()));
+    Ok(Listed { manifest, served, links: set.links, root: folder.to_path_buf(), root_identity })
 }
 
 /// Builds the carry files for the default-on projection swap. The live git probes make carry
@@ -1230,35 +1248,91 @@ fn open(file: &LocalFile) -> anyhow::Result<std::fs::File> {
     }
 }
 
+/// Up to `len` bytes of `opened` at `offset`, cut at `size`; `None` when it cannot be read.
+fn read_range(opened: &std::fs::File, size: u64, offset: u64, len: u32) -> Option<Vec<u8>> {
+    let want = u64::from(len).min(size.saturating_sub(offset));
+    let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
+    let mut got = 0usize;
+    while let Some(rest) = bytes.get_mut(got..).filter(|rest| !rest.is_empty()) {
+        match opened.read_at(rest, offset.saturating_add(got as u64)) {
+            Ok(0) => break,
+            Ok(read) => got += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    bytes.truncate(got);
+    Some(bytes)
+}
+
+/// How many times a read of a file being written right then is tried before it fails.
+const STABLE_TRIES: u32 = 3;
+
+impl Listed {
+    /// The file at `served`'s path now (RFD 0007, hard case 7: the Mac re-lists a file that
+    /// changed): opened below the folder one name at a time with no symlink followed, a regular
+    /// file, the folder still the one listed. It becomes what `served` is read from.
+    fn relist(&self, served: &Served) -> Option<std::fs::File> {
+        let (opened, identity, root) =
+            super::place::open_beneath(&self.root, &served.relative).ok()?;
+        if self.root_identity.is_some_and(|listed| listed != root) {
+            return None;
+        }
+        let mut file = served.file.lock().unwrap_or_else(PoisonError::into_inner);
+        match &mut file.source {
+            Origin::File(_) => file.id = Some(identity),
+            Origin::Checked(checked) => {
+                if checked.root_identity != root {
+                    return None;
+                }
+                checked.identity = identity;
+            }
+            Origin::Bytes(_) => return None,
+        }
+        Some(opened)
+    }
+}
+
 impl Source for Listed {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
         let Some(Some(served)) = self.served.get(entry as usize) else {
             return Part::status(wire::REFUSED);
         };
-        if let Origin::Bytes(bytes) = &served.file.source {
+        let file = served.file.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Origin::Bytes(bytes) = &file.source {
             let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
             let end = start.saturating_add(len as usize).min(bytes.len());
             return Part::ok(bytes.get(start..end).unwrap_or_default().to_vec());
         }
-        let Ok(opened) = open(&served.file) else { return Part::status(wire::FAILED) };
-        // The file the manifest named, unchanged: else the machine is told it changed.
-        let Ok(meta) = opened.metadata() else { return Part::status(wire::FAILED) };
-        if meta.len() != served.size || mtime_ns(&meta) != served.mtime_ns {
-            return Part::status(wire::CHANGED);
-        }
-        let want = u64::from(len).min(served.size.saturating_sub(offset));
-        let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
-        let mut got = 0usize;
-        while let Some(rest) = bytes.get_mut(got..).filter(|rest| !rest.is_empty()) {
-            match opened.read_at(rest, offset.saturating_add(got as u64)) {
-                Ok(0) => break,
-                Ok(read) => got += read,
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => return Part::status(wire::FAILED),
+        for _ in 0..STABLE_TRIES {
+            // The file read so far; another one at its path once it was replaced.
+            let file = served.file.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            let Some(opened) = open(&file).ok().or_else(|| self.relist(served)) else {
+                return Part::status(wire::FAILED);
+            };
+            let Ok(before) = opened.metadata() else { return Part::status(wire::FAILED) };
+            let Some(bytes) = read_range(&opened, before.len(), offset, len) else {
+                return Part::status(wire::FAILED);
+            };
+            // Read while it was being written: again.
+            let Ok(after) = opened.metadata() else { return Part::status(wire::FAILED) };
+            if (after.len(), mtime_ns(&after)) != (before.len(), mtime_ns(&before)) {
+                continue;
             }
+            if (before.len(), mtime_ns(&before)) == (served.size, served.mtime_ns) {
+                return Part::ok(bytes);
+            }
+            // Changed since the manifest: its stat now, which the machine takes as the file's,
+            // and the bytes as they are now. Answered so for as long as it differs from the
+            // manifest, so an answer lost with a dropped stream is given again.
+            let stat = wire::Restat {
+                size: before.len(),
+                mtime_ns: mtime_ns(&before),
+                mode: super::local::permissions_of(before.mode()),
+            };
+            return Part::restated(stat, &bytes);
         }
-        bytes.truncate(got);
-        Part::ok(bytes)
+        Part::status(wire::FAILED)
     }
 
     fn whole(&self, entry: u32) -> Part {
@@ -1267,10 +1341,16 @@ impl Source for Listed {
             .get(entry as usize)
             .and_then(Option::as_ref)
             .map_or(0, |served| served.size);
-        match u32::try_from(size) {
-            Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
-            _ => Part::status(wire::FAILED),
+        if size > u64::from(wire::MAX_READ) {
+            return Part::status(wire::FAILED);
         }
+        // The whole file as it is now, which may have grown since the manifest.
+        let mut part = self.read(entry, 0, wire::MAX_READ);
+        if part.restat().is_some_and(|(stat, _)| stat.size > u64::from(wire::MAX_READ)) {
+            // Too big for a batch now: the machine reads it in ranges.
+            part.keep_stat_only();
+        }
+        part
     }
 }
 
