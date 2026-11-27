@@ -7523,7 +7523,7 @@ def risk_evidence_quota(view: "FailedView | Unplaced") -> str | None:
     """The grader's single provider refusal in its failed grade step, never a successful grade."""
     if view is UNPLACED or view.job.get("name") != RISK_EVIDENCE_JOB:
         return None
-    failed = [step.get("name") for step in view.job.get("steps", [])
+    failed = [step.get("name") for step in view.job.get("steps", [])  # step-name: classify
               if step.get("conclusion") == "failure"]
     if failed != [RISK_EVIDENCE_STEP] or not view.sections:
         return None
@@ -9597,10 +9597,6 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
     if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
         raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
-    if name == RISK_EVIDENCE_JOB:
-        quota_view = failed_view(job, head_log, step_names=names, base=False)
-        if (said := risk_evidence_quota(quota_view)) is not None:
-            raise JobRateLimited(f"'{name}' was not graded ({said})")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
@@ -9627,6 +9623,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         except Refused:
             pass
     view = failed_view(job, head_log, step_names=names, base=False)
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota(view)) is not None:
+        raise JobRateLimited(f"'{name}' was not graded ({said})")
     early = signature(view)
     if any(str(step.get("name") or "") in ROLLUP_STEPS for step in job.get("steps") or []):  # step-name: classify
         # The rollup's own list, for a check run that carries no annotation of it (rolled_up_reds).

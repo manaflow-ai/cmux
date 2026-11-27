@@ -13387,7 +13387,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "risk_evidence_quota", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "journey",
@@ -17184,6 +17184,8 @@ SCANNERS = {
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
+    "base_red_excuse.risk_evidence_quota": lambda f: (excuse.risk_evidence_quota(f.view),
+                                                     excuse.risk_evidence_quota(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
