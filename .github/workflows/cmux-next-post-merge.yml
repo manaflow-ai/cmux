@@ -4,8 +4,8 @@ name: cmux-next post-merge batch
 # Leo 2026-11-21: "everything else runs once post-merge, batched"). main's
 # cmux-next-post-merge-dispatch.yml ticks every 30 min, and each batch run's judge ticks once more as
 # it ends; a tick starts a batch run on the newest feat-cmux-next tip when it is untested and either
-# 10 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns the
-# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed since it. A batch run calls every suite in
+# 100 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 100; 0 turns the
+# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 240) has passed since it. A batch run calls every suite in
 # .github/post-merge-batch.json whose paths the commits since the last batch run touched. A job red
 # here and green on the last batch run where it ran starts a bisect: probe runs of that job alone,
 # each dispatched by the one before, end on the first red commit, and the last probe opens its
@@ -59,20 +59,32 @@ on:
         description: "probe: hot swap out state (scripts/ci/piece_swap.py State); sha is then the culprit with some pieces swapped out."
         type: string
         default: ""
+      confirm:
+        description: "probe: flake-aware confirm run (red-N at the culprit, green-N at its parent) before a revert."
+        type: string
+        default: ""
+      step:
+        description: "probe: the origin red's failing step names (|-joined); a probe failing on other steps is a different red."
+        type: string
+        default: ""
+      reuse:
+        description: "probe: an earlier run of this same probe whose verdict this run reads instead of running the suite again (empty: the plan looks for one)."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
 
 run-name: >-
   ${{ inputs.mode == 'probe'
-      && format('probe {0} {1} at {2}', inputs.suite, inputs.only || 'all', inputs.sha)
+      && format('probe {0} {1} at {2}{3}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '')
       || format('batch {0}', inputs.reason || github.event_name) }}
 
 permissions: {}
 
 concurrency:
   # One batch run per branch at a time; probes queue per suite and job, never cancelled.
-  group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}', inputs.suite, inputs.only) || 'batch' }}
+  group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}{2}', inputs.suite, inputs.only, inputs.confirm) || 'batch' }}
   cancel-in-progress: false
 
 env:
@@ -83,6 +95,9 @@ jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: read
       contents: read
@@ -91,26 +106,27 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      reuse: ${{ steps.plan.outputs.reuse }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -155,13 +171,18 @@ jobs:
           GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           SUITE: ${{ inputs.suite }}
+          JOB: ${{ inputs.job }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
           GOOD: ${{ inputs.good }}
+          PIECES: ${{ inputs.pieces }}
+          CONFIRM: ${{ inputs.confirm }}
+          REUSE: ${{ inputs.reuse }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
+            --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --reuse "$REUSE"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -246,7 +267,8 @@ jobs:
       contents: read
       issues: write
 
-  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  # The fast tier's full run of its cargo and script entries (note-559): a pull request runs only the entries its
+  # change reaches. Its Swift entries run in pr-pipeline-mac (ci/steps.toml mac-fast-tier).
   fast-tier:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' fast-tier ')
@@ -277,6 +299,35 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+  # pr-pipeline.yml's mac job (the fast tier's Swift suites, every one once routed) and ios job (the kit and the
+  # reliability matrix's phone cells), which pull requests no longer route: each runs the steps the window's changed
+  # paths reach (base..sha), on pr-pipeline.yml's machines. They replace the push runs of cmux-next-ios-kit.yml and
+  # ios-reliability-matrix.yml and the fast-tier suite's Swift leg.
+  pr-pipeline-mac:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-mac ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-mac-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+      id-token: write
+
+  pr-pipeline-ios:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-ios ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-ios-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
     permissions:
       contents: read
       id-token: write
@@ -343,12 +394,15 @@ jobs:
       statuses: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: write
       contents: read
@@ -364,21 +418,21 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -432,10 +486,15 @@ jobs:
           ORIGIN: ${{ inputs.origin }}
           TRIES: ${{ inputs.tries }}
           PIECES: ${{ inputs.pieces }}
+          CONFIRM: ${{ inputs.confirm }}
+          STEP: ${{ inputs.step }}
+          # The plan's pick (an earlier run of this probe with a verdict), else the dispatch's own.
+          REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
-            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES"
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --step "$STEP" --reuse "$REUSE"
       # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
       # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
       # judge only, and never fails it: a red here would make this batch read as untested.
@@ -469,7 +528,7 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
@@ -477,7 +536,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -485,7 +544,7 @@ jobs:
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done

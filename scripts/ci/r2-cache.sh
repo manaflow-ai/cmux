@@ -179,6 +179,82 @@ header() {
 
 valid_generation() { [[ "$1" =~ ^[0-9]{1,12}$ ]]; }
 
+# request with the response body written to <file> instead of discarded.
+request_to() { # <body file> <curl args...>
+  local out="$1"
+  shift
+  printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+    | curl --config - --silent --show-error --retry 3 --retry-delay 2 \
+        --connect-timeout 15 --max-time 1800 \
+        --aws-sigv4 "aws:amz:auto:s3" \
+        -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+        -o "$out" -w '%{http_code}' "$@"
+}
+
+# One PUT takes at most 5 GiB (R2 answers a larger one HTTP 400, EntityTooLarge): the machine channel's
+# cargo workspace delta with rustc's incremental state packed 15 GB into a 5140 MiB archive, and both
+# legs of seed run 45982767555 (2026-11-27) published nothing. An archive above this many bytes goes up
+# as a multipart upload instead, one part at a time; the object, its key and every restore stay the same.
+multipart_bytes="${CI_CACHE_R2_MULTIPART_BYTES:-4294967296}"
+part_bytes="${CI_CACHE_R2_PART_BYTES:-536870912}"
+[[ "$multipart_bytes" =~ ^[0-9]+$ ]] || multipart_bytes=4294967296
+[[ "$part_bytes" =~ ^[0-9]+$ ]] && ((part_bytes >= 5242880)) || part_bytes=536870912
+
+# Prints the HTTP status: 200 once the object exists, anything else when it does not. No If-None-Match
+# on the completion (R2 does not document it there); the caller reads the stored generation back from a
+# HEAD, as after a lost conditional PUT, so a concurrent writer of the same key is handled the same way.
+multipart_upload() { # <archive> <url> <generation> <work dir>
+  local archive="$1" url="$2" generation="$3" work="$4" size upload_id status number=1 offset=0 etag attempt
+  size="$(wc -c < "$archive" | tr -d ' ')"
+  status="$(request_to "$work/create.xml" -X POST -H "x-amz-meta-generation: $generation" \
+    -H 'content-type: application/octet-stream' --data-binary '' "$url?uploads=")" || status=000
+  upload_id="$(sed -n 's:.*<UploadId>\([^<]*\)</UploadId>.*:\1:p' "$work/create.xml" 2>/dev/null | head -1)"
+  if [[ "$status" != 200 || -z "$upload_id" ]]; then
+    echo "r2-cache: multipart create got HTTP $status" >&2
+    echo "$status"
+    return 0
+  fi
+  # The id is opaque and may hold base64's + / =, which a query string must escape.
+  local query
+  query="uploadId=$(printf '%s' "$upload_id" | sed -e 's/%/%25/g' -e 's/+/%2B/g' -e 's:/:%2F:g' -e 's/=/%3D/g')"
+  printf '<CompleteMultipartUpload>' > "$work/complete.xml"
+  while ((offset < size)); do
+    tail -c "+$((offset + 1))" "$archive" | head -c "$part_bytes" > "$work/part"
+    for attempt in 1 2 3; do
+      status="$(request --dump-header "$work/part-headers" -T "$work/part" \
+        "$url?partNumber=$number&$query")" || status=000
+      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+      echo "r2-cache: part $number attempt $attempt got HTTP $status; retrying" >&2
+      sleep "$((attempt * 5))"
+    done
+    etag="$(header etag "$work/part-headers")"
+    if [[ "$status" != 200 || -z "$etag" ]]; then
+      echo "r2-cache: part $number got HTTP $status; aborting the upload" >&2
+      rm -f "$work/part"
+      request -X DELETE "$url?$query" >/dev/null 2>&1 || true
+      echo "$status"
+      return 0
+    fi
+    printf '<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>' "$number" "$etag" >> "$work/complete.xml"
+    offset=$((offset + part_bytes))
+    number=$((number + 1))
+  done
+  rm -f "$work/part"
+  printf '</CompleteMultipartUpload>' >> "$work/complete.xml"
+  status="$(request_to "$work/completed.xml" -X POST -H 'content-type: application/xml' \
+    --data-binary "@$work/complete.xml" "$url?$query")" || status=000
+  # S3 can answer a failed completion with 200 and an <Error> body.
+  if [[ "$status" == 200 ]] && grep -q '<Error>' "$work/completed.xml" 2>/dev/null; then status=500; fi
+  if [[ "$status" != 200 ]]; then
+    echo "r2-cache: multipart complete got HTTP $status; aborting the upload" >&2
+    request -X DELETE "$url?$query" >/dev/null 2>&1 || true
+    echo "$status"
+    return 0
+  fi
+  echo "r2-cache: uploaded $((number - 1)) parts" >&2
+  echo 200
+}
+
 publish_pointer() { # <prefix> <work dir> <archive generation>
   local prefix="$1" work="$2" generation="$3" attempt status etag current condition
   local url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/latest/$prefix"
@@ -226,6 +302,24 @@ not_saved() {
   return 0
 }
 
+# The archive is written whole before its upload (an S3 PUT needs its length). Its size is at most the
+# directory's, so a save whose disk lacks that room plus headroom is skipped with a warning: the cache
+# misses once, and the job stays green. Filling the disk instead killed the runner itself: machine
+# channel x86_64 musl leg, job 140250090793 (2026-11-27, cmux-runner-pool-e5a-0207), "No space left on
+# device" in the runner's own _diag log while "Save the workspace delta to R2" wrote its archive.
+room_for_archive() { # <work dir>
+  local need_kib free_kib headroom_kib="${CI_CACHE_R2_SAVE_HEADROOM_KIB:-1048576}"
+  [[ "$headroom_kib" =~ ^[0-9]+$ ]] || headroom_kib=1048576
+  need_kib="$(du -sk "$dir" 2>/dev/null | cut -f1)" || need_kib=""
+  free_kib="$(df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }')" || free_kib=""
+  [[ "$need_kib" =~ ^[0-9]+$ && "$free_kib" =~ ^[0-9]+$ ]] || return 0
+  if ((free_kib < need_kib + headroom_kib)); then
+    room_short="$key not saved: $((free_kib >> 10)) MiB free for its archive, $(((need_kib + headroom_kib) >> 10)) MiB needed (scripts/ci/r2-cache.sh room_for_archive)"
+    return 1
+  fi
+  echo "r2-cache: $((free_kib >> 10)) MiB free, archive at most $((need_kib >> 10)) MiB"
+}
+
 save() {
   local name
   for name in CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET CI_CACHE_R2_PUBLIC_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
@@ -249,6 +343,12 @@ save() {
   work="$(mktemp -d)"
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000
+  local room_short=""
+  if [[ "$status" == 404 ]] && ! room_for_archive "$work"; then
+    rm -rf "$work"
+    not_saved "$room_short"
+    return
+  fi
   if [[ "$status" == 404 ]]; then
     if [[ "$extension" == "tar.zst" ]]; then
       tar -cf - -C "$dir" . | zstd -T0 -3 -q -o "$work/archive"
@@ -261,13 +361,19 @@ save() {
     # published nothing (job 140187794318, 2026-11-26). An upload the bucket kept before the drop
     # answers the retry with 412, read back below like a concurrent writer's.
     local attempt
-    for attempt in 1 2 3; do
-      status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
-        -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
-      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
-      echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
-      sleep "$((attempt * 5))"
-    done
+    if (($(wc -c < "$work/archive" | tr -d ' ') > multipart_bytes)); then
+      status="$(multipart_upload "$work/archive" "$url" "$generation" "$work")"
+      # Read the stored generation back, as after a 412: another writer may have completed first.
+      [[ "$status" != 200 ]] || status=412
+    else
+      for attempt in 1 2 3; do
+        status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
+          -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+        [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+        echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
+        sleep "$((attempt * 5))"
+      done
+    fi
     if [[ "$status" == 412 ]]; then
       status="$(request --head --dump-header "$work/headers" "$url")" || status=000
     elif [[ "$status" == 200 ]]; then

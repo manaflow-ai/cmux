@@ -209,6 +209,25 @@ impl Hub {
             }
             _ => false,
         };
+        // A Cloud machine's Claude that started before the machine's model route resolved (the
+        // provider's edge rule for a machine made a moment ago; production cloud-chat-replies,
+        // 2026-11-26: every "has no model route" failure read `edge_routed` false): the route is
+        // asked again, fresh, waiting while the machine is young (`cloud_model_plane::route_arrives`).
+        // Once it resolves, the agent restarts on it after this turn and the first send goes again
+        // there (`auto_resume/first_send.rs`), so Sign in shows only where no route is coming.
+        let route_arrived = match &result {
+            Err(e)
+                if cloud_host
+                    && crate::claude_auth::would_explain(&session.id, &e.message)
+                    && crate::claude_auth::spawned(&session.id)
+                        .is_some_and(|s| crate::claude_auth::find(&s.env).endpoint.is_none()) =>
+            {
+                tokio::task::spawn_blocking(crate::cloud_model_plane::route_arrives)
+                    .await
+                    .unwrap_or(false)
+            }
+            _ => false,
+        };
         if let Err(e) = &mut result
             && let Some(text) =
                 crate::claude_auth::explain(&session.id, &e.message, cloud_host, gateway)
@@ -218,12 +237,17 @@ impl Hub {
             // with no credential on a team the gateway serves uses it without asking. The agent
             // restarts on it once this turn ends, and the first send goes again there
             // (`auto_resume/first_send.rs`).
-            let fell_back = gateway
+            let fell_back = !route_arrived
+                && gateway
                 && crate::agent_login::gateway_fallback_on()
                 && crate::claude_auth::spawned(&session.id)
                     .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
                 && self.use_gateway_now(session);
-            e.message = if fell_back {
+            e.message = if route_arrived {
+                tracing::info!(session = %session.id, "Claude started before this machine's model route resolved: the agent restarts on it");
+                self.restart_agent_after_turn(session);
+                crate::claude_auth::route_arrived_text(&e.message)
+            } else if fell_back {
                 tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
                 crate::claude_auth::gateway_fallback_text(&e.message)
             } else {
@@ -256,7 +280,10 @@ impl Hub {
             // After the agent's own reason: its fallback could not take the turn, and why.
             super::fallback_start::say_fallback(e);
         }
-        let git = super::turn_git::turn_git(session).await;
+        let mut git = super::turn_git::turn_git(session).await;
+        // The folder as this turn left it, for a rewind or a fork (`turn_checkpoint.rs`; off by
+        // default).
+        git.extend(super::turn_checkpoint::turn_checkpoint(session, turn_id).await);
         // The folder's work leaves this machine at each turn end (`wip_ref.rs`; off by default).
         self.save_wip_in_background(session);
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
@@ -437,6 +464,8 @@ impl Hub {
         self.save_meta(session);
         // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
         self.settle_view_at_turn_end(session);
+        // Where the next daemon's adoption of its host reads the log from (`hosts/checkpoint.rs`).
+        self.checkpoint_at_turn_end(session, child);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
@@ -454,8 +483,9 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
         joined: &super::digest::DigestTurn,
+        rules: &super::auto_resume::RefusedRules<'_>,
     ) {
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined, Some(rules));
         // Its before picture has no after coming (`turn_shots.rs`).
         super::turn_shots::turn_refused(session, turn_id);
         super::turn_frames::turn_refused(session, turn_id);
@@ -496,9 +526,12 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
         joined: &super::digest::DigestTurn,
+        rules: Option<&super::auto_resume::RefusedRules<'_>>,
     ) {
         let turn = session.meta().turn_count;
         let trigger = session.turn().is_some_and(|t| t.trigger && t.turn_id == turn_id);
+        // Who drives the turn now (a Web steer while its agent started made it a Web turn).
+        let control = session.turn().filter(|t| t.turn_id == turn_id).map(|t| t.control);
         self.end_trigger_background(session, turn_id);
         *session.turn.lock().unwrap() = None;
         // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
@@ -566,6 +599,18 @@ impl Hub {
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
         self.inbox_turn_ended(session, turn_id, turn, false);
+        // A full disk clears by itself: the refused turn goes on once it has room, as a turn a
+        // full disk cut does (`auto_resume/disk_wait.rs`), instead of leaving the chat stranded.
+        if refused
+            && !trigger
+            && let Some(rules) = rules
+        {
+            let rules = super::auto_resume::RefusedRules {
+                control: control.unwrap_or(rules.control),
+                ..*rules
+            };
+            self.resume_refused_turn(session, prompt_id, turn_id, &e.message, &rules);
+        }
     }
 
     /// Waits until the inbound loop handled every agent message queued before

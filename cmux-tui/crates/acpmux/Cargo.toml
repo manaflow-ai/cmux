@@ -67,6 +67,12 @@ hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait",
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
 # (`heap_profile.rs`). Never in a shipped build: it slows every allocation.
 dhat-heap = ["dep:dhat"]
+# Bench only: the system allocator (glibc malloc) in place of mimalloc, for the allocator A/B of
+# scripts/measure/infinite-items-linux.sh alloc_ab=1. Never in a shipped build.
+system-alloc = []
+# Bench only: mimalloc's v2 line in place of the v3 the crate builds by default, for the same A/B
+# (v3 held about 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a).
+mimalloc-v2 = ["mimalloc/v2"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
@@ -98,6 +104,7 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
 # unavailable (peer_tailnet.rs).
@@ -110,6 +117,8 @@ acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
 # cmux.share-approval.v1, shared with the iPhone that asks with it (share_approval.rs).
 cmux-share-approval.workspace = true
+# The resume failure classes and their retry budgets (`acpmux_list_types::resume`).
+acpmux-list-types = { path = "../acpmux-list-types" }
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
@@ -239,6 +248,7 @@ bytes.workspace = true
 tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
+jpeg-encoder.workspace = true
 cmux-image-linear.workspace = true
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true

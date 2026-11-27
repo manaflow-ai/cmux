@@ -66,12 +66,17 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
+try:
+    import live_frames  # noqa: E402  (a frame of each applied patch in the chat, RFD 0152)
+except ImportError:  # a copy outside scripts/: no frames
+    live_frames = None
 
 TREE = Path(__file__).resolve().parents[2]
 QUIT_TIMEOUT_S = 30
 FORCE_EXIT_TIMEOUT_S = 5
 LAUNCH_TIMEOUT_S = 120
 LOADED_TIMEOUT_S = 60
+PREVIEW_NAME = "preview.json"
 NIGHTLY_REFUSAL = (
     "live mode switches only a tagged DEV build (scripts/reload.sh --tag TAG). This app is {bundle}: "
     "a NIGHTLY has no live code build of its commit to restart into, and a Release build would load "
@@ -391,6 +396,21 @@ def write_state(root, state):
     os.replace(temp, root / "state.json")
     # `cmux live stop|status --swift` finds this checkout's script from here when run elsewhere.
     (root.parent / "tree").write_text(str(TREE) + "\n")
+    name_preview(root.parent, state)
+
+
+def name_preview(folder, state):
+    """While a live-code build runs, preview.json names its control socket, so acpmux's turn frames
+    (`hub/turn_frames.rs` live_socket) shoot that window in the chat's preview, not the app the chat
+    runs in (RFD 0152: Swift Debug live-code in the preview window). Gone once live mode is off."""
+    named = folder / PREVIEW_NAME
+    tag = state.get("tag")
+    if state.get("mode") == "live" and state.get("binary") and tag:
+        temp = folder / f"{PREVIEW_NAME}.{os.getpid()}.tmp"
+        temp.write_text(json.dumps({"socket": tagged_socket(slug(tag)), "tag": tag}) + "\n")
+        os.replace(temp, named)
+    else:
+        named.unlink(missing_ok=True)
 
 
 def identify(path):
@@ -781,6 +801,8 @@ class Phases:
                 if row.get("saved_at"):
                     row["saved_to_applied_s"] = round(float(at) - row["saved_at"], 3)
                 self.write(row)
+                if live_frames:
+                    live_frames.built("swift")  # the app runs the patch: the chat's frame shows it
         for name, (since, row) in list(self.waiting.items()):
             if time.monotonic() - since > self.APPLIED_WAIT_S:
                 del self.waiting[name]
