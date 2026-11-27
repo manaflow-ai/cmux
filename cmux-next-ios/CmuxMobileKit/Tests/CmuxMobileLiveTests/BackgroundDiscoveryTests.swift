@@ -16,12 +16,15 @@ import Testing
         let clock = LinkTestClock()
         var looks = 0
         var online = false
-        lazy var poll = MacDiscoveryPoll(clock: clock)
+        /// The service does not answer (every look times out).
+        var failing = false
+        lazy var poll = MacDiscoveryPoll(clock: clock, jitter: { $0 })
 
         func start() {
             poll.start { [unowned self] in
                 looks += 1
-                return online
+                if failing { return .failed }
+                return online ? .online : .noneOnline
             }
         }
 
@@ -92,7 +95,7 @@ import Testing
         rig.finish()
     }
 
-    @Test func aWakeLooksAtOnceAndRestartsTheFastWait() async {
+    @Test func aWakeLooksAtOnceButKeepsTheBackoff() async {
         let rig = Rig()
         rig.start()
         await rig.run(for: .seconds(300))
@@ -100,7 +103,62 @@ import Testing
         rig.poll.wake()
         await rig.settle()
         #expect(rig.looks == before + 1)
-        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.waitingPoll)
+        // The fast wait does not start again: the next look is at the backed-off cadence.
+        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.idlePoll)
+        rig.finish()
+    }
+
+    /// Leo, 2026-11-27: "Once requests start timing out, no Mac looks online, so the fast
+    /// polling stays on." A failed look backs off on its own (4, 8, 16, 32, then 60 s) and Macs'
+    /// presence frames do not shorten it; it never reads as "no Mac online".
+    @Test func failedLooksBackOffAndPresenceFramesDoNotShortenIt() async {
+        let rig = Rig()
+        rig.failing = true
+        rig.start()
+        // Three Macs reconnecting: a presence frame every second for 15 minutes.
+        for _ in 0..<900 {
+            await rig.run(for: .seconds(1))
+            rig.poll.wake(.macChanged)
+        }
+        print("feed-loop: discovery requests in 15 min, service timing out, a presence frame a second: \(rig.looks)")
+        // t = 0, 4, 12, 28, 60, then every 60 s up to 900: 5 + 14.
+        #expect(rig.looks == 19)
+        #expect(rig.poll.waitingLooks == 0)
+        rig.finish()
+    }
+
+    /// The same frames while the service answers and no Mac is online: one extra look per
+    /// 30 s at most, on top of the backoff (was: every frame looked at once and restarted the
+    /// 4 s wait, so frames kept it at 4 s or faster for as long as they came).
+    @Test func presenceFramesWakeAtMostOncePerIdlePoll() async {
+        let rig = Rig()
+        rig.start()
+        for _ in 0..<900 {
+            await rig.run(for: .seconds(1))
+            rig.poll.wake(.macChanged)
+        }
+        print("feed-loop: discovery requests in 15 min, no Mac online, a presence frame a second: \(rig.looks)")
+        #expect(rig.looks <= 70)
+        rig.finish()
+    }
+
+    /// A network change looks soon even while looks fail (the old network may have been the
+    /// cause), but a failure after it keeps backing off from where it was.
+    @Test func aNetworkChangeWakesAFailingPoll() async {
+        let rig = Rig()
+        rig.failing = true
+        rig.start()
+        await rig.run(for: .seconds(100))
+        #expect(rig.poll.failedLooks == 5)
+        let before = rig.looks
+        rig.poll.wake(.network)
+        await rig.settle()
+        #expect(rig.looks == before + 1)
+        #expect(rig.poll.failedLooks == 6)
+        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.failedPollMax)
+        rig.failing = false
+        await rig.run(for: .seconds(60))
+        #expect(rig.poll.failedLooks == 0)
         rig.finish()
     }
 
@@ -124,6 +182,10 @@ import Testing
         #expect(MacDiscoveryPoll.delay(waitingLooks: 17) == .seconds(16))
         #expect(MacDiscoveryPoll.delay(waitingLooks: 18) == .seconds(30))
         #expect(MacDiscoveryPoll.delay(waitingLooks: 10_000) == .seconds(30))
+        #expect(MacDiscoveryPoll.failedDelay(failedLooks: 1) == .seconds(4))
+        #expect(MacDiscoveryPoll.failedDelay(failedLooks: 4) == .seconds(32))
+        #expect(MacDiscoveryPoll.failedDelay(failedLooks: 5) == .seconds(60))
+        #expect(MacDiscoveryPoll.failedDelay(failedLooks: 10_000) == .seconds(60))
     }
 }
 

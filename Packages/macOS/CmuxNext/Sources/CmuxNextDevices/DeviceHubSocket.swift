@@ -100,6 +100,11 @@ public final class DeviceHubSocket: Sendable {
     /// completes the request. Bound each attempt so a device listing can retry instead of
     /// remaining in ``DeviceHub/devicesListed``'s finding state forever.
     public static let connectTimeout: Duration = .seconds(15)
+    /// How long a socket must stay up before its drop retries from the backoff's start. A
+    /// socket the Worker accepts and then closes or stalls at once keeps backing off, so a
+    /// struggling service is not redialed every second by every Mac (Leo, 2026-11-27: "That's a
+    /// loop that keeps going once it starts, which fits 'worked, then broke super suddenly'").
+    public static let stableAfter: Duration = .seconds(30)
 
     public enum State: Sendable, Equatable {
         case disconnected
@@ -131,16 +136,25 @@ public final class DeviceHubSocket: Sendable {
     let backoff: Backoff
     let clock: any Clock<Duration>
     let connectTimeout: Duration
+    let stableAfter: Duration
 
     public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(60),
                 backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
                 connectTimeout: Duration = DeviceHubSocket.connectTimeout,
+                stableAfter: Duration = DeviceHubSocket.stableAfter,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.connector = connector
         self.pingInterval = pingInterval
         self.backoff = backoff
         self.connectTimeout = connectTimeout
+        self.stableAfter = stableAfter
         self.clock = clock
+    }
+
+    /// A stopwatch on `clock`: the returned closure says how long since it was made.
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     /// Connects and keeps connecting until the calling task is cancelled.
@@ -155,12 +169,15 @@ public final class DeviceHubSocket: Sendable {
             do {
                 let connection = try await connect()
                 await handler(.state(.connected))
-                backoff.reset()
+                let upFor = Self.stopwatch(clock)
                 do { try await serve(connection, handler) } catch {
                     failure = "\(error)"
                     closeCode = (error as? Closed)?.code
                 }
                 connection.close()
+                // Only a socket that stayed up starts the next failure from the backoff's start:
+                // one that drops right after connecting keeps the backoff growing.
+                if upFor() >= stableAfter { backoff.reset() }
             } catch {
                 failure = "\(error)"
             }

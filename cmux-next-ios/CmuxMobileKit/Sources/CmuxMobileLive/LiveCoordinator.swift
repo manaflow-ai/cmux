@@ -499,7 +499,7 @@ public final class LiveCoordinator {
             if store.isOffline { store.isOffline = false }
             lastPathNudge = instants.now()
             presence?.kick()
-            discovery.wake()
+            discovery.wake(.network)
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
@@ -960,9 +960,9 @@ public final class LiveCoordinator {
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
-            // A Mac came or went: discovery looks now (another team's Mac to follow, or the
-            // fast wait again) instead of at its backed-off cadence.
-            discovery.wake()
+            // A Mac came or went: discovery looks soon (another team's Mac to follow) instead of
+            // at its backed-off cadence, at most once per 4 s and not while looks are failing.
+            discovery.wake(.macChanged)
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
             // A Worker that predates machine ids sends none: keep the one the list had. A
@@ -1213,23 +1213,30 @@ public final class LiveCoordinator {
 
     // MARK: Discovery across spaces
 
-    /// One discovery look; says whether the active team has an online Mac (the poll's cadence).
-    private func lookForMacs() async -> Bool {
-        await discoverOnce()
-        return store.activeTeam?.macs.contains(where: \.isOnline) ?? false
+    /// One discovery look; says whether the active team has an online Mac (the poll's cadence),
+    /// or that the service did not answer: a failed look backs off on its own instead of
+    /// reading as "no Mac online" and keeping the 4 s wait (Leo, 2026-11-27: "Once requests
+    /// start timing out, no Mac looks online, so the fast polling stays on").
+    private func lookForMacs() async -> MacDiscoveryPoll.Look {
+        guard await discoverOnce() else { return .failed }
+        return store.activeTeam?.macs.contains(where: \.isOnline) == true ? .online : .noneOnline
     }
 
     /// One look at the account's Macs everywhere: shows each in its team and
     /// moves to the team of an online Mac while the active team has none.
-    func discoverOnce() async {
+    /// Says whether the service answered.
+    @discardableResult
+    func discoverOnce() async -> Bool {
         do {
             let asked = removedMacs.mark
             let macs = try await api.myMacs()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             applyDiscovered(macs, askedAt: asked)
+            return true
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
