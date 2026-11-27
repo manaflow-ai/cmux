@@ -53,6 +53,7 @@ mod window_layout;
 mod workspace_arrangement;
 mod workspace_groups;
 mod workspace_moves;
+mod workspace_row_actions;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -113,6 +114,10 @@ pub use workspace_groups::{
 pub use workspace_moves::{
     WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
     personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
