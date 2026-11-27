@@ -166,6 +166,7 @@ mod idle_census;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
+pub(crate) mod session_lifecycle;
 pub(crate) mod inbox;
 pub(crate) mod inbox_subscription;
 pub mod journal_restore;
@@ -523,6 +524,7 @@ pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use history_delete::HistoryDeleteRequest;
+pub use session_lifecycle::LifecycleRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -1338,6 +1340,8 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// A chat closed: the lifecycle worker's pass after its grace (`session_lifecycle.rs`).
+    pub(super) lifecycle_wake: Arc<Notify>,
     /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1890,6 +1894,7 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
@@ -3806,6 +3811,7 @@ impl Hub {
             self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
+                self.lifecycle_wake();
             }
         }
         true
