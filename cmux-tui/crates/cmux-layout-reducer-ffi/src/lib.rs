@@ -13,9 +13,8 @@
 //! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
 //! what auto-archive reads off the records (`sidebar_archive_marks`), the
 //! session tree's chat history page and heights (`sidebar_chat_history`),
+//! the workspace hover card's choice and order (`sidebar_hover_card_rules`),
 //! the app sidebar
-//! (`sidebar_row_layout`), the workspace hover card's choice and order
-//! (`sidebar_hover_card_rules`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
