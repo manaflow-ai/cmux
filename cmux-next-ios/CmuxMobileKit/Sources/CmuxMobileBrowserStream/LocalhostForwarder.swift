@@ -116,6 +116,12 @@ public final class LocalhostForwarder {
         return forward.host != Target.normalize(host) || forward.macID != macID
     }
 
+    /// Whether this exact target is listening for this Mac.
+    public func isForwarded(host: String?, port: UInt16, macID: String?) -> Bool {
+        guard let forward = forwards[port] else { return false }
+        return forward.host == Target.normalize(host) && forward.macID == macID && forward.isUp
+    }
+
     /// Forwards `port` to `macID`'s loopback: returns once this iPhone listens on it.
     public func forward(port: UInt16, macID: String?) async throws(Failure) {
         try await forward(port: port, host: nil, macID: macID)
@@ -156,7 +162,7 @@ public final class LocalhostForwarder {
     }
 
     public func refusal(host: String?, port: UInt16) -> String? {
-        targetRefusals[Target(host: host, port: port)] ?? refusals[port]
+        targetRefusals[Target(host: host, port: port)] ?? (host == nil ? refusals[port] : nil)
     }
 
     /// Cancels `listeners` and records their closing, which the port's next bind awaits.
@@ -295,7 +301,7 @@ public final class LocalhostForwarder {
         // A port stopped meanwhile forwards nothing (never to some other Mac).
         counts.accepted += 1
         guard let forward = forwards[port], !suspended else { return connection.cancel() }
-        let open = open
+        let openHost = openHost
         let opened = { @Sendable (macID: String?, host: String?, port: UInt16) async throws -> any LinkChannel in
             await MainActor.run { self.counts.opened += 1 }
             return try await openHost(macID, host, port)
@@ -325,7 +331,7 @@ public final class LocalhostForwarder {
     }
 
     /// The Mac's close codes that mean it refused the connection (with a sentence).
-    nonisolated static let refusalCodes: Set<String> = ["unavailable", "bad_request", "unknown_service"]
+    nonisolated static let refusalCodes: Set<String> = ["unavailable", "bad_request", "forbidden", "unknown_service"]
 
     /// Passes one connection's bytes both ways until either side closes, every
     /// request through the gate. Returns the Mac's refusal, if it refused the
