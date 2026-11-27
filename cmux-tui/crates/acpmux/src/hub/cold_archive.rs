@@ -30,6 +30,15 @@
 //! (`hub/retention.rs`, same wakes and stop condition) also archives every chat idle for
 //! `agents.chats.coldArchiveAfterDays` (default 30): no record logged and no metadata change in
 //! that long. The settings are read from the settings file at each pass.
+//!
+//! A chat brought back is not archived again by an automatic pass (this one or the store
+//! pressure pass, `store_pressure.rs`) for [`REARCHIVE_HOLD_MS`] after ([`Recent`]). A read
+//! leaves `updated_at` as it was, so the 30-day pass took the same chat again at its next
+//! wake, and the next read brought it back: on a lane VM, 2026-11-26 20:10Z to
+//! 2026-11-27 01:34Z, 2,249 rehydrates of 453 chats (one 14 times), 11.0 GB decompressed, and
+//! passes archiving 391, 305 and 289 chats each, beside the 1 h when the daemon grew 752 MB.
+//! `_acpmux/cold_archive` still archives a chat when asked. `daemon status` shows the churn
+//! as `gauges.coldRehydrates`.
 
 use super::*;
 use crate::store::{ColdPreview, PreviewMessage};
@@ -71,6 +80,62 @@ pub(crate) const SETTING_ON: &str = "agents.chats.coldArchive";
 /// After how many idle days.
 pub(crate) const SETTING_DAYS: &str = "agents.chats.coldArchiveAfterDays";
 const DEFAULT_DAYS: u64 = 30;
+
+/// How long a chat brought back from its archive stays out of the automatic passes.
+pub(crate) const REARCHIVE_HOLD_MS: u64 = 6 * 60 * 60 * 1000;
+
+/// The most chats [`Recent`] remembers; past it the oldest go first (counted as `evicted`).
+pub(crate) const RECENT_CAP: usize = 4096;
+
+/// The chats brought back from their cold archive lately (`Hub::cold_recent`), each with when:
+/// at most [`RECENT_CAP`], none older than [`REARCHIVE_HOLD_MS`] once a newer one comes.
+#[derive(Default)]
+pub(crate) struct Recent {
+    at: std::collections::HashMap<String, u64>,
+    /// `(when, id)` in the order they came; an entry whose `when` is no longer the chat's own
+    /// in `at` was replaced by a later rehydrate and is skipped.
+    order: std::collections::VecDeque<(u64, String)>,
+}
+
+impl Recent {
+    /// Notes `id` brought back at `now`, and lets go what is past the hold or over the cap:
+    /// how many it let go while still inside the hold.
+    pub(crate) fn note(&mut self, id: &str, now: u64) -> u64 {
+        self.at.insert(id.to_owned(), now);
+        self.order.push_back((now, id.to_owned()));
+        let mut evicted = 0;
+        while let Some((when, front)) = self.order.front() {
+            let current = self.at.get(front) == Some(when);
+            let old = now.saturating_sub(*when) >= REARCHIVE_HOLD_MS;
+            if current && !old && self.at.len() <= RECENT_CAP {
+                break;
+            }
+            if current {
+                self.at.remove(front);
+                evicted += u64::from(!old);
+            }
+            self.order.pop_front();
+        }
+        // One chat brought back again and again leaves replaced entries mid-queue: rebuild
+        // the queue from the map before it holds more than twice the cap.
+        if self.order.len() > 2 * RECENT_CAP {
+            let mut order: Vec<(u64, String)> =
+                self.at.iter().map(|(id, when)| (*when, id.clone())).collect();
+            order.sort();
+            self.order = order.into();
+        }
+        evicted
+    }
+
+    /// Whether `id` came back less than [`REARCHIVE_HOLD_MS`] before `now`.
+    pub(crate) fn lately(&self, id: &str, now: u64) -> bool {
+        self.at.get(id).is_some_and(|when| now.saturating_sub(*when) < REARCHIVE_HOLD_MS)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.at.len()
+    }
+}
 
 /// How long a chat stays idle before a pass archives it, from the settings document; None when
 /// automatic archiving is off.
@@ -256,15 +321,35 @@ impl Hub {
         let _ = self.events.send_row(session, unlogged_row_event(session, kind));
     }
 
-    /// Installs the store's rehydrate hook: the chat's id goes in `cold_rehydrated` and the
-    /// worker wakes. The hook runs inside the store's locks (an append's, a read's), so it takes
-    /// only that set's lock, which nothing else holds across a call.
+    /// Installs the store's rehydrate hook: the chat's id goes in `cold_rehydrated` and in
+    /// `cold_recent`, and the worker wakes. The hook runs inside the store's locks (an append's,
+    /// a read's), so it takes only those two leaf locks, which nothing else holds across a call.
     pub(super) fn watch_rehydrates(&self) {
         let (set, wake) = (self.cold_rehydrated.clone(), self.cold_wake.clone());
+        let recent = self.cold_recent.clone();
         self.store.on_rehydrate(Arc::new(move |id: &str| {
             set.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned());
+            {
+                let mut recent = recent.lock().unwrap_or_else(|e| e.into_inner());
+                let evicted = recent.note(id, now_ms());
+                crate::gauges::cold_rehydrates().rehydrated(recent.len(), RECENT_CAP, evicted);
+            }
             wake.notify_one();
         }));
+    }
+
+    /// Whether an automatic pass leaves `session` alone: it came back from its archive less
+    /// than [`REARCHIVE_HOLD_MS`] ago (counted as `heldBack`).
+    pub(super) fn rehydrated_lately(&self, session: &Session) -> bool {
+        let lately = self
+            .cold_recent
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .lately(&session.id, now_ms());
+        if lately {
+            crate::gauges::cold_rehydrates().held_back(1);
+        }
+        lately
     }
 
     /// Drops the preview of every chat the store brought back since the last call, in memory and
@@ -435,6 +520,9 @@ impl Hub {
                 if !self.store.is_cold(&session.id) {
                     self.warm_chat(&session);
                 }
+                continue;
+            }
+            if self.rehydrated_lately(&session) {
                 continue;
             }
             if let Ok(preview) = self.cold_archive_chat(&session, Some(cutoff), &hosted) {
