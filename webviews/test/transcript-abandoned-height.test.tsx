@@ -1,8 +1,6 @@
-// "typing under load is not good enough" (Leo): a row that changes size in a followed view is placed
-// by a synchronous render inside the row ResizeObserver's callback, so a streamed line paints in the
-// frame that delivered it. While a key or pointer event waits (Chromium's `isInputPending`), that
-// synchronous render holds the typed character behind it: the frame's own commit places the row
-// instead, by the next frame. With no input waiting the placement stays synchronous, as before.
+// CMUX-896: an abandoned height correction must not seed the placement of an urgent append.
+// React renders the shorter layout in a suspended transition, then commits the new reply with
+// the old height. The next row must stay below the committed reply until the correction commits.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -89,14 +87,13 @@ const { act, startTransition, Suspense } = await import("react");
 const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 
 test("urgent append keeps committed height after suspended height correction", async () => {
-  const row = (id: string, kind: string, text: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
+  const row = (id: string, kind: AcpmuxRow["kind"], text: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
   const initial = [row("a", "assistant", "Earlier assistant reply."), row("b", "user", "Follow up")];
   const appended = [...initial, row("c", "assistant", "New reply")];
   const never = new Promise<never>(() => {});
@@ -147,7 +144,59 @@ test("urgent append keeps committed height after suspended height correction", a
       flushSync(() => root.render(<View rows={appended} />));
       console.log("full-transcript-abandoned", JSON.stringify({ initialTop, appendedTop: top("b"), suspended }));
       expect(top("b")).toBe(initialTop);
+      // The queued height is allowed to commit after this urgent paint. It must still invalidate
+      // the earlier row even though the intervening append reused the committed drawn state.
+      sized.set(a, 100);
     });
+    expect(top("b")).toBe(initialTop - 50);
+  } finally {
+    pending = false;
+    await act(async () => root.unmount());
+  }
+});
+
+test("an urgent height correction keeps another row's eager transition dirty", async () => {
+  const rows: AcpmuxRow[] = [
+    { id: "eager-a", kind: "user", text: "First prompt", version: 1, at: 1 },
+    { id: "eager-b", kind: "user", text: "Second prompt", version: 1, at: 1 },
+    { id: "eager-c", kind: "assistant", text: "Reply", version: 1, at: 1 },
+  ];
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const node = (id: string) => dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!;
+  const top = () => parseFloat(node("eager-c").style.top) + (parseFloat(node("eager-c").style.marginTop) || 0);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript sessionId="eager-heights" rows={rows} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    const a = node("eager-a"),
+      b = node("eager-b");
+    const observer = observers.find((o) => o.targets.has(a))!;
+    const deliver = (target: Element) => observer.callback([{ target } as unknown as ResizeObserverEntry]);
+    sized.set(a, 100);
+    sized.set(b, 100);
+    act(() => {
+      deliver(a);
+      deliver(b);
+    });
+    const initial = top();
+    pending = true;
+    act(() => {
+      startTransition(() => {
+        sized.set(a, 200);
+        deliver(a);
+      });
+      sized.set(a, 100);
+      flushSync(() => {
+        sized.set(b, 150);
+        deliver(b);
+      });
+      expect(top()).toBe(initial + 50);
+      sized.set(a, 200);
+    });
+    console.log("eager-height-placement", JSON.stringify({ initial, settled: top() }));
+    expect(top()).toBe(initial + 150);
   } finally {
     pending = false;
     await act(async () => root.unmount());

@@ -2637,7 +2637,7 @@ function TranscriptView({
   );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
-  const changedDrawn = useRef(new Set<string>());
+  const changedDrawn = useRef(new Map<string, DrawnHeight | undefined>());
   /// The last placement, and the mounted range it was drawn with.
   const lastPlaced = useRef<
     | {
@@ -2677,7 +2677,7 @@ function TranscriptView({
       let changes: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
-        changedDrawn.current.add(id);
+        changedDrawn.current.set(id, entry);
         changes = changes ?? new Map();
         changes.set(id, entry);
       }
@@ -2950,20 +2950,6 @@ function TranscriptView({
     },
     [readMounted],
   );
-  // Every commit while the rows flow moves their anchor with what it mounted; one that cannot flow
-  // (another chat, a held row, a second range) ends the flow and places the rows after it.
-  useLayoutEffect(() => {
-    const live = liveResize.current;
-    if (live.flow !== undefined) {
-      if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
-      else holdFlow();
-      return;
-    }
-    if (readAfterSettle.current && !renderedFlowing.current) {
-      readAfterSettle.current = false;
-      readMounted();
-    }
-  });
   // A transcript that unmounts mid-drag leaves no flow (the box's effect cleared the settle's timer).
   // The render's copy goes with it, for a transcript whose effects stop and start again.
   useEffect(
@@ -3150,7 +3136,7 @@ function TranscriptView({
         if (!current.has(id)) continue;
         changes = changes ?? new Map();
         changes.set(id, undefined);
-        changedDrawn.current.add(id);
+        changedDrawn.current.set(id, undefined);
       }
       return changes ? current.with(changes) : current;
     });
@@ -3926,8 +3912,7 @@ function TranscriptView({
     const last = lastPlaced.current;
     // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
     const drawnChanged = drawn !== last?.drawn;
-    const changed = drawnChanged ? changedDrawn.current : new Set<string>();
-    if (drawnChanged) changedDrawn.current = new Set();
+    const changed = drawnChanged ? changedDrawn.current : new Map<string, DrawnHeight | undefined>();
     // Rows before the first that changed (by object, or by drawn height) keep their places. A
     // drawn height comes from a mounted row, so its index is looked for around the mounted range.
     let kept = 0;
@@ -4046,14 +4031,15 @@ function TranscriptView({
         : 0;
     // A rail jump made another page the held window (direct.ts `jumpWindow`): no row is the last pass's, so the
     // room above is estimated again for the rows there now.
+    let nextOlderRoom = olderRoom.current;
     if (last && last.sessionId === sessionId && canLoadNewer && rowsReplaced(last.rows, rows))
-      olderRoom.current = undefined;
-    else if (leftAbove > 0 && olderRoom.current)
-      olderRoom.current = {
-        ...olderRoom.current,
-        room: olderRoom.current.room + leftAbove,
-        end: olderRoom.current.end + leftAbove,
-        height: olderRoom.current.height,
+      nextOlderRoom = undefined;
+    else if (leftAbove > 0 && nextOlderRoom)
+      nextOlderRoom = {
+        ...nextOlderRoom,
+        room: nextOlderRoom.room + leftAbove,
+        end: nextOlderRoom.end + leftAbove,
+        height: nextOlderRoom.height,
         unseeded: undefined,
       };
     // Gone until a page lands above the first row (a new first row): then estimated again, from the
@@ -4072,7 +4058,7 @@ function TranscriptView({
           reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)),
           state: undefined,
         }
-      : olderReserve(olderRoom.current, {
+      : olderReserve(nextOlderRoom, {
           sessionId,
           rows,
           rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
@@ -4087,7 +4073,6 @@ function TranscriptView({
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
             : undefined,
         });
-    olderRoom.current = reserved.state;
     // A first page shorter than the view, with older history still to load, sits at the view's foot
     // from its first paint, where the view pinned to the end puts it once the older room arrives:
     // drawn from the top, every visible row dropped by the slack when the room came (22 px in
@@ -4096,9 +4081,9 @@ function TranscriptView({
     const rowsHeight = placed.totalHeight - placedOrigin;
     const footFill = canLoadOlder && height > 0 ? Math.max(0, height - rowsHeight) : 0;
     // Only the part over the held room is the foot's: `giveRoomNearTop` never gives it up.
-    footRoom.current = Math.max(0, footFill - reserved.reserve);
+    const nextFootRoom = Math.max(0, footFill - reserved.reserve);
     const layout = placedWithOrigin(placed, Math.max(reserved.reserve, footFill));
-    lastPlaced.current = {
+    const placement = {
       rows,
       drawn,
       layout,
@@ -4115,6 +4100,9 @@ function TranscriptView({
     };
     return {
       layout,
+      placement,
+      olderRoom: reserved.state,
+      footRoom: nextFootRoom,
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [
@@ -4135,6 +4123,24 @@ function TranscriptView({
     canLoadNewer,
     draggedHeight,
   ]);
+  useLayoutEffect(() => {
+    // A render can suspend after placing its rows. Only a committed placement may seed the next
+    // pass: an urgent append must not reuse a shorter height from an abandoned render (CMUX-896).
+    const drawnCommitted = lastPlaced.current?.drawn !== measured.placement.drawn;
+    lastPlaced.current = measured.placement;
+    olderRoom.current = measured.olderRoom;
+    footRoom.current = measured.footRoom;
+    // Keep corrections skipped by an urgent commit. React can reuse an eagerly computed updater
+    // result later without running its dirty-ID write again.
+    if (drawnCommitted)
+      for (const [id, expected] of changedDrawn.current)
+        if (
+          expected === undefined
+            ? !measured.placement.drawn.has(id)
+            : sameDrawn(measured.placement.drawn.get(id), expected)
+        )
+          changedDrawn.current.delete(id);
+  }, [measured]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing for
   // PROMPT_TOPS_QUIET_MS: one pass over the rows per placement that settles, never per frame. Each
@@ -4601,11 +4607,26 @@ function TranscriptView({
   const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
-  if (lastPlaced.current) {
+  useLayoutEffect(() => {
+    if (!lastPlaced.current) return;
     lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
     lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
     lastPlaced.current.held = heldIndices;
-  }
+  });
+  // Run after publishing the committed layout and mounted range: the flow's anchor must describe
+  // the rows this commit mounted, including a held row or a second range that ends the flow.
+  useLayoutEffect(() => {
+    const live = liveResize.current;
+    if (live.flow !== undefined) {
+      if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
+      else holdFlow();
+      return;
+    }
+    if (readAfterSettle.current && !renderedFlowing.current) {
+      readAfterSettle.current = false;
+      readMounted();
+    }
+  });
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
   const effectiveActiveRowId = sessionChanged ? rows[0]?.id : activeRowId;
@@ -7874,7 +7895,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
-    footRoom: footRoom.current,
+    footRoom: measured.footRoom,
     loading,
     later,
     promptCount,
