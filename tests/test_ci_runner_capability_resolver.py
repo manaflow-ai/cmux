@@ -346,8 +346,8 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         # else Blacksmith, as overflow only (Leo, 2026-11-19: "stop ... relying
         # on it"; 2026-11-21 11:44Z: this job queued on Blacksmith 4 vCPU on
         # attempt 1 beside 1,311 idle owned runners).
-        trusted = ('contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), '
-                   'vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\'')
+        # CI_TRUSTED_RUNNER's picker is frozen to the label it resolved to (scripts/ci/one_linux_label.py).
+        trusted = "'blacksmith-4vcpu-ubuntu-2404'"
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(

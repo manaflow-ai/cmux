@@ -149,8 +149,9 @@ class RunnerSetTests(unittest.TestCase):
         # cmux-linux held it 326 s and 421 s on 2026-11-25/26 for 25 s of work (pr-red-checks-comment.yml).
         job = yaml.safe_load((WORKFLOWS / "pr-red-checks-comment.yml").read_text(encoding="utf-8"))["jobs"]["comment"]
         runs_on = runs_on_text(job, "pr-red-checks-comment.yml#comment")
-        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
-                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        # CI_TRUSTED_RUNNER's picker is frozen to the label it resolved to.
+        self.assertTrue(runs_on.endswith("'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.", runs_on)
         for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
             self.assertNotIn(persistent, runs_on)
 

@@ -216,9 +216,13 @@ def rewrite_expr(expr: str) -> str | None:
         return "${{ " + f"{OWNER_GUARD} || format('{fm['lead']}{{0}}', {inner})" + " }}"
     # Kept terms stay in their order; the fork branch takes the place of the first fork or size term, so a pin
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
-    kept, picked, fork_at = [], False, None
+    kept, picked, fork_at, fork_literal = [], False, None, False
     for term in terms:
-        if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
+        if FORK_TEST in term and "vars." not in term and "fromJSON" not in term and fork_at is None:
+            # A fork arm that is already a literal (a Blacksmith size the fork keeps) is not a picker: it stays.
+            fork_at, fork_literal = len(kept), True
+            kept.append(term)
+        elif LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
             kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
         elif PICKER.search(term):
             picked = True
@@ -231,7 +235,8 @@ def rewrite_expr(expr: str) -> str | None:
             return None
     if not picked:
         return None
-    kept.insert(fork_at, FORK_PR)
+    if not fork_literal:
+        kept.insert(fork_at, FORK_PR)
     return "${{ " + " || ".join([OWNER_GUARD, *kept, f"'{LABEL}'"]) + " }}"
 
 
