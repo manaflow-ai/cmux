@@ -107,6 +107,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
@@ -249,6 +250,7 @@ pub mod tailnet_ingress;
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
 mod team;
+mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
@@ -258,6 +260,10 @@ mod unix_bind;
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+// What a streamed reply costs at 32 attached event streams (manual).
+#[cfg(test)]
+#[path = "chunk_fanout_bench.rs"]
+mod chunk_fanout_bench;
 pub mod upload_frames;
 mod vault;
 mod view;
