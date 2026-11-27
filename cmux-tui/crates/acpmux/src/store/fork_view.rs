@@ -640,7 +640,18 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, false)
+        self.back(id, after, before, skip, None, visit, false)
+    }
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, Some(may_match), visit, false)
     }
     fn scan_back_indexed(
         &self,
@@ -650,7 +661,7 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, true)
+        self.back(id, after, before, skip, None, visit, true)
     }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
@@ -1091,34 +1102,39 @@ impl ForkView {
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        if indexed {
-            self.inner.scan_back_indexed(id, after, before, skip, visit)
-        } else {
-            self.inner.scan_back(id, after, before, skip, visit)
+        match may_match {
+            _ if indexed => self.inner.scan_back_indexed(id, after, before, skip, visit),
+            Some(may_match) => {
+                self.inner.scan_back_matching(id, after, before, skip, may_match, visit)
+            }
+            None => self.inner.scan_back(id, after, before, skip, visit),
         }
     }
 
-    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
-    /// history before the fork point.
+    /// `scan_back` (`indexed`: `scan_back_indexed`; `may_match`: `scan_back_matching`): the fork's
+    /// own records, then its chat's history before the fork point.
+    #[allow(clippy::too_many_arguments)]
     fn back(
         &self,
         id: &str,
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
         indexed: bool,
     ) -> Result<()> {
         let _held = self.shared();
 
         let Some(r) = self.reference(id)? else {
-            return self.inner_back(indexed, id, after, before, skip, visit);
+            return self.inner_back(indexed, id, after, before, skip, may_match, visit);
         };
         let mut going = true;
         if before > r.through_seq + 1 {
-            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
+            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, may_match, &mut |rec| {
                 going = visit(rec);
                 going
             })?;
@@ -1134,6 +1150,7 @@ impl ForkView {
             after,
             before.min(r.through_seq + 1),
             &skip_other,
+            may_match,
             &mut |rec| !is_history(&rec.kind) || visit(rec),
             indexed,
         )

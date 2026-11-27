@@ -490,6 +490,7 @@ impl LocalStore {
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
         indexed: bool,
     ) -> Result<()> {
@@ -505,11 +506,11 @@ impl LocalStore {
                 _ => {}
             }
             if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
-                && skip(dir, kind)
+                && (skip(dir, kind) || may_match.is_some_and(|may| !may(line, dir, kind)))
             {
                 return true;
             }
-            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            let Ok(rec) = parse_record(line) else { return true };
             if rec.seq >= before {
                 return true;
             }

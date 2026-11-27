@@ -126,9 +126,25 @@ pub(super) fn handle(
         return Ok(reply);
     }
     // beforeSeq pages backwards: the newest `limit` records before it.
+    let read_started = std::time::Instant::now();
     let page = hub
         .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
         .map_err(|e| RpcError::internal(e.to_string()))?;
+    // A subagent pane's open is these reads (Leo, 2026-11-27: "these take way too long to load"):
+    // each says how long it took and what it sent, so a slow open names its page.
+    if let Some(subagent) = str_param(params, "subagent") {
+        tracing::info!(
+            session = %s.id,
+            subagent,
+            newest = before.is_some(),
+            after,
+            ms = read_started.elapsed().as_secs_f64() * 1000.0,
+            events = page.events.len(),
+            has_more = page.has_more,
+            last_seq = last,
+            "subagent page read"
+        );
+    }
     // Read before the page: a peer's copy of the chat covers this far (`hub/peer_snapshot.rs`). A
     // page that stops short of the log (older records, or one more page to read) holds only to its
     // own last record.
