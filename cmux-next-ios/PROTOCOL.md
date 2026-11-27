@@ -1761,6 +1761,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
 | `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
 | `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
+| `localhost-hosts-v1` | hostd `version` | (2026-11-24) The host also forwards a phone browser tab to a private, tailnet or loopback host named by the phone; public and link-local addresses are refused. |
 | `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
 | `cloud-acpmux-v1` | hostd `version` | (2026-11-01) The host drives an owned Cloud machine's agents through the Mac carrier (`cloud-acpmux`). |
 | `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
