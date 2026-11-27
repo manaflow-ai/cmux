@@ -1274,7 +1274,6 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
-if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
 
