@@ -40,7 +40,7 @@ jobs:
   measure:
     name: launch TTI (${{ matrix.leg }})
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 90
+    timeout-minutes: 140
     strategy:
       fail-fast: false
       matrix:
@@ -175,6 +175,27 @@ jobs:
           print()
           PY
 
+      - name: Launch floor per linked dylib (each alone, round-robin)
+        if: ${{ !cancelled() && matrix.leg == 'after' }}
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          app="$(find .build/ios-sim -maxdepth 6 -type d -path '*/Demo-iphonesimulator/CmuxMobileApp.app' | head -n 1)"
+          [ -n "$app" ] || { echo "no Demo app; skipped"; exit 0; }
+          CMUX_LAUNCH_FLOOR_EACH=1 \
+          CMUX_LAUNCH_FLOOR_LINK_LIKE="$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")" \
+            bash "$RUNNER_TEMP/floor/ios-launch-floor.sh" artifacts/ios-sim/launch-floor-each.json artifacts/ios-sim/SUMMARY.md
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("artifacts/ios-sim/launch-floor-each.json"))
+          p = d["plain"]
+          print(f"### launch floor per linked dylib ({d['rounds']} rounds; plain floor main p50 {p['main_ms_p50']} ms, n={p['n']})\n")
+          print("| dylib | n | main p50 | over plain | first frame p50 |\n|---|---|---|---|---|")
+          for e in d["each"]:
+              print(f"| `{e['dylib']}` | {e['n']} | {e['main_ms_p50']} | {e['main_ms_over_plain']} | {e['first_frame_ms_p50']} |")
+          print()
+          PY
+
       - name: Pre-main (dylibs, initializers, XCTest inserts; simctl launches)
         if: ${{ !cancelled() }}
         timeout-minutes: 15
@@ -210,6 +231,8 @@ jobs:
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
             artifacts/ios-sim/launch-floor.json
+            artifacts/ios-sim/launch-floor-linked.json
+            artifacts/ios-sim/launch-floor-each.json
             artifacts/ios-sim/launch-premain.json
             artifacts/ios-sim/premain-sample-*.txt
             artifacts/ios-sim/SUMMARY.md
