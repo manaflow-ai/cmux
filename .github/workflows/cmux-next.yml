@@ -1067,6 +1067,8 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Why: 2026-11-27-tip-daemon-superseded-defers.md
+          CMUX_TUI_TREE_TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || '' }}
           # Why: note-99
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || inputs.base_tier == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           # Why: note-100
@@ -1122,6 +1124,8 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Why: 2026-11-27-tip-daemon-superseded-defers.md
+          CMUX_TUI_TREE_TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || '' }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.base_tier == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           # Why: note-106
