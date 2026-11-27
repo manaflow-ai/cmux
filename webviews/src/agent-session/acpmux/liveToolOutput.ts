@@ -388,17 +388,30 @@ export function redrawWhy(
   pending: boolean,
   blocked: boolean,
 ): string {
+  const kind = `@${String(next.connection)}`;
   if (!received) return "first";
-  if (pending) return "pending";
-  if (blocked) return "blocked";
-  if (oneRowChangeFrom(next.rows, received.rows) === undefined) return "rows";
+  if (pending) return `pending${kind}`;
+  if (blocked) return `blocked${kind}`;
+  const index = oneRowChangeFrom(next.rows, received.rows);
+  if (index === undefined) {
+    const grew = next.rows.length - received.rows.length;
+    return `rows${kind}:${grew > 0 ? `+${grew}` : grew}`;
+  }
   if (!sameButRows(received, next)) {
     const before = received as unknown as Record<string, unknown>;
     const after = next as unknown as Record<string, unknown>;
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)]))
-      if (key !== "rows" && !Object.is(before[key], after[key])) return `field:${key}`;
+      if (key !== "rows" && !Object.is(before[key], after[key])) return `field:${key}${kind}`;
   }
-  return "row";
+  // One row changed in a way no bypass draws in place: its kind and the fields that moved.
+  const was = received.rows[index] as unknown as Record<string, unknown> | undefined;
+  const now = next.rows[index] as unknown as Record<string, unknown> | undefined;
+  if (!was || !now) return `row${kind}`;
+  const moved = [...new Set([...Object.keys(was), ...Object.keys(now)])]
+    .filter((key) => key !== "version" && !Object.is(was[key], now[key]))
+    .sort()
+    .join(",");
+  return `row${kind}:${String(now.kind)}:${moved}`;
 }
 
 function sameSettled(before: unknown, after: unknown): boolean {
