@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
 import { revealFrames } from "./revealedMarkdownModel";
+import { configureStreamingStyle, lineEdge, resolveStreamingStyle, STREAMING_STYLE_KEY } from "./streamingStyle";
 import { wordEdge } from "../streamReveal";
 import { acpmuxPerf } from "../perf";
 import { settleReact } from "../../../../test/support/domTeardown";
@@ -48,6 +49,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   act(() => root?.unmount());
+  configureStreamingStyle(undefined);
   root = undefined;
   Object.assign(revealFrames, savedFrames);
   // fixed-wait: teardown only; React's scheduled work runs before its window closes
@@ -443,4 +445,99 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge(url, url.length, false, 0)).toBe(url.length);
   // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
   expect(wordEdge(url, 60, false, 53)).toBe(60);
+});
+
+test("a reply's stream end shows all of it in that commit, with nothing left to grow after it", () => {
+  // cmux#50299: the reply's last lines revealed over the frames after the turn's end grew it under the
+  // fold that had just settled the turn. The commit that ends the stream shows them all, so the turn
+  // end's fold (turnEndFold.ts) carries them in its one motion.
+  root = createRoot(container);
+  const text = "The answer has a first sentence. And a second one that is still waiting to show.";
+  const draw = (streaming: boolean, body = text) =>
+    act(() => {
+      root!.render(<RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />);
+    });
+  draw(true, "");
+  draw(true);
+  frames(0, 3);
+  draw(false);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
+  // No frame after it changes what shows.
+  expect(frames(48, 30).every((seen) => seen === text)).toBe(true);
+});
+
+// Many replies revealing at once run on one display-frame callback (revealedMarkdownModel.ts
+// revealClock), not one loop each, and it stops once nothing reveals: a page streaming into ten
+// chats asked for ten frame callbacks a frame, each with its own commit (chat-instant-under-load.md
+// piece 4).
+test("every revealing reply shares one frame callback, which stops when all are shown", () => {
+  const { pending, frame } = cancellableFrames();
+  let requests = 0;
+  const request = revealFrames.request;
+  revealFrames.request = (callback) => {
+    requests += 1;
+    return request(callback);
+  };
+  root = createRoot(container);
+  const replies = (texts: string[]) =>
+    act(() => {
+      root!.render(
+        <>
+          {texts.map((text, index) => (
+            <RevealedMarkdown key={index} text={text} streaming artifactIdentity={`reply-${index}`} />
+          ))}
+        </>,
+      );
+    });
+  replies(["", "", "", "", ""]);
+  const words = "Each of these replies streams the same long sentence at the same time as the others do.";
+  replies([words, words, words, words, words]);
+  expect(pending.size).toBe(1);
+  for (let index = 0; index < 10; index++) {
+    requests = 0;
+    frame(index * 16);
+    expect(pending.size).toBeLessThanOrEqual(1);
+    expect(requests).toBeLessThanOrEqual(1);
+  }
+  for (let index = 10; index < 200 && pending.size; index++) frame(index * 16);
+  expect(pending.size).toBe(0);
+  for (const node of container.querySelectorAll(".cv-md")) expect(node.textContent).toBe(words);
+});
+
+// agentPane.display.streaming (streamingStyle.ts): `words` is the reveal above; `instant` shows text as
+// it arrives with no fade; `lines` ends at a whole line.
+test("the streaming style reads its key and keeps words for anything else", () => {
+  expect(resolveStreamingStyle(undefined)).toBe("words");
+  expect(resolveStreamingStyle({ [STREAMING_STYLE_KEY]: "instant" })).toBe("instant");
+  expect(resolveStreamingStyle({ [STREAMING_STYLE_KEY]: "lines" })).toBe("lines");
+  expect(resolveStreamingStyle({ [STREAMING_STYLE_KEY]: "typewriter" })).toBe("words");
+});
+
+test("instant shows a partial word as it arrives, with no fade and no frame loop", () => {
+  configureStreamingStyle({ [STREAMING_STYLE_KEY]: "instant" });
+  root = createRoot(container);
+  render("", true);
+  render("Hello there wor", true);
+  expect(container.querySelector(".cv-md")?.textContent).toBe("Hello there wor");
+  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+  expect(queued).toHaveLength(0);
+  render("Hello there world, again", true);
+  expect(container.querySelector(".cv-md")?.textContent).toBe("Hello there world, again");
+  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+});
+
+test("lines holds a line until its break arrives, then releases it on a stall", () => {
+  configureStreamingStyle({ [STREAMING_STYLE_KEY]: "lines" });
+  root = createRoot(container);
+  render("", true);
+  render("First line here.\n\nSecond li", true);
+  expect(frames(0, 10).at(-1)).toBe("First line here.");
+  expect(frames(10 * 16, 60).at(-1)).toBe("First line here.Second li");
+});
+
+test("lineEdge ends after the last line break and keeps what shows", () => {
+  expect(lineEdge("ab\ncd", 5, false, 0)).toBe(3);
+  expect(lineEdge("abcd", 4, false, 0)).toBe(0);
+  expect(lineEdge("abcd", 4, false, 2)).toBe(2);
+  expect(lineEdge("abcd", 4, true, 0)).toBe(4);
 });

@@ -18,7 +18,11 @@ fn wire_name_round_trips_through_serde() {
         "diff.comments.list",
         "diff.comments.save",
         "diff.comments.delete",
+        "git.review.start",
+        "git.review.comment",
+        "git.review.post",
         "diff.comments.send",
+        "diff.comments.thread",
         "stream.cancel",
         "origin.confirmation.issue",
         "chief.continue",
@@ -36,6 +40,8 @@ fn wire_name_round_trips_through_serde() {
         "cloud.machine.share_chat",
         "cloud.machine.chief_start",
         "cloud.machine.chief_resize",
+        "cloud.machine.setup_desktop",
+        "cloud.machine.fork",
         "palette.rank",
         "chat.list",
         "chat.mark_read",
@@ -43,6 +49,7 @@ fn wire_name_round_trips_through_serde() {
         "theme.scheme.convert",
         "theme.scheme.export",
         "theme.scheme.from_image",
+        "theme.slots.resolve",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

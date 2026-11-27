@@ -13,6 +13,7 @@
 //! - [`Input`] (any thread) sends keys ([`keysym`]), pointer, clipboard,
 //!   SetDesktopSize resizes and closes the session.
 //! - [`Backoff`] says when to reconnect.
+//! - [`demo`]: the loopback demo server's side of the protocol.
 //!
 //! Every server-supplied size and length is bounded; a hostile server ends
 //! the session with [`VncError::Protocol`], never a panic or an unbounded
@@ -20,15 +21,18 @@
 
 pub mod auth;
 pub mod decode;
+pub mod demo;
 pub mod endpoint;
 mod error;
 pub mod framebuffer;
 pub mod handshake;
+pub mod json;
 pub mod keysym;
 pub mod message;
 mod paste;
 pub mod pixel;
 pub mod reconnect;
+pub mod rules;
 mod session;
 pub mod transport;
 mod wire;

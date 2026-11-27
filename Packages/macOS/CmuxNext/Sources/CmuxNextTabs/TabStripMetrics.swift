@@ -46,6 +46,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// The theme's close button colors (`appearance.tabClose.*`); unset is today's.
+    public var closeColors = ThemeFlourishes.TabClose()
     /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
@@ -53,6 +55,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
     /// with the tokens, so a change relays the strip out (`startObservingTokens`).
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (off by default): a terminal agent's tab draws its mark on the soft rounded
+    /// square (`TabIcon.terminalAgentMark`); off, it draws the bare mark as a GUI agent chat does. Read with the tokens,
+    /// so flipping the switch redraws the strip live.
+    public var terminalAgentMarks = false
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -213,7 +219,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
         stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
-        // The tab bar controls' one square (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
+        // The tab bar controls' one square, a tab tall (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
         newTabButtonWidth = Metrics.tabBarControlSide
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
@@ -232,7 +238,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        closeColors = DesignSettings.shared.flourishes.tabClose
         agentBadges = DesignSettings.shared.agentBadges
+        terminalAgentMarks = DesignSettings.shared.terminalAgentMarks
     }
 
     /// Token-derived metrics for the current density.

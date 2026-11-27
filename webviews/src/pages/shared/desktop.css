@@ -114,6 +114,7 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
+  --ds-radius-full: 999px; /* a capsule at any height: the 999px the app's round tracks and badges draw; Tailwind's own rounded-full stays as it is */
   /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
   --ds-glass-chrome-tint: 62%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.6);
@@ -145,9 +146,11 @@ body {
   --ds-glass-edge-top: 60%;
   /* glass content: a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2) */
   --ds-glass-content-tint: 88%;
-  /* glass ink: the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page) */
+  /* glass ink: the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page); chipStatus is that hue share inside a tooltip (a link, a diff count), whose tint the host fits so the text sits at 4.5:1, which leaves a status word no room for more hue; keycap is the ink share of a tooltip's shortcut hint (the keycap on its 10% plate), a step under the text and above the secondary ink so it keeps 3:1 on the fitted tint */
   --ds-glass-ink-secondary: 68%;
   --ds-glass-ink-status: 65%;
+  --ds-glass-ink-chip-status: 35%;
+  --ds-glass-ink-keycap: 84%;
   /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93%; in dark the menu's 72% over 57% covers the same 88%, since at 40% it covered 83% and the chat's text read through the Model menu (design/glass-system.md, rule 6) */
   --ds-glass-underlay: 40%;
   /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
@@ -289,7 +292,7 @@ body {
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
    one-device-pixel separator rim and a small tight shadow. One look everywhere (Lawrence 2026-11-20,
    on the composer's "Select effort ⌃⇧M"): regular text at the detail size in the primary ink, then
-   the shortcut's keys on a small keycap plate (.ui-tooltip-hint), and an optional detail line below
+   the shortcut as plain glyphs (.ui-tooltip-hint, ui/KeyHint), and an optional detail line below
    in dimmer ink; the numbers are the native ones (CmuxNextDesign/Tooltip/TooltipMetrics.swift,
    test/tooltip-metrics.test.ts holds the two in step). It shows and goes in one frame, with no fade
    and no rise, as do hover cards (.ui-card, the context window card) on the same surface (Leo,
@@ -308,7 +311,8 @@ body {
     calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
+  border-radius: var(--cmux-tooltip-radius, calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1))); /* concentric-allow: a tooltip holds text and a plain shortcut, nothing nested */
+  /* one-material-allow: the tooltip's fallback for a page that loads no glass.css; on .ui-glass (Tooltip.tsx, titleTooltips.ts) glass.css's .ui-tooltip.ui-glass replaces this fill, frost and shadow with the glass's, so one material either way */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -326,7 +330,7 @@ body {
   pointer-events: none;
 }
 
-/* One line: the text ends in an ellipsis at the widest tooltip, after the floated keycap. */
+/* One line: the text ends in an ellipsis at the widest tooltip, after the floated shortcut. */
 .ui-tooltip:not(.ui-card),
 .ui-title-tooltip {
   white-space: nowrap;
@@ -388,6 +392,7 @@ body {
 
 .ui-hint {
   border-width: var(--tooltip-rim-width);
+  /* one-material-allow: the toolbar hint's fallback for a page that loads no glass.css; on .ui-glass (LazyCard) glass.css's .ui-hint.ui-card.ui-glass replaces it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -412,29 +417,15 @@ body {
   font-weight: var(--weight-regular);
 }
 
-/* The shortcut's keys on a keycap plate (the dialogs' Linear keycap, CmuxDialogKeycapStyle.linearKbd):
-   the text's ink at 10% under the keys in the secondary ink, emphasized at the caption size. It
-   floats to the end of the first line (it comes first in the tooltip) and reaches into the end's
-   padding, so it sits --tooltip-keycap-inset from the tooltip's top, bottom and end and its corner
-   nests in the tooltip's. */
+/* The shortcut (ui/KeyHint, the one key hint: plain glyphs in the secondary ink, no plate). It floats
+   to the end of the first line (it comes first in the tooltip), --tooltip-keycap-gap after the text,
+   on the text's line box so the two share a center. Only placement here; the look is keyHint.css. */
 .ui-tooltip-hint {
   float: inline-end;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tooltip-keycap-height);
-  height: var(--tooltip-keycap-height);
-  margin-block-start: calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-block));
-  margin-inline: var(--tooltip-keycap-gap) calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-inline));
-  padding-inline: var(--tooltip-keycap-pad);
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1) - var(--tooltip-keycap-inset)); /* concentric-allow: nested in the tooltip's corner at its inset */
-  background: color-mix(in srgb, var(--cmux-tooltip-ink, var(--cmux-text, CanvasText)) 10%, transparent);
+  margin-inline-start: var(--tooltip-keycap-gap);
+  line-height: var(--tooltip-line-height);
+  /* The tooltip's secondary ink, as the native tooltip's hint (TooltipStyle.hint). */
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
-  font-size: var(--text-caption);
-  font-weight: var(--weight-emphasis);
-  line-height: 1;
-  white-space: nowrap;
 }
 
 img,
@@ -450,7 +441,7 @@ a {
   -webkit-user-select: text;
   user-select: text;
 }
-:where(.selectable, .selectable *) {
+:where(.selectable) {
   cursor: auto;
 }
 
@@ -478,17 +469,21 @@ input[type="range"] {
    hand). Zero specificity (:where), so a surface's own meaningful cursor still wins: text in a
    field, a resize or drag cursor, zoom-in on an image. No sheet sets `cursor: pointer`
    (clickable-cursor.test.ts, scripts/cmux-next/check-default-cursor.py).
-   What is inside a clickable thing takes its cursor (`inherit`): the arrow inside selectable text,
-   where `.selectable *` would give its label the I-beam, and a surface's own cursor on the
-   clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. This rule
-   comes first so a clickable thing nested in another still gets the arrow.
-   What is inside any label takes the label's cursor too: a choice's arrow (the label's own rule
-   below), a locked choice's arrow, a field label's I-beam in selectable text. A field inside keeps
-   the text cursor (its own rule outranks this one). Never `label:has(...) *` here, nor any `:has()`
-   before a combinator whose last compound has no class or attribute (`*`, `:not(...)`): Chromium
-   then restyles the whole page on every node inserted anywhere under the elements it tracks for
-   `:has()`, about 850 elements per streamed row or rail tick in the agent pane
-   (pane-has-restyle.browser.test.ts). */
+   What is inside a clickable thing takes its cursor by inheritance (`cursor` inherits): the arrow
+   over its label inside selectable text, since only `.selectable` itself sets the I-beam's `auto`
+   (above), not its descendants, and a surface's own cursor on the clickable thing too, so a sent or
+   queued image's thumbnail keeps the button's zoom-in. A selectable box inside a clickable thing
+   inherits its cursor as well (the rule below). What is inside any label takes the label's cursor
+   the same way: a choice's arrow, a locked choice's arrow, a field label's I-beam in selectable
+   text. A field inside keeps the text cursor (its own rule outranks this one).
+   Never a rule whose subject is `*` under ancestors Chromium cannot look up by class, id, tag or
+   attribute (`:where(button, a[href], ...) *`, `:disabled *`): every element styled anywhere then
+   walks all its ancestors trying each one, about 230 ms of style recalc for 24 older pages of a long
+   chat (transcript-scroll-up.bench.ts TRACE=3; descendant-universal-rules.test.ts). Nor
+   `label:has(...) *`, nor any `:has()` before a combinator whose last compound has no class or
+   attribute (`*`, `:not(...)`): Chromium then restyles the whole page on every node inserted
+   anywhere under the elements it tracks for `:has()`, about 850 elements per streamed row or rail
+   tick in the agent pane (pane-has-restyle.browser.test.ts). */
 :where(
     button,
     a[href],
@@ -506,7 +501,7 @@ input[type="range"] {
     summary,
     label
   )
-  * {
+  :where(.selectable) {
   cursor: inherit;
 }
 :where(
@@ -563,7 +558,10 @@ input:is(
 [aria-disabled="true"],
 [aria-disabled="true"] *,
 :disabled:not(fieldset),
-:disabled:not(fieldset) *,
+button:disabled *,
+select:disabled *,
+optgroup:disabled *,
+option:disabled *,
 fieldset:disabled,
 fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])),
 fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
@@ -764,16 +762,14 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-shadow: var(--elevation-1);
   --tooltip-max-width: calc(var(--grid-base) * 80);
   /* TooltipMetrics.swift's numbers, on the 4px grid, following interface zoom: 12/16 text, 4px above
-     and below it, 8px before it, an 8px corner; the keycap 16px tall, 4px in from the top, bottom and
-     end, 4px each side of its keys, 8px after the text. */
+     and below it, 8px before it, an 8px corner; the shortcut 8px after the text. */
   --tooltip-edge: var(--grid-base);
   --tooltip-font-size: var(--text-detail);
   --tooltip-line-height: var(--text-detail--line-height);
-  --tooltip-pad-block: var(--grid-base);
-  --tooltip-pad-inline: calc(var(--grid-base) * 2);
-  --tooltip-keycap-height: calc(var(--grid-base) * 4);
-  --tooltip-keycap-inset: var(--grid-base);
-  --tooltip-keycap-pad: var(--grid-base);
+  /* A look re-skins the tooltip's padding and corner with the component tokens (ui/README.md
+     "Component tokens"); unset, the native numbers. */
+  --tooltip-pad-block: var(--cmux-tooltip-padding-block, var(--grid-base));
+  --tooltip-pad-inline: var(--cmux-tooltip-padding-inline, calc(var(--grid-base) * 2));
   --tooltip-keycap-gap: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
@@ -844,11 +840,30 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
   --cmux-motion-send: 0ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A sent prompt's pop: past its size and back (its start: conversation.css cv-send-pop). */
+  --cmux-motion-send-pop: 450ms;
+  --cmux-ease-send-pop: cubic-bezier(0.34, 1.3, 0.64, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;
+}
+/* Off or reduced motion keeps cmux's own durations and easings, whatever a look sets. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="reduced"],
+:root[data-cmux-motion="off"],
+:root[data-cmux-motion="reduced"] {
+  --cmux-motion-quick: 80ms;
+  --cmux-motion-micro: 120ms;
+  --cmux-motion-standard: 180ms;
+  --cmux-motion-large: 240ms;
+  --cmux-motion-settle: 180ms;
+  --cmux-motion-send: 0ms;
+  --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
+  --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* motion-scale:end */
 /* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a
@@ -939,11 +954,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
   --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
   --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
-  --grid-composer-radius: calc(22px * var(--cmux-interface-scale, 1)); /* Composer corner radius, concentric with its round controls: half a control plus the inset. */
+  --grid-composer-radius: calc(16px * var(--cmux-interface-scale, 1)); /* Composer corner radius, concentric with the + chip: its 8 corner plus the inset. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
   --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */
-  --grid-card-radius: calc(16px * var(--cmux-interface-scale, 1)); /* Corner of a card the composer's height with no round controls in it (the sidebar's Updated card): a third of the box on the base grid, never a capsule. */
   --grid-sidebar-highlight-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Highlight inset from the sidebar edge. */
   --grid-sidebar-lead: calc(16px * var(--cmux-interface-scale, 1)); /* Leading icon box left edge. */
   --grid-sidebar-text: calc(40px * var(--cmux-interface-scale, 1)); /* Compact text start. */

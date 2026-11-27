@@ -6,6 +6,7 @@
   width: min(480px, calc(100vw - 32px));
 }
 .share-dialog {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-3);
@@ -36,6 +37,9 @@
   color: var(--cmux-danger, var(--ui-fg-2));
   font-size: var(--text-detail);
 }
+.share-dialog__status[role="status"] {
+  color: var(--ui-fg-2);
+}
 .share-dialog__section {
   display: flex;
   flex-direction: column;
@@ -57,6 +61,11 @@
   padding: 0;
   overflow-y: auto;
   list-style: none;
+}
+/* A row keeps its height in the fixed band (the band scrolls); shrinking it to fit laid a second
+   line over the next row. */
+.share-dialog__person {
+  flex: none;
 }
 .share-dialog__person,
 .share-dialog__row {
@@ -139,6 +148,12 @@
   color: var(--ui-fg-2);
   font-size: var(--text-detail);
 }
+/* A person's hint stays one line, so every row in the band keeps one height. */
+.share-dialog__person .share-dialog__hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .share-dialog__fixed-role {
   color: var(--ui-fg-2);
   font-size: var(--text-detail);
@@ -169,4 +184,43 @@
 }
 .share-dialog__role > .ui-select-button {
   width: calc(3 * var(--ds-space-6));
+}
+.share-dialog__status[data-hint] {
+  color: var(--ui-fg-2);
+}
+
+.share-dialog__remove-mark {
+  display: none;
+}
+/* Narrow (a 280 px window): the field takes its own line above the role and Invite, a row drops its
+   face, and Remove is an x, so the address keeps the room. */
+@container (max-width: 360px) {
+  .share-dialog__add {
+    flex-wrap: wrap;
+  }
+  .share-dialog__field {
+    flex-basis: 100%;
+  }
+  .share-dialog__role {
+    flex: 1;
+  }
+  .share-dialog__person-pick > .cv-face,
+  .share-dialog__person--owner > .cv-face {
+    display: none;
+  }
+  .share-dialog__person,
+  .share-dialog__person-pick {
+    gap: var(--ds-space-1);
+  }
+  .share-dialog__remove {
+    flex: none;
+    width: var(--ds-control-primary);
+    padding-inline: 0;
+  }
+  .share-dialog__remove-mark {
+    display: inline-flex;
+  }
+  .share-dialog__remove-word {
+    display: none;
+  }
 }

@@ -22,7 +22,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "goal_set",
-            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). The chat keeps both outside your context, so they survive compaction, and the person sees the goal above the composer. On harnesses without a goal of their own, acpmux prompts you to keep going after every turn until you call goal_update with complete or blocked, or a budget runs out. A new goal_set replaces the last, and a new objective renames the chat after its task (its old name still reaches it). Refused in a Codex chat: use Codex's own /goal there.",
+            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). Both survive compaction, and the person sees the goal above the composer. Without a harness goal, acpmux prompts you to keep going after every turn until goal_update complete or blocked, or a budget runs out. A new goal_set replaces the last and renames the chat. Refused in Codex: use its /goal.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -36,7 +36,7 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "goal_update",
-            "description": "Report on this chat's goal. complete: done-when holds; say the evidence in note (\"bun test: 412 pass, 0 fail\"); acpmux stops prompting. blocked: you need the person (a decision, access, something only they can do); say what in note; acpmux stops prompting and the person sees it. running: going on again after blocked. Call complete only after checking done-when yourself, never on a guess.",
+            "description": "Report on this chat's goal. complete: done-when holds; say the evidence in note (\"bun test: 412 pass, 0 fail\"); acpmux stops prompting. blocked: you need the person (a decision, access, something only they can do); say what in note; acpmux stops prompting and the person sees it. running: going on again after blocked. running needs goal_set. Call complete only after checking done-when yourself.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -48,7 +48,7 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "goal_get",
-            "description": "Read this chat's goal: objective, doneWhen, status (lifecycle running, stalled, paused or done), budgets and what was spent, and how many continuation prompts went. Use it after a compaction or when a continuation prompt arrives and you need the done-when again. Null when the chat has no goal.",
+            "description": "Read this chat's goal: objective, doneWhen, status (lifecycle running, stalled, paused or done), budgets and what was spent, and how many continuation prompts went. Use it after a compaction to reread done-when. Null with no goal.",
             "inputSchema": {"type": "object", "properties": {}}
         }),
     ]
@@ -114,25 +114,5 @@ fn stop_reason(goal: &Value) -> &str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_tool_says_what_to_pass_and_the_result_reads_in_one_line() {
-        let tools = tools();
-        let names: Vec<&str> = tools.iter().filter_map(|t| t.get("name")?.as_str()).collect();
-        assert_eq!(names, TOOLS);
-        let set = tools.first().and_then(|t| t.pointer("/inputSchema/required"));
-        assert_eq!(set, Some(&json!(["objective", "doneWhen"])));
-
-        let goal = json!({"objective": "Ship it", "doneWhen": "CI green", "lifecycle": "running"});
-        assert_eq!(describe("goal_set", &goal), "Goal set: Ship it. Done when: CI green.");
-        assert_eq!(describe("goal_get", &goal), "Goal running: Ship it. Done when: CI green.");
-        let done = json!({"objective": "Ship it", "lifecycle": "done"});
-        assert_eq!(describe("goal_update", &done), "Goal complete: Ship it.");
-        let spent =
-            json!({"objective": "Ship it", "lifecycle": "stalled", "stopReason": "timeBudget"});
-        assert_eq!(describe("goal_get", &spent), "Goal stopped (time budget spent): Ship it.");
-        assert_eq!(describe("goal_get", &Value::Null), "This chat has no goal.");
-    }
-}
+#[path = "acpmux_mcp_goal_tests.rs"]
+mod tests;

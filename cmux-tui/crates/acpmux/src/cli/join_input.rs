@@ -146,33 +146,46 @@ pub(crate) fn validate_arguments(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{parse_line, validate_arguments};
-
-    #[test]
-    fn accepts_one_trimmed_line_only() {
-        assert_eq!(&*parse_line(b" cmj_abc \n").unwrap(), "cmj_abc");
-        assert_eq!(&*parse_line(b"cmxt1.ticket\r\n").unwrap(), "cmxt1.ticket");
-        assert_eq!(&*parse_line(b"cmxt1.ticket").unwrap(), "cmxt1.ticket");
-        assert!(parse_line(b"cmxt1.ticket\r").is_err());
-        assert!(parse_line(b"cmj_abc").is_err());
-        assert!(parse_line(b"cmj_abc\nsecond\n").is_err());
-        assert!(parse_line(b"\xff\n").is_err());
-    }
-    #[test]
-    fn cloud_token_in_argv_is_refused_with_every_flag_combination() {
-        for hub in [false, true] {
-            for replace in [false, true] {
-                for status in [false, true] {
-                    let error =
-                        validate_arguments(Some("cmj_secret"), hub, replace, status).unwrap_err();
-                    assert!(!error.to_string().contains("cmj_secret"));
-                }
-            }
-        }
-        assert!(validate_arguments(Some("cmxt1.legacy"), false, false, false).is_ok());
-        assert!(validate_arguments(Some("cmxt1.legacy"), true, false, false).is_err());
-        assert!(validate_arguments(None, true, true, false).is_ok());
-    }
+/// Refuses a join whose acpmux home is a symlink, before any token is redeemed. The store's
+/// private directory opens with O_NOFOLLOW, so a join there fails only after the lock with
+/// no cause; this names the real directory to use instead (`~/.acpmux` linked to a supervised
+/// daemon's home, whose daemon runs with `ACPMUX_HOME` set to the target).
+pub(crate) fn refuse_symlinked_home() -> Result<()> {
+    refuse_symlinked_home_at(&crate::config::home())
 }
+
+fn refuse_symlinked_home_at(home: &std::path::Path) -> Result<()> {
+    let is_link = std::fs::symlink_metadata(home).is_ok_and(|meta| meta.file_type().is_symlink());
+    if !is_link {
+        return Ok(());
+    }
+    let message = match std::fs::read_link(home) {
+        Ok(target) => {
+            let target = match home.parent() {
+                Some(parent) if target.is_relative() => parent.join(target),
+                _ => target,
+            };
+            format!(
+                "acpmux home {} is a symlink to {}; nothing was redeemed. Rerun with ACPMUX_HOME={} acpmux machine join",
+                home.display(),
+                target.display(),
+                target.display()
+            )
+        }
+        Err(_) => format!(
+            "acpmux home {} is a symlink; nothing was redeemed. Rerun with ACPMUX_HOME set to the directory it points to",
+            home.display()
+        ),
+    };
+    Err(crate::cli::errors::AppError::new(
+        crate::cli::errors::Code::Runtime,
+        "join.home_symlink",
+        message,
+    )
+    .with_exit(5)
+    .into())
+}
+
+#[cfg(test)]
+#[path = "join_input_tests.rs"]
+mod tests;

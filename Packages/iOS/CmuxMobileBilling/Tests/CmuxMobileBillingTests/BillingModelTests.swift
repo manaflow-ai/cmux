@@ -373,6 +373,18 @@ struct BillingRig {
         #expect(rig.model.offersFailure == .productUnavailable)
     }
 
+    @Test func emptyStoreReloadKeepsEarlierOffers() async throws {
+        let rig = await BillingRig()
+        await rig.model.refresh()
+        let earlier = rig.model.offers.map(\.product.id)
+        #expect(!earlier.isEmpty)
+        await rig.store.configure(products: [])
+        await rig.model.refresh()
+
+        #expect(rig.model.offers.map(\.product.id) == earlier)
+        #expect(rig.model.offersFailure == nil)
+    }
+
     @Test func signOutClearsAccountState() async throws {
         let rig = await BillingRig()
         await rig.model.refresh()
@@ -495,6 +507,84 @@ struct BillingRig {
         #expect(outcomes.allSatisfy { if case .accepted = $0 { true } else { false } })
         #expect(await store.finished == [61])
     }
+
+    /// StoreKit re-delivers a changed copy of a transaction under the same id
+    /// (an upgrade marks the old Pro transaction upgraded). Arriving while the
+    /// older copy posts, it is posted after that post, not dropped into it.
+    @Test func changedCopyArrivingDuringAPostIsPostedAfterIt() async throws {
+        let log = EffectLog()
+        let api = FakeBillingAPI(log: log, account: BillingFixtures.account())
+        let store = FakeStoreKitClient(log: log)
+        let deliverer = BillingTransactionDeliverer(api: api, store: store)
+        let original = BillingFixtures.transaction(71)
+        let upgraded = StoreTransaction(
+            id: original.id,
+            productID: original.productID,
+            jwsRepresentation: "jws-71-upgraded",
+            appAccountToken: original.appAccountToken
+        )
+        await api.holdSubmissions()
+
+        // A failed wait releases the held post first, so a broken deliverer
+        // fails the test instead of hanging it on the unreleased post.
+        async let first = deliverer.deliver(original)
+        try await until { await api.heldCount == 1 } onTimeout: { await api.releaseSubmissions() }
+        async let second = deliverer.deliver(upgraded)
+        try await until { await deliverer.changedCopiesWaiting == 1 } onTimeout: { await api.releaseSubmissions() }
+        #expect(await api.submitted == ["jws-71"], "the changed copy waits for the older post")
+        await api.releaseSubmissions()
+        let outcomes = await [first, second]
+
+        #expect(outcomes.allSatisfy { if case .accepted = $0 { true } else { false } })
+        #expect(await log.entries == ["submit:jws-71", "finish:71", "submit:jws-71-upgraded", "finish:71"])
+    }
+
+    /// Identical copies still share one post while a changed copy waits.
+    @Test func identicalCopiesShareThePostAChangedCopyWaitsFor() async throws {
+        let log = EffectLog()
+        let api = FakeBillingAPI(log: log, account: BillingFixtures.account())
+        let store = FakeStoreKitClient(log: log)
+        let deliverer = BillingTransactionDeliverer(api: api, store: store)
+        let original = BillingFixtures.transaction(72)
+        let refunded = StoreTransaction(
+            id: original.id,
+            productID: original.productID,
+            jwsRepresentation: "jws-72-refunded",
+            appAccountToken: original.appAccountToken
+        )
+        await api.holdSubmissions()
+
+        async let first = deliverer.deliver(original)
+        try await until { await api.heldCount == 1 } onTimeout: { await api.releaseSubmissions() }
+        async let changedA = deliverer.deliver(refunded)
+        async let changedB = deliverer.deliver(refunded)
+        try await until { await deliverer.changedCopiesWaiting == 2 } onTimeout: { await api.releaseSubmissions() }
+        await api.releaseSubmissions()
+        _ = await [first, changedA, changedB]
+
+        #expect(await api.submitted == ["jws-72", "jws-72-refunded"])
+    }
+}
+
+/// Re-checks an actor-isolated condition between yields until it holds; a
+/// generous deadline only bounds a broken deliverer, it is not a delay.
+/// `onTimeout` runs before the throw, so a test can release work its pending
+/// `async let`s wait on (scope exit awaits them).
+private func until(
+    timeout: Duration = .seconds(10),
+    _ condition: @Sendable () async -> Bool,
+    onTimeout: @Sendable () async -> Void = {}
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while await !condition() {
+        guard clock.now < deadline else {
+            Issue.record("condition did not hold within \(timeout)")
+            await onTimeout()
+            throw CancellationError()
+        }
+        await Task.yield()
+    }
 }
 
 /// Polls on the main actor until `condition` holds or a generous deadline
@@ -506,5 +596,64 @@ func settle(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool
     let deadline = clock.now.advanced(by: timeout)
     while !condition(), clock.now < deadline {
         await Task.yield()
+    }
+}
+
+/// New-user journeys, 2026-11-23: a failed web renewal showed only on the web
+/// dashboard. The model reads `paymentPastDue` with the account, for a plan
+/// billed on the web only.
+@MainActor
+@Suite struct BillingModelPaymentPastDueTests {
+    static let webPro = BillingFixtures.account(eligible: false, reason: .stripeSubscriptionActive, plan: .pro, source: .stripe, products: [])
+
+    @Test func aFailedWebRenewalIsReadWithTheAccount() async {
+        let rig = await BillingRig(account: Self.webPro)
+        await rig.api.setPastDue(.success(true))
+
+        await rig.model.refresh()
+
+        #expect(rig.model.paymentPastDue)
+        #expect(await rig.api.pastDueReads == 1)
+    }
+
+    @Test func aPaidRenewalOrAFailedReadShowsNothing() async {
+        let rig = await BillingRig(account: Self.webPro)
+        await rig.api.setPastDue(.success(true))
+        await rig.model.refresh()
+        #expect(rig.model.paymentPastDue)
+
+        await rig.api.setPastDue(.success(false))
+        await rig.model.refresh()
+        #expect(!rig.model.paymentPastDue)
+
+        await rig.api.setPastDue(.failure(.transport))
+        await rig.model.refresh()
+        #expect(!rig.model.paymentPastDue)
+    }
+
+    @Test func aPlanNotBilledOnTheWebMakesNoRead() async {
+        for account in [
+            BillingFixtures.account(),
+            BillingFixtures.account(plan: .pro, source: .apple),
+        ] {
+            let rig = await BillingRig(account: account)
+            await rig.api.setPastDue(.success(true))
+
+            await rig.model.refresh()
+
+            #expect(!rig.model.paymentPastDue)
+            #expect(await rig.api.pastDueReads == 0)
+        }
+    }
+
+    @Test func signOutClearsTheNotice() async {
+        let rig = await BillingRig(account: Self.webPro)
+        await rig.api.setPastDue(.success(true))
+        await rig.model.refresh()
+        #expect(rig.model.paymentPastDue)
+
+        rig.model.resetForSignOut()
+
+        #expect(!rig.model.paymentPastDue)
     }
 }

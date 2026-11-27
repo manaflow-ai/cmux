@@ -43,7 +43,9 @@ async fn fetch(url: &str) -> Result<(&'static str, Vec<u8>)> {
     } else {
         parsed.join("/favicon.ico").context("the site's favicon URL")?
     };
-    let client = reqwest::Client::builder()
+    // The person passed this icon URL on the command line.
+    cmux_egress::allow_named(target.as_str());
+    let client = crate::happy_dial::http_client()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("acpmux-icon")
         .build()?;
@@ -56,6 +58,11 @@ async fn fetch(url: &str) -> Result<(&'static str, Vec<u8>)> {
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(|v| v.split(';').next().unwrap_or_default().trim().to_ascii_lowercase());
+    if let Some(length) = reply.content_length().filter(|n| *n as usize > MAX_IMAGE_BYTES) {
+        bail!(
+            "{target} is {length} bytes; an icon is at most {MAX_IMAGE_BYTES}: give a smaller image URL"
+        );
+    }
     let bytes = reply.bytes().await?.to_vec();
     if bytes.len() > MAX_IMAGE_BYTES {
         bail!(

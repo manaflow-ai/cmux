@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after, even when CI also runs it.",
   "paths": {
+    "ios-terminal-native-key": {
+      "what": "one key the iPhone software keyboard types into the terminal (TerminalSurfaceView.insertText): the input router, Ghostty's text input, and the keyboard's text-change announce only where its context needs it",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --key KEY --arg test --arg ui=TerminalTypingWhileStreamingUITests --artifact artifacts/ios-sim/evidence.zip (TYPING_BENCH: keyMainP50ms/P95ms per phase, focused and unfocused)",
+      "owner": "cmux-next iOS"
+    },
     "chat-rows-frame-apply": {
       "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
       "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
@@ -13,7 +18,7 @@
     },
     "local-pty-output": {
       "what": "one PTY read of a terminal the daemon runs in-process (--ephemeral, Windows fallback; surface/spawn.rs reader): the read, the bytes already waiting read into the same buffer, one parse",
-      "bench": "cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
+      "bench": "cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
       "owner": "terminal host"
     },
     "chats-window-query": {
@@ -156,6 +161,11 @@
       "bench": "cd webviews && PAIRED=1 CLOCK=cpu bun bench/transcript-replay.bench.ts --only long (god/small p95 ratio of token and thought), and FIXTURE=god PROFILE=1 for the steps that grow with rows",
       "owner": "agent chat (CMUX-571)"
     },
+    "composer-typing": {
+      "what": "one printable key in the agent chat composer (Composer.tsx edit and draftView): the draft and caret go to the prompt store and the composer renders only when what it draws of the draft changed (empty or not, a steer-blocking command, a recalled prompt, a dismissed menu, the @ and : words)",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 60,1500 --keys 60 (renders per key: composer, composer:box, composer:queue; to_work_p95, script_ms; --engine webkit on a Mac)",
+      "owner": "agent chat composer"
+    },
     "composer-draft-typing": {
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
@@ -201,10 +211,30 @@
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
     },
+    "phone-mirror-change": {
+      "what": "one owner frame on the phone's stream mirror (cmux-mobile-ffi ownership.rs OwnershipMirror::mutate): decode, apply, and the listener's view with only the rows the frame wrote, under the iOS workspace, tab and conversation lists",
+      "bench": "cd cmux-tui && cargo test -p cmux-mobile-ffi --test list_stress -- --nocapture --test-threads=1 (10/500/5000 workspaces, 100/100k messages: p50/p95 per change; fails when the scale p95 passes 3x the 1x p95)",
+      "owner": "object-sync"
+    },
+    "live-wallpaper-frame": {
+      "what": "one live wallpaper frame on the main thread (CmuxNextDesign BackdropLiveView tick and drawFrame, LiveWallpaperFrame.packed): ask the Rust scheduler, step the pointer, pack the 144-byte Frame uniform and hand it to the render queue; no wait, no drawable on main",
+      "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each for a picture, each live wallpaper, idle, occluded, minimized and Low Power)",
+      "owner": "design"
+    },
+    "scene-evaluate": {
+      "what": "one motion scene evaluate on the main thread (CmuxNextDesign BackdropLiveView evaluateScene, LiveWallpaperScenePlayer.evaluate): step the scene's physics to now with the pointer and button, then pack the 2048-byte Scene block in Rust (cmux_wallpaper_scene_evaluate)",
+      "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac with a scene wallpaper selected (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each), plus cargo test -p cmux-wallpaper scene for the Rust evaluate alone",
+      "owner": "design"
+    },
     "feed-mirror-commit": {
       "what": "one commit of the feed client's mirror (client/mirror.rs commit: every owner event, intent and frame tick): recompute the touched ids, wake due snoozes (ledger.rs woken), keep the badge counts",
       "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (N | p50 | p95 at 1k, 10k and 100k items with a snooze backlog; fails when the 100k p95 passes 3x the 1k p95, or a hook of the 1k/s storm passes 100 us p95)",
       "owner": "feed"
+    },
+    "transcript-scroll-frame": {
+      "what": "one display frame of a transcript scroll (webviews acpmux/VirtualTranscript.tsx scrollDrawsAt): the scroll pacer's frame works out what the offset draws (mounted rows, view, Jump to latest, soft edges) in a few layout searches and renders the transcript only when that changed",
+      "bench": "cd webviews && bun bench/transcript-scroll-frame.bench.ts [rows=3000] (frame intervals and vt.renders per frame, fling and wheel)",
+      "owner": "agent chat"
     }
   }
 }

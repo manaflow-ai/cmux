@@ -140,8 +140,9 @@ export function claimedReply(prompt: string): string | undefined {
 /// An answer from a card, by the card's key: the copy in the transcript and the pinned copy are the
 /// same question, so a click on one answers both, and a failure shows on both. `sending` is the
 /// answer's label while it goes, `sent` once it went (it may wait in the queue behind a running
-/// turn, where no prompt row settles the card yet); `failed` that the last one did not.
-export type AnswerState = { sending?: string; sent?: string; failed?: boolean };
+/// turn, where no prompt row settles the card yet); `failed` that the last one did not, and `typed`
+/// the words of a typed answer that failed, which a copy that left while it went gets back.
+export type AnswerState = { sending?: string; sent?: string; failed?: boolean; typed?: string };
 const answerStates = new Map<string, AnswerState>();
 const listeners = new Set<() => void>();
 const IDLE: AnswerState = {};

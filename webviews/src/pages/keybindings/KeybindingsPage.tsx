@@ -7,6 +7,7 @@ import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import {
   canEditWhen,
   displayStrokes,
@@ -77,9 +78,7 @@ function Keycaps({ display }: { display: string }) {
     <span className="keys-caps">
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
-        <kbd key={index} className="keys-cap">
-          {keycapLegend(stroke)}
-        </kbd>
+        <KeyHint key={index} keys={stroke} />
       ))}
     </span>
   );
@@ -139,7 +138,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
               aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
               value={snap.text}
-              disabled={disconnected}
+              // Search and Conflicts Only filter the list on screen: live while the link comes back (Leo, 2026-11-24 11:57Z).
               // While it records the app takes every key, and the field takes no text of its own; it
               // stays editable so its clear button (the native one) clears the recorded keys.
               onBeforeInput={searchRecording ? (event) => event.preventDefault() : undefined}
@@ -176,7 +175,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className={`keys-toggle keys-conflicts-only${snap.conflictsOnly ? " on" : ""}`}
             aria-pressed={snap.conflictsOnly}
-            disabled={disconnected}
             onClick={() => store.setConflictsOnly(!snap.conflictsOnly)}
           >
             {t("keybindings.page.conflictsOnly")}
@@ -330,9 +328,7 @@ function withKeys(text: string, keys: readonly string[]) {
       part
     ) : (
       // oxlint-disable-next-line react/no-array-index-key
-      <kbd key={index} className="keys-recorder-hint-cap">
-        {part.cap}
-      </kbd>
+      <KeyHint key={index} keys={part.cap} />
     ),
   );
 }
@@ -459,6 +455,7 @@ function Recorder({
             // oxlint-disable-next-line react/no-array-index-key
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
+                // key-hint-allow: the recorder's large caps are the keys being pressed live (each pops in as it goes down), an input display, not a shortcut hint.
                 <kbd key={cap} className="keys-recorder-cap">
                   {keycapLegend(cap)}
                 </kbd>

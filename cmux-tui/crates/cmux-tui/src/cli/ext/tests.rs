@@ -30,6 +30,7 @@ pub(super) fn dev_options(dir: &Path) -> DevOptions {
         build: None,
         build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
+        headless: false,
         every_size: false,
     }
 }
@@ -137,6 +138,7 @@ fn capabilities_parse_and_print_the_manifest_rows() {
     let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
     assert!(fetch.contains("refused when sandboxed"), "{fetch}");
     assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    assert!(all.contains("cmux customize docs") && all.contains("cmux customize prompts"), "{all}");
     let never = table.never().next().unwrap();
     let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
     assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
@@ -186,15 +188,25 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
     let entry = dev::write_packer(packer.path()).unwrap();
     let index = std::fs::read_to_string(&entry).unwrap();
     assert!(index.contains("export function section("), "the SDK's own source");
-    let relative: Vec<&str> = index
-        .lines()
-        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
-        .filter(|p| p.starts_with('.'))
-        .collect();
-    assert!(!relative.is_empty(), "the SDK imports its tables");
-    for path in relative {
-        let file = entry.parent().unwrap().join(path);
-        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    // Check imports in every runtime module, including transitive imports and re-exports.
+    for (path, source) in scaffold::runtime_sdk_files() {
+        if !path.ends_with(".ts") {
+            continue;
+        }
+        let parent = packer.path().join(path);
+        let parent = parent.parent().unwrap();
+        for line in source.lines().map(str::trim_start) {
+            if !(line.starts_with("import ") || line.starts_with("export ")) {
+                continue;
+            }
+            let specifier = line.split_once(" from ").map_or(&line[7..], |(_, from)| from);
+            if let Some(quote @ ('"' | '\'')) = specifier.chars().next()
+                && let Some((import, _)) = specifier[1..].split_once(quote)
+                && import.starts_with('.')
+            {
+                assert!(parent.join(import).is_file(), "{path} imports missing {import}");
+            }
+        }
     }
     // `cmux-extension-sdk/customize`, written from this build's schema.
     let types = entry.parent().unwrap().join("generated/customize.ts");
@@ -567,11 +579,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
@@ -590,8 +603,14 @@ fn serve(
                             .unwrap_or_default();
                     let interface = request["interface"].as_str().unwrap_or("");
                     let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
+                    // `surface: "widget"`, which gives its ctx the host-owned now() clock.
+                    let mut context = request["context"].clone();
+                    if interface == "cmux.widget/1" && context.is_object() {
+                        context["surface"] = json!("widget");
+                    }
                     out.push(
-                        match host_scene(app, &script, export, &request["context"]) {
+                        match super::headless::host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
@@ -672,51 +691,6 @@ fn serve(
             }
         }
     }
-}
-
-/// What the real app host renders when `export` of the script `main` mounts:
-/// QuickJS runs it as the daemon's host does, every call it makes is answered
-/// with no value, and the scene's op batches are returned in order (or the
-/// init or mount failure).
-fn host_scene(app: &str, main: &str, export: &str, context: &Value) -> Result<Value, String> {
-    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
-    let mut vm = AppVm::new(Limits::default())?;
-    vm.init(InitParams {
-        app: AppInfo { id: app.into(), version: "0.1.0".into() },
-        settings: json!({}),
-        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
-        ops: None,
-        known_ops: None,
-        locale: None,
-        strings: Value::Null,
-        main: main.into(),
-        main_name: Some("dist/main.js".into()),
-    })
-    .map_err(|e| format!("init: {e:?}"))?;
-    if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
-        return Err(refused);
-    }
-    let mut ops = Vec::new();
-    for _ in 0..32 {
-        let outbox = vm.take_outbox();
-        if outbox.is_empty() {
-            break;
-        }
-        for message in outbox {
-            match message {
-                FromHost::Scene { ops: batch, .. } => {
-                    ops.extend(batch.as_array().cloned().unwrap_or_default());
-                }
-                FromHost::Call { cb, .. } => {
-                    vm.resolve(cb, true, &json!({ "value": null }))
-                        .map_err(|e| format!("{e:?}"))?;
-                }
-                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
-                _ => {}
-            }
-        }
-    }
-    Ok(Value::Array(ops))
 }
 
 #[test]
@@ -1103,7 +1077,7 @@ fn a_record_that_cannot_be_written_fails_the_shot() {
     assert_eq!(json["exitCode"], exit::RECORD_FAILED);
     assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
     // Nothing drawn to record is a failed record too, not a quiet success.
-    let mut nothing = outcome.clone();
+    let mut nothing = outcome;
     nothing.recorded.clear();
     let recorded = shot::record(&dir, &nothing);
     assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
@@ -1210,8 +1184,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),

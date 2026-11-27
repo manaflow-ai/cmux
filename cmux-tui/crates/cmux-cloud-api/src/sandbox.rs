@@ -19,8 +19,8 @@
 //! every change. A daemon that starts again reads it: a Run that was still going ends `failed`
 //! ("the cmux daemon restarted during the Run") and its cleanup goes on. The task text is never
 //! written there. A Run's reply and error are (a wait after a restart still answers them). An
-//! incognito send never starts a Run here: a Run is an ordinary Cloud chat in the app, so classic
-//! Cloud runs it with no chat ([`crate::classic_runs`]), and an incognito create is refused. A
+//! incognito send never starts a Run here: a Run is an ordinary Cloud chat in the app, which would
+//! show its prompt and reply outside the incognito window, so an incognito create is refused. A
 //! store from a build that took them keeps leaving their reply and error out (`incognito`).
 //!
 //! Stop conditions: a Run's thread ends when its cleanup is done or given up; a wait ends at its
@@ -478,9 +478,8 @@ impl Engine {
     /// The account a create runs under: the app's signed-in one (`steps.scope()`), and only when it
     /// is still the one the send was made under (`expectedAccount`: `user_id`, `team_id`, which
     /// every create names). A send whose app switched since starts nothing, and a create that
-    /// names none is refused. An incognito send's create, which classic Cloud runs
-    /// ([`crate::classic_runs`]), passes this same check first.
-    pub fn check_account(&self, args: &Map<String, Value>) -> Result<String, Failure> {
+    /// names none is refused.
+    fn check_account(&self, args: &Map<String, Value>) -> Result<String, Failure> {
         let Some(account) = self.steps.scope() else {
             return Err(not_signed_in());
         };
@@ -506,8 +505,7 @@ impl Engine {
 
     fn create(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
         // A Run here is an ordinary Cloud chat the app opens and keeps: an incognito send's prompt
-        // and reply would show outside its window. Classic Cloud runs those with no chat
-        // ([`crate::classic_runs`]); one that reaches the engine is refused, never started.
+        // and reply would show outside its window, so it is refused, never started.
         if args.get("incognito").and_then(Value::as_bool) == Some(true) {
             return Err(refused(
                 409,

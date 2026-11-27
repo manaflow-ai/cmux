@@ -17,7 +17,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         return (settings, home)
     }
@@ -28,6 +28,7 @@ import Testing
         #expect(settings.deniedApps == ComputerUseSettings.defaultDeniedApps)
         #expect(settings.allowOwnMachines && settings.pauseOnTakeover && settings.showCursor && settings.livePreview)
         #expect(!settings.allowForeground)
+        #expect(!settings.floatingPreview)
         let row = SettingsSchema.descriptor(for: ComputerUseSettings.modePath)
         #expect(row?.defaultValue == .string("fullAccess"))
     }
@@ -47,20 +48,74 @@ import Testing
     }
 
     /// The Swift copy of the deny list is the engine's, entry for entry and in order.
-    @Test func theDefaultDenyListMatchesTheEngine() throws {
+    /// The quoted entries of `fn` in the engine's `policy.rs`, in order.
+    private func engineList(_ fn: String) throws -> [String] {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: root.appending(path: "cmux-tui/crates/cmux-computer-use/src/policy.rs"), encoding: .utf8)
-        let start = try #require(source.range(of: "pub fn default_denied_apps()"))
+        let start = try #require(source.range(of: "pub fn \(fn)()"))
         let end = try #require(source.range(of: "\n}\n", range: start.upperBound..<source.endIndex))
         let body = source[start.upperBound..<end.lowerBound]
-        let engine = body.split(separator: "\n").compactMap { line -> String? in
+        return body.split(separator: "\n").compactMap { line -> String? in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard trimmed.hasPrefix("\""), let close = trimmed.dropFirst().firstIndex(of: "\"") else { return nil }
             return String(trimmed[trimmed.index(after: trimmed.startIndex)..<close])
         }
+    }
+
+    @Test func theDefaultDenyListMatchesTheEngine() throws {
+        let engine = try engineList("default_denied_apps")
         #expect(!engine.isEmpty)
         #expect(ComputerUseSettings.defaultDeniedApps == engine)
+        let retired = try engineList("retired_default_denied_apps")
+        #expect(ComputerUseSettings.retiredDefaultDeniedApps == retired)
+    }
+
+    /// Leo, 2026-11-22, on "Computer Use isn't allowed to act there.": "why not. it should be able
+    /// to". Agents act in cmux and in terminals by default; password managers and System Settings
+    /// stay denied.
+    @Test func agentsMayActInCmuxAndTerminalsByDefault() {
+        let denied = ComputerUseSettings.defaultDeniedApps
+        for id in ComputerUseSettings.retiredDefaultDeniedApps { #expect(!denied.contains(id), "\(id) is still denied by default") }
+        for id in ["com.apple.systempreferences", "com.1password.*", "com.apple.keychainaccess", "com.bitwarden.*"] {
+            #expect(denied.contains(id), "\(id) is no longer denied by default")
+        }
+    }
+
+    /// An install whose file stores a copy of the earlier default (any edit of the list stored all of
+    /// it) gets today's at launch, keeping the person's own entries; a list the person shaped, or no
+    /// stored list, is left as it is.
+    @Test func aStoredCopyOfTheEarlierDefaultGetsTheNewOneAndKeepsThePersonsEntries() async throws {
+        func json(_ list: [String]) throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: ["computerUse": ["deniedApps": list]])
+            return String(decoding: data, as: UTF8.self)
+        }
+        let earlier = ComputerUseSettings.defaultDeniedApps + ComputerUseSettings.retiredDefaultDeniedApps
+
+        // A copy of the earlier default, plus one entry the person added.
+        let (added, home1) = try controller(json(earlier + ["com.example.mine"]))
+        defer { try? FileManager.default.removeItem(at: home1) }
+        await added.reload()
+        #expect(try await added.migrateComputerUseDeniedApps())
+        #expect(added.snapshot.computerUse.deniedApps == ComputerUseSettings.defaultDeniedApps + ["com.example.mine"])
+        #expect(!(try await added.migrateComputerUseDeniedApps()), "a second launch changes nothing")
+
+        // An unedited copy is removed, so the key follows the default again.
+        let (plain, home2) = try controller(json(earlier))
+        defer { try? FileManager.default.removeItem(at: home2) }
+        await plain.reload()
+        #expect(try await plain.migrateComputerUseDeniedApps())
+        #expect(plain.snapshot.computerUse.deniedApps == ComputerUseSettings.defaultDeniedApps)
+        let stored = try JSONSerialization.jsonObject(with: Data(contentsOf: home2.appending(path: "cmux-next.json"))) as? [String: Any]
+        #expect((stored?["computerUse"] as? [String: Any])?["deniedApps"] == nil)
+
+        // A list the person shaped (they removed Ghostty and kept Terminal) stays exactly as it is.
+        let shaped = earlier.filter { $0 != "com.mitchellh.ghostty" }
+        let (kept, home3) = try controller(json(shaped))
+        defer { try? FileManager.default.removeItem(at: home3) }
+        await kept.reload()
+        #expect(!(try await kept.migrateComputerUseDeniedApps()))
+        #expect(kept.snapshot.computerUse.deniedApps == shaped)
     }
 
     @Test(arguments: ComputerUseMode.allCases)
@@ -120,7 +175,7 @@ import Testing
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
                                          "computerUse.cursorTag", "computerUse.settle", "computerUse.livePreview",
-                                         "computerUse.menus"])
+                                         "computerUse.floatingPreview", "computerUse.menus"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
@@ -142,7 +197,7 @@ import Testing
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
         #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
-                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview"])
+                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview", "whileLocked"])
         #expect(object["cursorTag"] as? String == "hover")
         #expect(object["settle"] as? String == "openai")
         #expect(object["mode"] as? String == "approvedApps")
@@ -151,6 +206,19 @@ import Testing
         #expect(object["cloudVm"] as? Bool == false)
         #expect(object["menus"] as? String == "open")
         #expect(object["livePreview"] as? Bool == true)
+        #expect(object["whileLocked"] as? Bool == false)
+    }
+
+    /// `computerUse.whileLocked` (off by default) reaches the engine (locked.rs) as `whileLocked`.
+    /// The app's push replaces the policy the daemon read from cmux.json, so before this key was in
+    /// the push, turning it on in the file changed nothing on a Mac.
+    @Test func whileLockedIsOffByDefaultAndReachesTheEngine() throws {
+        #expect(computerUse(.object([:])).whileLocked == false)
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.whileLockedPath)?.defaultValue == .bool(false))
+        let on = computerUse(.object(["computerUse": .object(["whileLocked": .bool(true)])]))
+        #expect(on.whileLocked)
+        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
+        #expect(object["whileLocked"] as? Bool == true)
     }
 
     /// `computerUse.livePreview` reaches the engine (preview.rs): off, the worker streams no window
@@ -159,6 +227,16 @@ import Testing
         let off = computerUse(.object(["computerUse": .object(["livePreview": .bool(false)])]))
         let object = try #require(try JSONSerialization.jsonObject(with: off.policyConfigJSON()) as? [String: Any])
         #expect(object["livePreview"] as? Bool == false)
+    }
+
+    /// `computerUse.floatingPreview` (prototype) is off by default and reads a boolean; it is the
+    /// App's panel only, so the engine's policy does not carry it.
+    @Test func floatingPreviewIsOffByDefaultAndReadsABool() throws {
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.floatingPreviewPath)?.defaultValue == .bool(false))
+        let on = computerUse(.object(["computerUse": .object(["floatingPreview": .bool(true)])]))
+        #expect(on.floatingPreview)
+        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
+        #expect(object["floatingPreview"] == nil)
     }
 
     /// `computerUse.menus` reads `open` or `refuse` (default `open`); another value keeps the default

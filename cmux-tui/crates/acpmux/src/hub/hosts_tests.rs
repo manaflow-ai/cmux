@@ -768,6 +768,57 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
     }
 }
 
+/// A checkpoint saved with no host running (a daemon's load of the log) is resumed by the
+/// adoption of a host whose start the log holds after it, as a fold of the whole log reads it,
+/// and never by a host that started at or before it.
+#[tokio::test]
+async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    let mut resumed = 0;
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            hub.save_checkpoint_now(&session, journal::UNSTARTED);
+            let Some(bytes) = hub.store.adoption_checkpoint("chat0") else {
+                hub.shutdown_all().await;
+                let _ = std::fs::remove_dir_all(&root);
+                continue;
+            };
+            let point: checkpoint::Checkpoint = serde_json::from_slice(&bytes).unwrap();
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for (incarnation, whole) in incarnations.iter().zip(&whole) {
+                hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                let inputs = hub.fold_inputs(&session);
+                let started_after = log.records.iter().any(|r| {
+                    r.kind == "host_started"
+                        && r.seq > point.seq
+                        && r.msg["incarnation"].as_str() == Some(incarnation)
+                });
+                let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
+                assert_eq!(used, started_after, "log {n} split {split} {incarnation}");
+                resumed += usize::from(used);
+                let state = adoption_state(&hub, &session, incarnation);
+                assert_eq!(&state, whole, "log {n} split {split} {incarnation}");
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(resumed > 0, "no adoption resumed a checkpoint saved with no host");
+}
+
 /// A new hub must use the durable checkpoint, and changing the log must invalidate it even
 /// when its final record keeps the same sequence, timestamp and kind.
 #[tokio::test]
@@ -887,4 +938,68 @@ async fn adoption_reads_back_the_phone_that_drove_the_turn() {
     assert_eq!(work.last_device.as_deref(), Some("dev-ipad"));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `last_host_seq_parsed` reads back from the log's end; it answers what the fold from the start
+/// did (the largest `hostSeq` under the last `host_started` of the incarnation), for logs whose
+/// hosts start, restart and hand over in every order.
+#[tokio::test]
+async fn the_parsed_host_seq_read_from_the_end_is_the_fold_from_the_start() {
+    fn forward(records: &[EventRecord], incarnation: &str) -> u64 {
+        let (mut last, mut current) = (0, false);
+        for e in records {
+            if e.dir == "mux" && e.kind == "host_started" {
+                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                if current {
+                    last = 0;
+                }
+            } else if current
+                && (e.kind != "permission_withdrawn"
+                    || e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation))
+                && let Some(h) = e.host_seq
+            {
+                last = last.max(h);
+            }
+        }
+        last
+    }
+    // Each plan names the hosts started in order; each host logs `n` updates.
+    let plans: &[&[(&str, u64)]] = &[
+        &[],
+        &[("inc", 3)],
+        &[("old", 4)],
+        &[("inc", 3), ("old", 5)],
+        &[("old", 5), ("inc", 2)],
+        &[("inc", 6), ("old", 2), ("inc", 1)],
+        &[("inc", 2), ("inc", 4), ("old", 3)],
+        &[("old", 1), ("inc", 0), ("old", 7)],
+    ];
+    for plan in plans {
+        let mut log = Log { records: Vec::new(), host_seq: 0 };
+        // Records before any host start count for none.
+        log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+        for (incarnation, updates) in plan.iter() {
+            log.push("mux", "host_started", json!({"incarnation": incarnation}), false);
+            for _ in 0..*updates {
+                log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+            }
+            // A withdrawal deferred from the other host carries a later `hostSeq`.
+            let other = if *incarnation == "inc" { "old" } else { "inc" };
+            log.push("mux", "permission_withdrawn", json!({"incarnation": other}), false);
+            if let Some(marker) = log.records.last_mut() {
+                marker.host_seq = Some(10_000);
+            }
+        }
+        let (hub, root) = hub_with(1, &log).await;
+        let session = hub.resolve("chat0").unwrap();
+        for incarnation in ["inc", "old", "none"] {
+            assert_eq!(
+                hub.last_host_seq_parsed(&session, incarnation),
+                forward(&log.records, incarnation),
+                "plan {plan:?}, incarnation {incarnation}"
+            );
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

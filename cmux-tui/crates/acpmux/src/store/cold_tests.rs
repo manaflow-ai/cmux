@@ -702,8 +702,10 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert_eq!(Store::offload_cold(&store, "c").unwrap(), None);
         let stats = archive(&store, "c");
         let freed = Store::offload_cold(&store, "c").unwrap().expect("offloaded");
-        assert_eq!(freed, stats.bytes_after);
         let dir = store.dir("c");
+        let copy = std::fs::metadata(dir.join(SEARCH_COPY)).expect("a search copy stays").len();
+        assert!(copy > 0 && copy < stats.bytes_after, "{copy} of {}", stats.bytes_after);
+        assert_eq!(freed, stats.bytes_after - copy);
         assert!(!dir.join(COLD_FILE).exists());
         assert!(dir.join(CLOUD_STUB).exists());
         assert!(store.is_cold("c"));
@@ -721,7 +723,7 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         let tree = std::fs::read_to_string(blobs.join(&tree[..2]).join(&tree)).unwrap();
         assert_eq!(tree, format!("cmux-sync-tree 1\n{blob}\n"));
 
-        // Search skips an offloaded chat: no fetch, no hits, still offloaded.
+        // Search reads an offloaded chat's local search copy: hits, no fetch, still offloaded.
         let query =
             crate::session_search::Query::from_params(&json!({"query": "flaky test"})).unwrap();
         let hits = crate::session_search::search_messages(
@@ -731,18 +733,49 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
             crate::session_search::TextView::Conversation,
         )
         .unwrap();
-        assert!(hits.hits.is_empty());
+        assert!(!hits.hits.is_empty(), "an offloaded chat stays findable");
+        assert!(hits.hits.iter().all(|hit| hit.snippet.contains("flaky test")));
         assert!(!dir.join(COLD_FILE).exists());
         assert!(store.is_cold("c"));
 
+        assert!(store.open_packed_cold_tail("c").unwrap().is_none());
         // The first read fetches and thaws it, byte for byte; the stub goes.
         assert_eq!(Store::events(&store, "c", 0, usize::MAX).unwrap(), records);
         assert_eq!(hashes(&store, "c"), before);
         assert!(!dir.join(COLD_FILE).exists());
         assert!(!dir.join(CLOUD_STUB).exists());
+        assert!(!dir.join(SEARCH_COPY).exists(), "the thaw drops the search copy");
         assert!(!store.is_cold("c"));
         // Fetched back, it leaves the root: the store may collect its blob.
         assert_eq!(Store::register_cloud_root(&store).unwrap(), Some(0));
+
+        // The packed writer is explicit. Its first screen and the later full thaw
+        // use the same revision, preserving segment boundaries and the compaction marker.
+        closed(&store, "packed");
+        let packed = chat(&store, "packed", 20);
+        let marker = store.dir("packed").join("events").join(super::super::compact::MARKER);
+        std::fs::write(&marker, b"{\"lastSeq\":42}").unwrap();
+        let original = hashes(&store, "packed");
+        archive(&store, "packed");
+        // Fail publication of the replacement GC root. The only local archive must survive.
+        std::fs::rename(blobs.join("roots"), blobs.join("saved-roots")).unwrap();
+        std::fs::write(blobs.join("roots"), b"unavailable").unwrap();
+        assert!(store.offload_cold_packed("packed", 1).is_err());
+        assert!(store.cold_path("packed").is_file());
+        std::fs::remove_file(blobs.join("roots")).unwrap();
+        std::fs::rename(blobs.join("saved-roots"), blobs.join("roots")).unwrap();
+        store.offload_cold_packed("packed", 1).unwrap().unwrap();
+        let tail = store.open_packed_cold_tail("packed").unwrap().unwrap();
+        let first = packed.iter().rposition(|r| r.kind == "turn_started").unwrap();
+        assert_eq!(tail, packed[first..]);
+        assert!(store.is_cold("packed"));
+        let record = cmux_session_cloud::stub::history(&store.cloud_stub_path("packed")).unwrap();
+        let cmux_session_cloud::stub::History::Pack(record) = record else { panic!("packed") };
+        let sha = std::fs::read_to_string(blobs.join("roots").join(&pair)).unwrap();
+        let root = std::fs::read_to_string(blobs.join(&sha[..2]).join(&sha)).unwrap();
+        assert_eq!(root.lines().skip(1).collect::<BTreeSet<_>>(), record.blobs().collect());
+        assert_eq!(Store::events(&store, "packed", 0, usize::MAX).unwrap(), packed);
+        assert_eq!(hashes(&store, "packed"), original);
 
         // Offloaded again, a store that lost the blob fails the read and keeps the stub.
         archive(&store, "c");
