@@ -759,6 +759,7 @@ jobs:
             echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
             # The workspace delta on top of that entry, one per commit (scripts/ci/cargo-target-delta.sh).
+            echo "ws-base=cmux-tui-cargo-ws-v1-$LEG-$workspace-"
             echo "ws-prefix=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-"
             echo "ws-key=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
@@ -776,6 +777,19 @@ jobs:
           path: cmux-tui/target
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      # The workspace delta built on the dependency entry just restored, which on a prefix match is not
+      # this leg's own inputs. Why: docs/ci/cmux-next-workflow-notes/2026-11-27-cargo-delta-matched-entry.md
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        shell: bash
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
@@ -851,7 +865,9 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/cargo-delta
           key: ${{ steps.r2-cargo-key.outputs.ws-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: r2-cargo-ws-apply
@@ -996,7 +1012,7 @@ jobs:
           acpmux_group=("acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features")
           if [[ "$LTO" == thin ]]; then
             lead_bins+=" acpmux-standalone"
-            lead+=" -p acpmux-standalone --bin acpmux-standalone $(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t" acpmux-standalone)"
+            lead+=" -p acpmux-standalone --bin acpmux-standalone $acpmux_features"
             acpmux_group=()
           fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
@@ -2305,7 +2321,7 @@ jobs:
       }}
     # GitHub-hosted OIDC is required for artifact attestations; this job is
     # intentionally exempt from the self-hosted runner routing guard.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: artifact attestations need GitHub OIDC
+    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC
     timeout-minutes: 15
     permissions:
       contents: read
