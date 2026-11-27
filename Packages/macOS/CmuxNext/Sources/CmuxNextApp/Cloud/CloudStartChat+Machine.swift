@@ -12,7 +12,7 @@ import Foundation
 /// the machine its first try took. The App lists its machines for it, makes the machine it asks
 /// for, and connects (Leo, 2026-10-30: "AS MUCH RUST AS POSSIBLE INSTEAD OF SWIFT").
 /// Each send is kept under the account it began in (``CloudStartCore/accountText(_:)``), and takes a machine only
-/// of the list the server answered for that account (``checkAccount(_:now:listCurrent:)``).
+/// of the list the server answered for that account (``CloudMoveStrings/checkStartAccount(_:now:listCurrent:)``).
 extension CloudStartChat {
     /// The plan's request: the send's key, account and Mac workspace, who is signed in (`user`: the platform `user_…` id a machine's `created_by` names, not the Stack id,
     /// or no machine is the person's to reuse), the account's listed machines, the store's others (`stored`), and the chat's folder, environment and token flag (`access`).
@@ -42,15 +42,6 @@ extension CloudStartChat {
         defaults.removeObject(forKey: Self.keptSendsKey)
     }
 
-    /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
-    /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
-    /// previous team's machines stay in the store until that list lands, and the chat's folder must
-    /// never be copied to one of them.
-    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
-        guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
-        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread, sendAgain: check != .accountChanged) // a list not read yet may pass later (recover ListUnread: rerun)
-    }
-
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list
     /// the server answered for `account`, the account the send began in. A new one is named and sized
     /// for the chat (`pick`) and pinned to the send before anything runs there. `workspace`: the Mac
@@ -60,7 +51,7 @@ extension CloudStartChat {
         let machines = services.machines, cloud = services.cloud
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
-        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+        try CloudMoveStrings.checkStartAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         // The install token and the session's access token are two reads of their own: together, not one after the other (cmux#45953).
@@ -89,7 +80,7 @@ extension CloudStartChat {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             let request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb, planMax: start.planMax, bytes: start.folderBytes, plan: plan, environment: start.environment)
-            try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+            try CloudMoveStrings.checkStartAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list. The Send is the person's own gesture
             // (the pane took it, `AgentPaneHandOff`), so a fresh key goes as them, with no approval to hold and answer; its route is kept with the key.
             let created: CloudMachineSession
@@ -98,7 +89,7 @@ extension CloudStartChat {
                                                             request: request, onAppServerSent: { team, route in
                     _ = try Self.checked(await cli.startChatCreateSent(key: start.key, account: CloudStartCore().accountText(account), team: team, createKey: plan.createKey, route: plan.recorded(route)))
                 }) {
-                    try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+                    try CloudMoveStrings.checkStartAccount(account, now: cloud.account, listCurrent: true)
                 }
             } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudStartCore().isDefinitiveRefusal(failure) {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))

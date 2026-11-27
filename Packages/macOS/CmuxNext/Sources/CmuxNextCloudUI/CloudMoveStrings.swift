@@ -62,7 +62,7 @@ public struct CloudMoveStrings {
         String(localized: "cloud.move.homeFolder", defaultValue: "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first.",
                table: "Cloud", bundle: .localizedModule)
     }
-    /// `cloud.startChat`: the account or team changed while the send started (``CloudStartChat/checkAccount(_:now:listCurrent:)``).
+    /// `cloud.startChat`: the account or team changed while the send started (``checkStartAccount(_:now:listCurrent:)``).
     public static var startChatAccountChanged: String {
         String(localized: "cloud.startChat.accountChanged",
                defaultValue: "Your Cloud account or team changed while this chat was starting, so nothing was copied. Send it again in the account you want it in.",
@@ -147,6 +147,15 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
+    /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
+    /// previous team's machines stay in the store until that list lands, and the chat's folder must
+    /// never be copied to one of them.
+    public static func checkStartAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
+        guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
+        throw CloudMoveFailure(message: check == .accountChanged ? startChatAccountChanged : startChatListUnread, sendAgain: check != .accountChanged) // a list not read yet may pass later (recover ListUnread: rerun)
+    }
+
     /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
     /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, one its size needs another plan for ``CloudSizeLocked``,
     /// any other one a ``CloudMoveFailure``.
