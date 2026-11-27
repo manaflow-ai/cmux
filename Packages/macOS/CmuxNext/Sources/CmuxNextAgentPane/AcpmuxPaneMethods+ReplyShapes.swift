@@ -19,6 +19,7 @@ nonisolated extension AcpmuxPaneMethods {
 
     /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
     static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
+    private static let uriPunctuation: Set<UInt8> = Set("-._~!$&'()*+,;=".utf8)
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
     static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {
@@ -70,6 +71,16 @@ nonisolated extension AcpmuxPaneMethods {
     private static func integerCode(_ value: Any?) -> Int? {
         guard let number = value as? NSNumber else { return nil }
         if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? 1 : 0 }
+        // JSONSerialization keeps integer-backed NSNumber values distinct from floating-point values.
+        // Preserve those exact bits before applying the Rust policy's integral-float coercion below.
+        let objcType = String(cString: number.objCType)
+        if objcType.first.map({ $0.isUppercase }) == true {
+            let unsigned = number.uint64Value
+            return unsigned <= UInt64(Int64.max) ? Int(unsigned) : nil
+        }
+        if objcType.first.map({ "csiqln".contains($0) }) == true {
+            return Int(exactly: number.int64Value)
+        }
         let value = number.doubleValue
         guard value.isFinite, value.rounded(.towardZero) == value,
               value >= -9_223_372_036_854_775_808.0,
@@ -118,16 +129,14 @@ nonisolated extension AcpmuxPaneMethods {
     }
 
     private static func validAuthority(_ authority: [UInt8]) -> Bool {
-        let userInfo: [UInt8]?
         let hostPort: [UInt8]
         if let at = authority.firstIndex(of: 0x40) {
-            userInfo = Array(authority[..<at])
+            let userInfo = Array(authority[..<at])
             hostPort = Array(authority[(at + 1)...])
             guard !authority[(at + 1)...].contains(0x40),
-                  userInfo!.filter({ $0 == 0x3a }).count <= 1,
-                  uriCharacters(userInfo!, extra: [0x3a]) else { return false }
+                  userInfo.filter({ $0 == 0x3a }).count <= 1,
+                  uriCharacters(userInfo, extra: [0x3a]) else { return false }
         } else {
-            userInfo = nil
             hostPort = authority
         }
         if hostPort.first == 0x5b {
@@ -157,7 +166,10 @@ nonisolated extension AcpmuxPaneMethods {
             let ipv4 = text[text.index(after: colon)...]
             let octets = ipv4.split(separator: ".", omittingEmptySubsequences: false)
             guard octets.count == 4,
-                  octets.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy(Self.isASCIIDigit) && Int($0).map({ (0...255).contains($0) }) == true }) else { return false }
+                  octets.allSatisfy({
+                      !$0.isEmpty && ($0.count == 1 || $0.first != "0") &&
+                      $0.utf8.allSatisfy(Self.isASCIIDigit) && Int($0).map({ (0...255).contains($0) }) == true
+                  }) else { return false }
             let values = octets.compactMap { Int($0) }
             let high = String(format: "%x", (values[0] << 8) | values[1])
             let low = String(format: "%x", (values[2] << 8) | values[3])
@@ -169,8 +181,8 @@ nonisolated extension AcpmuxPaneMethods {
             return groups.count == 8 && groups.allSatisfy(validHextet)
         }
         guard compressed.count == 2 else { return false }
-        let left = compressed[0].split(separator: ":", omittingEmptySubsequences: false)
-        let right = compressed[1].split(separator: ":", omittingEmptySubsequences: false)
+        let left = compressed[0].isEmpty ? [] : compressed[0].split(separator: ":", omittingEmptySubsequences: false)
+        let right = compressed[1].isEmpty ? [] : compressed[1].split(separator: ":", omittingEmptySubsequences: false)
         guard !left.contains(where: { $0.isEmpty }) && !right.contains(where: { $0.isEmpty }),
               left.allSatisfy(validHextet), right.allSatisfy(validHextet) else { return false }
         return left.count + right.count < 8
@@ -190,7 +202,7 @@ nonisolated extension AcpmuxPaneMethods {
                 let after = bytes.index(after: next)
                 guard after < bytes.endIndex, isASCIIHex(bytes[next]), isASCIIHex(bytes[after]) else { return false }
                 index = bytes.index(after: after)
-            } else if isASCIIDigit(byte) || isASCIIAlpha(byte) || Array("-._~!$&'()*+,;=").contains(byte) || extra.contains(byte) {
+            } else if isASCIIDigit(byte) || isASCIIAlpha(byte) || uriPunctuation.contains(byte) || extra.contains(byte) {
                 index = bytes.index(after: index)
             } else {
                 return false
