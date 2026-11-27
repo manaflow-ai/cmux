@@ -25,7 +25,7 @@ impl Hub {
         // Auto reads memory and battery from this one object (RFD 0072), never its own sampler.
         let (verdict, power) =
             tokio::join!(Meter::shared().current(), crate::server::host_power::power());
-        let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
+        let mut v = match verdict.as_ref().and_then(|v| serde_json::to_value(v).ok()) {
             Some(v) => v,
             None => {
                 json!({"host": Meter::shared().host(), "ok": null, "over": [], "warning": null})
@@ -80,13 +80,29 @@ impl Hub {
             }
         }
         // The agents' own cores and memory (RFD 0072 piece 2), read off the runtime and at most
-        // once per `session_usage::MIN_INTERVAL`.
-        let agents = tokio::task::spawn_blocking(move || crate::hub::session_usage::sample(roots))
-            .await
-            .ok()
-            .and_then(|a| serde_json::to_value(a).ok());
-        if let (Some(obj), Some(agents)) = (v.as_object_mut(), agents) {
-            obj.insert("agents".into(), agents);
+        // once per `session_usage::MIN_INTERVAL`; then Auto on reserve judges them in shadow
+        // (RFD 0072 stage 1, `reserve_shadow.rs`): `reserve` says what it would move, nothing moves.
+        let judged = verdict;
+        let read = tokio::task::spawn_blocking(move || {
+            let agents = crate::hub::session_usage::sample(roots);
+            let sample = Meter::shared().last_sample();
+            let reserve = crate::hub::reserve_shadow::judge_now(
+                crate::store::now_ms(),
+                sample.as_ref(),
+                judged.as_ref(),
+                &agents,
+            );
+            (serde_json::to_value(agents).ok(), reserve)
+        })
+        .await
+        .ok();
+        if let (Some(obj), Some((agents, reserve))) = (v.as_object_mut(), read) {
+            if let Some(agents) = agents {
+                obj.insert("agents".into(), agents);
+            }
+            if let Some(reserve) = reserve {
+                obj.insert("reserve".into(), reserve);
+            }
         }
         // The readings the shadow admission verdict uses beside the meter's
         // (`shadow_admission::local_readings`): `cpus`, `pressureAgeMs`, `load`,

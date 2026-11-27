@@ -566,6 +566,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 request.mode,
                 &request.chat,
                 &request.own,
+                &request.session,
                 request.verdict.as_ref(),
             );
             let line = place::verdict::shadow_line(request.now_ms, &request.session, &judgment);

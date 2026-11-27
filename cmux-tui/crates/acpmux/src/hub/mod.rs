@@ -333,6 +333,7 @@ pub(crate) mod reply_fit;
 mod reply_segment_tests;
 mod repo_sync;
 pub(crate) mod require_asking;
+mod reserve_shadow;
 mod resolve;
 mod restore_point;
 mod restore_writer;
