@@ -91,8 +91,8 @@ public final class CloudMachineWire {
     private func session(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
                          onSubscribed: () -> Void) async throws {
         let selectedTeam = if let only { only } else { await team() }
-        let stdin = try JSONSerialization.data(withJSONObject: ["api": apiBaseURL.absoluteString, "access": try await token(), "team": selectedTeam ?? NSNull(),
-            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? NSNull()])
+        let stdin = try JSONSerialization.data(withJSONObject: ["api": apiBaseURL.absoluteString, "access": try await token(), "team": selectedTeam,
+            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String].compactMapValues { $0 })
         _ = try buildSpace.headers() // a misconfigured dev build mints no ticket and opens no socket
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_BUILD_SPACE"] = buildSpace.childEnvironmentValue
