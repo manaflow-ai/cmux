@@ -105,6 +105,55 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
+    /// Folds events the way the app does: through the notification reconciler, then the reducer.
+    private func foldThroughReconciler(_ events: [AgentJournalEvent]) -> AgentLifecycleReducerState {
+        var notifications = AgentNotificationReconciler()
+        var state = AgentLifecycleReducerState()
+        for event in events {
+            _ = notifications.apply(event)
+            reducer.apply(notifications.lifecycleEvent(event), to: &state)
+        }
+        return state
+    }
+
+    /// A live session that sends SessionStart again (Claude Code does after idle compaction,
+    /// `source: "compact"`, and after resume) returns to the phase it was in, like a statechart's
+    /// history state, instead of `unknown`. An `unknown` pane is never hibernated (cmux#39778).
+    @Test func repeatedSessionStartKeepsTheLiveSessionsPhase() {
+        let idle = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .turnCompleted),
+            event(4, .sessionStarted),
+        ])
+        #expect(idle.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+
+        let running = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .sessionStarted),
+        ])
+        #expect(running.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+
+        let waiting = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .approvalRequested),
+            event(4, .sessionStarted),
+        ])
+        #expect(waiting.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .needsInput)
+
+        // An ended session that starts again is a new run: nothing to return to.
+        let restarted = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .turnCompleted),
+            event(4, .sessionEnded),
+            event(5, .sessionStarted),
+        ])
+        #expect(restarted.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .unknown)
+    }
+
     @Test func sessionEndedClearsEntry() {
         let state = fold([event(1, .turnStarted), event(2, .sessionEnded)])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == nil)
