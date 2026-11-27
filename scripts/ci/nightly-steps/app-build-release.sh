@@ -221,6 +221,10 @@ elif [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
   release_retry="the Release build failed on the managed fleet compilation cache"
 elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   release_retry="the compilation cache failed"
+# Xcode's build service crashed ("Build again to continue"; run 46020152626): a compile error never
+# prints that line, so the retry is one more build with a new build service, not a masked red.
+elif [[ "$release_status" -ne 0 ]] && cmux_next_build_service_crashed "$RUNNER_TEMP/nightly-release-build.log"; then
+  release_retry="Xcode's build service crashed"
 fi
 if [[ -n "$release_retry" ]]; then
   echo "::warning::$release_retry (status $release_status); retrying the Release build once with the local cache"
