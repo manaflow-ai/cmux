@@ -69,8 +69,7 @@ extension WindowManager {
     /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
     /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
     func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, pressed: Bool = false) {
-        let machines = services.machines
-        let home = machines.local.store
+        let machines = services.machines, home = machines.local.store
         for window in registry.repairs(only: only) {
             let state = state(for: window.id)
             let room = state.profileID
@@ -81,8 +80,9 @@ extension WindowManager {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
             var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines)
-            // A window waiting for the workspace it just created in a new
-            // or empty room keeps that room (asked only when the room shows nothing).
+            // Spaces off: a pick its room hides joins by a pin (`enterProfile(of:in:)`); till it lands it is shown, or a delta repairs it away.
+            if let pick = state.workspaceID, !visible.contains(pick), pinSelections[pick]?.window == window.id, members().contains(pick) { visible.append(pick) }
+            // A window waiting for the workspace it just created in a new or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
                let fallback = WindowProfiles.fallback(for: state, members: members(), machines: machines) {
                 state.enterProfile(fallback)
