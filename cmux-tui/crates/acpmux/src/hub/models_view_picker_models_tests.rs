@@ -97,3 +97,77 @@ fn a_new_harness_model_needs_no_cmux_top_list_update() {
         .map(|(id, name)| (id.to_owned(), name.to_owned()));
     assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
 }
+
+/// Codex's `model/list` is what the account runs, so the picker keeps to it, but an older Codex
+/// lists no release newer than itself: GPT-6.2 Sol stayed hidden until the person updated Codex
+/// (Leo, 2026-11-20: "enable seeing new models even when ppl dont upgradetheir stuff"). A newer
+/// release of a family the CLI lists is offered and leads the menu; a family it lists none of
+/// (an API-only release), a deprecated one and a later-dated variant of a listed release stay
+/// out: models.dev files GPT-6.1 Sol Healthcare under gpt-sol, dated 2026-11-24, and it led an
+/// older Codex's menu as the newest Sol, so picking "GPT-6.1 Sol" ran the Healthcare model.
+fn codex_catalog() -> Catalog {
+    crate::catalog::schema::parse(
+        &serde_json::to_vec(&json!({
+            "schemaVersion": 1, "generatedAt": "2026-11-26T00:00:00.000Z", "source": "live",
+            "harnesses": [{
+                "id": "codex", "name": "Codex", "brand": "openai", "families": ["codex"],
+                "modelSource": "catalog",
+                "models": [
+                    {"id": "gpt-6.2-sol", "ref": "openai/gpt-6.2-sol", "name": "GPT-6.2 Sol", "shortName": "GPT-6.2 Sol"},
+                    {"id": "gpt-6.2-astra", "ref": "openai/gpt-6.2-astra", "name": "GPT-6.2 Astra", "shortName": "GPT-6.2 Astra"},
+                    {"id": "gpt-6.1-sol", "ref": "openai/gpt-6.1-sol", "name": "GPT-6.1 Sol", "shortName": "GPT-6.1 Sol"},
+                    {"id": "gpt-6-sol", "ref": "openai/gpt-6-sol", "name": "GPT-6 Sol", "shortName": "GPT-6 Sol"},
+                    {"id": "gpt-6.1-luna", "ref": "openai/gpt-6.1-luna", "name": "GPT-6.1 Luna", "shortName": "GPT-6.1 Luna", "status": "deprecated"},
+                    {"id": "gpt-6-luna", "ref": "openai/gpt-6-luna", "name": "GPT-6 Luna", "shortName": "GPT-6 Luna"},
+                    {"id": "gpt-6.2-sol-healthcare", "ref": "openai/gpt-6.2-sol-healthcare", "name": "GPT-6.2 Sol Healthcare", "shortName": "GPT-6.2 Sol Healthcare"},
+                    {"id": "gpt-6.1-sol-healthcare", "ref": "openai/gpt-6.1-sol-healthcare", "name": "GPT-6.1 Sol Healthcare", "shortName": "GPT-6.1 Sol Healthcare"}
+                ]
+            }],
+            "models": {
+                "openai/gpt-6.2-sol": {"name": "GPT-6.2 Sol", "family": "gpt-sol", "releaseDate": "2026-11-17"},
+                "openai/gpt-6.2-astra": {"name": "GPT-6.2 Astra", "family": "gpt-astra", "releaseDate": "2026-11-17"},
+                "openai/gpt-6.1-sol": {"name": "GPT-6.1 Sol", "family": "gpt-sol", "releaseDate": "2026-09-29"},
+                "openai/gpt-6-sol": {"name": "GPT-6 Sol", "family": "gpt-sol", "releaseDate": "2026-09-22"},
+                "openai/gpt-6.1-luna": {"name": "GPT-6.1 Luna", "family": "gpt-luna", "releaseDate": "2026-09-29"},
+                "openai/gpt-6-luna": {"name": "GPT-6 Luna", "family": "gpt-luna", "releaseDate": "2026-09-22"},
+                "openai/gpt-6.2-sol-healthcare": {"name": "GPT-6.2 Sol Healthcare", "family": "gpt-sol", "releaseDate": "2026-11-24"},
+                "openai/gpt-6.1-sol-healthcare": {"name": "GPT-6.1 Sol Healthcare", "family": "gpt-sol", "releaseDate": "2026-11-24"}
+            },
+            "providers": {"openai": {"name": "OpenAI"}}
+        }))
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+fn old_codex_menu() -> Vec<(String, String)> {
+    [("gpt-6.1-sol", "GPT-6.1 Sol"), ("gpt-6-sol", "GPT-6 Sol"), ("gpt-6-luna", "GPT-6 Luna")]
+        .map(|(id, name)| (id.to_owned(), name.to_owned()))
+        .to_vec()
+}
+
+#[test]
+fn an_older_codex_still_offers_the_newer_release_of_a_family_it_runs() {
+    let catalog = codex_catalog();
+    let curated = &catalog.harnesses[0];
+    let offered = offered(&HarnessKind::Acp, Some(curated), &catalog, &old_codex_menu(), true);
+    let ids: Vec<&str> = offered.iter().filter_map(|m| m["id"].as_str()).collect();
+    assert_eq!(ids, ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]);
+    assert_eq!(newer_than_menu(curated, &catalog, &old_codex_menu()), ["gpt-6.2-sol"]);
+}
+
+#[test]
+fn a_current_codex_menu_promotes_nothing() {
+    let catalog = codex_catalog();
+    let mut menu = old_codex_menu();
+    menu.insert(0, ("gpt-6.2-sol".to_owned(), "GPT-6.2 Sol".to_owned()));
+    assert!(newer_than_menu(&catalog.harnesses[0], &catalog, &menu).is_empty());
+}
+
+#[test]
+fn a_later_dated_variant_is_not_a_newer_release() {
+    assert_eq!(release_line("gpt-6.1-sol"), "gpt-sol");
+    assert_eq!(release_line("openai/gpt-6.2-sol"), "gpt-sol");
+    assert_eq!(release_line("gpt-6.1-sol-healthcare"), "gpt-sol-healthcare");
+    assert_eq!(release_line("gpt-5.6"), "gpt");
+}
