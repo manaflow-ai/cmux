@@ -13,9 +13,10 @@
 #   codesign --force --options runtime --sign "Apple Development: ..." \
 #     -r='designated => identifier "dev.cmux.itp-recorder" and anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37"' \
 #     itp-recorder.app
-# Before packaging, the step checks the self-check (itp-recorder --analyze) on made-up frame lists: a 30 fps span and
-# a span with frames missing from the movie must fail (exit 3), a 120 fps span with one hitch and an unmarked
-# 120 fps run must pass (exit 0). dist/: itp-recorder.zip, build.json (commit, signature, cdhash, sha256), check.json.
+# Before packaging, the step checks the self-check (itp-recorder --analyze) on made-up frame lists: a 30 fps span, a
+# span with frames missing from the movie and a span whose crop does not hold the bench window at its start (the window
+# moved off the crop before the drag) must fail (exit 3); a 120 fps span with one hitch and an unmarked 120 fps run
+# must pass (exit 0). dist/: itp-recorder.zip, build.json (commit, signature, cdhash, sha256), check.json.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 sign=-
@@ -80,17 +81,22 @@ def frames(t0, fps, seconds, hitch=None, missing_every=0):
             t += 0.05
         i += 1
     return out
+drag = [{"name": "drag", "start": 100.0, "end": 102.0}]
+crop = [200.0, 100.0, 1200.0, 800.0]
+inside = [[98.0, 210.0, 110.0, 1000.0, 700.0]]  # the bench window's frame, read before the drag: inside the crop
+moved = inside + [[99.9, 420.0, 110.0, 1000.0, 700.0]]  # moved right 210 pt just before the drag: past the crop
 cases = {
-    "slow-30fps": (3, frames(100.0, 30, 2), [{"name": "drag", "start": 100.0, "end": 102.0}]),
-    "missing-from-movie": (3, frames(100.0, 120, 2, missing_every=20), [{"name": "drag", "start": 100.0, "end": 102.0}]),
-    "fast-120fps-one-hitch": (0, frames(100.0, 120, 2, hitch=60), [{"name": "drag", "start": 100.0, "end": 102.0}]),
-    "fast-120fps-unmarked": (0, [[99.0, "complete", True], [99.5, "idle", False]] + frames(100.0, 120, 2), None),
+    "slow-30fps": (3, frames(100.0, 30, 2), drag, inside),
+    "missing-from-movie": (3, frames(100.0, 120, 2, missing_every=20), drag, inside),
+    "window-off-crop": (3, frames(100.0, 120, 2), drag, moved),
+    "fast-120fps-one-hitch": (0, frames(100.0, 120, 2, hitch=60), drag, inside),
+    "fast-120fps-unmarked": (0, [[99.0, "complete", True], [99.5, "idle", False]] + frames(100.0, 120, 2), None, inside),
 }
-for name, (expect, rows, spans) in cases.items():
+for name, (expect, rows, spans, window) in cases.items():
     d = os.path.join(root, name)
     os.makedirs(d)
     with open(os.path.join(d, "frames.json"), "w") as f:
-        json.dump({"frames": rows}, f)
+        json.dump({"frames": rows, "crop_global_pt": crop, "window": window}, f)
     if spans is not None:
         with open(os.path.join(d, "spans.json"), "w") as f:
             json.dump({"spans": spans}, f)

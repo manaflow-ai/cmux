@@ -4,13 +4,14 @@
 // Built and signed by itp-recorder.sh (bundle id dev.cmux.itp-recorder, a background-only app: it never activates,
 // has no Dock icon and opens no window).
 //
-//   itp-recorder --out DIR (--pid PID | --rect X,Y,W,H) [--margin PT] [--fps 120] [--min-fps 55] [--seconds 300]
+//   itp-recorder --out DIR --pid PID [--rect X,Y,W,H] [--margin PT] [--fps 120] [--min-fps 55] [--seconds 300]
 //                [--app-only] [--mbps 200] [--ppp N]
 //   itp-recorder --analyze DIR [--min-fps 55]
 //
 // Capture: ScreenCaptureKit, a display filter (every window on that display; --app-only keeps the windows of PID's app)
-// cropped by sourceRect to the rect: --rect in global points (top-left origin, CoreGraphics), or PID's largest on-screen
-// window at the start, grown by --margin on each side. minimumFrameInterval 1/--fps (default 1/120), showsCursor false,
+// cropped by sourceRect to the rect: --rect in global points (top-left origin, CoreGraphics), or the bench window (PID's
+// largest on-screen window at the start), grown by --margin on each side. The bench window's frame is read every 20 ms
+// (CGWindowListCopyWindowInfo, no grant needed) and kept in frames.json as it changes. minimumFrameInterval 1/--fps (default 1/120), showsCursor false,
 // 4:2:0 frames, HEVC at --mbps in DIR/movie.mov (a fragmented movie: a cut-off film still plays), at --ppp device
 // pixels per point (default the display's). A frame comes only when the composited rect changed.
 //
@@ -22,15 +23,18 @@
 //   spans.json    written by the caller before DIR/stop (optional): {"spans": [{"name", "start", "end"}]} in host
 //                 seconds (CLOCK_UPTIME_RAW: Python time.clock_gettime(time.CLOCK_UPTIME_RAW))
 //   frames.json   every frame ScreenCaptureKit gave: [t, status, in_movie], t its display time in host seconds;
-//                 a frame in the movie plays at t - pts_zero
+//                 a frame in the movie plays at t - pts_zero. Beside them crop_global_pt [x, y, w, h] and window, the
+//                 bench window's frame [t, x, y, w, h] each time it changed (global points)
 //   summary.json  the achieved rate per span and the self-check
 //   done          the exit code, written last
 //
 // Self-check (the achieved rate per run): per span, the complete frames between its start and end; the rate is
 // 1 / the median interval between them (the capture rate while the rect moves; a hitch of the filmed app shows in
 // the p95 and max, not here) and, beside it, the average (frames - 1) / seconds. A span passes with 10 frames or more,
-// a median rate of --min-fps (default 55) or more and at most 1% of its frames missing from the movie (encoder not
-// ready). With no spans.json each run of complete frames with no gap over 250 ms and 30 frames or more is a span.
+// a median rate of --min-fps (default 55) or more, at most 1% of its frames missing from the movie (encoder not
+// ready), and a crop that holds the bench window's frame at the span's start (within 1 pt; the last reading at or before
+// the start, else one within 100 ms after it): a window that moved off the crop would film the wrong region, and a
+// frame not known fails the span too. With no spans.json each run of complete frames with no gap over 250 ms and 30 frames or more is a span.
 // Exit 0 when every span passes, 3 when one fails or none could be rated, 2 for a usage or set-up error (no Screen
 // Recording grant among them). The grant is only read (CGPreflightScreenCaptureAccess): this never asks for it, and
 // never calls ScreenCaptureKit without it.
@@ -100,7 +104,7 @@ func parseOptions(_ arguments: [String]) -> Options {
         case "--ppp": options.pixelsPerPoint = number(flag, 0.25, 4)
         case "--app-only": options.appOnly = true
         case "--help", "-h":
-            print("usage: itp-recorder --out DIR (--pid PID | --rect X,Y,W,H) [--margin PT] [--fps 120] [--min-fps 55] "
+            print("usage: itp-recorder --out DIR --pid PID [--rect X,Y,W,H] [--margin PT] [--fps 120] [--min-fps 55] "
                 + "[--seconds 300] [--app-only] [--mbps 200] [--ppp N]\n       itp-recorder --analyze DIR [--min-fps 55]")
             exit(0)
         case "--version":
@@ -115,8 +119,7 @@ func parseOptions(_ arguments: [String]) -> Options {
     }
     if options.analyze == nil {
         guard options.out != nil else { fail("--out DIR is required") }
-        guard options.pid != nil || options.rect != nil else { fail("--pid PID or --rect X,Y,W,H is required") }
-        guard !options.appOnly || options.pid != nil else { fail("--app-only needs --pid") }
+        guard options.pid != nil else { fail("--pid PID (the bench window's app) is required") }
     }
     return options
 }
@@ -161,6 +164,21 @@ struct Span {
     let end: Double
 }
 
+/// The bench window's frame (global points) read at host time `t`.
+struct WindowSample {
+    let t: Double
+    let frame: CGRect
+}
+
+/// The window's frame at `start`: the last reading at or before it, else the first within 100 ms after it.
+func windowFrame(at start: Double, _ samples: [WindowSample]) -> CGRect? {
+    if let before = samples.last(where: { $0.t <= start }) { return before.frame }
+    if let after = samples.first(where: { $0.t > start }), after.t - start <= 0.1 { return after.frame }
+    return nil
+}
+
+func box(_ rect: CGRect) -> [Double] { [rounded(rect.minX, 1), rounded(rect.minY, 1), rounded(rect.width, 1), rounded(rect.height, 1)] }
+
 func percentile(_ sorted: [Double], _ q: Double) -> Double {
     guard !sorted.isEmpty else { return 0 }
     let rank = Int((q * Double(sorted.count)).rounded(.up)) - 1
@@ -173,15 +191,27 @@ func rounded(_ value: Double, _ places: Double = 2) -> Double {
 }
 
 /// The achieved rate of one span and whether it passes.
-func rate(_ span: Span, _ frames: [FrameRecord], minFPS: Double) -> [String: Any] {
+func rate(_ span: Span, _ frames: [FrameRecord], minFPS: Double, crop: CGRect?, windows: [WindowSample]) -> [String: Any] {
     let inside = frames.filter { $0.status == "complete" && $0.t >= span.start && $0.t <= span.end }
     let times = inside.map(\.t)
     let missing = inside.filter { !$0.inMovie }.count
     var row: [String: Any] = ["name": span.name, "start": span.start, "end": span.end, "frames": times.count,
                               "not_in_movie": missing]
+    var reasons: [String] = []
+    let window = windowFrame(at: span.start, windows)
+    if let window { row["window_at_start_pt"] = box(window) }
+    if let crop, let window {
+        let holds = crop.insetBy(dx: -1, dy: -1).contains(window)
+        row["crop_holds_window"] = holds
+        if !holds { reasons.append("the crop \(box(crop)) does not hold the bench window \(box(window)) at the span's start") }
+    } else {
+        row["crop_holds_window"] = false
+        reasons.append(crop == nil ? "no crop recorded" : "the bench window's frame at the span's start is not known")
+    }
     guard times.count >= 2, let first = times.first, let last = times.last, last > first else {
+        reasons.append("\(times.count) frame(s) in the span: nothing to rate")
         row["ok"] = false
-        row["reason"] = "\(times.count) frame(s) in the span: nothing to rate"
+        row["reason"] = reasons.joined(separator: "; ")
         return row
     }
     let intervals = zip(times.dropFirst(), times).map { $0 - $1 }.sorted()
@@ -193,7 +223,6 @@ func rate(_ span: Span, _ frames: [FrameRecord], minFPS: Double) -> [String: Any
                           "max": rounded((intervals.last ?? 0) * 1000)]
     row["fps_p50"] = rounded(fpsP50, 1)
     row["fps_avg"] = rounded(average, 1)
-    var reasons: [String] = []
     if times.count < 10 { reasons.append("\(times.count) frames, under 10") }
     if fpsP50 < minFPS { reasons.append("achieved \(rounded(fpsP50, 1)) fps (median interval), under \(minFPS): re-run") }
     if missing > max(1, times.count / 100) { reasons.append("\(missing) of \(times.count) frames missing from the movie") }
@@ -228,9 +257,9 @@ func readSpans(_ url: URL) throws -> [Span]? {
     }
 }
 
-func assess(_ frames: [FrameRecord], spans given: [Span]?, minFPS: Double) -> [String: Any] {
+func assess(_ frames: [FrameRecord], spans given: [Span]?, minFPS: Double, crop: CGRect?, windows: [WindowSample]) -> [String: Any] {
     let spans = given ?? motionSpans(frames)
-    let rows = spans.map { rate($0, frames, minFPS: minFPS) }
+    let rows = spans.map { rate($0, frames, minFPS: minFPS, crop: crop, windows: windows) }
     let rated = rows.compactMap { $0["fps_p50"] as? Double }
     var result: [String: Any] = [
         "min_fps": minFPS, "spans_from": given == nil ? "motion (no spans.json)" : "spans.json", "spans": rows,
@@ -265,7 +294,16 @@ func analyzeOffline(_ dir: URL, minFPS: Double) -> Int32 {
                   let inMovie = row[2] as? Bool else { return nil }
             return FrameRecord(t: t, status: status, inMovie: inMovie)
         }
-        let result = assess(frames, spans: try readSpans(dir.appendingPathComponent("spans.json")), minFPS: minFPS)
+        let index = object as? [String: Any]
+        let crop = (index?["crop_global_pt"] as? [NSNumber]).flatMap { v -> CGRect? in
+            v.count == 4 ? CGRect(x: v[0].doubleValue, y: v[1].doubleValue, width: v[2].doubleValue, height: v[3].doubleValue) : nil
+        }
+        let windows = ((index?["window"] as? [[NSNumber]]) ?? []).compactMap { v -> WindowSample? in
+            v.count == 5 ? WindowSample(t: v[0].doubleValue, frame: CGRect(x: v[1].doubleValue, y: v[2].doubleValue,
+                                                                          width: v[3].doubleValue, height: v[4].doubleValue)) : nil
+        }
+        let result = assess(frames, spans: try readSpans(dir.appendingPathComponent("spans.json")), minFPS: minFPS,
+                            crop: crop, windows: windows)
         let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
         FileHandle.standardOutput.write(data + Data("\n".utf8))
         return result["ok"] as? Bool == true ? 0 : 3
@@ -320,6 +358,19 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private let flags = NSLock()
     private var stopReason: String?
     private var signalSources: [DispatchSourceSignal] = []
+    /// The bench window, the crop (global points) and the window's frame each time it changed: the run's own task only.
+    private var benchWindow: CGWindowID = 0
+    private var crop: CGRect?
+    private var windows: [WindowSample] = []
+
+    /// Reads the bench window's frame (no Screen Recording grant needed for bounds) and keeps it when it changed.
+    private func sampleWindow() {
+        guard benchWindow != 0,
+              let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], benchWindow) as? [[String: Any]],
+              let bounds = list.first?[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return }
+        if windows.last?.frame != frame { windows.append(WindowSample(t: hostSeconds(), frame: frame)) }
+    }
 
     init(_ options: Options, out: URL) {
         self.options = options
@@ -375,20 +426,17 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     done(content.map { .success($0) } ?? .failure(error ?? Failure("no shareable content")))
                 }
             }
-            var rect: CGRect
-            if let given = options.rect {
-                rect = given
-            } else {
-                guard let window = content.windows
-                    .filter({ $0.owningApplication?.processID == options.pid && $0.windowLayer == 0 && $0.isOnScreen })
-                    .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
-                    throw Failure("no on-screen window of pid \(options.pid ?? 0)")
-                }
-                rect = window.frame
-                summary["window"] = ["id": Int(window.windowID), "title": window.title ?? "",
-                                     "frame_pt": [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height]] as [String: Any]
+            // The bench window: PID's largest on-screen window. Its frame is read all through the run (the self-check
+            // fails a span whose crop does not hold it at the span's start).
+            guard let window = content.windows
+                .filter({ $0.owningApplication?.processID == options.pid && $0.windowLayer == 0 && $0.isOnScreen })
+                .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+                throw Failure("no on-screen window of pid \(options.pid ?? 0)")
             }
-            rect = rect.insetBy(dx: -options.margin, dy: -options.margin)
+            benchWindow = window.windowID
+            summary["window"] = ["id": Int(window.windowID), "title": window.title ?? "",
+                                 "frame_pt": box(window.frame)] as [String: Any]
+            var rect = (options.rect ?? window.frame).insetBy(dx: -options.margin, dy: -options.margin)
             guard let display = content.displays.max(by: {
                 $0.frame.intersection(rect).area < $1.frame.intersection(rect).area
             }), display.frame.intersects(rect) else {
@@ -426,6 +474,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             summary["display"] = ["id": Int(display.displayID), "name": screen?.localizedName ?? "",
                                   "max_fps": screen?.maximumFramesPerSecond ?? 0,
                                   "frame_pt": [display.frame.minX, display.frame.minY, display.frame.width, display.frame.height]] as [String: Any]
+            crop = rect
             summary["crop"] = ["global_pt": [rect.minX, rect.minY, rect.width, rect.height],
                                "source_rect_pt": [source.minX, source.minY, source.width, source.height],
                                "pixels": [width, height], "pixels_per_point": scale,
@@ -444,7 +493,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         writeJSON(started, file("started.json"))
         let began = hostSeconds()
         var wroteReady = false
+        sampleWindow()
         while stopRequested == nil {
+            sampleWindow()
             if !wroteReady, let first = queue.sync(execute: { firstTime }) {
                 writeJSON(["first_frame": first, "clocks": clocks()] as [String: Any], file("ready.json"))
                 wroteReady = true
@@ -467,13 +518,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         let (recorded, first, writeError) = queue.sync { (frames, firstTime, self.writeError) }
         summary["movie"] = ["path": movieURL.path, "status": movieStatus, "write_error": writeError ?? ""]
+        sampleWindow()
         writeJSON(["clock": "host seconds (mach_absolute_time, CLOCK_UPTIME_RAW)", "pts_zero": first ?? 0,
+                   "crop_global_pt": crop.map(box) ?? [], "window_id": Int(benchWindow),
+                   "window": windows.map { [$0.t] + box($0.frame) },
                    "frames": recorded.map { [$0.t, $0.status, $0.inMovie] as [Any] }] as [String: Any], file("frames.json"))
         let spans: [Span]?
         do { spans = try readSpans(file("spans.json")) } catch {
             return finish(2, "\(error)")
         }
-        let check = assess(recorded, spans: spans, minFPS: options.minFPS)
+        let check = assess(recorded, spans: spans, minFPS: options.minFPS, crop: crop, windows: windows)
         for (key, value) in check { summary[key] = value }
         if movieStatus != "completed" {
             summary["ok"] = false
