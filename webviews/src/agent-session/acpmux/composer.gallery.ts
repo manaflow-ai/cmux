@@ -289,6 +289,42 @@ const pictured = {
   ],
 };
 
+// A wide screenshot strip of one line of chat text, as Leo attached (2026-11-27: "did we fix this
+// yet", on tiles that read "or a script: lane-deploy", "Reply 3 minut" and "ing"): its thumbnail must
+// show the line's first words, never a slice from its middle.
+const textStrip = (words: string, width = 1400, height = 90) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<rect width="100%" height="100%" fill="#2a2d36"/>` +
+      `<rect y="22" width="100%" height="46" fill="#3a3e4a"/>` +
+      `<text x="14" y="54" font-family="-apple-system, Helvetica, sans-serif" font-size="30" fill="#e8e8ee">${words}</text>` +
+      "</svg>",
+  )}`;
+const stripped = {
+  id: "q-strips",
+  prompt: "why is this misaligned let's prevent it",
+  images: [
+    {
+      id: "c".repeat(64),
+      mimeType: "image/svg+xml",
+      name: "image.png",
+      src: textStrip("Reply 3 minutes ago with the lane report and the PR link"),
+    },
+    {
+      id: "d".repeat(64),
+      mimeType: "image/svg+xml",
+      name: "image.png",
+      src: textStrip("Start: the deploy runs from a lane or a script: lane-deploy 3", 1800),
+    },
+    {
+      id: "e".repeat(64),
+      mimeType: "image/svg+xml",
+      name: "image.png",
+      src: textStrip("Thinking ✨✨✨✨✨✨✨✨✨✨✨✨", 1200),
+    },
+  ],
+};
+
 // Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), queued behind a
 // running turn. acpmux lists each video's frames as images; the card draws
 // one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
@@ -1151,6 +1187,52 @@ export default agentPaneEntry({
         pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
+      },
+    },
+    // Leo (2026-11-27, "did we fix this yet"): a wide screenshot of a line of chat text showed a
+    // slice from its middle ("or a script: lane-deploy"), cut on both sides with no margin.
+    "image-wide-screenshot": {
+      note: "A pasted screenshot of one wide line of text: its tile shows the line from its first word, its cut end fading.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(1800, 90);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#2a2d36";
+        paint.fillRect(0, 0, 1800, 90);
+        paint.fillStyle = "#e8e8ee";
+        paint.font = "30px -apple-system, Helvetica, sans-serif";
+        paint.fillText("Start: the deploy runs from a lane or a script: lane-deploy 3", 14, 54);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[data-crop='x']"));
+      },
+    },
+    "image-tall-screenshot": {
+      note: "A pasted screenshot of a tall page: its tile shows the page's top, its cut bottom fading.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(400, 2400);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#2a2d36";
+        paint.fillRect(0, 0, 400, 2400);
+        paint.fillStyle = "#e8e8ee";
+        paint.font = "bold 44px -apple-system, Helvetica, sans-serif";
+        paint.fillText("Page title", 16, 60);
+        paint.fillStyle = "#8a8fa0";
+        for (let line = 0; line < 40; line += 1) paint.fillRect(16, 110 + line * 56, 300 - (line % 5) * 30, 22);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[data-crop='y']"));
       },
     },
     "image-failed": {
@@ -2158,6 +2240,10 @@ export default agentPaneEntry({
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-wide-screenshots": {
+      note: 'A prompt queued with three wide screenshots of chat text: each tile shows its line from the first word, its cut end fading (Leo, 2026-11-27: "did we fix this yet").',
+      snapshot: chat(working, { isWorking: true, queue: [stripped, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-videos": {
       note: 'Leo\'s message with three screen recordings (23 frames), queued behind a running turn: three tiles in one row, each video one tile at its first frame with its length (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
