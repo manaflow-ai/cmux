@@ -353,8 +353,39 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(self.run_with([feed((300, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.calls, [])
-        self.assertEqual(self.run_with([feed((200, "x", 1)).encode()], [0], same_build=True), 0)
+        live = feed((200, "x", 1), source={200: "a" * 40}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         self.assertIn("--replace-sha256", self.calls[0])
+
+    # Detector require_newest_source: every write keeps or carries the newest item's
+    # cmux:sourceCommit (install-static.sh nightly_commit, hot-verify, bench, the bisect
+    # and the release notes read the commit off it).
+    def test_require_newest_source_refuses_a_revision_that_would_drop_the_source(self) -> None:
+        markerless = feed((200, "x", 1)).encode()
+        with self.assertRaisesRegex(RuntimeError, "without a full cmux:sourceCommit"):
+            self.run_with([markerless], [0], same_build=True)
+        self.assertEqual(self.calls, [])
+
+    def test_require_newest_source_passes_a_carried_and_a_stamped_source(self) -> None:
+        live = feed((200, "x", 1), (100, "y", 1), source={200: "c" * 40, 100: "b" * 40}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        r2.require_newest_source(self.path.read_bytes(), "carried")
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), "c" * 40)
+        r2.require_newest_source(r2.add_source(feed((300, "x", 1)).encode(), "d" * 40), "stamped")
+        for bad in (feed((300, "x", 1)), feed((300, "x", 1), source={300: "abcdef1"}),
+                    feed((300, "x", 1), (200, "y", 1), source={200: "c" * 40})):
+            with self.subTest(bad=bad), self.assertRaises(RuntimeError):
+                r2.require_newest_source(bad.encode(), "bad")
+
+    def test_require_newest_source_matches_the_inline_namespace_form(self) -> None:
+        stamped = r2.add_source(feed((300, "x", 1)).encode(), "e" * 40)
+        self.assertIn(b'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">', stamped)
+        r2.require_newest_source(stamped, "inline")
+
+    def test_the_cli_refuses_a_write_with_neither_source_nor_same_build(self) -> None:
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            r2.main(["write-feed", "--feed", str(self.path)])
+        self.assertEqual(self.calls, [])
 
     def test_same_build_delta_preserves_live_source_metadata_on_each_cas_read(self) -> None:
         first, second = "a" * 40, "b" * 40
@@ -612,7 +643,8 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         # 190 to Nightly apps, so a rollback of 200 has a build to serve.
         self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next-dev"}),
                              encoding="utf-8")
-        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"}).encode()
+        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"},
+                    source={200: "a" * 40}).encode()
         self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         text = self.path.read_bytes()
         self.assertEqual(self.builds(), [200, 190])
@@ -636,7 +668,8 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         self.assertEqual(self.builds(), [200])
 
     def test_the_delta_republish_keeps_the_earlier_build_too(self) -> None:
-        live = feed((200, "x", 1), (150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4)).encode()
+        live = feed((200, "x", 1), (150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4),
+                    source={200: "a" * 40}).encode()
         self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         self.assertEqual(self.builds(), [200, 150])
 
