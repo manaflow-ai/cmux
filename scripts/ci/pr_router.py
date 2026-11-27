@@ -33,8 +33,11 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
              is GitHub's base merge (land's update-branch), and the merge train's tip. The label handoff
-             itself skips it unless $CI_MC_HANDOFF_LABEL_SKIP is 0 (handoff_label_skip). Any other head,
-             full tier or not, skips it;
+             itself skips it unless $CI_MC_HANDOFF_LABEL_SKIP is 0 (handoff_label_skip) or the callee sets
+             land_handoff_label. Any other head, full tier or not, skips it;
+  land_handoff_label
+             true for a land_handoff_only callee the label handoff starts too (its build is no merge tree's,
+             so no train tip stands in for it: the nightly pr build);
   land_affected
              true to consider the callee's paths on the affected landing tier as well as the full tier;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
@@ -247,7 +250,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
                          f"update-branch head")
             continue
-        if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
+        if (config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip()
+                and not config.get("land_handoff_label")):
             why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
                          f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
             continue

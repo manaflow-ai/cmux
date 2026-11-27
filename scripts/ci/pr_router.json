@@ -259,6 +259,9 @@
   },
   "nightly-pr-build.yml": {
    "land_affected": true,
+   "land_handoff_only": true,
+   "land_handoff_label": true,
+   "land_handoff_only_why": "Built once per land: the labeled event that adds ready-to-land or full-ci, land's update-branch head and the merge train's tip. ready-to-land stays on a PR across later pushes, so the landing tier built every push of a labeled PR: 24 h to 2026-11-27 22:32Z, 31,042 runner-min (x86_64 13,896, arm64 13,533, helpers 3,186) over 1,491 heads of 722 branches; about 16.5k of it on heads a later push superseded. Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"",
    "types": [
     "opened",
     "synchronize",
