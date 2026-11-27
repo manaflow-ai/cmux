@@ -39,6 +39,10 @@ nonisolated private let frameTimingLogger = Logger(subsystem: "com.cmuxterm.app.
 public final class TransitionFrameLog {
     public enum Transition: String, Sendable {
         case dividerDrag = "divider_drag"
+        /// A split to the right opening (the split key or the menu): input is the key press or click, the first frame
+        /// is the first commit that shows the split begin (the snapshot's slide with `splitSnapshotOpen` on, else the
+        /// held snap that shows the live panes). Its lines carry `path`: `snapshot` or `live`.
+        case rightSplitOpen = "right_split_open"
     }
 
     nonisolated public static let fileName = "frame-timing.jsonl"
@@ -47,6 +51,9 @@ public final class TransitionFrameLog {
     nonisolated public static let maximumBytes = 512 * 1024
     /// An event older than this when the transition's code sees it is not this transition's input.
     nonisolated static let maximumEventAge: CFTimeInterval = 1
+    /// A change later than this after its input is not that input's (a split the daemon refused, then another change):
+    /// it times nothing.
+    nonisolated static let maximumChangeWait: CFTimeInterval = 2
 
     private enum Phase {
         case idle
@@ -64,6 +71,11 @@ public final class TransitionFrameLog {
     nonisolated let bound: Int
     nonisolated let build: String
     private var phase = Phase.idle
+    /// The marked change's path (`snapshot`, `live`), written with its line; nil writes none.
+    private var markedPath: String?
+    /// The marked change was committed by an explicit flush in the input's own turn (the snapshot path): its frame was
+    /// handed over at the commit's display step, and the run loop block after it waits on the rest of that turn.
+    private var markedEndsAtDisplay = false
     private nonisolated let writer: CoalescingFileWriter
     private lazy var probe = CommitProbe { [weak self] displayed, ended in self?.committed(displayed: displayed, ended: ended) }
     /// Gets each line (tests); nil writes the file.
@@ -100,7 +112,7 @@ public final class TransitionFrameLog {
     public func input(now: CFTimeInterval = CACurrentMediaTime(), event: NSEvent? = NSApp?.currentEvent) {
         if work != nil { work?.moves += 1 }
         guard case let .armed(transition) = phase else { return }
-        let pointer: Set<NSEvent.EventType> = [.leftMouseDragged, .leftMouseDown, .leftMouseUp, .mouseMoved]
+        let pointer: Set<NSEvent.EventType> = [.leftMouseDragged, .leftMouseDown, .leftMouseUp, .mouseMoved, .keyDown]
         if let event, pointer.contains(event.type), now - event.timestamp >= 0, now - event.timestamp < Self.maximumEventAge {
             phase = .waiting(transition, input: event.timestamp, fromEvent: true)
             work?.input = event.timestamp
@@ -122,14 +134,26 @@ public final class TransitionFrameLog {
     }
 
     /// The transition's first change is in the transaction open now, in `window`: its commit ends the timing.
-    public func changed(in window: NSWindow?) {
+    /// `path` goes on the line. `endsAtDisplay`: the caller flushes that transaction now, in the input's turn, so the
+    /// commit's display step is when the frame went to the window server (``markedEndsAtDisplay``).
+    public func changed(in window: NSWindow?, path: String? = nil, endsAtDisplay: Bool = false,
+                        now: CFTimeInterval = CACurrentMediaTime()) {
         guard case let .waiting(transition, input, fromEvent) = phase else { return }
-        guard let host = window?.contentView?.layer else {
+        guard let host = window?.contentView?.layer, now - input < Self.maximumChangeWait else {
             phase = .idle
             return
         }
         phase = .marked(transition, input: input, fromEvent: fromEvent)
+        (markedPath, markedEndsAtDisplay) = (path, endsAtDisplay)
         probe.mark(in: host)
+    }
+
+    /// The armed or waiting transition, if any (the layout asks whether a split is timed).
+    public var pendingTransition: Transition? {
+        switch phase {
+        case .idle: nil
+        case let .armed(transition), let .waiting(transition, _, _), let .marked(transition, _, _): transition
+        }
     }
 
     /// The transition ended with no change to time (a click, Escape): nothing is written.
@@ -143,8 +167,10 @@ public final class TransitionFrameLog {
         probe.remove()
         guard case let .marked(transition, input, fromEvent) = phase else { return }
         phase = .idle
-        let line = Self.line(transition, input: input, displayed: displayed, ended: ended, fromEvent: fromEvent, build: build,
-                             atMilliseconds: (Date().timeIntervalSince1970 * 1000).rounded())
+        let line = Self.line(transition, input: input, displayed: displayed, ended: markedEndsAtDisplay ? displayed : ended,
+                             fromEvent: fromEvent, build: build, atMilliseconds: (Date().timeIntervalSince1970 * 1000).rounded(),
+                             path: markedPath)
+        (markedPath, markedEndsAtDisplay) = (nil, false)
         write(line)
     }
 
@@ -169,11 +195,12 @@ public final class TransitionFrameLog {
 
     /// One line, newline included.
     nonisolated static func line(_ transition: Transition, input: CFTimeInterval, displayed: CFTimeInterval, ended: CFTimeInterval,
-                                 fromEvent: Bool, build: String, atMilliseconds: Double) -> String {
+                                 fromEvent: Bool, build: String, atMilliseconds: Double, path: String? = nil) -> String {
         let buildJSON = jsonSafe(build)
         return "{\"transition\":\"\(transition.rawValue)\",\"ms\":\(ms(ended - input)),\"commit_ms\":\(ms(displayed - input)),"
             + "\"input_ts\":\(input),\"first_frame_ts\":\(ended),\"event\":\(fromEvent),\"build\":\"\(buildJSON)\","
-            + "\"at_ms\":\(Int64(atMilliseconds))}\n"
+            + "\"at_ms\":\(Int64(atMilliseconds))"
+            + (path.map { $0.allSatisfy { $0.isLetter || $0 == "_" } ? ",\"path\":\"\($0)\"" : "" } ?? "") + "}\n"
     }
 
     /// One work line, newline included: `ms` the first move to the release, then the moves and each counter's change.
