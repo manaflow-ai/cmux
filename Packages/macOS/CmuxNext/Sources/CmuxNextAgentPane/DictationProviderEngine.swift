@@ -92,7 +92,7 @@ public struct DictationProviderEngine {
                   !chunk.isEmpty else { throw invalid }
             bytes.append(chunk)
         }
-        // Reject a recording changed while it was being read; never read past the cap.
+        // Refuse growth during the read, probing only one byte beyond the bounded recording.
         guard recording.read(at: bytes.count, count: 1)?.isEmpty == true else { throw invalid }
         try Task.checkCancellation()
         return bytes.base64EncodedString()
