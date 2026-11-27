@@ -156,7 +156,8 @@ def keys(rev: str, root: Path = ROOT, recipe_rev: str | None = None) -> dict[str
 #   - no pass since then had those same blobs (a pass with them means the red is fixed, say in another file);
 #   - it is under RED_MAX_AGE_H old, the PR is not labeled full-ci, and this run is not one of the AUDIT_PERCENT
 #     audits (seeded by run id and attempt), which build anyway so a fix in another file is seen within ~30 min.
-# Any read that fails or runs long builds: the skip fails open.
+# Any read that fails or runs long builds: the skip fails open. Only same-repository runs' verdicts count (trusted).
+# One red on either arch skips both: the reds seen are arch-independent (#62033 cancels the other arch on a red too).
 RED_ARTIFACT = "nightly-app-compile-red"
 PASS_ARTIFACT = "nightly-app-compile-pass"
 RED_MAX_AGE_H = 6
@@ -194,7 +195,7 @@ def _api(path: str, token: str, raw: bool = False):
         "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28"})
     if not raw:
-        with urllib.request.urlopen(request, timeout=20) as answer:
+        with urllib.request.urlopen(request, timeout=15) as answer:
             return json.load(answer)
     try:
         urllib.request.build_opener(_NoRedirect).open(request, timeout=20)
@@ -206,11 +207,22 @@ def _api(path: str, token: str, raw: bool = False):
     raise RuntimeError("artifact download answered without a redirect")
 
 
+SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def trusted(artifact: dict) -> bool:
+    """Uploaded by a run of a same-repository head: a fork PR's run can upload artifacts too (its own workflow
+    file), so its verdicts are never read."""
+    run = artifact.get("workflow_run") or {}
+    return (not artifact.get("expired") and run.get("repository_id") is not None
+            and run.get("repository_id") == run.get("head_repository_id") and bool(SHA.fullmatch(run.get("head_sha") or "")))
+
+
 def _artifacts(repo: str, name: str, token: str) -> list[dict]:
-    """Unexpired artifacts NAME-ARCH (each arch's job uploads its own), newest first."""
+    """Trusted unexpired artifacts NAME-ARCH (each arch's job uploads its own), newest first."""
     items = [a for arch in ARCHS
              for a in _api(f"repos/{repo}/actions/artifacts?name={name}-{arch}&per_page=50", token).get("artifacts", [])]
-    return sorted((a for a in items if not a.get("expired")), key=lambda a: a["created_at"], reverse=True)
+    return sorted((a for a in items if trusted(a)), key=lambda a: a["created_at"], reverse=True)
 
 
 def _when(stamp: str) -> dt.datetime:
@@ -220,7 +232,7 @@ def _when(stamp: str) -> dt.datetime:
 def decide_base_red(red: dict | None, passes: list[dict], rev: str, blobs_at, now: dt.datetime) -> str | None:
     """The red's job URL when rev would only repeat the base's red, else None (red: verdict.json plus created_at
     and diagnostics; passes: {"head", "created_at"} newer first; blobs_at(rev, paths) -> {path: oid})."""
-    if not red or now - _when(red["created_at"]) > dt.timedelta(hours=RED_MAX_AGE_H):
+    if not red or not all(SHA.fullmatch(str(red.get(k, ""))) for k in ("head", "base")) or now - _when(red["created_at"]) > dt.timedelta(hours=RED_MAX_AGE_H):
         return None
     files = failing_files(red.get("diagnostics", ""))
     if not files:
@@ -249,13 +261,15 @@ def base_red(rev: str, base_tip: str, root: Path = ROOT) -> str | None:
         red = json.loads(z.read("verdict.json"))
         red["diagnostics"] = z.read("diagnostics.txt").decode(errors="replace")
     red["created_at"] = newest["created_at"]
+    if red.get("head") != newest["workflow_run"]["head_sha"] or not SHA.fullmatch(str(red.get("base", ""))):
+        return None  # the verdict must name its own run's head, and a commit id
     passes = [{"head": a["workflow_run"]["head_sha"], "created_at": a["created_at"]}
               for a in _artifacts(repo, PASS_ARTIFACT, token)
               if a["created_at"] > newest["created_at"] and (a.get("workflow_run") or {}).get("head_sha")][:MAX_PASSES]
     wanted = sorted({red["head"], red["base"], *(p["head"] for p in passes)} - {rev, base_tip})
     if wanted:
         subprocess.run(["git", "-C", str(root), "-c", "protocol.version=2", "fetch", "-q", "--no-tags", "--depth=1",
-                        "--filter=blob:none", "origin", *wanted], check=True, timeout=240)
+                        "--filter=blob:none", "origin", "--", *wanted], check=True, timeout=120)
     url = decide_base_red(red, passes, rev, lambda r, paths: blobs(r, paths, root),
                           dt.datetime.now(dt.timezone.utc))
     if url:

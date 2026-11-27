@@ -65,6 +65,7 @@ jobs:
         id: basered
         if: ${{ steps.route.outputs.swift == 'true' }}
         timeout-minutes: 5
+        continue-on-error: true  # past its time it builds: the skip fails open
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -132,7 +133,7 @@ jobs:
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
           fi
-          if [[ "$status" != 0 ]] && grep -q 'source depot full' "$log"; then
+          if [[ "$status" != 0 ]] && grep -q -E '^cmux-ci: step [0-9a-f]+ failed on no worker: invalid ci-step: source depot full' "$log"; then
             # The controller refused the step before any worker took it (jobs 140511754276 and 26 more,
             # 2026-11-27 11:53-13Z): the fleet's disk, not the head. No verdict, not a red on the head.
             status=69

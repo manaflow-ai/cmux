@@ -184,8 +184,10 @@ class BaseRed(unittest.TestCase):
     FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingDescriptor+Palette.swift"
     NOW = npb.dt.datetime(2026, 11, 27, 12, 0, tzinfo=npb.dt.timezone.utc)
 
+    H1, B1, H2, H3 = ("1" * 40, "b" * 40, "2" * 40, "3" * 40)
+
     def red(self, **extra):
-        return {"verdict": "red", "head": "h1", "base": "b1", "job": "https://x/runs/1", "diagnostics": self.DIAG,
+        return {"verdict": "red", "head": self.H1, "base": self.B1, "job": "https://x/runs/1", "diagnostics": self.DIAG,
                 "created_at": "2026-11-27T11:00:00Z", **extra}
 
     def blobs(self, table):
@@ -195,23 +197,30 @@ class BaseRed(unittest.TestCase):
         self.assertEqual(npb.failing_files(self.DIAG + "warning: x.swift:1:1: warning: w\n"), [self.FILE])
 
     def test_same_files_at_red_head_base_and_this_head_skip(self) -> None:
-        self.assertEqual(npb.decide_base_red(self.red(), [], "h2", self.blobs({}), self.NOW), "https://x/runs/1")
+        self.assertEqual(npb.decide_base_red(self.red(), [], self.H2, self.blobs({}), self.NOW), "https://x/runs/1")
 
     def test_head_that_caused_it_or_changed_the_file_builds(self) -> None:
-        self.assertIsNone(npb.decide_base_red(self.red(), [], "h2", self.blobs({"b1": "old"}), self.NOW))
-        self.assertIsNone(npb.decide_base_red(self.red(), [], "h2", self.blobs({"h2": "edited"}), self.NOW))
+        self.assertIsNone(npb.decide_base_red(self.red(), [], self.H2, self.blobs({self.B1: "old"}), self.NOW))
+        self.assertIsNone(npb.decide_base_red(self.red(), [], self.H2, self.blobs({self.H2: "edited"}), self.NOW))
 
     def test_a_later_pass_with_the_same_files_builds(self) -> None:
-        later = [{"head": "h3", "created_at": "2026-11-27T11:30:00Z"}]
-        self.assertIsNone(npb.decide_base_red(self.red(), later, "h2", self.blobs({}), self.NOW))
+        later = [{"head": self.H3, "created_at": "2026-11-27T11:30:00Z"}]
+        self.assertIsNone(npb.decide_base_red(self.red(), later, self.H2, self.blobs({}), self.NOW))
         # A pass on an older base (other blobs) says nothing about this red.
-        self.assertIsNotNone(npb.decide_base_red(self.red(), later, "h2", self.blobs({"h3": "older"}), self.NOW))
+        self.assertIsNotNone(npb.decide_base_red(self.red(), later, self.H2, self.blobs({self.H3: "older"}), self.NOW))
 
     def test_old_or_non_swift_red_builds(self) -> None:
         old = self.red(created_at="2026-11-27T05:00:00Z")
-        self.assertIsNone(npb.decide_base_red(old, [], "h2", self.blobs({}), self.NOW))
-        self.assertIsNone(npb.decide_base_red(self.red(diagnostics="cmux-ci: source depot full"), [], "h2",
+        self.assertIsNone(npb.decide_base_red(old, [], self.H2, self.blobs({}), self.NOW))
+        self.assertIsNone(npb.decide_base_red(self.red(diagnostics="cmux-ci: source depot full"), [], self.H2,
                                               self.blobs({}), self.NOW))
+
+    def test_fork_runs_and_bad_ids_are_not_read(self) -> None:
+        run = {"repository_id": 1, "head_repository_id": 1, "head_sha": self.H1}
+        self.assertTrue(npb.trusted({"workflow_run": run}))
+        self.assertFalse(npb.trusted({"workflow_run": {**run, "head_repository_id": 2}}))
+        self.assertFalse(npb.trusted({"workflow_run": {**run, "head_sha": "--upload-pack=x"}}))
+        self.assertIsNone(npb.decide_base_red(self.red(base="--upload-pack=x"), [], self.H2, self.blobs({}), self.NOW))
 
     def test_audit_share_is_about_ten_percent(self) -> None:
         share = sum(npb.audited(str(run), "1") for run in range(2000)) / 2000
@@ -226,7 +235,8 @@ class BaseRed(unittest.TestCase):
         self.assertIn(f"name=" + npb.PASS_ARTIFACT, text)
         self.assertIn("name: ${{ steps.verdict.outputs.name }}-${{ matrix.arch }}", text)
         # The fleet refusing the step for its own disk is no verdict, not a red on the head.
-        self.assertIn("grep -q 'source depot full'", text)
+        self.assertIn("failed on no worker: invalid ci-step: source depot full' \"$log\"", text)
+        self.assertIn("continue-on-error: true  # past its time it builds", text)
         router = (ROOT / ".github/workflows/pr-router.yml").read_text()
         self.assertRegex(router, r"uses: ./.github/workflows/nightly-pr-build.yml\n    permissions:\n"
                                  r"      contents: read\n      actions: read")
