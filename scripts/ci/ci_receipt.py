@@ -454,20 +454,36 @@ def lane_oidc_token(env=os.environ) -> str:
 LOOKUP_DEADLINE_S = 60
 
 
-def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT) -> dict:
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method="POST", headers={
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-    try:
-        status, body, _ = deadline_http.request(request, LOOKUP_DEADLINE_S)
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise Rejected(f"the controller did not answer: {error}") from error
-    try:
-        answer = json.loads(body or b"{}")
-    except ValueError:
-        answer = {}
-    if status >= 300:
-        raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
-    return answer
+# A restarting controller answers 503 "the controller is starting; retry" for a few seconds: on 2026-11-27
+# 11:5xZ four of 30 dispatched land runs took that first answer as no receipt and re-ran the fast gates. A lookup
+# only reads, so a 5xx or 429 is asked again, backing off, within the one LOOKUP_DEADLINE_S budget.
+LOOKUP_RETRY_PAUSE_S = 2.0
+LOOKUP_RETRY_PAUSE_MAX_S = 10.0
+
+
+def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT, *,
+             clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict:
+    data = json.dumps(payload).encode()
+    end = clock() + LOOKUP_DEADLINE_S
+    pause = LOOKUP_RETRY_PAUSE_S
+    while True:
+        request = urllib.request.Request(endpoint, data=data, method="POST", headers={
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+        try:
+            status, body, _ = deadline_http.request(request, max(end - clock(), 1.0))
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise Rejected(f"the controller did not answer: {error}") from error
+        try:
+            answer = json.loads(body or b"{}")
+        except ValueError:
+            answer = {}
+        if (status >= 500 or status == 429) and end - clock() > pause:
+            sleep(pause)
+            pause = min(pause * 2, LOOKUP_RETRY_PAUSE_MAX_S)
+            continue
+        if status >= 300:
+            raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
+        return answer
 
 
 LaneAsk = Callable[[dict], dict]
@@ -692,6 +708,39 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
     return 0
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them, ~1 GB each). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    import shutil
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
     # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
@@ -702,7 +751,9 @@ def produce(args: argparse.Namespace) -> int:
         return 2
     head = tested_head(repo)
     started = time.monotonic()
+    sweep_dead_holders("ci-receipt-")
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
+        (Path(scratch) / ".owner-pid").write_text(str(os.getpid()))
         work = Path(scratch) / "merge"
         try:
             base = merge_worktree(repo, args.remote, head, work)
