@@ -120,6 +120,9 @@ wait_for_budget() {
     return 1
   }
   log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
+  # Structured wait marker for ci-trace, on stderr. Not when stdout and stderr are one stream: those
+  # callers compare the captured text exactly (see log_wait), so the marker would break them.
+  [ /dev/fd/1 -ef /dev/fd/2 ] || echo "CMUX-WAIT {\"on\":\"github-api-budget\",\"class\":\"quota\",\"bound_s\":${max_total},\"waited_s\":${want}}" >&2
   sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 

@@ -157,6 +157,9 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
   };
 }
 
+/** A staging machine create can run past the 60 s op default (run 45600635121: three timeouts at the parent). */
+const CREATE_TIMEOUT_MS = 240_000;
+
 /** Staging's test team sits near its machine cap; a create that hits it waits for room instead of
  * failing the row (25 min, or ROOM_WAIT_MS). Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
 export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(process.env.ROOM_WAIT_MS ?? 1_500_000)): Promise<[T, number]> {
@@ -188,12 +191,87 @@ export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(proces
 /**
  * Machines this script made that no one deletes otherwise: this run's (a create cut off at the client timeout can
  * still make its machine, which the run never learns the id of: runs 45570177493, 45571955695 and 45573615938), and
- * any earlier run's left over two hours or more. Every machine here is named "runnable link rl-<tag> ...".
+ * any earlier run's older than STRAY_AGE_MS. Every machine here is named "runnable link rl-<tag> ...".
  */
+// A row's creation time in ms: machines carry a number, snapshots may carry an ISO string. Unknown reads as new.
+function createdMs(r: any): number {
+  const v = r?.created_at ?? r?.createdAt;
+  if (typeof v === "number") return v;
+  const t = typeof v === "string" ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+}
+
+// A cleanup line that only says NOT deleted hid why (run 45713223869 left a failed parent and a stray); carry the reason.
+const whyNot = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 160);
+
+// Snapshots this script left behind (a run killed before its finally) count against the team's snapshot quota; run
+// 45703015793 had both the link mint and the plain snapshot refused with cloud.quota.exceeded. Sweep them like machines.
+const snapshotRows = (list: any): any[] => (Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? []);
+
+// Returns the ids it deleted. A delete that returns has not yet freed its slot: run 45756094330 swept both stray link
+// snapshots before the mint, and the list read after the refused mint still showed them live (5/5, quota exceeded).
+async function sweepSnapshots(api: any, tag: string, keepId: string | null, cleanup: string[]): Promise<string[]> {
+  const list = await api.read("cloud.snapshot.list", {}).catch(() => null);
+  if (!list) return (cleanup.push("snapshot sweep: list failed"), []);
+  const gone: string[] = [];
+  for (const id of strays(snapshotRows(list), tag, Date.now(), new Set(keepId ? [keepId] : []))) {
+    await api.op("cloud.snapshot.delete", { snapshot: id }, `${tag}-snap-del-stray-${id}`).then(() => (gone.push(id), cleanup.push(`stray snapshot ${id} deleted`)), (e) => cleanup.push(`stray snapshot ${id} NOT deleted: ${whyNot(e)}`));
+  }
+  return gone;
+}
+
+// Ids of `ids` the list still holds live; the mint waits on this reaching empty so the swept slots are free.
+export function stillLive(rows: any[], ids: string[]): string[] {
+  const want = new Set(ids);
+  return rows.filter((r) => want.has(String(r?.id ?? "")) && r?.status !== "deleted" && r?.status !== "deleting").map((r) => String(r.id));
+}
+
+async function settleSweep(api: any, ids: string[], boundMs: number): Promise<{ ms: number; left: string[] }> {
+  const t0 = Date.now();
+  let left = ids;
+  while (left.length && Date.now() - t0 < boundMs) {
+    const list = await api.read("cloud.snapshot.list", {}).catch(() => null);
+    if (list) left = stillLive(snapshotRows(list), ids);
+    if (left.length) await sleep(5_000);
+  }
+  return { ms: Date.now() - t0, left };
+}
+
+/** Who fills the team's snapshot slots (the provider limit refuses both the link and the plain snapshot, run
+ *  45705522020): counts by a name shape (digits and ids folded to #), so the leaking script can be named. */
+export function snapshotCensus(rows: any[], now: number): { total: number; live: number; oldest_h: number | null; by_shape: Record<string, number> } {
+  const live = rows.filter((r) => r?.status !== "deleted" && r?.status !== "deleting");
+  const by: Record<string, number> = {};
+  let oldest = Number.POSITIVE_INFINITY;
+  for (const r of live) {
+    const shape = String(r?.name ?? "(unnamed)").replace(/[0-9a-z]*[0-9][0-9a-z]*/gi, "#").slice(0, 40);
+    by[shape] = (by[shape] ?? 0) + 1;
+    oldest = Math.min(oldest, createdMs(r));
+  }
+  const top = Object.fromEntries(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8));
+  return { total: rows.length, live: live.length, oldest_h: Number.isFinite(oldest) ? Math.round((now - oldest) / 360_000) / 10 : null, by_shape: top };
+}
+
+// The run tag a row's name carries: "runnable link rl-<tag> ..." (machines, plain snapshots) or the link API's own
+// snapshot name "link <user> rl-<tag>-mint..." (its clientKey). The sweep matched only the first, so every link snapshot a
+// run left (no revoke before it died) stayed: 6 of the team's 9 provider snapshot slots in run 45716117127's census.
+export function runTag(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const m = /^runnable link (rl-[0-9a-z]+)(?: |$)/.exec(name) ?? /^link \S+ (rl-[0-9a-z]+)-mint(?:-expiring)?$/.exec(name);
+  return m ? m[1] : null;
+}
+
+// No run outlives its job (runnable-link.yml timeout-minutes: 75), so a row of this script older than that belongs to a dead
+// run. The old two-hour bound kept two link snapshots of runs 40 minutes gone, and with three other snapshots that filled
+// staging's five slots (run 45734544111: cloud.quota.exceeded at mint).
+export const STRAY_AGE_MS = 80 * 60_000;
+
 export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
   return rows
-    .filter((r) => typeof r?.name === "string" && r.name.startsWith("runnable link rl-") && r.status !== "deleted" && r.status !== "deleting")
-    .filter((r) => r.name.startsWith(`runnable link ${tag} `) || (typeof r.created_at === "number" && now - r.created_at >= 2 * 3600_000))
+    .filter((r) => runTag(r?.name) !== null && r.status !== "deleted" && r.status !== "deleting")
+    // A failed row of this script is never restorable yet still holds a quota slot (run 45760655846: before the mint the
+    // list held a 47-minute-old failed link snapshot of an earlier run, and two failed foreign ones), so it goes at any age.
+    .filter((r) => runTag(r.name) === tag || r.status === "failed" || now - createdMs(r) >= STRAY_AGE_MS)
     .map((r) => String(r.id ?? r.machine_id ?? ""))
     .filter((id) => id && !deleted.has(id));
 }
@@ -248,12 +326,13 @@ async function main(): Promise<number> {
   const meta: Record<string, unknown> = { backend: backend.name, project: `${PROJECT_REPO}@${PROJECT_REF}`, tag };
   let snapshot: string | null = null;
   let link: any = null;
+  let linkRevoked = false; // a link not revoked keeps its snapshot past expiry (cmux-platform deletes it on revoke only)
   let parent: string | null = null;
   try {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
     stage = "parent create";
     const t0 = Date.now();
-    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`));
+    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`, {}, CREATE_TIMEOUT_MS));
     parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
     machines.push(parent);
     await waitMachine(api, parent, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
@@ -275,20 +354,49 @@ async function main(): Promise<number> {
 
     // Mint.
     stage = "mint";
+    if (!keep) {
+      // What holds the slots just before the mint, row by row (run 45758368273 swept nothing here yet the mint was
+      // refused at 5/5 with two link snapshots live afterwards: this says whether they were there before it).
+      const pre = await api.read("cloud.snapshot.list", {}).catch(() => null);
+      if (pre) meta.pre_mint_snapshots = snapshotRows(pre).map((r) => `${String(r?.id ?? "").slice(0, 10)} ${String(r?.name ?? "").replace(/user_\w+/, "user").slice(0, 40)} ${r?.status} ${Number.isFinite(createdMs(r)) ? Math.round((Date.now() - createdMs(r)) / 60_000) + "m" : "?"}`);
+      const swept = await sweepSnapshots(api, tag, null, cleanup);
+      if (swept.length) {
+        const settled = await settleSweep(api, swept, 180_000);
+        meta.sweep_settle = { swept: swept.length, ms: settled.ms, still_live: settled.left.length };
+      }
+    }
+    // The install token dies about 12 minutes after it is made (cloud-fork-placement.ts), and a slow parent outlives it:
+    // run 45771500411 took 736 s to bring the parent up and its mint answered 401 machine.unauthorized. Renew first.
+    await renew();
     const m0 = Date.now();
-    const minted = await http("POST", `${platform}/v1/runnable-links`, {
+    const mint = () => http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",
       manifest: { repo: PROJECT_REPO, ref: PROJECT_REF, head, sessions: session ? [session] : [], smoke: "mocha test/app.js", service: { port: SERVICE_PORT, path: "/" } },
     }, ph(), 180_000, true);
+    let minted = await mint();
+    // A new machine is private; the platform asks its creator to share it with the team first (link.machine_private,
+    // run 45605879435). Do what a person would: share it, then mint again. The share is part of the mint's time.
+    if (minted.status === 403 && minted.body?.code === "link.machine_private") {
+      const shared = await http("PUT", `${platform}/v1/machines/${parent}/visibility`, { visibility: "team" }, ph(), 60_000, true);
+      meta.shared_with_team = shared.status;
+      if (shared.status === 200) minted = await mint();
+    }
     if (minted.status === 200 || minted.status === 201) {
       link = minted.body;
       snapshot = link.snapshotId;
       meta.via = "link";
       meta.disclosure = link.disclosure;
+      // "cloud" (a vm_ through CloudDO, platform#2105) or the team-machine path.
+      meta.link_source = link.source ?? "team";
     } else {
       meta.via = "snapshot";
       // The code tells a flag that is off (link.not_found before auth) from a refusal of this machine.
       meta.link_api = `HTTP ${minted.status} ${String(minted.body?.code ?? minted.body?.error ?? "").slice(0, 80)}`.trim();
+      // Which quota: the details name the resource and its used/limit (machines vs snapshots).
+      const d = minted.body?.details ?? minted.body?.error?.details;
+      if (d && typeof d === "object") meta.link_api_details = JSON.stringify({ resource: d.resource, used: d.used, limit: d.limit, busy: d.busy }).slice(0, 200);
+      const census = await api.read("cloud.snapshot.list", {}).catch(() => null);
+      if (census) meta.snapshot_census = snapshotCensus(Array.isArray(census) ? census : census?.snapshots ?? census?.items ?? [], Date.now());
       const snap = await api.op("cloud.snapshot.create", { machine: parent, name: `runnable link ${tag}` }, `${tag}-snap`);
       snapshot = String(snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id);
     }
@@ -298,7 +406,7 @@ async function main(): Promise<number> {
       const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
       const row = rows.find((r) => r?.id === snapshot);
       if (!row || row?.status === "ready" || row?.state === "ready") break;
-      if (row?.status === "failed") throw new Error("snapshot failed");
+      if (row?.status === "failed") throw new Error(`snapshot failed: ${String(row?.error?.code ?? "")} ${String(row?.error?.message ?? "").slice(0, 120)}`.trim());
       if (Date.now() - m0 > 360_000) throw new Error("snapshot not ready in 6 minutes");
       await sleep(500);
     }
@@ -351,7 +459,7 @@ async function main(): Promise<number> {
       } catch (e) {
         r.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 400);
       } finally {
-        if (r.copy && !keep) await api.deleteMachine(r.copy, `${tag}-del-open-${run}`).then(() => cleanup.push(`copy ${run} deleted`), () => cleanup.push(`copy ${run} NOT deleted (${r.copy})`));
+        if (r.copy && !keep) await api.deleteMachine(r.copy, `${tag}-del-open-${run}`).then(() => cleanup.push(`copy ${run} deleted`), (e) => cleanup.push(`copy ${run} NOT deleted (${r.copy}): ${whyNot(e)}`));
       }
       opens.push(r);
       say({ phase: "open", run, click_to_usable_ms: r.click_to_usable_ms, canary_after_scrub: r.canary_after_scrub, error: r.error });
@@ -369,6 +477,7 @@ async function main(): Promise<number> {
       } else negative.expired = { mint_status: short.status };
       const d = await http("DELETE", `${platform}/v1/runnable-links/${link.id}`, undefined, ph(), 60_000, true);
       const v = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-revoked` }, ph(), 60_000, true);
+      linkRevoked = d.status >= 200 && d.status < 300;
       negative.revoked = { delete_status: d.status, status: v.status, code: v.body?.code ?? v.body?._tag ?? null, refused: v.status === 410 };
       const noAuth = await http("GET", `${platform}/v1/runnable-links/${link.id}`, undefined, {}, 15_000);
       negative.unauthenticated = { status: noAuth.status, refused: noAuth.status === 401 || noAuth.status === 404 };
@@ -381,7 +490,7 @@ async function main(): Promise<number> {
       let b0 = Date.now();
       try {
         await renew();
-        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`));
+        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`, {}, CREATE_TIMEOUT_MS));
         b.quota_wait_ms = waited;
         b0 += waited;
         b.machine = String(c?.machine?.id ?? c?.machine ?? c?.id);
@@ -401,7 +510,7 @@ async function main(): Promise<number> {
       } catch (e) {
         b.error = scrub(String((e as Error).message), secrets).slice(0, 400);
       } finally {
-        if (b.machine && !keep) await api.deleteMachine(b.machine, `${tag}-del-base-${run}`).then(() => cleanup.push(`baseline ${run} deleted`), () => cleanup.push(`baseline ${run} NOT deleted (${b.machine})`));
+        if (b.machine && !keep) await api.deleteMachine(b.machine, `${tag}-del-base-${run}`).then(() => cleanup.push(`baseline ${run} deleted`), (e) => cleanup.push(`baseline ${run} NOT deleted (${b.machine}): ${whyNot(e)}`));
       }
       baseline.push(b);
       say({ phase: "baseline", run, total_ms: b.total_ms, error: b.error });
@@ -409,15 +518,20 @@ async function main(): Promise<number> {
   } catch (e) {
     meta.error = scrub(`${stage}: ${String((e as Error).message)}`, [...secrets, canary]).slice(0, 600);
   } finally {
-    if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), () => cleanup.push(`snapshot NOT deleted (${snapshot})`));
-    if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), () => cleanup.push(`parent NOT deleted (${parent})`));
+    if (link?.id && !linkRevoked && !keep) {
+      const d = await http("DELETE", `${platform}/v1/runnable-links/${link.id}`, undefined, ph(), 60_000, true).catch((e: unknown) => ({ status: 0, body: whyNot(e) }));
+      cleanup.push(d.status >= 200 && d.status < 300 ? "link revoked" : `link NOT revoked (${link.id}): HTTP ${d.status}`);
+    }
+    if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), (e) => cleanup.push(`snapshot NOT deleted (${snapshot}): ${whyNot(e)}`));
+    if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), (e) => cleanup.push(`parent NOT deleted (${parent}): ${whyNot(e)}`));
     if (!keep) {
       const done = new Set(parent ? [parent] : []);
       const rows = await listAllMachines((q) => api.read("cloud.machine.list", q)).catch(() => null);
       if (!rows) cleanup.push("stray sweep: list failed");
       for (const id of rows ? strays(rows, tag, Date.now(), done) : []) {
-        await api.deleteMachine(id, `${tag}-del-stray-${id}`).then(() => cleanup.push(`stray ${id} deleted`), () => cleanup.push(`stray ${id} NOT deleted`));
+        await api.deleteMachine(id, `${tag}-del-stray-${id}`).then(() => cleanup.push(`stray ${id} deleted`), (e) => cleanup.push(`stray ${id} NOT deleted: ${whyNot(e)}`));
       }
+      await sweepSnapshots(api, tag, null, cleanup);
     }
   }
   const out = { ...verdict(opens, baseline, meta), negative, cleanup, kept: keep ? machines : [] };

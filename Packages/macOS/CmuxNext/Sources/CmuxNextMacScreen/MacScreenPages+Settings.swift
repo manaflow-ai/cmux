@@ -50,11 +50,13 @@ extension MacScreenPages {
         let (defaults, laterDefaults) = ObservationStream.current({ settings.snapshot.remoteDesktop })
         defaultPreferences = Self.preferences(defaults)
         maxFpsCap = defaults.maxFps
+        sharpLinuxText = defaults.sharpLinuxText
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
         Task { [weak self] in
             for await defaults in laterDefaults {
                 self?.defaultPreferences = Self.preferences(defaults)
                 self?.maxFpsCap = defaults.maxFps
+                self?.sharpLinuxText = defaults.sharpLinuxText
             }
         }
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds nothing

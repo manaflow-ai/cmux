@@ -21,7 +21,7 @@
 // that machine (`signIn.github`, cloudGitHubSignIn.ts) as a quiet link that turns into that card.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject, useMemo } from "react";
 import { DeviceSignInCard } from "../../../pages/shared/signIn/DeviceSignInCard";
 import { useSignInStrings } from "../../../pages/shared/signIn/strings";
 import { useAccountSignIn, type AccountSignInTransport } from "../../../pages/shared/signIn/useAccountSignIn";
@@ -29,7 +29,6 @@ import type { AccountFamily } from "../../../pages/shared/signIn/accountSignIn";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
 import {
-  KEY_PAGE,
   LoginStepError,
   signsInByPage,
   takesApiKey,
@@ -37,6 +36,7 @@ import {
   type CloudSignIn as SignIn,
   type LoginFailure,
   type LoginStart,
+  KEY_PAGE,
 } from "../cloudAgentLogin";
 import { cancelResize, playResize } from "./fold";
 import { motionMode } from "../../../ui/motion/motionMode";
@@ -64,6 +64,7 @@ const SIGN_IN_LABEL = {
 } as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
+  // retry-prompt-ok: sign-in and code-entry failures; trying again means the person signs in or types a code again.
   bad_code: "turn.signIn.error.badCode",
   expired: "turn.signIn.error.expired",
   shared_machine: "turn.signIn.error.sharedMachine",
@@ -617,6 +618,7 @@ export function CloudSignIn({
               disabled={stage.at === "sending"}
               onClick={() => sendAgain(signIn.reserve())}
             >
+              {/* retry-prompt-ok: sends a new sign-in code to the person, a sign-in step they choose. */}
               {t("turn.signIn.sendAgain")}
             </button>
           )}
@@ -632,6 +634,7 @@ export function CloudSignIn({
           <output className="cv-turn-signin__error">{t(FAILURE_COPY[stage.failure])}</output>
           {stage.failure !== "shared_machine" && stage.failure !== "remote_refused" && (
             <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={retry}>
+              {/* retry-prompt-ok: starts a new sign-in, which asks the person for a code again. */}
               {t("turn.retry")}
             </button>
           )}

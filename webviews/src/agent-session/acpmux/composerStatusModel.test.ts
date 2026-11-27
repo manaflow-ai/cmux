@@ -165,9 +165,9 @@ describe("items", () => {
       "status.agentService.reconnecting",
     ])
       expect(readStatusItem({ kind: "machineLink", level: "info", words, since: 1 })).toBeUndefined();
-    expect(readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words).toBe(
-      "status.machineLink.offline",
-    );
+    expect(
+      readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words,
+    ).toBe("status.machineLink.offline");
   });
 
   test("a peer link's status rides along with its link, absent from an older daemon", () => {
@@ -185,5 +185,19 @@ describe("items", () => {
     expect(restoring?.words).toBe("status.restoringSessions.restoring");
     expect(restoring?.since).toBe(6_000);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
+  });
+});
+
+describe("withPauseReason", () => {
+  test("names the failed turn's error on the paused queue's item only", async () => {
+    const { withPauseReason } = await import("./composerStatusModel");
+    const paused = item({ kind: "queuePaused", level: "attention", words: "status.queuePaused.paused" });
+    const other = item({});
+    expect(withPauseReason([paused, other], "overloaded")).toEqual([
+      { ...paused, words: "status.queuePaused.why", subject: "overloaded" },
+      other,
+    ]);
+    expect(withPauseReason([paused], undefined)).toEqual([paused]);
+    expect(withPauseReason([paused], "")).toEqual([paused]);
   });
 });
