@@ -92,6 +92,15 @@
       "status": "build"
     },
     {
+      "id": "daemon-capabilities",
+      "generator": "scripts/cmux-next/gen-daemon-capabilities.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCapability.generated.swift"
+      ],
+      "inputs": ["cmux-tui/spec/gui-capabilities.json"],
+      "status": "build"
+    },
+    {
       "id": "motion-scale",
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [

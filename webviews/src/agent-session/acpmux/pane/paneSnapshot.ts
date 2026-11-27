@@ -173,7 +173,7 @@ import {
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
-import { revealedSubagent } from "../subagents/subagentPanes";
+import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -346,6 +346,8 @@ export type PaneSnapshotArgs = {
   toggleInspector: (open?: boolean) => boolean;
   sessionIdRef: React.RefObject<string | undefined>;
   subagentDraftChatRef: React.RefObject<string>;
+  /// The subagent this pane, opened on one, shows now (App.tsx), for the wake state.
+  subagentPaneNow: React.RefObject<string | undefined>;
   openChangesTab: React.RefObject<() => void>;
   setClientEpoch: React.Dispatch<React.SetStateAction<number>>;
   folderContinuation: FolderContinuation;
@@ -517,6 +519,7 @@ export function paneSnapshotEffect({
   toggleInspector,
   sessionIdRef,
   subagentDraftChatRef,
+  subagentPaneNow,
   openChangesTab,
   setClientEpoch,
   folderContinuation,
@@ -1121,9 +1124,13 @@ export function paneSnapshotEffect({
       // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
       // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
       // "they need to be able to load faster and without layout shifts"). The reveal after connect
-      // runs again and changes nothing.
+      // runs again and changes nothing. A page built again after its hidden one let go (the person
+      // left the workspace) gets no reveal: the wake state says which subagent the pane showed, so it
+      // never comes back as the chat's own pane.
+      const wokenPane = !reconnect ? readWake(host.wake)?.subagentPane : undefined;
       if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
         revealRef.current(host.revealTurn);
+      else if (wokenPane !== undefined) revealRef.current(SUBAGENT_REVEAL + wokenPane);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
@@ -2857,6 +2864,7 @@ export function paneSnapshotEffect({
           const subagentDrafts = wakeSubagentDrafts(subagentDraftChatRef.current);
           // The transcript's open folds, the newest WAKE_FOLD_LIMIT of each (conversation/wakeFolds.ts).
           const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
+          const subagentPane = subagentPaneNow.current;
           return {
             ...composer,
             // An edit only this page holds (a queued message being edited, a send or draft not yet
@@ -2866,6 +2874,7 @@ export function paneSnapshotEffect({
             ...(attachments.length ? { attachments } : {}),
             ...(subagentDrafts ? { subagentDrafts } : {}),
             ...(folds ? { folds } : {}),
+            ...(subagentPane ? { subagentPane } : {}),
             ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
           };
         },
