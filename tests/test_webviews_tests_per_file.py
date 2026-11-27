@@ -702,6 +702,22 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertTrue(out.exists())
 
+    def test_held_base_reds_are_left_to_the_batch_runs(self):
+        """A pull request's shard drops the files red on the base for a day (CMUX_WEB_TEST_HELD_REDS) and runs the rest."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        held = temp / "held"
+        held.write_text("test/fail.test.ts\ntest/gone.test.ts\n", encoding="utf-8")
+        result, _, calls = self.run_runner(["test/a.test.ts", "test/fail.test.ts"],
+                                           extra_env={"CMUX_WEB_TEST_HELD_REDS": str(held)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/a.test.ts"])
+        self.assertIn("HELD RED test/fail.test.ts", result.stdout)
+        out = temp / "head.json"
+        result, _, calls = self.run_runner(["test/fail.test.ts"], extra_env={"CMUX_WEB_TEST_HELD_REDS": str(held),
+                                                                             "CMUX_WEB_TEST_RESULTS": str(out)})
+        self.assertEqual((result.returncode, calls), (0, []), result.stdout + result.stderr)
+        self.assertTrue(out.exists())
+
     def test_a_focused_list_naming_no_test_file_fails(self):
         """A stale selection (a moved or deleted test) must not pass by running nothing."""
         result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_FILES": "test/gone.test.ts"})
