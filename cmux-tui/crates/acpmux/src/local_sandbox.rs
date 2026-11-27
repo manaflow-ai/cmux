@@ -326,9 +326,19 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .cloned()
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
         .or_else(|| crate::hub::remote_sandbox::user_settings_endpoint(&agent_home));
-    let cmux_legacy_config = home.join(".config/cmux/cmux-next.json");
-    let cmux_agent_config = agent_home.join(".config/cmux-next/cmux-next.json");
-    let cmux_agent_legacy_config = agent_home.join(".config/cmux/cmux-next.json");
+    let config_dir = Path::new(".config");
+    let cmux_legacy_config = home
+        .join(config_dir)
+        .join(cmux_config::location::LEGACY_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
+    let cmux_agent_config = agent_home
+        .join(config_dir)
+        .join(cmux_config::NEXT_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
+    let cmux_agent_legacy_config = agent_home
+        .join(config_dir)
+        .join(cmux_config::location::LEGACY_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
     let cmux_config = absolute(crate::user_settings::resolved_path());
     let cmux_config_real = canonical(&cmux_config);
     let gh_config_dir = env
