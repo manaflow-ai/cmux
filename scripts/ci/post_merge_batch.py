@@ -2,9 +2,9 @@
 """The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
+once post-merge, batched". About every 100 merges (NEXT_POST_MERGE_EVERY_MERGES, default 100; 0 turns
 the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
-default 120), the newest feat-cmux-next tip gets one run of
+default 240), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -51,11 +51,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
-DEFAULT_WINDOW_MINUTES = 120
+DEFAULT_WINDOW_MINUTES = 240
 # A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
 # (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
 # that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
-DEFAULT_EVERY_MERGES = 10
+DEFAULT_EVERY_MERGES = 100
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
