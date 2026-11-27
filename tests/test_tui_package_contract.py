@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import shlex
 import shutil
 import signal
 import stat
@@ -71,6 +72,22 @@ def host_npm_target() -> str:
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+    path.chmod(0o755)
+
+
+def write_tui_binary_fixture(path: Path, version_output: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+    printf '%s\\n' {shlex.quote(version_output)}
+elif [ "$#" -eq 2 ] && [ "$1" = "autocloud" ] && [ "$2" = "--help" ]; then
+    printf '%s\\n' 'An agent chat on any machine' 'Commands: login'
+else
+    exit 2
+fi
+"""
+    )
     path.chmod(0o755)
 
 
@@ -224,8 +241,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
             + "\n"
         )
         (package / NOTICE).write_text(notice_text("cmux-tui", package_rust_target(name)))
-        # What the real binary prints for `--version`: the distribution release.
-        write_executable(
+        write_tui_binary_fixture(
             package / "bin/cmux-tui",
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
         )
