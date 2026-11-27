@@ -1,6 +1,9 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
  "sites": {
+  "acpmux::cmux_rd::fetch": {
+   "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
+  },
   "acpmux::happy_dial::http_client": {
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
