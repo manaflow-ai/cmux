@@ -1,0 +1,56 @@
+{
+  "envs": [["light", "none"], ["dark", "none"]],
+  "shots": [
+    {
+      "name": "waterfall-leo-1127",
+      "entry": "agent-pane.turn-waterfall",
+      "variant": "leo-1127",
+      "width": 640,
+      "height": 200,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-waterfall",
+      "arms": {
+        "now": "",
+        "neutral": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:color-mix(in srgb,var(--cv-fg) 62%,transparent)}",
+        "accent-soft": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:color-mix(in srgb,var(--agent-accent) 45%,transparent)}",
+        "ansi": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:var(--agent-ansi-13,var(--agent-ansi-5,color-mix(in srgb,var(--cv-fg) 62%,transparent)))}",
+        "weight-only": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:color-mix(in srgb,var(--cv-fg) 42%,transparent)}.cv-waterfall__span.is-slowest .cv-waterfall__bar{box-shadow:none;--wf-tone:var(--cv-text)}"
+      }
+    },
+    {
+      "name": "waterfall-bars",
+      "entry": "agent-pane.turn-waterfall",
+      "variant": "bars",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-waterfall",
+      "arms": {
+        "now": "",
+        "neutral": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:color-mix(in srgb,var(--cv-fg) 62%,transparent)}",
+        "accent-soft": ".cv-waterfall .is-web,.cv-waterfall .is-other{--wf-tone:color-mix(in srgb,var(--agent-accent) 45%,transparent)}"
+      }
+    },
+    {
+      "name": "zero-text-closed",
+      "entry": "agent-pane.zero-text-turn",
+      "variant": "closed",
+      "frame": "window",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "zero-text-open",
+      "entry": "agent-pane.zero-text-turn",
+      "variant": "closed",
+      "frame": "window",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "setup": "(async()=>{const l=[...document.querySelectorAll('.cv-worked')].at(-1);if(l&&l.getAttribute('aria-expanded')==='false')l.click();await new Promise(r=>setTimeout(r,800));})()",
+      "arms": { "now": "" }
+    }
+  ]
+}
