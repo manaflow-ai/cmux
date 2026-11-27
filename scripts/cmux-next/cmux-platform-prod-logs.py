@@ -534,7 +534,8 @@ def trace_steps(steps):
 # `call` and `verify` are our VM API calls' wall time, `provider` the provider's own ms when the VM API names it. Without
 # it a slow start reads only `power` (production 2026-11-26 22:42-23:42Z: 121058, 36714 and 32351 ms, all `power`), and
 # whether cmux-vm or the provider held the time cannot be told apart.
-POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
+# The VM API can report upstream time separately for the lookup and the power request.
+POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms", "find_provider_ms", "call_provider_ms")
 
 
 # A start trace's `kind`, who the start was for (cmux-platform CloudCore.ts startKind: a person's, CLOUD_SPARE_RUNNING_MS's

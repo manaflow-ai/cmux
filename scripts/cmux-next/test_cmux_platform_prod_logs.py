@@ -654,10 +654,17 @@ class NeverBoundTests(unittest.TestCase):
 
     def test_a_slow_start_trace_keeps_its_power_split_typed(self):
         row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "queued_ms": 117000,
                                "steps": {"driver": 217, "power": 121058},
                                "power": {"find_ms": 40, "call_ms": 120900, "verify_ms": "x", "provider_ms": 118000,
+                                         "find_provider_ms": 0, "call_provider_ms": 118000,
                                          "vm_id": "vm_secret"}, "total_ms": 121058}))
-        self.assertEqual(row["log"]["power"], {"find_ms": 40, "call_ms": 120900, "provider_ms": 118000})
+        self.assertEqual(row["log"]["queued_ms"], 117000)
+        self.assertEqual(row["log"]["power"], {"find_ms": 40, "call_ms": 120900, "provider_ms": 118000,
+                                              "find_provider_ms": 0, "call_provider_ms": 118000})
+        partial = logs.line(event({"msg": "cloud.start.trace", "machine": VM,
+                                   "power": {"find_provider_ms": "unknown", "call_provider_ms": 13}}))
+        self.assertEqual(partial["log"]["power"], {"call_provider_ms": 13})
         bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
                                 "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
         self.assertNotIn("power", bare["log"])
