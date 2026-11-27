@@ -26,6 +26,28 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
 }
 
 #[test]
+fn a_rejected_mount_does_not_create_parent_directories() {
+    let root = cmux_unix_socket::short_test_dir("proj-root");
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let missing = outside.path().join("never-created").join("chat");
+    assert!(mount_point(missing.to_str().unwrap(), &[root.path().to_path_buf()]).is_err());
+    assert!(!outside.path().join("never-created").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mount_point_symlink_cannot_escape_the_roots() {
+    use std::os::unix::fs::symlink;
+
+    let home = cmux_unix_socket::short_test_dir("proj-symlink");
+    let roots = vec![home.path().to_path_buf()];
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let link = home.path().join("link");
+    symlink(outside.path(), &link).unwrap();
+    assert!(mount_point(link.to_str().unwrap(), &roots).is_err());
+}
+
+#[test]
 fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![home.path().to_path_buf()];
@@ -402,6 +424,7 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
                 // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
                 .env_remove("GIT_CONFIG_GLOBAL")
                 .env_remove("XDG_CONFIG_HOME")
@@ -718,4 +741,22 @@ fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
     let state =
         crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
     let _ = std::fs::remove_dir_all(&state);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_swap_link_out_of_the_served_home_keeps_the_projected_git() {
+    let home = Path::new("/h/me");
+    let at = Path::new("/h/me/work/chats/c/app");
+    // The default state folder is under HOME: fs-v1 follows the link.
+    assert!(swap_link_served(
+        at,
+        Path::new("/h/me/.local/state/cmux-tui/projections/c"),
+        Some(home)
+    ));
+    // A state folder outside HOME: fs-v1 would refuse `.git/cmux-sync.json`, so no swap.
+    assert!(!swap_link_served(at, Path::new("/var/state/projections/c"), Some(home)));
+    // A folder fs-v1 does not serve, or no HOME: nothing to refuse.
+    assert!(swap_link_served(Path::new("/srv/app"), Path::new("/var/state/p"), Some(home)));
+    assert!(swap_link_served(at, Path::new("/var/state/p"), None));
 }
