@@ -1103,7 +1103,8 @@ public final class LiveCoordinator {
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
-            session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.isOnline)))
+            // The service's presence alone: a link that drops to a Mac it lists offline is gone.
+            session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.listedOnline)))
         }
         for (id, session) in sessions where !decision.linked.contains(id) && session.link.target != nil {
             log.info("link to \(session.name, privacy: .private) idle: closing it")
