@@ -261,7 +261,7 @@ class cmux:
         # Resolve at init time so imports don't "lock in" a stale path.
         self.socket_path = socket_path or _default_socket_path()
         self._socket: Optional[socket.socket] = None
-        self._recv_buffer: str = ""
+        self._recv_buffer: bytes = b""
 
     def connect(self) -> None:
         """Connect to the cmux socket"""
@@ -315,8 +315,8 @@ class cmux:
         try:
             self._socket.sendall((command + "\n").encode())
             data = self._recv_buffer
-            self._recv_buffer = ""
-            saw_newline = "\n" in data
+            self._recv_buffer = b""
+            saw_newline = b"\n" in data
             start = time.time()
             while True:
                 if saw_newline:
@@ -333,12 +333,12 @@ class cmux:
                     continue
                 if not chunk:
                     break
-                data += chunk.decode()
-                if "\n" in data:
+                data += chunk
+                if b"\n" in data:
                     saw_newline = True
-            if data.endswith("\n"):
+            if data.endswith(b"\n"):
                 data = data[:-1]
-            return data
+            return data.decode("utf-8")
         except socket.timeout:
             raise cmuxError("Command timed out")
         except socket.error as e:
