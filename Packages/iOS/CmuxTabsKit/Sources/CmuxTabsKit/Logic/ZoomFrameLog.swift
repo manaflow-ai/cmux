@@ -18,11 +18,22 @@ struct ZoomFrameLog: Equatable, Sendable {
         var maxFPS: Int
         /// What the screen drew of the accessory row during the zoom.
         var row: AccessoryTrace.Summary? = nil
+        /// Each interval over 16.7 ms: which frame of the zoom it ended
+        /// and where the zoom stood (0 page, 1 grid) when it was stepped,
+        /// so a stall can be tied to the work that frame does.
+        var slow: [Slow]? = nil
+    }
+
+    struct Slow: Equatable, Sendable, Codable {
+        var frame: Int
+        var ms: Double
+        var progress: Double
     }
 
     static let jitter = 0.0005
 
     private(set) var intervals: [Double] = []
+    private(set) var progresses: [Double] = []
     private(set) var toOverview = false
     private var last: Double?
 
@@ -30,13 +41,15 @@ struct ZoomFrameLog: Equatable, Sendable {
 
     mutating func begin(at time: Double, toOverview: Bool) {
         intervals = []
+        progresses = []
         last = time
         self.toOverview = toOverview
     }
 
-    mutating func frame(at time: Double) {
+    mutating func frame(at time: Double, progress: Double = 0) {
         guard let last else { return }
         intervals.append(max(0, time - last))
+        progresses.append(progress)
         self.last = time
     }
 
@@ -49,6 +62,8 @@ struct ZoomFrameLog: Equatable, Sendable {
                        worstMs: ms.max() ?? 0,
                        over8ms: intervals.filter { $0 > 1.0 / 120 + Self.jitter }.count,
                        over16ms: intervals.filter { $0 > 1.0 / 60 + Self.jitter }.count,
-                       maxFPS: maxFPS)
+                       maxFPS: maxFPS,
+                       slow: intervals.indices.filter { intervals[$0] > 1.0 / 60 + Self.jitter }
+                           .map { Slow(frame: $0, ms: (ms[$0] * 10).rounded() / 10, progress: (progresses[$0] * 1000).rounded() / 1000) })
     }
 }

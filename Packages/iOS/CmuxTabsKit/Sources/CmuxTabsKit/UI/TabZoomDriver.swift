@@ -119,7 +119,7 @@ final class TabZoomDriver {
         let dt = lastTimestamp.map { now - $0 } ?? (link.targetTimestamp - link.timestamp)
         lastTimestamp = now
         #if DEBUG
-        if frameLog.isRunning { frameLog.frame(at: now) }
+        if frameLog.isRunning { frameLog.frame(at: now, progress: state.progress) }
         #endif
         let wasAnimating = state.phase == .animating
         if buildFrame {

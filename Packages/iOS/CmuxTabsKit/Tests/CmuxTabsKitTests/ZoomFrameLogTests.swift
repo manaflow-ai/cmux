@@ -17,6 +17,7 @@ struct ZoomFrameLogTests {
         #expect(s.toOverview && s.frames == 21)
         #expect(abs(s.firstFrameMs - 30) < 0.01 && abs(s.worstMs - 30) < 0.01)
         #expect(s.over8ms == 2 && s.over16ms == 1)
+        #expect(s.slow == [ZoomFrameLog.Slow(frame: 0, ms: 30, progress: 0)])
         let again = log.end(maxFPS: 120)
         #expect(!log.isRunning && again == nil)
     }
