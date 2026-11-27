@@ -116,6 +116,9 @@ mod watch;
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The box a wrap-up call draws, built from the call's own input (`code_mode.rs` records it as a
+/// folded call's `shown`; the call's answer echoes none of it).
+pub use wrap_up::box_of as wrap_up_box;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
