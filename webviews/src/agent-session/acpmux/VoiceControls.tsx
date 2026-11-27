@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Button } from "../../ui/Button";
 import { callNative } from "./callNative";
 import { StopIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
@@ -30,7 +31,8 @@ export function VoiceButton({ state, command = send }: { state: VoiceState; comm
   if (!state.enabled && !active) return null;
   const label = t(active ? "voice.stop" : "voice.start");
   return (
-    <button
+    <Button
+      bare
       type="button"
       className="acpmux-mic acpmux-voice-button"
       data-state={state.state}
@@ -48,7 +50,7 @@ export function VoiceButton({ state, command = send }: { state: VoiceState; comm
           <path d="M2 6v4M5 3v10M8 1v14M11 4v8M14 6v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -67,14 +69,14 @@ export function VoiceStatusView({ state, command = send }: { state: VoiceState; 
         {state.message}
       </span>
       {state.state === "speaking" && (
-        <button type="button" onClick={() => command("voice.skip")}>
+        <Button bare onClick={() => command("voice.skip")}>
           {t("voice.skip")}
-        </button>
+        </Button>
       )}
       {state.restartRequired && (
-        <button type="button" onClick={() => command("voice.restart")}>
+        <Button bare onClick={() => command("voice.restart")}>
           {t("voice.restart")}
-        </button>
+        </Button>
       )}
     </span>
   );
