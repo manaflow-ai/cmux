@@ -107,7 +107,13 @@ CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
-CANDIDATE_DEPTH = 80
+# How far back from the tip the plan looks for a commit with a published cmux-tui tree. The tree publisher coalesces
+# pushes, so about one commit an hour has a tree, and feat-cmux-next gets about 100 first-parent commits an hour
+# (2026-11-27). At 80 the walk stopped short of every published tree: at 04:54Z it fell back to the tree-less tip
+# e6896269634a while 001cba8182ee, 73 min older, had one, so the Mac parts (tabs among them, which goal
+# tabs-keep-speed reads) waited TREE_WAIT_HOURS for a tree that never came, and the next tip did the same. The walk
+# also stops at the last tip tried and at TREE_LOOKUP_SECONDS.
+CANDIDATE_DEPTH = 600
 # What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
 TREE_LOOKUP_SECONDS = 300
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
@@ -329,6 +335,15 @@ PARTS = [
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+    # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+    # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
+    # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus
+    # drafts_lost and transient_frames). Before it, NOW's hot_swap_mac_*_p95_ms came only from a hand-run capture,
+    # import and publish (the unfocused row read null 2026-11-24 to 11-27). goal_rows: a run that stored no p95 row
+    # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
+    {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -466,7 +481,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -2799,7 +2814,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy"):
+                      "chat-snappy", "graceful-swap"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -4057,6 +4072,7 @@ def plan(o):
                 print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
+        walked, reached_last = 0, True
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
                 break
@@ -4067,12 +4083,21 @@ def plan(o):
             if tree_ready(sha):
                 candidate = sha
                 break
-            print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
+            walked += 1
+            if trees.get("_spent"):
+                reached_last = False  # the rest read as unpublished this tick: no is_ancestor call for each of them
+                break
+            if walked <= 3 or walked % 50 == 0:
+                print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent ({walked} so far)")
+        else:
+            reached_last = False
         if not candidate and newest:
             # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
             candidate = newest
-            print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
-                  f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
+            where = ("since the last tip" if reached_last else
+                     "in the tree lookup budget" if trees.get("_spent") else f"in the newest {CANDIDATE_DEPTH} commits")
+            print(f"perf-cron: no commit {where} has a published cmux-tui tree ({walked} looked at); the tip is "
+                  f"{newest[:12]}, its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
     budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):

@@ -130,7 +130,7 @@ function renderSection() {
         () => (tasks().length === 0 ? EmptyState({ title: "Nothing left", symbol: "checkmark.circle" }) : null)
       ])
     ]),
-    Row({ title: "Edit ~/.config/cmux-next/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
+    Row({ title: "Edit main.js in the views folder from cmux customize paths", symbol: "pencil", tint: cmux.theme.text.secondary })
   ])
 }
 
