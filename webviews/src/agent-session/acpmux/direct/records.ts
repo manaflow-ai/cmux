@@ -46,10 +46,74 @@ export function replySegment(event: EventRecord): string | undefined {
   return typeof segment === "string" && segment.length > 0 && segment.length <= 200 ? segment : undefined;
 }
 
+/// The batches' records by `seq`, oldest first, one per `seq`: a later batch's record (and a later one within a
+/// batch) wins a tie. A new array always. Every caller passes batches already in `seq` order (the held log, a page),
+/// so this walks them once, O(total), instead of a Map and a sort of the whole held log per page (11.5 ms at 100k
+/// held records for a 500-record page, 233 ms at 1M: test/merge-event-records.test.ts). A batch out of order falls
+/// back to `mergeEventRecordsBySort`, the old way, which is also the test's oracle.
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
+  let merged: EventRecord[] | undefined;
+  for (const batch of batches) {
+    if (batch.length === 0) continue;
+    const ordered = inSeqOrder(batch);
+    if (ordered === undefined) return mergeEventRecordsBySort(...batches);
+    merged = merged === undefined ? ordered : mergeTwo(merged, ordered);
+  }
+  if (merged === undefined) return [];
+  // Never hand back a caller's own array: callers assign the result over the log they passed in.
+  return batches.includes(merged) ? merged.slice() : merged;
+}
+
+/// The old merge: every record into a Map by `seq` (last wins), then a sort. Kept for out-of-order input and as the
+/// oracle of the linear merge.
+export function mergeEventRecordsBySort(...batches: EventRecord[][]): EventRecord[] {
   const bySequence = new Map<number, EventRecord>();
   for (const event of batches.flat()) bySequence.set(event.seq, event);
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
+}
+
+/// The batch itself when its `seq`s strictly rise; a copy without the earlier of equal neighbours when they only never
+/// fall; undefined when one falls (or is not a number to order by).
+function inSeqOrder(batch: EventRecord[]): EventRecord[] | undefined {
+  let ties = false;
+  for (let i = 1; i < batch.length; i++) {
+    const step = batch[i]!.seq - batch[i - 1]!.seq;
+    if (step > 0) continue;
+    if (step === 0) ties = true;
+    else return undefined;
+  }
+  if (Number.isNaN(batch[0]!.seq)) return undefined;
+  if (!ties) return batch;
+  const out: EventRecord[] = [];
+  for (const event of batch)
+    if (out.length > 0 && out[out.length - 1]!.seq === event.seq) out[out.length - 1] = event;
+    else out.push(event);
+  return out;
+}
+
+/// Two `seq`-ordered, tie-free lists merged; `b` wins a tie. Disjoint ranges (an older page above the log, a live
+/// record below it) are one concatenation.
+function mergeTwo(a: EventRecord[], b: EventRecord[]): EventRecord[] {
+  if (a[a.length - 1]!.seq < b[0]!.seq) return a.concat(b);
+  if (b[b.length - 1]!.seq < a[0]!.seq) return b.concat(a);
+  const out: EventRecord[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const left = a[i]!;
+    const right = b[j]!;
+    if (left.seq < right.seq) {
+      out.push(left);
+      i++;
+    } else {
+      if (left.seq === right.seq) i++;
+      out.push(right);
+      j++;
+    }
+  }
+  while (i < a.length) out.push(a[i++]!);
+  while (j < b.length) out.push(b[j++]!);
+  return out;
 }
 
 /// Older paging asks for records strictly before `events[0]`. Prepending that page avoids sorting
