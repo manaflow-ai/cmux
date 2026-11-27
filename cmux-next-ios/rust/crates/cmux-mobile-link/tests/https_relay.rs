@@ -937,6 +937,9 @@ async fn dial_with_a_slow_gather(
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: phone_first,
         ice_servers: vec![unreachable_turn],
+        // These dials measure the Mac's join against a late `wg-init`: hold it
+        // for the gather, as before relay first sent the offer first (#59649).
+        init_after_gather: true,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -1417,7 +1420,11 @@ async fn relay_first_dial_with_a_slow_gather(
     stun: Duration,
     join: Duration,
 ) -> (Duration, Duration) {
-    let fake = FakeOptions { relay_join_delay: join, ..FakeOptions::default() };
+    // The baseline is the dial before the offer went first: `wg-init` waits for
+    // the gather and so does the Mac's join (no `early wg-relay` lets it start
+    // sooner), so the link takes the gather plus the join.
+    let fake =
+        FakeOptions { relay_join_delay: join, drop_early_wg_relay: after_gather, ..FakeOptions::default() };
     let mac_options =
         DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
     let rig = rig(fake, mac_options, true).await;
