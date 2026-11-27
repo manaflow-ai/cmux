@@ -17,6 +17,7 @@ import { vmInstanceIdentity } from "./live-identity.ts";
 import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
@@ -74,6 +75,8 @@ export interface UpstreamConfig {
   readonly backgroundPollMs?: number;
   /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
   readonly startPollMs?: number;
+  /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
+  readonly createAdmission?: CreateAdmissionClient;
 }
 
 /**
