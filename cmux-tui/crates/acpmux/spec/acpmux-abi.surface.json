@@ -783,6 +783,10 @@
         "ty": "string",
         "required": true
       },
+      "/session/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
+      },
       "/session/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -13895,6 +13899,13 @@
         "nullable": true
       }
     },
+    "request:_acpmux/live": {
+      "/live": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/live_list": {},
     "request:_acpmux/mac_approver_set": {
       "/*untyped*": {
         "ty": "json",
@@ -27058,6 +27069,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/navigator": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/pick": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -27065,6 +27088,12 @@
       }
     },
     "request:_acpmux/team/send": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/session_info": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -32398,6 +32427,10 @@
         "ty": "string",
         "required": true
       },
+      "/data/session/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/session/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -34477,6 +34510,25 @@
         "nullable": true
       }
     },
+    "response:_acpmux/live": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:_acpmux/live_list": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/people": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/people/*": {
+        "ty": "json"
+      }
+    },
     "response:_acpmux/mac_approver_set": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35551,6 +35603,10 @@
       "/data/harness": {
         "ty": "string",
         "required": true
+      },
+      "/data/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/harnessSandboxFailed": {
         "ty": "uint64",
@@ -37379,6 +37435,10 @@
         "ty": "string",
         "required": true
       },
+      "/data/sessions/*/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -38639,6 +38699,18 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/navigator": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/pick": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38646,6 +38718,12 @@
       }
     },
     "response:_acpmux/team/send": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/session_info": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -39332,6 +39410,10 @@
       "/data/sessions/*/harness": {
         "ty": "string",
         "required": true
+      },
+      "/data/sessions/*/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",

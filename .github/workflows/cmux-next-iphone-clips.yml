@@ -82,7 +82,7 @@ jobs:
     name: Record on a fleet simulator
     needs: plan
     if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 240
     permissions:
       contents: read
@@ -131,12 +131,18 @@ jobs:
           if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
             rank=(--priority pr --deadline "${QUEUE_S}s")
           fi
+          # --priority pr is only the agent tag rank (-9, one above plain agent steps): 46020149254's three clips
+          # still sat their 3600 s behind 45 queued simulator steps. These steps ship with the nightly, so their
+          # key names it: the controller ranks a nightly's step in the delivery class (-6, nightlyOrPromoteJob),
+          # ahead of every agent and person step.
           printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
           record_one() {
             local id="$1" roles="$2" before="$3" log="$RUNNER_TEMP/iphone-$id.log" rc step
             local args=(--arg clips --arg "id=$id" --arg "roles=$roles")
             [ "$before" = - ] || args+=(--arg "base=$before")
             "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
+              --key "nightly-next-whats-new-clip-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:-1}-$id" \
+              --deadline "${QUEUE_S}s" \
               --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
               --artifact artifacts/ios-sim/whats-new-clips.zip "${args[@]}" > "$log" 2>&1
             rc=$?
