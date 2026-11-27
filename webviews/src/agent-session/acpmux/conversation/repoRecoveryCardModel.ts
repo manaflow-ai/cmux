@@ -84,41 +84,37 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
 /** How long the card waits for GitHub to confirm the install. The host caps one wait at 60 s. */
 export const GITHUB_WAIT_MS = 60_000;
 
-/** Where the card is. Every phase but the two with a call in flight (`linking`, `retrying`) offers a next step. */
+/**
+ * Where the card is. A read that asking again clears (the connect link, GitHub's install) is asked
+ * again on its own while the card shows (autoRetry.ts), so `noLink` and `notConnected` offer no
+ * button of their own; only an attach that failed or waits on GitHub access offers one.
+ */
 export type RepoRecoveryPhase =
   | { kind: "idle" }
   /** Asking the app for a GitHub connect link, because the tool's error carried none. */
   | { kind: "linking" }
-  /** The app had no connect link either. */
+  /** The app had no connect link either; the card asks again on its own. */
   | { kind: "noLink" }
-  /** The install page is open; the host checks GitHub until `until` (epoch ms). */
-  | { kind: "waiting"; until: number }
-  /** The wait ended and GitHub still isn't connected. */
+  /** The install page is open; the host checks GitHub until `until` (epoch ms). A wait the card
+   * started again on its own has no `until`: a countdown that restarts reads as stuck. */
+  | { kind: "waiting"; until?: number }
+  /** The wait ended and GitHub still isn't connected; the card waits again on its own. */
   | { kind: "notConnected" }
   | { kind: "retrying" }
   /** Attached. `connected`: the card verified a GitHub connection on the way. */
   | { kind: "done"; connected: boolean }
   | { kind: "failed" };
 
-export type RepoRecoveryActionId =
-  | "connect"
-  | "getLink"
-  | "reopen"
-  | "checkAgain"
-  | "retry"
-  | "requestAccess"
-  | "choose";
+export type RepoRecoveryActionId = "connect" | "getLink" | "reopen" | "retry" | "requestAccess" | "choose";
 
 /** The catalog keys this card uses. The component translates them, so this module stays free of i18n. */
 export type RepoRecoveryKey =
   | "cloudRepository.connectNeeded"
   | "cloudRepository.connect"
   | "cloudRepository.linking"
-  | "cloudRepository.noLink"
+  | "cloudRepository.stillLinking"
   | "cloudRepository.waitingGithub"
   | "cloudRepository.openGithubAgain"
-  | "cloudRepository.notConnectedYet"
-  | "cloudRepository.checkAgain"
   | "cloudRepository.pending"
   | "cloudRepository.attached"
   | "cloudRepository.attachedRepo"
@@ -166,14 +162,15 @@ export function waitLeft(until: number, now: number): string {
 }
 
 /**
- * Every phase of the card to what it says and the one-click steps it offers. A phase a person can
- * act in is never left without an action: a failure offers Try again, a connect that didn't take
- * offers Check again (and the install page again), and a missing install link offers to fetch one.
+ * Every phase of the card to what it says and the one-click steps it offers. A missing install link
+ * and a connect that didn't take yet are asked again on their own, so they read as the wait they are
+ * (`stillTrying`, past the house deadline, says so in one quiet line); a failed attach offers Try again.
  */
 export function repoRecoveryView(
   recovery: RepoRecovery,
   phase: RepoRecoveryPhase,
   chosen?: string,
+  stillTrying = false,
 ): RepoRecoveryView | undefined {
   const repo = recoveryRepo(recovery, chosen);
   const target: RepoRecoveryText = repo ? { literal: repo } : text("cloudRepository.thisRepository");
@@ -183,24 +180,21 @@ export function repoRecoveryView(
     : [];
   switch (phase.kind) {
     case "linking":
-      return { tone: "quiet", message: text("cloudRepository.linking"), actions: [] };
     case "noLink":
       return {
-        tone: "error",
-        message: text("cloudRepository.noLink"),
-        actions: [
-          { id: "getLink", label: text("cloudRepository.tryAgain") },
-          ...(canVerify ? [{ id: "checkAgain" as const, label: text("cloudRepository.checkAgain") }] : []),
-        ],
+        tone: "quiet",
+        message: text(stillTrying ? "cloudRepository.stillLinking" : "cloudRepository.linking"),
+        actions: [],
       };
     case "waiting":
-      return { tone: "quiet", message: text("cloudRepository.waitingGithub"), actions: reopen, until: phase.until };
-    case "notConnected":
       return {
-        tone: "error",
-        message: text("cloudRepository.notConnectedYet"),
-        actions: [{ id: "checkAgain", label: text("cloudRepository.checkAgain") }, ...reopen],
+        tone: "quiet",
+        message: text("cloudRepository.waitingGithub"),
+        actions: reopen,
+        ...(phase.until === undefined ? {} : { until: phase.until }),
       };
+    case "notConnected":
+      return { tone: "quiet", message: text("cloudRepository.waitingGithub"), actions: reopen };
     case "retrying":
       return { tone: "quiet", message: text("cloudRepository.pending"), actions: [] };
     case "done":
@@ -215,6 +209,7 @@ export function repoRecoveryView(
       return {
         tone: "error",
         message: text("cloudRepository.attachFailedRepo", { target }),
+        // retry-prompt-ok: attaching runs cloud.repo.add again, a change to the cloud machine the person chooses.
         actions: canVerify ? [{ id: "retry", label: text("cloudRepository.tryAgain") }] : [],
       };
     case "idle":
@@ -246,6 +241,7 @@ export function repoRecoveryView(
           : []),
         { id: "requestAccess", label: text("cloudRepository.requestAccess") },
         // Access granted on GitHub (installed there, or the owner said yes): the same Add repository again, here.
+        // retry-prompt-ok: the person grants access on GitHub first; only they know when it is done.
         ...(canVerify ? [{ id: "retry" as const, label: text("cloudRepository.tryAgain") }] : []),
       ],
     };

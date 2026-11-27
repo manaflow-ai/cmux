@@ -226,6 +226,15 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
     type: "image/jpeg",
     jpeg: { width: 12000, height: 9000, app: 72 * 1024 },
   };
+  /// A 30 s screen recording as macOS writes one: `ftyp`, the media (`mdat`), then `moov` at its end
+  /// with its track's picture size, so reading its shape takes reads at both ends of the file.
+  const REC30: BigFile = {
+    name: "Screen Recording 2026-11-18 at 09.30.12.mov",
+    type: "video/quicktime",
+    size: 60 * MB,
+  };
+  /// A 1 GB file of no kind the composer reads.
+  const GB1: BigFile = { name: "dataset-1gb.bin", type: "application/octet-stream", size: 1024 * MB };
   const TEXT_BYTES = 100 * MB;
   const CASES: Case[] = [
     { id: "baseline: nothing attached", way: "none", mode: "remote", heapBudget: 300 * MB },
@@ -317,6 +326,41 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
     }
   }
 
+  /// A sparse QuickTime movie of `file.size` bytes: `ftyp`, an `mdat` over the media, and a `moov` at
+  /// the end whose track header (`tkhd`, version 0) says 2940 x 1912, as a Retina screen recording.
+  function recording(file: BigFile) {
+    const at = path.join(dir, file.name);
+    if (existsSync(at) && statSync(at).size === file.size) return;
+    const box = (type: string, body: Buffer) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(8 + body.length, 0);
+      head.write(type, 4, "latin1");
+      return Buffer.concat([head, body]);
+    };
+    const ftyp = box("ftyp", Buffer.from("qt  \0\0\0\0qt  ", "latin1"));
+    const tkhd = Buffer.alloc(84);
+    // The identity matrix (16.16 a and d, 2.30 w), then the width and height (16.16).
+    tkhd.writeInt32BE(0x10000, 40);
+    tkhd.writeInt32BE(0x10000, 56);
+    tkhd.writeInt32BE(0x40000000, 72);
+    tkhd.writeUInt32BE(2940 * 65536, 76);
+    tkhd.writeUInt32BE(1912 * 65536, 80);
+    const moov = box("moov", box("trak", box("tkhd", tkhd)));
+    // A 64-bit `mdat` (size 1, then its size) over everything between `ftyp` and `moov`.
+    const mdat = Buffer.alloc(16);
+    mdat.writeUInt32BE(1, 0);
+    mdat.write("mdat", 4, "latin1");
+    mdat.writeBigUInt64BE(BigInt(file.size! - ftyp.length - moov.length), 8);
+    const fd = openSync(at, "w");
+    try {
+      writeSync(fd, Buffer.concat([ftyp, mdat]), 0, ftyp.length + mdat.length, 0);
+      writeSync(fd, moov, 0, moov.length, file.size! - moov.length);
+      ftruncateSync(fd, file.size!);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
   /// A real PNG (RGB): one colour with rows of noise, written row by row with zlib, so neither this
   /// process nor the page ever holds its pixels.
   function png(file: BigFile) {
@@ -395,7 +439,8 @@ os.replace(path + ".part", path)
   /// The baseline row, the floor the other rows' typing and stalls are held to.
   let baseline: Row | undefined;
   beforeAll(async () => {
-    for (const file of [MOV, BIN, MP4]) sparse(file);
+    for (const file of [MOV, BIN, MP4, GB1]) sparse(file);
+    recording(REC30);
     for (const file of [PNG, SHOT]) {
       png(file);
       file.size = statSync(path.join(dir, file.name)).size;
@@ -427,6 +472,8 @@ os.replace(path + ".part", path)
   function hostStub(config: {
     mode: Mode;
     known: string[];
+    /// Of `known`, the ones that are folders.
+    folders?: string[];
     chunkMs: number;
     droppedMs: number;
     choose: string;
@@ -498,7 +545,12 @@ os.replace(path + ".part", path)
           // A chat on this Mac: the host knows where the person's own files are. A remote one: none.
           const asked = Array.isArray(params.names) ? (params.names as string[]) : [];
           const known = config.mode === "local" ? asked.filter((name) => config.known.includes(name)) : [];
-          return ok({ items: known.map((name) => ({ path: `/Users/dev/Desktop/${name}`, folder: false })) });
+          return ok({
+            items: known.map((name) => ({
+              path: `/Users/dev/Desktop/${name}`,
+              folder: config.folders?.includes(name) ?? false,
+            })),
+          });
         }
         case "chat.attach.choose":
           return ok({ items: [{ path: config.choose, folder: false }] });
@@ -1429,4 +1481,207 @@ os.replace(path + ".part", path)
       console.log(`${c.id}: ${row.problems.length ? row.problems.join("; ") : "ok"}`);
       expect(row.problems).toEqual([]);
     });
+
+  // Leo, 2026-11-18: "when I drag a file into Claude Code, it just, the preview is literally just the
+  // file path ... you can just send it instantly. Like, stop blocking." And: "dragging and dropping
+  // attachments of any size should never take time to load. It should just be able to show you the
+  // thing". A dropped file's chip shows in the drop's own frame, and Send pressed the moment it shows
+  // takes the prompt out of the composer as sent; a chat on this Mac still delivers it with the
+  // file's path. Each kind is dropped DROP_RUNS times, each in a fresh page; the host takes
+  // DROP_HOST_MS to say where a drop's files are (a busy host), which neither may wait for.
+  // Shown: in the composer, not held unseen (`data-sizing`), visible and wider than nothing.
+  // Sendable: Send clicked in the first task after the chip shows; the prompt is then a sent row
+  // in the transcript and gone from the composer.
+  type DropKind = { kind: string; file?: BigFile; folder?: string };
+  type DropRow = {
+    id: string;
+    chip: number[];
+    press: number[];
+    sent: number[];
+    delivered?: string;
+    problems: string[];
+  };
+  const DROP_RUNS = 3;
+  const DROP_HOST_MS = 50;
+  /// The chip shows and the prompt is sendable within this (medians over DROP_RUNS). The goal is a
+  /// frame (16 ms), but this dev page (development React, a Linux runner) takes about 24 ms from the
+  /// drop event to any chip, even for a file nothing holds (the 1 GB file, the folder): the bound
+  /// sits above that floor and below a tile held for its picture (about 80 ms here). The numbers
+  /// print on every run.
+  const DROP_FRAME_MS = 50;
+  /// From Send to the prompt shown as sent (the send's own render, development React): a bound
+  /// that only a send held for its file passes.
+  const SEND_SHOWN_MS = 100;
+  const FOLDER = "my-project";
+  const DROP_KINDS: DropKind[] = [
+    { kind: ".mov 30 s recording", file: REC30 },
+    { kind: "1 GB file", file: GB1 },
+    { kind: "image", file: SHOT },
+    { kind: "folder", folder: FOLDER },
+  ];
+  // A folder dropped in a remote chat is refused (WebKit gives an unreadable zero-byte File): not here.
+  const DROP_CASES = (["local", "remote"] as const).flatMap((mode) =>
+    DROP_KINDS.filter((kind) => mode === "local" || !kind.folder).map((kind) => ({ ...kind, mode })),
+  );
+  const dropRows: DropRow[] = [];
+  const median = (values: number[]) => quantile(values, 0.5);
+
+  /// One drop of `c` in a fresh page: its chip's and its send's times from the drop, and the prompt's blocks.
+  async function dropOnce(c: DropKind & { mode: Mode }, run: number, row: DropRow) {
+    const name = c.file?.name ?? c.folder!;
+    const context = await browser!.newContext({ viewport: { width: 1000, height: 760 } });
+    const page = await context.newPage();
+    try {
+      await page.addInitScript(hostStub, {
+        mode: c.mode,
+        known: [name],
+        folders: c.folder ? [c.folder] : [],
+        chunkMs: CHUNK_MS,
+        droppedMs: DROP_HOST_MS,
+        choose: `/Users/dev/Desktop/${name}`,
+        workerSpy: `/@fs${path.join(webviews, "test/support/imageWorkerSpy.ts")}?worker_file&type=module`,
+      });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.locator(PROMPT).waitFor();
+      await page.waitForFunction(() => (window as unknown as BigWindow).__big.sendReady, undefined, {
+        timeout: 30_000,
+      });
+      if (c.file) {
+        await page.evaluate(() => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.id = "bigtest-file";
+          input.hidden = true;
+          document.body.append(input);
+        });
+        await page.setInputFiles("#bigtest-file", path.join(dir, c.file.name));
+      }
+      const token = `dropcase${run}x${Math.random().toString(36).slice(2, 8)}`;
+      await page.locator(PROMPT).click();
+      await page.keyboard.type(`look at this ${token}`);
+      const before = await sentPrompts(page);
+      const timed = await page.evaluate(
+        ({ folder, type, editor, token }) =>
+          new Promise<{ chip?: number; press?: number; sent?: number; failed?: string }>((resolve) => {
+            const data = new DataTransfer();
+            if (folder) data.items.add(new File([], folder, { type: "" }));
+            else {
+              let file = (document.getElementById("bigtest-file") as HTMLInputElement).files![0]!;
+              if (file.type !== type) file = new File([file], file.name, { type, lastModified: file.lastModified });
+              data.items.add(file);
+            }
+            const composer = document.querySelector(".acpmux-composer")!;
+            const CHIP = ":is(.acpmux-attachment, .acpmux-md-inline-chip)";
+            const shown = () =>
+              [...composer.querySelectorAll<HTMLElement>(CHIP)].some(
+                (chip) =>
+                  !chip.hasAttribute("data-sizing") &&
+                  getComputedStyle(chip).visibility !== "hidden" &&
+                  chip.getBoundingClientRect().width > 0,
+              );
+            const sentRow = () =>
+              [...document.querySelectorAll(".acpmux-row.acpmux-user")].some((row) =>
+                row.textContent?.includes(token),
+              ) && !document.querySelector(editor)?.textContent?.includes(token);
+            let at = 0;
+            let chip = 0;
+            let press = 0;
+            const finish = (failed?: string) => {
+              observer.disconnect();
+              clearTimeout(timer);
+              resolve({
+                ...(chip ? { chip: chip - at } : {}),
+                ...(press ? { press: press - at } : {}),
+                ...(failed ? { failed } : { sent: performance.now() - at }),
+              });
+            };
+            const check = () => {
+              if (!chip && shown()) {
+                chip = performance.now();
+                // The first task after the chip shows: as soon as a person could press Send.
+                setTimeout(() => {
+                  press = performance.now();
+                  document
+                    .querySelector<HTMLButtonElement>('.acpmux-composer button.acpmux-send[type="submit"]')
+                    ?.click();
+                  check();
+                }, 0);
+              }
+              if (press && sentRow()) finish();
+            };
+            const observer = new MutationObserver(check);
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+            const timer = setTimeout(() => finish(chip ? "never shown as sent" : "the chip never showed"), 10_000);
+            const target = document.querySelector(".acpmux-composer-box")!;
+            const box = target.getBoundingClientRect();
+            const init = {
+              dataTransfer: data,
+              bubbles: true,
+              cancelable: true,
+              clientX: box.left + Math.min(40, box.width / 2),
+              clientY: box.top + box.height / 2,
+            };
+            at = performance.now();
+            for (const kind of ["dragenter", "dragover", "drop"]) target.dispatchEvent(new DragEvent(kind, init));
+            check();
+          }),
+        { folder: c.folder, type: c.file?.type ?? "", editor: PROMPT, token },
+      );
+      if (timed.failed) row.problems.push(`run ${run}: ${timed.failed}`);
+      if (timed.chip !== undefined) row.chip.push(timed.chip);
+      if (timed.press !== undefined) row.press.push(timed.press);
+      if (timed.sent !== undefined) row.sent.push(timed.sent);
+      // A chat on this Mac: the prompt reaches the agent with the file where it is, never without it.
+      if (c.mode === "local" && run === 0) {
+        const went = await promptAfter(page, before, 30_000);
+        const blocks = went === undefined ? [] : await promptBlocks(page, before);
+        const carried = blocks.some(
+          (block) =>
+            (c.file === SHOT && block.type === "image") ||
+            decodeURIComponent(block.uri ?? "") === `file:///Users/dev/Desktop/${name}`,
+        );
+        row.delivered = went === undefined ? "never went" : carried ? "with its path" : blocksText(blocks);
+        if (!carried) row.problems.push(`the prompt went without the file: ${row.delivered}`);
+      }
+    } finally {
+      await closeQuietly(context);
+    }
+  }
+
+  for (const c of DROP_CASES)
+    test(`drop-instant: ${c.kind} ${c.mode}`, async () => {
+      const row: DropRow = { id: `${c.kind} ${c.mode}`, chip: [], press: [], sent: [], problems: [] };
+      dropRows.push(row);
+      for (let run = 0; run < DROP_RUNS; run += 1) await dropOnce(c, run, row);
+      const chip = median(row.chip);
+      const sent = median(row.sent);
+      const shownAfterSend = median(row.sent.map((at, index) => at - (row.press[index] ?? at)));
+      console.log(
+        `DROP-INSTANT ${row.id}: drop→chip ms ${row.chip.map((ms) => ms.toFixed(1)).join("/")} (median ${chip.toFixed(1)}); ` +
+          `drop→Send ${row.press.map((ms) => ms.toFixed(1)).join("/")}; drop→sent ${row.sent.map((ms) => ms.toFixed(1)).join("/")} ` +
+          `(median ${sent.toFixed(1)}); delivered ${row.delivered ?? "-"}`,
+      );
+      if (!(chip < DROP_FRAME_MS)) row.problems.push(`its chip showed ${chip.toFixed(1)} ms after the drop`);
+      if (!(median(row.press) < DROP_FRAME_MS))
+        row.problems.push(`it was sendable ${median(row.press).toFixed(1)} ms after the drop`);
+      if (!(shownAfterSend < SEND_SHOWN_MS))
+        row.problems.push(`its prompt showed as sent ${shownAfterSend.toFixed(1)} ms after Send`);
+      expect(row.problems).toEqual([]);
+    });
+
+  afterAll(() => {
+    if (!dropRows.length) return;
+    const lines = dropRows.map(
+      (row) =>
+        `| ${row.id} | ${median(row.chip).toFixed(1)} | ${median(row.press).toFixed(1)} | ${median(row.sent).toFixed(1)} | ${row.delivered ?? "-"} | ${row.problems.join("; ") || "none"} |`,
+    );
+    console.log(
+      [
+        "| drop | drop→chip ms | drop→sendable ms | drop→shown as sent ms | delivered | failed |",
+        "|---|---|---|---|---|---|",
+        ...lines,
+      ].join("\n"),
+    );
+  });
 });

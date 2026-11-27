@@ -6,7 +6,8 @@
 # misnamed secret, as backend.yml journey-preview's CMUX_JOURNEY_DEV_STACK_* was, cmuxterm-hq#8702) is an
 # error and exit 1, verdict not-run: a journey never skips silently. A baseline (below) still exits 0.
 #
-# Around a deploy (cmux-vm.yml): JOURNEY_PHASE=baseline before it (never fails the job), then
+# Around a deploy (cmux-vm.yml; cloud-machine-channel-journey.yml for the Cloud machine
+# channel): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
 # which rolls the Worker back), 1 for a red that was already red before, 0 when green.
 #
@@ -45,6 +46,27 @@ fi
 phase="${JOURNEY_PHASE:-}"
 status=0
 regressed=0
+# JOURNEY_DEADLINE_EPOCH (backend.yml journey-staging: its job's start plus 47 min): the epoch second the whole
+# script must be done by, so a slow run ends as a red with its summary and verdict instead of a step-timeout kill
+# with neither. Each journey run is stopped (SIGTERM, which runs its cleanup) JOURNEY_TAIL_S before it, and a
+# failed run is run again only when the time left holds another run as long as the first one: run 45874526877's
+# first pass took 1702 s of a 32 min step, and its retry was killed 3 min in, with no verdict. Unset, no bound.
+tail_s="${JOURNEY_TAIL_S:-120}"
+left_s() { echo $(( JOURNEY_DEADLINE_EPOCH - $(date +%s) - tail_s )); }
+bounded() { # command... (under the deadline when one is set)
+  if [ -z "${JOURNEY_DEADLINE_EPOCH:-}" ]; then "$@"; return; fi
+  local left; left="$(left_s)"
+  if [ "$left" -le 0 ]; then echo "::warning title=Cloud journey::no time left before the job's deadline; not run"; return 124; fi
+  timeout --signal=TERM --kill-after=90 "$left" "$@"
+}
+room_for_retry() { # first run's seconds; true when another run that long fits before the deadline
+  [ -z "${JOURNEY_DEADLINE_EPOCH:-}" ] && return 0
+  local need=$(( $1 + ${JOURNEY_RETRY_DELAY_S:-15} )) left; left="$(left_s)"
+  if [ "$left" -lt "$need" ]; then
+    echo "::warning title=Cloud journey not retried::$TARGET ${phase:+$phase }$2: the first run took $1 s and $left s are left before the job's deadline; judged on the first run"
+    return 1
+  fi
+}
 # JOURNEY_RUST=1 (backend.yml journey-staging): the journey's core again on the shipped client,
 # `cmux cloud journey` in CMUX_PATH (cmux-tui cli/cloud_journey.rs; cmuxterm-hq ARCHITECTURE-2026-11 M1b):
 # create machine, running, first exec, model stub, pass Claude login, start agent, send chat, reply,
@@ -56,12 +78,17 @@ rust_run() { # label, ts dir, extra args...
   local dir="$ts-rust"
   local args=(cloud journey --backend "$TARGET" --out "$dir")
   if [ "${JOURNEY_MODEL:-}" = stub ]; then args+=(--model-stub "$here/../../tests/fixtures/model-stub/model_stub.py"); fi
-  if ! "$CMUX_PATH" "${args[@]}" "$@"; then
-    { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
-    echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
-    rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
-    if "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
+  local t0; t0="$(date +%s)"
+  if ! bounded "$CMUX_PATH" "${args[@]}" "$@"; then
+    if ! room_for_retry $(( $(date +%s) - t0 )) "$label (Rust driver)"; then
+      status=1
+    else
+      { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+      echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
+      rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
+      sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+      if bounded "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
+    fi
   fi
   { printf '### %s%s, Rust driver (cmux cloud journey)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   python3 -I - "$ts/journey.json" "$dir/journey.json" >> "$summary" 2>/dev/null <<'PY' || true
@@ -79,6 +106,30 @@ print("Driver times, the steps both passed (same job, same runner):\n\n| step | 
 print("\n".join(rows)); print(f"| **total** | **{tt}** | **{rt}** |\n")
 PY
 }
+# Each failed step of a run's final attempt as an error annotation on the run page, so the red's cause is one click
+# from the NOW red and the deploy gate (cmuxterm-hq now_cloud_deploy_gate.py) instead of a 20 min log: run
+# 45708085975 (cmux-vm staging unproven, 2026-11-25) showed only "Process completed with exit code 1", and its
+# three causes (a create never settled, a turn after resume not signed in, prod quota full) sat in the log.
+# At most three steps, each detail cut at 300 characters. Reading journey.json never fails the journey.
+annotate_failed() { # label, run dir
+  python3 -I - "$TARGET" "${phase:+$phase }$1" "$2/journey.json" 2>/dev/null <<'PY' || true
+import json, sys
+target, label, path = sys.argv[1:4]
+esc = lambda t: t.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+try:
+    steps = json.load(open(path, encoding="utf-8")).get("steps") or []
+except Exception:
+    steps = []
+failed = [s for s in steps if isinstance(s, dict) and s.get("status") == "fail"]
+if not failed:
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: no failed step recorded (journey.json missing or unread; see the job summary)")
+for s in failed[:3]:
+    detail = " ".join(str(s.get("detail") or "").split())[:300]
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: {esc(str(s.get('step')))} :: {esc(detail)}")
+if len(failed) > 3:
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: {len(failed) - 3} more failed step(s) in the job summary")
+PY
+}
 run() { # label, extra args...
   local label="$1"; shift
   local dir="$out/${phase:+$phase-}$label"
@@ -91,13 +142,19 @@ run() { # label, extra args...
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
   # cmux-autocloud (RFD 0139) chats over the carrier after the journey's own dial; needs --cmux.
   if [ -n "${AUTOCLOUD_TUI_PATH:-}" ] && [ -n "${CMUX_PATH:-}" ]; then args+=(--autocloud-tui "$AUTOCLOUD_TUI_PATH"); fi
-  if ! bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
-    { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
-    echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
-    rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
-    if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
+  local t0 failed=0; t0="$(date +%s)"
+  if ! bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
+    if ! room_for_retry $(( $(date +%s) - t0 )) "$label"; then
+      status=1; failed=1
+    else
+      { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+      echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
+      rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
+      sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
+      if bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; failed=1; fi
+    fi
   fi
+  if [ "$failed" = 1 ]; then annotate_failed "$label" "$dir"; fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
   # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.
@@ -108,12 +165,15 @@ run() { # label, extra args...
   fi
   if [ "${JOURNEY_RUST:-}" = 1 ] && [ -n "${CMUX_PATH:-}" ]; then rust_run "$label" "$dir" "$@"; fi
   if [ "$phase" = after ]; then
-    # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,
-    # which is reported and never rolls the Worker back.
+    # Only exit 3 is a proven green-to-red step. Exit 4 is a capacity-only red (no machine available, or rate
+    # limited: cloud-journey.ts capacityOnly), the platform's load and never the deploy's; any other nonzero exit
+    # is the compare itself failing. Neither rolls the deploy back.
     local rc=0
     bun "$here/cloud-journey.ts" --compare "$out/baseline-$label/journey.json" "$dir/journey.json" > "$dir/compare.txt" 2>&1 || rc=$?
     cat "$dir/compare.txt" >> "$summary"
-    if [ "$rc" = 3 ]; then regressed=1; elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
+    if [ "$rc" = 3 ]; then regressed=1
+    elif [ "$rc" = 4 ]; then echo "::warning title=Cloud journey::capacity-only red (no machine available or rate limited); not rolling back"
+    elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
   fi
 }
 run test-team
