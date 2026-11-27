@@ -23,11 +23,13 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
 pub mod agent_text;
@@ -38,6 +40,7 @@ pub mod attach;
 pub mod author;
 /// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
 pub mod auto_session;
+pub mod autocloud_enroll;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -53,6 +56,7 @@ pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
+pub mod ci_log_cache;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -122,6 +126,7 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_budget;
 #[cfg(unix)]
 pub mod github_lane_mint;
 #[cfg(unix)]
@@ -169,6 +174,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -195,6 +201,7 @@ pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
+pub mod lane_death_watch;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -267,6 +274,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
+pub mod peer_link_quality;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
@@ -287,6 +296,7 @@ pub mod place_mode;
 pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -387,6 +397,7 @@ pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
 pub mod scorecard;
+pub mod scorecard_replay;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -443,6 +454,8 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
+pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

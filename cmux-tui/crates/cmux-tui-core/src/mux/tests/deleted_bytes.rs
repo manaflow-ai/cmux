@@ -193,7 +193,6 @@ fn a_revoked_agent_token_leaves_no_bytes() {
 
 /// `app.storage.delete` and an app's uninstall (`clear`): the value was in
 /// `apps-storage.sqlite`.
-// App storage (`apps::storage`) is unix-only.
 #[cfg(unix)]
 #[test]
 fn a_deleted_app_storage_value_leaves_no_bytes() {
@@ -205,20 +204,30 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
 
     let deleted = marker("app-storage-delete");
     storage
-        .call("app.a", "app.storage.set", &serde_json::json!({ "key": "secret", "value": deleted }))
+        .call(
+            "app.a",
+            "app.storage.set",
+            &serde_json::json!({ "key": "secret", "value": deleted }),
+            false,
+        )
         .unwrap();
     storage
         .call(
             "app.a",
             "app.storage.set",
             &serde_json::json!({ "key": "kept", "value": "still here" }),
+            false,
         )
         .unwrap();
     assert_written("app-storage-delete", &database, deleted.as_bytes());
-    storage.call("app.a", "app.storage.delete", &serde_json::json!({ "key": "secret" })).unwrap();
+    storage
+        .call("app.a", "app.storage.delete", &serde_json::json!({ "key": "secret" }), false)
+        .unwrap();
     assert_gone("app-storage-delete", residue(&database, deleted.as_bytes()));
     assert_eq!(
-        storage.call("app.a", "app.storage.get", &serde_json::json!({ "key": "kept" })).unwrap(),
+        storage
+            .call("app.a", "app.storage.get", &serde_json::json!({ "key": "kept" }), false)
+            .unwrap(),
         serde_json::json!("still here"),
         "the delete took only the key it named"
     );
@@ -229,6 +238,7 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
             "app.b",
             "app.storage.set",
             &serde_json::json!({ "key": "secret", "value": uninstalled }),
+            false,
         )
         .unwrap();
     assert_written("app-storage-clear", &database, uninstalled.as_bytes());

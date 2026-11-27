@@ -16,13 +16,14 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Bytes the file takes on disk: its blocks on unix, its length elsewhere.
+/// The bytes `meta` holds on disk: its allocated blocks.
 #[cfg(unix)]
 fn on_disk(meta: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
     meta.blocks() * 512
 }
 
+/// Windows reports no allocated blocks, so the logical size stands in.
 #[cfg(not(unix))]
 fn on_disk(meta: &std::fs::Metadata) -> u64 {
     meta.len()

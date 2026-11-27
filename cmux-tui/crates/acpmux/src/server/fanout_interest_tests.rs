@@ -140,6 +140,18 @@ fn changed_of(lines: &[String], id: &str, record_kind: &str) -> usize {
         .count()
 }
 
+/// Waits until no chat in `ids` has a time-breakdown seed running (`views.rs`
+/// `spawn_time_breakdown_seed`, started by an attach): its `row_notice` went out before.
+async fn settle_seeds(hub: &crate::hub::Hub, ids: &[&str]) {
+    tokio::time::timeout(WAIT, async {
+        while ids.iter().any(|id| hub.time_breakdown_seeding_for_test(&session(hub, id))) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the attaches' time-breakdown seeds end");
+}
+
 const STREAMED: usize = 200;
 const CHANGES: usize = 5;
 
@@ -157,6 +169,15 @@ async fn a_connection_not_attached_and_not_watching_is_never_woken_by_other_chat
     let mut watcher = Client::connect(&hub, "watcher").await;
     watcher.attach(&t).await;
     watcher.watch(true).await;
+    // An attach starts the chat's time-breakdown seed in the background, and the seed's
+    // `row_notice` wakes the chat's attached connections whenever it lands: counted after the
+    // line below, it was one more wake of `quiet` than the test makes (CI run 45641669048, 2 for
+    // 1). Settled first, then a record on T read by both, so every wake the setup made is counted
+    // before.
+    settle_seeds(&hub, &[&s, &t]).await;
+    hub.append(&session(&hub, &t), "in", "agent_message_chunk", chunk(&t, "set-up"));
+    quiet.until("set-up").await;
+    watcher.until("set-up").await;
     let (quiet_before, watcher_before) = (quiet.wakes(), watcher.wakes());
 
     let busy = session(&hub, &s);
@@ -225,11 +246,6 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
 }
 
-#[cfg(not(unix))]
-fn cpu_now() -> Duration {
-    unimplemented!("CPU time is read through libc on unix only")
-}
-
 #[cfg(unix)]
 fn cpu_now() -> Duration {
     // SAFETY: getrusage writes the struct it is given and reads nothing else.
@@ -249,6 +265,7 @@ const EVENTS: usize = 4_000;
 /// to the last connection reading its last.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual per-event cost measurement"]
+#[cfg(unix)]
 async fn fanout_wake_cost() {
     for connections in [4usize, 16, 64] {
         let hub = hub_of(SESSIONS);

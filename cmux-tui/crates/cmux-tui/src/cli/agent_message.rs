@@ -439,15 +439,14 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
     }
 }
 
+/// Windows has no Codex app-server socket: messages stay queued for the agents' hooks.
+#[cfg(not(unix))]
+fn deliver_to_codex_terminals(_: &mut Connection, _: &[String], _: &mut Sent) {}
+
 /// Hand the queued messages of each Codex terminal agent among `recipients`
 /// to Codex through its shared app-server (`codex_app_server`). Other terminal
 /// agents, and a Codex agent the daemon cannot reach now, keep them queued
 /// for their hooks.
-#[cfg(not(unix))]
-fn deliver_to_codex_terminals(_: &mut Connection, _: &[String], _: &mut Sent) {
-    // No Codex app-server on Windows yet: the messages stay queued for the agents' hooks.
-}
-
 #[cfg(unix)]
 fn deliver_to_codex_terminals(connection: &mut Connection, recipients: &[String], sent: &mut Sent) {
     let terminals: Vec<&String> =

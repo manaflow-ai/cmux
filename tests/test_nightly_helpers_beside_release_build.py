@@ -91,7 +91,7 @@ class WorkflowStructureTests(unittest.TestCase):
     def test_inputs_job_builds_the_app_commit_holds_no_secret_and_runs_off_the_mac(self):
         job = self.jobs[INPUTS_JOB]
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"])
-        self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
+        self.assertEqual(next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         resolved = workflow_jobs.resolve(job)
         self.assertIsNone(resolved.environment)
         self.assertEqual(job["permissions"], {"contents": "read"})
@@ -125,9 +125,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
-        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(ACPMUX_JOIN))
-        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(ACPMUX_JOIN))
+        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)

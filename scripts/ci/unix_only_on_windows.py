@@ -72,6 +72,18 @@ WINDOWS_CFG_VALUES = {
     "target_has_atomic": {"8", "16", "32", "64", "ptr"},
     "panic": {"unwind"},
 }
+WINDOWS = (WINDOWS_CFG_NAMES, WINDOWS_CFG_VALUES)
+# The unix targets the crates also build for. An item a cfg takes out on Windows and on all of
+# these too (a `#[cfg(test)]` helper in the non-test pass) is no Windows-only break: a use of it
+# fails the Linux and macOS builds as well, so the crate-internal pass does not read it.
+_UNIX_COMMON = {"target_family": {"unix"}, "target_arch": {"x86_64", "aarch64"}, "target_pointer_width": {"64"},
+                "target_endian": {"little"}, "target_has_atomic": {"8", "16", "32", "64", "ptr"}, "panic": {"unwind"}}
+UNIX_TARGETS = (
+    ({"unix", "debug_assertions", "overflow_checks"}, {**_UNIX_COMMON, "target_os": {"linux"}, "target_env": {"gnu"},
+                                                       "target_vendor": {"unknown"}}),
+    ({"unix", "debug_assertions", "overflow_checks"}, {**_UNIX_COMMON, "target_os": {"macos"}, "target_env": {""},
+                                                       "target_vendor": {"apple"}}),
+)
 
 # Comments, strings and char literals become spaces (newlines kept), so offsets and lines match
 # the original text and nothing inside them reads as code.
@@ -123,8 +135,9 @@ def _cfg_tokens(text: str) -> list[str]:
     return re.findall(r'"(?:\\.|[^"\\])*"|[A-Za-z_][\w]*|[(),=]', text)
 
 
-def eval_cfg(text: str, test: bool, features: set[str]) -> bool:
-    """Whether `text` (the inside of `cfg( ... )`) holds for x86_64-pc-windows-gnu."""
+def eval_cfg(text: str, test: bool, features: set[str], target: tuple = WINDOWS) -> bool:
+    """Whether `text` (the inside of `cfg( ... )`) holds for x86_64-pc-windows-gnu (or `target`)."""
+    cfg_names, cfg_values = target
     toks = _cfg_tokens(text)
     pos = 0
 
@@ -150,10 +163,10 @@ def eval_cfg(text: str, test: bool, features: set[str]) -> bool:
             pos += 2
             if name == "feature":
                 return value in features
-            return value in WINDOWS_CFG_VALUES.get(name, ())
+            return value in cfg_values.get(name, ())
         if name == "test":
             return test
-        return name in WINDOWS_CFG_NAMES
+        return name in cfg_names
 
     try:
         return pred()
@@ -364,11 +377,11 @@ class Source:
     def line_of(self, pos: int) -> int:
         return bisect.bisect_left(self.lines, pos) + 1
 
-    def dead_ranges(self, test: bool, features: set[str]) -> list[tuple[int, int]]:
+    def dead_ranges(self, test: bool, features: set[str], target: tuple = WINDOWS) -> list[tuple[int, int]]:
         ranges: list[tuple[int, int]] = []
         covered_to = -1
         for start, _after, inner, pred in self.cfgs:
-            if start < covered_to or eval_cfg(pred, test, features):
+            if start < covered_to or eval_cfg(pred, test, features, target):
                 continue
             if inner:
                 lo, hi = block_of(self.code, start)
@@ -665,6 +678,19 @@ def _brace_depths(code: str) -> tuple[list[int], list[int]]:
     return pos, depth
 
 
+def _braces(cache: dict, src: "Source") -> tuple[list[int], list[int]]:
+    if src.path not in cache:
+        cache[src.path] = _brace_depths(src.code)
+    return cache[src.path]
+
+
+def _dead_items(src: "Source", dead: list[tuple[int, int]]) -> list[tuple[int, str]]:
+    """The module-level item names inside the dead ranges (only those are read)."""
+    if src.items is not None:
+        return [(at, n) for at, n in src.items if is_dead(dead, at)]
+    return [(m.start(1), m.group(1)) for lo, hi in dead for m in ITEM_RE.finditer(src.code, lo, hi)]
+
+
 def _depth_at(braces: tuple[list[int], list[int]], at: int) -> int:
     i = bisect.bisect_left(braces[0], at) - 1
     return braces[1][i] if i >= 0 else 0
@@ -795,21 +821,24 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 if m.group(2) == "{" and not is_dead(dead, m.start()):
                     inline.append((m.end() - 1, _match_brace(src.code, m.end() - 1), m.group(1)))
             v = visits[path] = _Visit(src, dead, module, inline)
-            if path not in braces:
-                braces[path] = _brace_depths(src.code)
-            bd = braces[path]
+            on_unix = [src.dead_ranges(test, crate.features, t) for t in UNIX_TARGETS] if dead else []
+
+            def unix_live(at: int) -> bool:
+                return any(not is_dead(r, at) for r in on_unix)
+
             for m in src.mods:
                 full = _module_at(v, m.start()) + (m.group(1),)
                 if is_dead(dead, m.start()):
-                    dead_decl.setdefault(full, (path, src.line_of(m.start())))
+                    if unix_live(m.start()):
+                        dead_decl.setdefault(full, (path, src.line_of(m.start())))
                 else:
                     live_decl.add(full)
             # Items under a dead cfg first; the live ones only matter where a dead name comes up (below).
-            for at, name in _items(src) if dead else ():
-                if not is_dead(dead, at):
+            for at, name in _dead_items(src, dead):
+                if not unix_live(at):
                     continue
                 here = _module_at(v, at)
-                if _depth_at(bd, at) == len(here) - len(module):  # not a method, a local or a field
+                if _depth_at(_braces(braces, src), at) == len(here) - len(module):  # not a method, a local or a field
                     dead_decl.setdefault(here + (name,), (path, src.line_of(at)))
             for m in src.mods:
                 if m.group(2) != ";" or is_dead(dead, m.start()):
@@ -843,11 +872,13 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                         w = why(m)
                         if w:
                             hits[path].append((m.start(), w, m.group(1) if shadow else None))
+        # A live declaration of the same path (a `#[cfg(not(unix))]` arm, a `use`) is in the same
+        # module, so in the file that declares the dead one: only those files are read again.
         dead_items = {k[-1] for k in dead_decl if k not in live_decl}
-        for path, v in visits.items() if dead_items else ():
-            src, dead, bd = v.src, v.dead, braces[path]
-            if dead_items.isdisjoint(_words(src)):
-                continue
+        dead_files = {wp for k, (wp, _wl) in dead_decl.items() if k not in live_decl}
+        for path in dead_files if dead_items else ():
+            v = visits[path]
+            src, dead, bd = v.src, v.dead, _braces(braces, v.src)
             for at, names in _uses(src):
                 if names and not dead_items.isdisjoint(names) and not is_dead(dead, at):
                     here = _module_at(v, at)
@@ -862,6 +893,8 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
         children: dict[tuple, set[str]] = {}
         for k in off:
             children.setdefault(k[:-1], set()).add(k[-1])
+        # A path can only name an item that is off if the file has that item's name in it.
+        off_names = {n for k in off for n in k[1:]}
         for path, v in visits.items():
             src, dead = v.src, v.dead
             for pos, w, ident in hits[path]:
@@ -871,7 +904,7 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 if ident and _module_at(v, pos) + (ident,) in live_decl:
                     continue
                 found[(path, src.line_of(pos), w)] = None
-            if not off:
+            if not off or not any(n in src.code for n in off_names):
                 continue
             for at, end, kind in _rels(src):
                 if is_dead(dead, at):

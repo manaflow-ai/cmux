@@ -861,6 +861,8 @@ async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder()
 /// cosmic-gray, 2026-11-23: five relayed messages to `first-turn-probe-claude-…`, whose folder in
 /// `/tmp/acpmux-501/t/…` was gone, came back every minute; Leo: "you guys need migration steps and
 /// whatnot for cutting over things").
+// The sessions' temporary folders live under `/tmp/acpmux-<uid>`: unix only.
+#[cfg(unix)]
 #[tokio::test]
 #[cfg(unix)] // the daemon's per-user /tmp/acpmux-UID folders
 async fn a_session_whose_temporary_folder_is_gone_refuses_once_and_says_why() {
