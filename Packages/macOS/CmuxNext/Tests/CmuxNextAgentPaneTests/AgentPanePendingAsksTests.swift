@@ -79,8 +79,9 @@ struct AgentPanePendingAsksTests {
 
     @Test func thePageReadsAChatsOpenAsksThroughTheHostNotTheRelay() async throws {
         #expect(AgentPageOps.all.contains("cmux.agent.chat.asks.pending"))
-        // The relay refuses this read: that is why the host serves it.
-        #expect(!AcpmuxPaneMethods.requests.contains("_acpmux/info"))
+        // The page reads open asks through this host op, never through the relay's `_acpmux/info` (which the
+        // relay has taken since #49608, for Session Info): no relay method reads them.
+        #expect(!AcpmuxPaneMethods.requests.contains("chat.asks.pending"))
 
         let daemons = Daemons()
         let request: [String: Any] = ["toolCall": ["title": "Run npm test"]]

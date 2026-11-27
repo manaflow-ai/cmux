@@ -33,6 +33,9 @@ python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]
 scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
+[retry-prompts]
+python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
+python3 -I scripts/cmux-next/tests/test_check_retry_prompts.py
 [checks-structure]
 python3 tests/test_cmux_next_checks_workflow.py
 [package-dependency-lists]
@@ -157,6 +160,7 @@ bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
 bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
 bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
 bash scripts/cmux-next/tests/cargo-test-selected.test.sh
+bash scripts/cmux-next/tests/cargo-test-wine.test.sh
 bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
 bash scripts/cmux-next/tests/app-capability-references.test.sh
 bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh

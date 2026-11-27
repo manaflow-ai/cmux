@@ -44,6 +44,9 @@ a chat input_ms is late by at most that; the terminal's is the echo of the key t
 (premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
 first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
 Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+A round that leaves no app running (its launch failed, or the app exited) no longer ends the plan: the run ends any
+instance of the copy still up, launches it once unmeasured until its socket answers (`TTI-RECOVER {json}`), and goes on
+to the next round, at most MAX_RECOVERIES times. The failed round still fails the verdict.
 
 Percentiles (startup-matrix, a fixed-slot harness like a device farm): a plan item KIND:FRONT*N runs N rounds of it
 (`cold_install:terminal*20`). Before each launch the round waits up to --load-wait s for the Mac's 1-minute load per
@@ -83,9 +86,13 @@ interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `ter
 process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
-round's input number (its paint number stands). The app types that one key wherever its key window takes it, before a
-chat page is up, so on the in_app path a chat round ends when the chat drew and fails nothing; the posted path's keys
-time the chat, and a build whose chat pages do not post the composer's input mark reads `no_mark` for its input.
+round. A chat round's launch has CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1 instead: the app types its key when the front chat
+first drew (`agent_pane.painted`), into the composer, and marks `chat.probe_key_typed` (a key at the first frame lands
+before any chat page is up, so the composer's echo never came and no chat round read a number). A round whose app typed
+it and whose composer never echoed fails; a build without the chat probe (no `chat.probe_*` mark within
+CHAT_PROBE_GRACE_S of the paint) ends when the chat drew, `unmeasured`, its paint number standing, and fails nothing.
+The posted path's keys time the chat too, and a build whose chat pages do not post the composer's input mark reads
+`no_mark` for its input.
 
 Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
 launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
@@ -95,6 +102,7 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import datetime
 import ctypes.util
 import json
 import math
@@ -103,6 +111,7 @@ import os
 import plistlib
 import select
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -134,6 +143,9 @@ MIN_QUIET_ROUNDS = 5
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
+CHAT_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT"  # LaunchTypeProbe's chat scope: one key at the chat's first paint
+CHAT_PROBE_TYPED, CHAT_PROBE_NO_KEY_WINDOW = "chat.probe_key_typed", "chat.probe_no_key_window"
+CHAT_PROBE_GRACE_S = 3.0  # after agent_pane.painted: a build with no chat.probe_* mark by then has no chat probe
 LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 BROWSER_PAINT, BROWSER_INPUT = "browser_pane.first_paint", "browser_pane.input_ready"  # CEFLaunchMarks.swift
@@ -148,7 +160,8 @@ PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_ke
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", *TERMINAL_PAINT_MARKS, "terminal_input_accepted",
               "terminal_echo", PROBE_TYPED, PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT, BROWSER_PAINT,
-              BROWSER_INPUT,
+              BROWSER_INPUT, CHAT_PROBE_TYPED, CHAT_PROBE_NO_KEY_WINDOW, "chat.probe_app_inactive",
+              "chat.probe_window_not_key",
               "agent_pane.launch_images_read", "agent_pane.launch_image_shown", "agent_pane.launch_image_missed",
               "agent_pane.launch_image_cleared", "launch_snapshot_shown", "window.restore_wait_end")
 LOADS = ("none", "busy")
@@ -164,9 +177,14 @@ BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page
 # launch kept the daemon that held the session or started a new one. hq run 45746889291's round 2 typed its key 1.2 s
 # before daemon_connected and the key never reached the pty; these say which of the two that launch was.
 FIRST_KEY_PREFIX = "terminal.first_key."
+# The app's own steps before the first frame (main.*, dfl.*, window.*, services.*, launch.*, app.*, frame.*) and stage
+# 0's (launch_shell.*): the terminal round's input_ms is the first frame plus about 26 ms (hq run 45924325260: probe
+# typed 603.1, echo 628.8), so the gap from did_finish_launching (199) to the first frame (601) is the whole number,
+# and without these the line could not say which step of it was slow or whether stage 0 showed.
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
-                      "daemon.", FIRST_KEY_PREFIX)
-KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+                      "daemon.", FIRST_KEY_PREFIX, "main.", "dfl.", "window.", "services.", "launch.", "app.",
+                      "frame.", "launch_shell.", "layout_cache.")
+KEPT_MARKS_MAX = 200  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
 def kept_marks(marks: dict) -> dict:
@@ -551,12 +569,13 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
     return "posted" if post_access else "in_app"
 
 
-def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0) -> dict:
-    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path,
-    and with `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
+def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0, which: str = "terminal") -> dict:
+    """The measured launch's environment: the typing probe always, on the in_app path the app's own key (a terminal
+    round's at the first frame, a chat round's at the chat's first paint), and with `delay_ms` the positive control's
+    known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
-        out[TYPE_PROBE_VARIABLE] = "1"
+        out[CHAT_PROBE_VARIABLE if which == "chat" else TYPE_PROBE_VARIABLE] = "1"
     if delay_ms > 0:
         out[LAUNCH_DELAY_VARIABLE] = str(delay_ms)
     return out
@@ -567,6 +586,14 @@ def in_app_terminal_reading(marks: dict) -> dict:
     the restored terminal's pty (terminal_input_accepted) and its echo came back (terminal_echo); ms since process
     start, as launch-ready.swift's type mode reads them."""
     return {"accepted_ms": marks.get("terminal_input_accepted"), "input_ms": marks.get("terminal_echo")}
+
+
+def chat_probe_state(marks: dict) -> str | None:
+    """On an in_app chat round: `typed` (the app typed into the drawn chat), `no_key_window`, or None (no mark yet, or
+    a build without the chat probe)."""
+    if CHAT_PROBE_NO_KEY_WINDOW in marks:
+        return "no_key_window"
+    return "typed" if CHAT_PROBE_TYPED in marks else None
 
 
 def probe_focus(marks: dict) -> str | None:
@@ -583,13 +610,18 @@ def probe_focus(marks: dict) -> str | None:
 
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
-    way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
-    before a chat page is up, so its chat round measures nothing and fails nothing."""
+    way to type; the in_app path with no window key at its first frame typed nowhere. An in_app chat round on a build
+    without the chat probe (`unmeasured`) measures nothing and fails nothing; one whose app typed into the drawn chat
+    fails when the composer never echoed."""
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
-        if which == "browser":
+    if row.get("input_ms") is None and not row.get("no_mark") and not row.get("unmeasured"):
+        if path == "in_app" and which == "chat" and CHAT_PROBE_NO_KEY_WINDOW in marks:
+            out.append("the app typed no key: no window could take keys when the chat drew (chat.probe_no_key_window)")
+        elif path == "in_app" and which == "chat" and CHAT_PROBE_TYPED in marks:
+            out.append(f"the chat composer drew no key within {settle:.0f} s of the app's own key (chat.probe_key_typed)")
+        elif which == "browser":
             out.append(f"the browser page took no keys within {settle:.0f} s ({BROWSER_INPUT})")
         elif path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
             out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
@@ -788,6 +820,51 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     return None, quit_app(inst, process)
 
 
+MAX_RECOVERIES = 3  # a run whose launches keep failing stops after this many, as it stopped at the first before
+RECOVER_READY_S = 30.0
+
+
+def app_answers(inst: rr.Instance) -> bool:
+    return rr.call(inst.sock, "system.ping", timeout=2).get("error") is None
+
+
+def recover_app(inst: rr.Instance, app: Path, env: dict, out: Path):
+    """After a round left no app this run tracks (its launch failed, or the app exited): end any instance of APP still
+    up, then one unmeasured launch of APP, ready when its socket answers. Returns (the process, None) or (None, why).
+    Before 2026-11-26 the plan stopped at such a round: one failed launch (round 1 of 51, cmuxterm-hq job
+    140156243595) left every NOW app_*_launch_to_interaction_ms row null for the night (goals/startup-matrix.md)."""
+    import fresh_home_launch_smoke as smoke
+    _, name = smoke.bundle_info(app)
+    executable = app / "Contents" / "MacOS" / name
+    if app_answers(inst):  # an instance this run started but could not track (cmux#59530's missed pid)
+        rr.call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
+        rr.wait(lambda: not running_pids(executable), 20, 0.25)
+    for pid in running_pids(executable):  # only this run's own copy of the app: its path is under the smoke's root
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+    if os.path.exists(inst.sock):
+        try:
+            os.remove(inst.sock)
+        except OSError:
+            pass
+    try:
+        process, fd, _ = rr.launch(app, env, out / "app-recover.log")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        return None, f"the recovery launch failed: {error}"
+    marks: dict = {}
+    buf = bytearray()
+    ready = rr.wait(lambda: (read_marks(fd, buf, marks), app_answers(inst))[1], RECOVER_READY_S, 0.25)
+    os.close(fd)
+    if not ready or process.poll() is not None:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        return None, f"the recovery launch never answered within {RECOVER_READY_S:.0f} s (status {process.poll()})"
+    return process, None
+
+
 def round_has_marks(which: str, args) -> dict:
     """{paint, input}: whether this run's build has the front's paint and input marks (decided once per run; a
     missing one reads `no_mark`, never a harness time). The terminal's marks are in every build."""
@@ -841,11 +918,12 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     # --load busy starts after the quiet wait: started before it, the round would wait out --load-wait on its own load.
     args.load_runner.start()
     spawned = uptime_ns()
+    launched_wall = time.time()
     try:
         if args.launch == "open":
-            process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
+            process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms, which), out / "app-tti.log")
         else:
-            process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
+            process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms, which), out / "app-tti.log")
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         args.load_runner.stop()
         failures.append(f"the launch failed: {error}")
@@ -863,15 +941,21 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     has_marks = round_has_marks(which, args)
     framed_at = None
     end = time.monotonic() + args.settle
+    painted_at = None
     while time.monotonic() < end and process.poll() is None:
         read_marks(fd, buf, marks)
         # The paint number: the front's PAINT_MARK, or (a build without it, `no_mark`) nothing to wait for.
         painted = PAINT_MARK[which] in marks or not has_marks["paint"]
         if which == "chat":
-            # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run),
-            # or the in_app path (its one key is typed before a chat page is up): the round ends when the chat drew
-            # and types nothing into its draft; `no_mark` or nothing measured, not a failure of the app.
-            took = CHAT_MARK in marks or ((not has_marks["input"] or path == "in_app") and "agent_pane.painted" in marks)
+            # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run):
+            # the round ends when the chat drew and types nothing into its draft; `no_mark`, not a failure of the app.
+            took = CHAT_MARK in marks or (not has_marks["input"] and "agent_pane.painted" in marks)
+            # in_app: the app types into the chat when it drew (chat.probe_key_typed); a build with no chat probe marks
+            # nothing within CHAT_PROBE_GRACE_S, and one with no key window for it says so: both end the round.
+            if not took and path == "in_app" and "agent_pane.painted" in marks:
+                painted_at = painted_at or time.monotonic()
+                state = chat_probe_state(marks)
+                took = state == "no_key_window" or (state is None and time.monotonic() - painted_at > CHAT_PROBE_GRACE_S)
         elif which == "browser":
             took = BROWSER_INPUT in marks or not has_marks["input"]
             # A build without the browser marks: the round ends 2 s after its first frame (nothing to read).
@@ -925,10 +1009,11 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["input_ms"] = marks.get(CHAT_MARK)
         if not has_marks["input"]:
             row["no_mark"] = True  # this build's pages never post the composer's input mark
-        elif path == "in_app" and row["input_ms"] is None and PAINT_MARK["chat"] in marks:
-            # The app typed its one key before this chat page was up: the round measured no chat key by design (the
-            # posted path times the chat). It drew, so it counts toward the verdict, named, never as a number.
-            row["unmeasured"] = "in_app: the app types its one key before a chat page is up"
+        elif path == "in_app" and row["input_ms"] is None and PAINT_MARK["chat"] in marks \
+                and chat_probe_state(marks) is None:
+            # A build whose app never types into the drawn chat (no chat.probe_* mark): the round measured no chat key.
+            # It drew, so it counts toward the verdict, named, never as a number.
+            row["unmeasured"] = "in_app: this build's app types no key into the drawn chat (no chat.probe_* mark)"
     elif which == "browser":
         row["input_ms"] = marks.get(BROWSER_INPUT)
         if not has_marks["input"]:
@@ -942,11 +1027,55 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["probe_focus"] = probe_focus(marks)
     row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
+    row["binders"] = launch_row_binders(env["HOME"], app, launched_wall)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process, app
+
+
+def launch_row_binders(home: str, app: Path, since: float, wait: float = 3.0) -> dict | None:
+    """This launch's ``binders`` from the app's launch-times.jsonl (cmux#57799: each `AppActions.bind` binder's
+    main-thread ms, the slowest LaunchTimesRecord.binderCount). The row has no pid: it is the newest one started at or
+    after SINCE (wall seconds, less 1 s for the row's whole-second started_at). None when no such row arrives in WAIT
+    seconds or the build writes no binders: the round reads nothing, never fails."""
+    import fresh_home_launch_smoke as smoke
+    try:
+        bundle_id, _ = smoke.bundle_info(app)
+    except (OSError, KeyError, ValueError):
+        return None
+    path = Path(home) / "Library" / "Application Support" / bundle_id / "launch-times.jsonl"
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            try:
+                record = json.loads(line)
+                started = datetime.datetime.fromisoformat(str(record.get("started_at", "")).replace("Z", "+00:00"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if started.timestamp() < since - 1.0:
+                break
+            binders = record.get("binders")
+            return binders if isinstance(binders, dict) else None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def binder_medians(rows: list) -> dict:
+    """Each binder's median ms over ROWS' ``binders``, slowest first (the pre-frame cut's list)."""
+    got: dict = {}
+    for row in rows:
+        for name, ms in (row.get("binders") or {}).items() if isinstance(row.get("binders"), dict) else ():
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                got.setdefault(name, []).append(ms)
+    medians = {name: round(statistics.median(v), 2) for name, v in got.items()}
+    return dict(sorted(medians.items(), key=lambda kv: -kv[1]))
 
 
 # ---- restart to first paint ----------------------------------------------------------------
@@ -995,7 +1124,7 @@ def restart_first_paint(rounds: list[dict], load: str) -> tuple[list[dict], list
 
 def check(args) -> int:
     import fresh_home_launch_smoke as smoke
-    result: dict = {"rounds": []}
+    result: dict = {"rounds": [], "recoveries": []}
     keys = Keys()
 
     def journey(process, socket_path, env, app, out, report):
@@ -1032,7 +1161,17 @@ def check(args) -> int:
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
-                break
+                # No app left to quit into the next round: bring one up unmeasured and go on, so one failed launch
+                # costs its own round, not the rest of the plan (the 20 cold_install:terminal p50/p95 rounds).
+                if len(result["recoveries"]) >= MAX_RECOVERIES or n == len(args.plan):
+                    break
+                recovered, why = recover_app(inst, app, launch_env(env, out / "typing-recover.csv", "posted"), out)
+                result["recoveries"].append({"after_round": n, "error": why})
+                rr.safe_print("TTI-RECOVER " + json.dumps(result["recoveries"][-1]), flush=True)
+                if recovered is None:
+                    failures.append(f"after round {n}: {why}")
+                    break
+                process = recovered
         rr.call(inst.sock, "action.run", {"action": "quitEndEverything"}, timeout=10)
         try:
             process.wait(timeout=20)
@@ -1069,11 +1208,14 @@ def check(args) -> int:
     # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
     result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
                         for which in fronts}
+    # Each launch binder's median per front (startup-under-100ms: which binders the pre-frame cut defers).
+    result["binders"] = {which: binder_medians([r for r in result["rounds"] if r.get("front") == which]) for which in fronts}
+    rr.safe_print("TTI-BINDERS " + json.dumps(result["binders"]), flush=True)
     # The percentile rows (startup-matrix): p50/p95 per KIND_FRONT over the rounds launched under the load bound.
     result["percentiles"] = percentiles(result["rounds"], args.max_load_per_core, args.min_quiet)
     rr.safe_print("TTI-PCT " + json.dumps(result["percentiles"]), flush=True)
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
-    # So does an in_app chat round that drew (`unmeasured`): the app's one key went in before the page was up.
+    # So does an in_app chat round that drew on a build without the app's chat probe (`unmeasured`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")
                 or r.get("unmeasured")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
@@ -1088,8 +1230,8 @@ def check(args) -> int:
         print("RESTART-FIRST-PAINT " + json.dumps(line), flush=True)
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
-    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "percentiles",
-             *summary)
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "binders", "percentiles",
+             "recoveries", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)

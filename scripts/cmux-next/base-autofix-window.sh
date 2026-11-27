@@ -9,11 +9,15 @@
 # skipped ones (held runs among them) and the push of this workflow's own repair commit, which repairs nothing.
 #
 # Every other case runs, as before the window: a window of 0, a dispatch, a re-run (someone asked for it),
-# and any GitHub read that fails (fail open).
+# and any GitHub read that fails (fail open). A push that changes a Cargo.toml or Cargo.lock also always runs
+# (BASE_AUTOFIX_CARGO_CHANGED=true, set by the workflow from the push's head commit): a manifest change can leave
+# another workspace's lock stale, and a stale lock fails every --locked cargo build on the base until cargo-locks.py
+# fix commits it. 2026-11-27: #57132 added url to cmux-config and updated one lock of five; the window held every
+# repair, so app-ffi-release.yml failed on each push for 65 min and the app FFI pin stopped (deploy lag 176 min).
 #
 #   base-autofix-window.sh RUN_ID [BRANCH]
 # Env: GH_TOKEN (actions: read), GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT,
-#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
+#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES, BASE_AUTOFIX_CARGO_CHANGED; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
 set -uo pipefail
 
 run_id="${1:?usage: base-autofix-window.sh RUN_ID [BRANCH]}"
@@ -36,6 +40,10 @@ if [[ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]]; then
   say true "re-run (attempt ${GITHUB_RUN_ATTEMPT})"
   exit 0
 fi
+if [[ "${BASE_AUTOFIX_CARGO_CHANGED:-}" == true ]]; then
+  say true "the push changes a Cargo.toml or Cargo.lock: a stale lock fails every --locked build, so it repairs now"
+  exit 0
+fi
 
 now="${BASE_AUTOFIX_WINDOW_NOW:-$(date -u +%s)}"
 since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || {
@@ -43,12 +51,27 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
   exit 0
 }
 
-# One read: this workflow's push runs on BRANCH created within the window, newest first.
-rows="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
-  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>/dev/null)" || {
-  say true "runs unreadable (fail open)"
+# One read: this workflow's push runs on BRANCH created within the window, newest first. Each token in turn: the
+# job token, then the CI pool Apps' (BASE_AUTOFIX_POOL_TOKENS, space-separated, each its own installation hour).
+# 2026-11-26 20:00-23:30Z every window read but a few failed open with the job token's hour spent, so 37 repairs
+# ran in 3 h instead of about 2 (about 8.7k runner-min/day of autofix, all red on base reds; run 45910636692).
+url="repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100"
+jq_rows='.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")'
+read_ok="" read_err="" errf="$(mktemp)"
+# shellcheck disable=SC2086 # BASE_AUTOFIX_POOL_TOKENS is a space-separated list
+for token in "${GH_TOKEN:-}" ${BASE_AUTOFIX_POOL_TOKENS:-}; do
+  [[ -n "$token" ]] || continue
+  if rows="$(GH_TOKEN="$token" gh api "$url" --jq "$jq_rows" 2>"$errf")"; then
+    read_ok=1
+    break
+  fi
+  read_err="$(head -n1 "$errf" | tr -d '\r' | cut -c1-120)"
+done
+rm -f "$errf"
+if [[ -z "$read_ok" ]]; then
+  say true "runs unreadable (fail open; the workflow's concurrency group still keeps one run in flight): ${read_err:-no token}"
   exit 0
-}
+fi
 
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
 while IFS=$'\x1f' read -r id status conclusion title; do

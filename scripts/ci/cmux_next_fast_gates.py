@@ -41,6 +41,8 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
+                  missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -227,13 +229,13 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
 
 def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
     """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
-    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, how, remote, *wants, check=False)
+    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
     if result.returncode == 0:
         return
     if "pack-objects" not in result.stderr:
         raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
     log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
-    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
+    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
 
 
 def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
@@ -430,8 +432,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("egress gate", [py, "-I", "scripts/ci/egress_new_sites.py", "--base", base, "--head", merge,
                          "--repo", str(repo)]),
         # Every pull request, JSON only: the Mac export test checks the same, but feat-cmux-next PRs defer Mac jobs,
-        # and a schema row without its catalog keys stops the settings exports for every row after it.
-        ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo)]),
+        # and a schema row without its catalog keys stops the settings exports for every row after it. Compared
+        # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
+        ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
+                                   "--base-rev", base]),
     ]
 
 

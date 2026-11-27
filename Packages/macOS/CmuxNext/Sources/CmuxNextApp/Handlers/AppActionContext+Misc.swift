@@ -56,8 +56,8 @@ extension AppActionContext {
     /// fronts the last key window, wrong for a chat in another). Nothing when the run may not change this client's view.
     func reveal(_ located: LocatedTab, front: Bool = false) {
         guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
-        controller.state.selection.jump(to: located.tab.id, in: located.pane.id, byPerson: ActionRunScope.isPersonsAction())
-        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id)); if front { services.windows.bringToFront(controller) }
+        services.show(in: controller, workspace: located.workspace, pane: located.pane, tab: located.tab.id)
+        services.windows.recordSaver.stateDidChange(controller.state); if front { services.windows.bringToFront(controller) }
     }
 
     /// Every tab in the mirror, workspace order then screen, pane, tab order.

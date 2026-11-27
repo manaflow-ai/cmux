@@ -1683,6 +1683,27 @@ let package = Package(
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_spawn_owner_reads_unchanged_path_declaration_and_refuses_product_spawn(self):
+        src = "cmux-tui/crates/fixture/src/"
+        self.write(src + "lib.rs", "mod session;\nmod worker;\n")
+        self.write(src + "session.rs", '#[cfg(test)]\n#[path = "backpressure.rs"]\nmod bench;\n')
+        self.write(src + "worker.rs", "")
+        self.commit("crate with a test-only module at a sibling path")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+
+        spawn = "pub fn run() {\n    tokio::spawn(async {});\n}\n"
+        self.write(src + "backpressure.rs", spawn)
+        self.commit("spawn in the test-only module")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.write(src + "worker.rs", spawn)
+        self.commit("spawn in a production module")
+        result = self.push()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("worker.rs has 1 spawn line", result.stdout + result.stderr)
+
     def test_the_raw_spawn_guard_rules_hold(self):
         # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-spawn.test.sh")],
@@ -2421,6 +2442,35 @@ pub fn reset(snapshot: &Snapshot) {
         self.assertIn(f"{self.MOVED_TO}:", output)
         self.assertIn("unwrap", output)
 
+    def move_old_to_the_app(self, extra=""):
+        """`git mv` Old.swift (its base try!) into the CmuxNextApp module, plus EXTRA lines in its struct."""
+        moved = f"{PKG}/Sources/CmuxNextApp/Old.swift"
+        self.git("mv", f"{PKG}/Sources/CmuxNextKit/Old.swift", moved)
+        if extra:
+            self.write(moved, OLD.replace('    func name()', extra + '    func name()'))
+        self.commit("moves Old.swift to the app")
+        return moved
+
+    def test_a_renamed_file_keeps_its_existing_findings(self):
+        # 2026-11-27: a695910bf8bb moved SleepySceneView.swift to another module with its two raw font sizes, and
+        # the ast-grep layer read them as new: the base run never scanned the old path, the head's keyed the new one.
+        self.move_old_to_the_app()
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_renamed_file_that_adds_a_finding_is_refused(self):
+        moved = self.move_old_to_the_app('    let other = try! NSRegularExpression(pattern: "b+")\n')
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the added try! must not reach origin")
+        self.assertIn(f"{moved}:", output)
+
     def move_the_scan_file(self, sites):
         """install_with_scan_sites(2), then SCAN `git mv`d to another crate with SITES lines and its row moved."""
         moved = "cmux-tui/crates/fixture-moved/src/scan.rs"
@@ -2607,6 +2657,42 @@ pub fn reset(snapshot: &Snapshot) {
 
         self.assertEqual((installed / name).read_text(), "a.rs\t.config/cmux/\t1\tmove\tx\n")
         self.assertEqual(taken, [f'{name}: b.rs join("cmux") 1 -> 0 (row deleted)'])
+
+    def test_classic_ids_baseline_keys_old_and_trimmed_rows_the_same(self):
+        # cmux#55211 trims each classic-ids row's text (`com.cmuxterm.app"` -> `com.cmuxterm.app`, `.config/cmux/` ->
+        # `.config/cmux`, `join("cmux",` -> `join("cmux")`): the hook's installed old-form rows read the trimmed push
+        # as every row deleted and every hit new (~60 refused). Both forms now key the same; two old rows that trim
+        # to one share its count.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids_trim", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.swift\tcom.cmuxterm.app\t2\tmove\tx\n"
+                   "b.swift\t.config/cmux\t1\tmove\tx\n"
+                   "c.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+        self.commit("pushed classic ids in the trimmed form: b.swift lost one of its two sites, d.rs fixed")
+        installed = self.root / "installed"
+        installed.mkdir()
+        old = ("a.swift\tcom.cmuxterm.app\"\t2\tmove\tx\n"
+               "b.swift\t.config/cmux\"\t1\tmove\tx\n"
+               "b.swift\t.config/cmux/\t1\tmove\tx\n"
+               "c.rs\tjoin(\"cmux\",\t1\tmove\tx\n"
+               "d.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+        (installed / name).write_text(old)
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.swift\tcom.cmuxterm.app\"\t2\tmove\tx\n"
+                         "b.swift\t.config/cmux\"\t1\tmove\tx\n"
+                         "c.rs\tjoin(\"cmux\",\t1\tmove\tx\n")
+        self.assertEqual(taken, [f"{name}: b.swift .config/cmux 1 -> 0 (row deleted)",
+                                 f'{name}: d.rs join("cmux") 1 -> 0 (row deleted)'])
+        self.assertEqual(gate.classic_ids_text('com.cmuxterm.app"'), "com.cmuxterm.app")
+        self.assertEqual(gate.classic_ids_text("Library/Caches/cmux/"), "Library/Caches/cmux")
+        self.assertEqual(gate.classic_ids_text('appendingPathComponent("cmux",'), 'appendingPathComponent("cmux")')
+        self.assertEqual(gate.classic_ids_text("/tmp/cmux-debug-$TAG.sock"), "/tmp/cmux-debug-$TAG.sock")
+        for text in ("com.cmuxterm.app", ".config/cmux", 'join("cmux")'):
+            self.assertEqual(gate.classic_ids_text(text), text)
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)

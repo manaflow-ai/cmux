@@ -62,6 +62,7 @@ CHECKS = (
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
+    "check:surface-bypass",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -76,6 +77,13 @@ CHECK_CLASSES = {
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
+    "check:surface-bypass": LINT,
+}
+# Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
+NEW_CHECK_SCRIPTS = {
+    "check:design-tokens": "scripts/check-design-tokens.ts",
+    "check:ui-review": "scripts/check-ui-review.ts",
+    "check:surface-bypass": "scripts/check-surface-bypass.ts",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -382,11 +390,9 @@ def main(argv: list[str] | None = None) -> int:
             # package script. Until that PR lands, the merge parent cannot run this check; do not
             # charge the transition PR for the base's missing command. Later PRs see the script on
             # the base and are compared normally.
-            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
-                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
-                continue
-            if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
-                print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
+            script = NEW_CHECK_SCRIPTS.get(check)
+            if script and not (base_webviews / script).is_file():
+                print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
