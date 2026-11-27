@@ -26,7 +26,8 @@ fn a_hello_is_read_and_never_fails() {
     let read_long = read(&hello(json!({"build": long})));
     assert_eq!(read_long.build.map(|b| b.len()), Some(64));
     // The daemon's result names itself in agentInfo.
-    let result = json!({"agentInfo": {"name": "acpmux"}, "_meta": {"acpmux": {"abi": ours, "build": "b1"}}});
+    let result =
+        json!({"agentInfo": {"name": "acpmux"}, "_meta": {"acpmux": {"abi": ours, "build": "b1"}}});
     assert_eq!(
         read(&result),
         Hello { client: "acpmux".into(), abi: Some(ours), build: Some("b1".into()) }
@@ -52,11 +53,9 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
         json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": name},
             "_meta": {"acpmux": meta}})
     };
-    for meta in [
-        json!({}),
-        json!({"abi": ours + 5, "build": "future"}),
-        json!({"abi": [1, 2], "build": 7}),
-    ] {
+    for meta in
+        [json!({}), json!({"abi": ours + 5, "build": "future"}), json!({"abi": [1, 2], "build": 7})]
+    {
         let init = client.request(method::INITIALIZE, hello(meta.clone())).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/abi"), Some(&json!(ours)), "{meta}: {init}");
         assert_eq!(
