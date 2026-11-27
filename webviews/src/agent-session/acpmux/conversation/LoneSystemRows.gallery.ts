@@ -4,7 +4,7 @@
 // finished"), drawn under the turn's footer row with the next prompt under it. Leo, 2026-11-04, on a
 // lone "Background update" a block gap under the footer and a turn gap over the next prompt: "this
 // bare background update tool call floating in teh air is so weird loking proportionally". Each sits
-// 8 under the footer, as the footer sits under the reply, so it reads as that turn's tail, and the
+// flush under the footer (Lucas, 2026-11-27, after Claude Code desktop), so it reads as that turn's tail, and the
 // turn gap stays under it (transcriptGrid.ts transcriptGap; design/transcript-spacing.md "Lone system
 // rows"). Another agent's line there (variant received-message) is another speaker and stands the
 // run gap, as the next turn's Working for does (footer-to-received). test/transcript-lone-system-rows.test.ts measures every variant.
@@ -81,7 +81,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "background-update": {
-      note: "Leo's capture: a quiet \"Background update\" after the turn ended, then the next prompt. It sits 8 under the footer row, the turn's tail, with the turn gap under it (before: 24 under the footer and 32 over the prompt, a lone line floating in the band).",
+      note: "Leo's capture: a quiet \"Background update\" after the turn ended, then the next prompt. It sits flush under the footer row, the turn's tail, with the turn gap under it (before: 24 under the footer and 32 over the prompt, a lone line floating in the band).",
       snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
     },
     "background-update-running": {

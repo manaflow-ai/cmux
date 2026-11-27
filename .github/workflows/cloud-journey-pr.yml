@@ -103,7 +103,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
@@ -146,7 +146,7 @@ jobs:
       pull-requests: read
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -322,7 +322,7 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -410,9 +410,10 @@ jobs:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
         run: |
           set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # --cargo-metadata, not every target name as --workspace-crates: tests/http.rs and tests/digest.rs
+          # are named like the third-party http and digest, so that deleted them and a restore rebuilt 27 crates.
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
           # Extracted sources come back from the .crate files in registry/cache.
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"

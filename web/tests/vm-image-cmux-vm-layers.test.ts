@@ -149,7 +149,7 @@ describe("image inputs_sha256", () => {
 
   test("the full and the layered bake record one key for one lock: the layered bake's agents key", () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/);
-    for (const extra of [[], ["--team-vm"]]) {
+    for (const extra of [[], ["--team-vm"], ["--labs-npm-host-cache"]]) {
       const fullKey = bakeInputsSha256(argv(...extra), lockText, tree);
       const layered = argv(...extra, "--layered", "--defer-inventory");
       expect(bakeInputsSha256(layered, lockText, tree)).toBe(fullKey!);
@@ -159,6 +159,9 @@ describe("image inputs_sha256", () => {
     // A production copy repeats the dev image's lock and flags, so it records the dev image's key.
     expect(bakeInputsSha256(argv("--prod-copy"), lockText, tree)).toBe(key);
     expect(bakeInputsSha256(argv("--team-vm"), lockText, tree)).not.toBe(key);
+    expect(full.labsNpmHostCache).toBe(false);
+    expect(argv("--labs-npm-host-cache").labsNpmHostCache).toBe(true);
+    expect(bakeInputsSha256(argv("--labs-npm-host-cache"), lockText, tree)).not.toBe(key);
   });
 
   test("a cmux-tui or hook pin leaves it; an agent pin, a system lock field or an input blob changes it", () => {
@@ -274,6 +277,12 @@ describe("deferred inventory", () => {
 });
 
 describe("baked npm cache", () => {
+  (process.platform === "linux" ? test : test.skip)("experimental guest profiles share the npm seed for offline installs", async () => {
+    const result = await runChild("python3", ["-I", path.join(repoRoot, "web/tests/fixtures/npm-host-cache.py")], { timeout: 45_000 });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  }, 50_000);
+
   test("the prefill parses, installs as the work user, reports its size and enforces the cap", async () => {
     const { npmCachePrefillCommand, NPM_CACHE_CAP_MB, PREFILL_NODE_DEPS } = await import("../scripts/cmux-vm-image/dep-cache");
     const cmd = npmCachePrefillCommand();

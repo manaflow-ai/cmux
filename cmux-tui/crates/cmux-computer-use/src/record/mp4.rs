@@ -36,7 +36,7 @@ pub fn nal_units(annexb: &[u8]) -> Vec<&[u8]> {
     let mut starts: Vec<(usize, usize)> = Vec::new();
     let mut i = 0;
     while i + 3 <= annexb.len() {
-        if annexb[i] == 0 && annexb[i + 1] == 0 && annexb[i + 2] == 1 {
+        if annexb.get(i..i + 3) == Some(&[0, 0, 1][..]) {
             starts.push((i, i + 3));
             i += 3;
         } else {
@@ -48,11 +48,11 @@ pub fn nal_units(annexb: &[u8]) -> Vec<&[u8]> {
         let mut end = starts.get(n + 1).map_or(annexb.len(), |next| next.0);
         // The zero before a four-byte start code, and any trailing zeros,
         // are not part of the unit (a unit never ends in a zero byte).
-        while end > begin && annexb[end - 1] == 0 {
+        while end > begin && annexb.get(end - 1) == Some(&0) {
             end -= 1;
         }
-        if end > begin {
-            out.push(&annexb[begin..end]);
+        if let Some(unit) = annexb.get(begin..end).filter(|unit| !unit.is_empty()) {
+            out.push(unit);
         }
     }
     out
@@ -131,7 +131,10 @@ impl Mp4Writer {
         let mut body: Vec<u8> = Vec::with_capacity(annexb.len() + 16);
         let mut key = false;
         for nal in nal_units(annexb) {
-            match nal[0] & 0x1f {
+            let Some(&header) = nal.first() else {
+                continue;
+            };
+            match header & 0x1f {
                 NAL_SPS => {
                     if self.sps.is_none() {
                         self.sps = Some(nal.to_vec());
@@ -176,18 +179,25 @@ impl Mp4Writer {
         let (Some(sps), Some(pps)) = (self.sps.take(), self.pps.take()) else {
             return Err(io::Error::other("the encoder gave no H.264 parameter sets"));
         };
-        if self.samples.is_empty() || sps.len() < 4 {
+        let (Some(last), &[_, profile, compat, level, ..]) = (self.samples.last(), sps.as_slice())
+        else {
             return Err(io::Error::other("no frame was recorded"));
-        }
-        let last = self.samples[self.samples.len() - 1].at;
+        };
+        let last = last.at;
         // The last frame shows until the end, at least one tick.
         let tail = ticks(end).saturating_sub(last).max(1);
-        let mut deltas: Vec<u64> = self.samples.windows(2).map(|w| w[1].at - w[0].at).collect();
+        let mut deltas: Vec<u64> = self
+            .samples
+            .iter()
+            .zip(self.samples.iter().skip(1))
+            .map(|(prev, next)| next.at - prev.at)
+            .collect();
         deltas.push(tail);
         let duration: u64 = deltas.iter().sum();
         let movie_duration = duration * MOVIE_TIMESCALE / TIMESCALE;
 
-        let moov = self.moov(&sps, &pps, &deltas, duration, movie_duration);
+        let moov =
+            self.moov(&sps, [profile, compat, level], &pps, &deltas, duration, movie_duration);
         self.file.write_all(&moov)?;
         self.file.flush()?;
         let mut file = self.file.into_inner().map_err(|e| e.into_error())?;
@@ -199,6 +209,8 @@ impl Mp4Writer {
     fn moov(
         &self,
         sps: &[u8],
+        // The SPS's profile, constraint flags and level bytes (1..4).
+        sps_head: [u8; 3],
         pps: &[u8],
         deltas: &[u64],
         duration: u64,
@@ -259,13 +271,14 @@ impl Mp4Writer {
         dref.extend_from_slice(&full(b"url ", 0, 1, Vec::new()));
         let dinf = boxed(b"dinf", full(b"dref", 0, 0, dref));
 
-        let mut avcc = vec![1, sps[1], sps[2], sps[3], 0xfc | 3, 0xe0 | 1];
+        let [profile, compat, level] = sps_head;
+        let mut avcc = vec![1, profile, compat, level, 0xfc | 3, 0xe0 | 1];
         put16(&mut avcc, sps.len() as u16);
         avcc.extend_from_slice(sps);
         avcc.push(1);
         put16(&mut avcc, pps.len() as u16);
         avcc.extend_from_slice(pps);
-        if matches!(sps[1], 100 | 110 | 122 | 144) {
+        if matches!(profile, 100 | 110 | 122 | 144) {
             // High profiles name the chroma format and bit depths: 4:2:0,
             // 8 bits, which is all cmux's encoders make.
             avcc.extend_from_slice(&[0xfc | 1, 0xf8, 0xf8, 0]);
@@ -421,13 +434,15 @@ pub struct Track {
 
 fn be32(b: &[u8], at: usize) -> Result<u32, String> {
     b.get(at..at + 4)
-        .map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+        .and_then(|s| <[u8; 4]>::try_from(s).ok())
+        .map(u32::from_be_bytes)
         .ok_or_else(|| "the file ends inside a box".to_string())
 }
 
 fn be16(b: &[u8], at: usize) -> Result<u16, String> {
     b.get(at..at + 2)
-        .map(|s| u16::from_be_bytes([s[0], s[1]]))
+        .and_then(|s| <[u8; 2]>::try_from(s).ok())
+        .map(u16::from_be_bytes)
         .ok_or_else(|| "the file ends inside a box".to_string())
 }
 
@@ -444,11 +459,12 @@ fn children(body: &[u8]) -> Result<Vec<BoxRef<'_>>, String> {
     let mut at = 0usize;
     while at + 8 <= body.len() {
         let size = be32(body, at)? as usize;
-        let kind = [body[at + 4], body[at + 5], body[at + 6], body[at + 7]];
-        if size < 8 || at + size > body.len() {
+        let kind = be32(body, at + 4)?.to_be_bytes();
+        let payload = if size < 8 { None } else { body.get(at + 8..at + size) };
+        let Some(payload) = payload else {
             return Err(format!("box {} has a bad size", String::from_utf8_lossy(&kind)));
-        }
-        out.push((kind, &body[at + 8..at + size]));
+        };
+        out.push((kind, payload));
         at += size;
     }
     Ok(out)
@@ -581,7 +597,7 @@ fn read(path: &Path, keep: bool) -> Result<Track, String> {
     let mut samples = Vec::new();
     file.seek(SeekFrom::Start(first)).map_err(|e| e.to_string())?;
     let mut reader = io::BufReader::new(file);
-    for (i, size) in sizes.iter().enumerate() {
+    for (i, (size, time)) in sizes.iter().zip(&times).enumerate() {
         let mut data = vec![0u8; *size as usize];
         reader.read_exact(&mut data).map_err(|e| e.to_string())?;
         // The NAL lengths cover the frame exactly.
@@ -598,7 +614,7 @@ fn read(path: &Path, keep: bool) -> Result<Track, String> {
             samples.push(ReadSample {
                 data,
                 key: keys.contains(&(i + 1)),
-                at: Duration::from_micros(times[i] * 1_000_000 / timescale),
+                at: Duration::from_micros(*time * 1_000_000 / timescale),
             });
         }
     }
