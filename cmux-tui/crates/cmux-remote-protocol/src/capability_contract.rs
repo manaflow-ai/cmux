@@ -115,6 +115,9 @@ impl RemoteCapability {
             Self::SecretsV1 => {
                 &["method:replace-machine-secrets", "method:response/machine-secrets-replaced"]
             }
+            Self::GitHostTokensV1 => {
+                &["method:replace-git-host-token", "method:response/git-host-token-replaced"]
+            }
             // Behavior only: the daemon answers the existing reads from its replica.
             Self::PausedReadsV1 | Self::Unknown(_) => &[],
         }
