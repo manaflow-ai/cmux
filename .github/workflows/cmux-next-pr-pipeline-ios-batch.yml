@@ -122,8 +122,9 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
-  # pr-pipeline.yml's ios job: every ios step but ios-kit-macos, on the Mac ios-runner picked, one iPhone simulator.
-  # The fleet pool's simulator steps are pull-request only there and are left out here.
+  # pr-pipeline.yml's ios job: every ios step but ios-kit-macos, on the Mac ios-runner picked, one iPhone simulator,
+  # with its fleet pool steps. The kit's push run had them on every merge (kit-tests' sim-pool steps, then
+  # kit-sim-pool), so vars.CMUX_IOS_SIM_LINUX unset means "shadow" here, as it did there: both sides stay timed.
   ios:
     name: ios
     needs: [ios-runner]
@@ -180,14 +181,73 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/github_fetch_auth.py
+      # pr-pipeline.yml's fleet pool steps (scripts/ci/ios-sim-pool.sh): this Mac builds the kit's simulator tests for
+      # testing and the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow (unset) times
+      # both, on uses the pool's verdict with this Mac as the fallback, off skips it.
+      - name: Fleet pool, build the kit's simulator tests
+        id: sim-pool
+        if: ${{ contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && vars.CMUX_FLEET_CONTROLLER != '' }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          if ! ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -c 'import json, sys; sys.exit("ios-kit" not in (json.load(sys.stdin).get("ios") or []))'; then
+            echo "ios-kit is not routed: no pool run"; exit 0
+          fi
+          bash scripts/ci/ios-sim-pool.sh pack
+          echo "packed=1" >> "$GITHUB_OUTPUT"
+      # The products go to the fleet pool's own store (for this run's pool step only), not to an artifact here.
+      - name: Fleet pool, upload the products
+        id: sim-pool-upload
+        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/ios-sim-pool.sh upload
+      - name: Fleet pool, submit
+        if: ${{ steps.sim-pool.outputs.packed == '1' && steps.sim-pool-upload.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          HEAD_SHA: ${{ inputs.sha || github.sha }}
+        run: bash scripts/ci/ios-sim-pool.sh submit
       # Every routed ios step but ios-kit-macos, which the `ios macos` job runs; `none` names no step.
       - name: Run the routed ios steps (ci/steps.toml)
         env:
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
+          CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
           GH_TOKEN: ${{ github.token }}
         run: |
           only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -I -c 'import json, sys
           print(" ".join(n for n in json.load(sys.stdin).get("ios", []) if n != "ios-kit-macos") or "none")')"
           ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$only"
+      # The kit's push run saved CmuxMobileLinkFFI.xcframework under this key on every merge, and others restore it
+      # on feat-cmux-next's scope (swift-linux-packages.yml's Mac fallback, first-user-journey-ios.yml); nothing else
+      # saves it there now (ios-reliability-matrix.yml's nightly runs on main). The table's own steps do not restore it.
+      # Saved only when this job's steps built or took it on these inputs (ios_link_ffi.sh's marker, written on a
+      # good build or a fleet copy), and only on feat-cmux-next.
+      - name: CmuxMobileLinkFFI.xcframework key
+        id: xcf-key
+        if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          inputs="$(python3 -I scripts/ci/ios_link_ffi_key.py)"
+          mark="$RUNNER_TEMP/link-ffi-fleet.key"
+          if [[ -f "$mark" && "$(cat "$mark")" == "$inputs" && -f cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework/Info.plist ]]; then
+            xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+            echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          else
+            echo "no xcframework built on these inputs in this job: nothing to save"
+          fi
+      - name: Save CmuxMobileLinkFFI.xcframework
+        if: ${{ !cancelled() && steps.xcf-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # The same relative path and archive flag as the restores in swift-linux-packages.yml and first-user-journey-ios.yml.
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
 
   # pr-pipeline.yml's `ios macos` job: the kit's macOS swift test (ios-kit-macos) beside the simulator leg, on
   # Blacksmith's macOS when vars.CI_BLACKSMITH_MACOS is on, else the mac job's pool. ios-kit reads its verdict by
@@ -243,3 +303,101 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Run the kit's macOS swift test (ci/steps.toml ios-kit-macos)
         run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only ios-kit-macos
+
+  # cmux-next-ios-kit.yml's kit-sim-fleet, shadow only: the build fleet builds the kit's simulator tests and the fleet
+  # pool runs them, timed beside the Mac's build above (the `ios` job's fleet pool steps). Advisory: it never fails the
+  # batch, and the table's ios-kit step does not read it (its "on" hand-off, the Mac taking these products, has no table
+  # step, as on pull requests). The fleet builds the commit in this job's OIDC token (github.sha, the dispatched tip),
+  # so a bisect probe at an older commit leaves it out.
+  kit-sim-fleet:
+    name: CmuxMobileKit iOS simulator test build (build fleet, shadow)
+    if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' && (inputs.sha == '' || inputs.sha == github.sha) && (vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') == 'shadow' && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && vars.CMUX_FLEET_CONTROLLER != '' }}
+    runs-on: cmux-linux
+    timeout-minutes: 90  # the build waits up to 600 s queued plus 1500 s running; the shadow pool run up to 2400 s
+    permissions:
+      contents: read
+      id-token: write  # the route reads the repository and the commit from this job's OIDC token
+    steps:
+      # ci/ for the route, scripts/ci for the fleet clients.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          filter: blob:none
+          sparse-checkout: |
+            ci
+            scripts/ci
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the paths the window changed
+        if: ${{ inputs.base != '' }}
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] \
+            && git fetch --no-tags --no-recurse-submodules --depth=1 origin "$BASE" \
+            && git diff --name-only --no-renames -z "$BASE" HEAD > "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+          else
+            echo "::notice::No window base to diff ('$BASE'): every step routes."
+          fi
+      # The kit's push run was path-filtered to the kit's inputs: here, the window must route ios-kit.
+      - name: Is ios-kit routed
+        id: routed
+        run: |
+          if ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -c 'import json, sys; sys.exit("ios-kit" not in (json.load(sys.stdin).get("ios") or []))'; then
+            echo "yes=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios-kit is not routed: no fleet build"
+          fi
+      # Exit 0 is both tarballs: one <Target>.xctest per kit test target with the .xctestrun naming each, and the
+      # platform's XCTest frameworks. Anything else hands nothing on.
+      - name: Build the iOS simulator tests on the build fleet
+        id: build
+        if: ${{ steps.routed.outputs.yes == '1' }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/kit-sim-products"
+          start=$(date +%s)
+          status=0
+          python3 scripts/ci/fleet_ios_build.py --what kit-products --out "$out" --timeout 1500 --queue-timeout 600 || status=$?
+          seconds=$(( $(date +%s) - start ))
+          if [[ "$status" != 0 || ! -s "$out/ios-sim-build.tar.gz" || ! -s "$out/ios-sim-xctest-platform.tar.gz" ]]; then
+            echo "::warning title=build fleet::no simulator test build from the build fleet (exit $status, $seconds s)"
+            { echo "### iOS simulator test build on the build fleet: none"; echo "exit $status after $seconds s"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          du -sh "$out"/*
+          echo "build fleet: simulator test build in $seconds s"
+          { echo "### iOS simulator test build on the build fleet: $seconds s"; echo "submit to products, queue included"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+      - name: Hand the simulator test build on
+        id: upload
+        if: steps.build.outputs.out != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.build.outputs.out }}
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      # cmux-linux is also served by GCP pool runners off the tailnet: the shadow run asks first and, on a no, is left
+      # out with a notice (the `ios` job's in-job submit covers the run the pool judges).
+      - name: Does this runner reach the controller
+        id: reach
+        if: steps.upload.outcome == 'success'
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/kit_sim_fleet.sh reach
+      - name: Fleet pool run on the fleet's build (shadow)
+        if: steps.reach.outputs.reach == 'yes'
+        continue-on-error: true
+        timeout-minutes: 50
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          HEAD_SHA: ${{ inputs.sha || github.sha }}
+          PRODUCTS: ${{ github.run_id }}/kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
+          LABEL: fleet pool on the build fleet's build (shadow)
+        run: bash scripts/ci/kit_sim_fleet.sh pool
