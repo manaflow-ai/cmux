@@ -325,7 +325,7 @@ class PublicBoundaryScanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             path = tui / "crates/cmux-tui/src/cli/search_tests.rs"
-            write(path, 'const FIXTURE: &str = "surface";\\n')
+            write(path, 'const FIXTURE: &str = "surface";\n')
 
             diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
 
