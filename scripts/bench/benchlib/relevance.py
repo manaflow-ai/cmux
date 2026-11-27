@@ -23,8 +23,10 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
+import random
 import re
 import subprocess
+import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,16 +64,17 @@ def glob_regex(glob: str) -> str:
     return "".join(out) + r"\Z"
 
 
+WILDCARD = re.compile(r"[*?\[]")
+
+
 def literal_prefix(glob: str) -> str:
     """The leading folders with no wildcard: the bucket a glob is filed under. A glob with no wildcard is its own
     bucket (an exact path, or a folder: `a/b` also covers everything under it, as the coverage map writes paths)."""
-    parts = glob.split("/")
-    lead: list[str] = []
-    for part in parts:
-        if any(ch in part for ch in "*?["):
-            return "/".join(lead)
-        lead.append(part)
-    return glob
+    m = WILDCARD.search(glob)
+    if m is None:
+        return glob
+    cut = glob.rfind("/", 0, m.start())
+    return glob[:cut] if cut != -1 else ""
 
 
 def pattern_of(glob: str) -> str:
@@ -92,6 +95,8 @@ class Rule:
     tests: tuple[str, ...] = ()
     template: str = ""
     budget: str = ""
+    run: tuple[str, ...] = ()
+    budget_s: float | None = None
     situations: tuple[str, ...] = ()
     generated: bool = False
     ignore: tuple[tuple[bool, str], ...] = ()
@@ -152,7 +157,14 @@ def parse(text: str) -> list[Rule]:
             globs = entry.get("paths")
             if not name or not globs or not all(isinstance(g, str) and g and not g.startswith("/") for g in globs):
                 raise MapError(f"relevance map: a [[{kind}]] needs a name and repo-relative `paths` ({entry!r})")
+            run, budget_s = entry.get("run", []), entry.get("budget_s")
+            if not isinstance(run, list) or not all(isinstance(c, str) and c.strip() for c in run):
+                raise MapError(f"relevance map: [[{kind}]] {name}: `run` is a list of shell commands ({run!r})")
+            if budget_s is not None and (isinstance(budget_s, bool) or not isinstance(budget_s, (int, float))
+                                         or budget_s <= 0):
+                raise MapError(f"relevance map: [[{kind}]] {name}: `budget_s` is a positive number ({budget_s!r})")
             rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules),
+                              run=tuple(run), budget_s=float(budget_s) if budget_s is not None else None,
                               benches=tuple(entry.get("benches", ())), tests=tuple(entry.get("tests", ())),
                               template=entry.get("template", ""), budget=entry.get("budget", ""),
                               situations=tuple(entry.get("situations", ())), generated=kind == "unit", raw=entry))
@@ -166,11 +178,14 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
+        self.situation_by_name: dict[str, list[Rule]] = {}
         for rule in rules:
             for glob in rule.globs:
                 prefix = literal_prefix(glob).rstrip("/")
                 # Specificity: literal characters before the first wildcard, so `a/b/c.swift` beats `a/b/**`.
                 self.buckets.setdefault(prefix, []).append((rule, glob, len(prefix)))
+            if rule.kind == "situation":
+                self.situation_by_name.setdefault(rule.name, []).append(rule)
 
     def _bucket(self, key: str) -> list[tuple[Rule, re.Pattern[str], int]]:
         got = self._compiled.get(key)
@@ -246,11 +261,15 @@ def naive_match(rules: list[Rule], path: str) -> Hit:
     return Scan(rules).match(path)
 
 
-def load(path: Path = MAP, steps: Path | None = STEPS) -> Index:
+def load_rules(path: Path = MAP, steps: Path | None = STEPS) -> list[Rule]:
     rules = parse(path.read_text(encoding="utf-8"))
     if steps is not None and steps.is_file():
         rules += parse_steps(steps.read_text(encoding="utf-8"), start=len(rules))
-    return Index(rules)
+    return rules
+
+
+def load(path: Path = MAP, steps: Path | None = STEPS) -> Index:
+    return Index(load_rules(path, steps))
 
 
 # ---- what a set of paths needs -------------------------------------------------------------------------------
@@ -269,11 +288,12 @@ def plan(index: Index, paths: list[str]) -> dict:
             if rule is None:
                 continue
             a = areas.setdefault(rule.name, {"name": rule.name, "kind": rule.kind, "benches": list(rule.benches),
-                                             "tests": list(rule.tests), "budget": rule.budget, "paths": []})
+                                             "tests": list(rule.tests), "budget": rule.budget,
+                                             "run": list(rule.run), "budget_s": rule.budget_s, "paths": []})
             a["paths"].append(h.path)
         sit_rules = list(h.situations)
         for name in (h.area.situations if h.area else ()):
-            sit_rules += [r for r in index.rules if r.kind == "situation" and r.name == name]
+            sit_rules += index.situation_by_name.get(name, ())
         for s in sit_rules:
             t = templates.setdefault(s.name, {"situation": s.name, "template": s.template, "paths": []})
             if h.path not in t["paths"]:
@@ -290,6 +310,75 @@ def plan(index: Index, paths: list[str]) -> dict:
     return {"schema": "cmux-bench/for-paths/v1", "paths": rows, "areas": list(areas.values()), "benches": benches,
             "ci_steps": ci_steps,
             "tests": tests, "templates": list(templates.values()), "unmapped": unmapped, "defaults": defaults}
+
+
+# ---- running the benches a change selects ---------------------------------------------------------------------
+
+# A bench may print its own measurement; it beats wall time (which counts process start and the TOML load).
+MEASURED = re.compile(r"^bench_seconds=([0-9]+(?:\.[0-9]+)?)\s*$", re.M)
+OVER, OK, MISSING, ERROR, TIMEOUT = "over-budget", "ok", "missing", "error", "timeout"
+
+
+def runs_for(plan_: dict) -> list[dict]:
+    """The commands a plan's areas name, each once, under the tightest budget any of its areas sets."""
+    out: dict[str, dict] = {}
+    for a in plan_["areas"]:
+        for cmd in a.get("run", ()):
+            r = out.setdefault(cmd, {"cmd": cmd, "areas": [], "budget_s": None})
+            r["areas"].append(a["name"])
+            if a.get("budget_s") is not None:
+                r["budget_s"] = a["budget_s"] if r["budget_s"] is None else min(r["budget_s"], a["budget_s"])
+    return list(out.values())
+
+
+def run_one(run: dict, timeout: float, root: Path = ROOT) -> dict:
+    """Run one bench command. Only a measured result over its budget is OVER; a missing tool, an error or a
+    timeout under no budget is a warning (fail open)."""
+    budget = run["budget_s"]
+    t = time.perf_counter()
+    try:
+        res = subprocess.run(["bash", "-c", run["cmd"]], cwd=root, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        wall = time.perf_counter() - t
+        status = OVER if budget is not None and wall > budget else TIMEOUT
+        return {**run, "status": status, "seconds": round(wall, 4), "detail": f"killed at the {timeout:g} s timeout"}
+    except OSError as err:
+        return {**run, "status": MISSING, "seconds": None, "detail": str(err)}
+    wall = time.perf_counter() - t
+    tail = (res.stderr or res.stdout).strip().splitlines()[-1:] or [""]
+    if res.returncode == 127 or "No such file or directory" in res.stderr and res.returncode != 0:
+        return {**run, "status": MISSING, "seconds": None, "detail": tail[0][:200]}
+    if res.returncode != 0:
+        return {**run, "status": ERROR, "seconds": None, "detail": f"exit {res.returncode}: {tail[0][:200]}"}
+    found = MEASURED.findall(res.stdout)
+    seconds = float(found[-1]) if found else wall
+    status = OVER if budget is not None and seconds > budget else OK
+    return {**run, "status": status, "seconds": round(seconds, 4), "measured": "bench" if found else "wall",
+            "detail": ""}
+
+
+def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT) -> list[dict]:
+    return [run_one(r, timeout, root) for r in runs_for(plan_)]
+
+
+def scaled(rules: list[Rule], scale: int) -> list[Rule]:
+    """The map's rules plus scale - 1 copies under fresh top folders: scale times the rules, same shape."""
+    big = list(rules)
+    for k in range(1, scale):
+        big += [Rule(kind=r.kind, name=f"{r.name}#{k}", order=len(big) + i, ignore=r.ignore,
+                     globs=tuple(f"x{k}/{g}" for g in r.globs)) for i, r in enumerate(rules)]
+    return big
+
+
+def self_bench(n: int = 2000, scale: int = 1, root: Path = ROOT) -> float:
+    """Seconds for load + plan on n tracked paths, with scale times the rules: the for-paths budget, as a bench."""
+    files = _tracked(root)
+    paths = random.Random(3).sample(files, min(n, len(files)))
+    t = time.perf_counter()
+    rules = load_rules()
+    index = Index(scaled(rules, scale) if scale > 1 else rules)
+    plan(index, paths)
+    return time.perf_counter() - t
 
 
 def coverage(index: Index, changes: list[list[str]]) -> dict:
