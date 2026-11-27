@@ -359,3 +359,38 @@ fn personal_github_login_requires_user_consent_in_both_mergers() {
         Value::Null,
     );
 }
+
+// effective.value_at
+
+fn smoothing_at(source: &str, managed: Value) -> Value {
+    op(
+        "effective.value_at",
+        json!({ "source": source, "path": ["appearance", "fontSmoothing"], "managed": managed }),
+    )
+}
+
+#[test]
+fn value_at_reads_one_key_of_a_jsonc_file() {
+    let source = "// mine\n{ \"appearance\": { \"fontSmoothing\": \"subpixel\", }, \"b\": [1, 2] }";
+    assert_eq!(smoothing_at(source, json!({})), json!({ "value": "subpixel" }));
+    assert_eq!(smoothing_at("{}", json!({})), json!({}));
+    assert_eq!(smoothing_at("", json!({})), json!({}));
+}
+
+#[test]
+fn value_at_ranks_forced_over_the_file_over_recommended() {
+    let file = "{ \"appearance\": { \"fontSmoothing\": \"subpixel\" } }";
+    let forced = json!({ "forced": { "appearance.fontSmoothing": "antialiased" } });
+    let recommended = json!({ "recommended": { "appearance.fontSmoothing": "antialiased" } });
+    assert_eq!(smoothing_at(file, forced.clone()), json!({ "value": "antialiased" }));
+    assert_eq!(smoothing_at(file, recommended.clone()), json!({ "value": "subpixel" }));
+    assert_eq!(smoothing_at("{}", recommended), json!({ "value": "antialiased" }));
+    assert_eq!(smoothing_at("{ not json", forced), json!({ "value": "antialiased" }));
+}
+
+#[test]
+fn value_at_reads_an_unreadable_file_as_empty_and_needs_a_path() {
+    assert_eq!(smoothing_at("{ \"appearance\": ", json!({})), json!({}));
+    assert!(call("effective.value_at", &json!({ "source": "{}", "path": [] })).unwrap().is_err());
+    assert!(call("effective.value_at", &json!({ "path": ["a"] })).unwrap().is_err());
+}
