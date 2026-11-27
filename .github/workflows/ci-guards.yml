@@ -164,6 +164,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Jobs that only drive the build fleet run on Linux, not a gateway Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gateway_jobs_on_linux.py
+
       - name: Validate scripts keep full clones full
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
@@ -1142,10 +1146,12 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen), and a
+        # GitHub read is asked again after a refusal that can change (gh_http.py).
         run: |
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
+          python3 tests/test_ci_gh_http.py
 
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}

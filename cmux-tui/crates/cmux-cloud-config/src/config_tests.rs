@@ -209,6 +209,47 @@ fn no_build_adopts_nightlys_session() {
 }
 
 #[test]
+fn team_signed_production_channels_share_one_session_item() {
+    for bundle_id in [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID] {
+        let shared = configure(selection("prod", bundle_id, "n", true, None), &[], false)
+            .shared_session
+            .unwrap_or_else(|| panic!("{bundle_id} shares"));
+        // One item for every channel: named by the Stack project, never by the bundle.
+        assert_eq!(shared.keychain_service, "com.cmuxterm.app.shared.auth.staging-project");
+        assert_eq!(shared.access_group, "7WLXT3NR37.com.cmuxterm.app.shared");
+    }
+}
+
+#[test]
+fn no_other_build_shares_the_session_item() {
+    // A development backend: its accounts are not production's.
+    assert_eq!(
+        configure(selection("dev", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false).shared_session,
+        None
+    );
+    // A Debug build, signed ad hoc.
+    assert_eq!(
+        configure(selection("prod", RELEASE_BUNDLE_ID, "n", true, None), &[], true).shared_session,
+        None
+    );
+    // Signed NEXT DEV, NEXT Stable and tagged builds embed no profile: no access group.
+    for bundle_id in [
+        NEXT_DEV_BUNDLE_ID,
+        "com.cmuxterm.app.nightly.cmux-next-stable",
+        "com.cmuxterm.app.debug.feature",
+        UNAVAILABLE_BUNDLE_ID,
+    ] {
+        assert_eq!(
+            configure(selection("prod", bundle_id, "n", true, None), &[], false).shared_session,
+            None,
+            "{bundle_id}"
+        );
+    }
+    // No Stack project: no item to name.
+    assert_eq!(shared_session(NIGHTLY_BUNDLE_ID, false, true, ""), None);
+}
+
+#[test]
 fn the_sign_in_url_nests_the_callback_with_its_state() {
     assert_eq!(
         sign_in_url("http://localhost:4577", "cmux-dev-safauth", Some("state-secret")),
