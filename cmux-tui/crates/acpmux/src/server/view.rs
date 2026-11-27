@@ -134,6 +134,7 @@ pub(super) fn subscribe_remote(
             settle_idle(hub, &s, &mut local);
             hub.attach_count_from(&s, -1, !local.hidden, a_person(conn));
         }
+        conn.incoming_presence.detach(hub, id);
         hub.presence.leave(id, &conn.id);
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
         conn.stream_cursors.forget(id);
@@ -254,11 +255,11 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .get_mut(&s.id)
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
-    if conn.incoming_presence.leave(hub, conn, params) {
+    if conn.incoming_presence.leave(hub, conn, params, &s.id)? {
         return Ok(json!({}));
     }
     if presence_open(conn, author.as_ref()) {
-        let key = conn.incoming_presence.key(conn, params)?;
+        let key = conn.incoming_presence.key(conn, params, &s.id)?;
         hub.presence.view_with_cutover(
             &s.id,
             &key,
@@ -319,7 +320,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     if subs.get(&s.id).is_none_or(|opts| opts.remote) || !presence_open(conn, author.as_ref()) {
         return Err(RpcError::invalid_params("attach to the session before _acpmux/typing"));
     }
-    let key = conn.incoming_presence.key(conn, params)?;
+    let key = conn.incoming_presence.key(conn, params, &s.id)?;
     hub.presence.typing(&s.id, &key, &Who::of(author.as_ref()), on)?;
     Ok(json!({}))
 }

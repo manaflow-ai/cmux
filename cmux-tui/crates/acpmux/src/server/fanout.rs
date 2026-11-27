@@ -114,6 +114,7 @@ pub(super) fn start(
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     let mut live_off = hub.presence.subscribe_off();
+    let mut peer_connections = hub.presence.subscribe_peer_connections();
     tokio::spawn(async move {
         loop {
             let rows_due = conn.held_rows.due();
@@ -122,6 +123,11 @@ pub(super) fn start(
                 changed = live_off.changed() => {
                     if changed.is_err() { break; }
                     conn.outgoing_presence.live_off(&hub, *live_off.borrow_and_update());
+                    continue;
+                }
+                changed = peer_connections.changed() => {
+                    if changed.is_err() { break; }
+                    conn.outgoing_presence.reconnected(&hub);
                     continue;
                 }
                 // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
@@ -227,7 +233,7 @@ pub(super) fn start(
 fn send_presence(hub: &Hub, conn: &Conn, note: &serde_json::Value) {
     let remote = note.get(crate::hub::presence::REMOTE_MARKER).is_some();
     if (super::view::a_link(conn)
-        && (!conn.client_features.hears_any(&[crate::hub::presence::PEER_FEATURE]) || remote))
+        && (!conn.client_features.lists(crate::hub::presence::PEER_FEATURE) || remote))
         || (!super::view::a_link(conn)
             && !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE]))
     {

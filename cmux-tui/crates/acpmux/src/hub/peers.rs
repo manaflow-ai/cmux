@@ -984,6 +984,7 @@ impl Hub {
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
                     self.outbox.note_peer_ready(&peer);
+                    self.presence.peer_connected();
                     // Chat state edited on either side while the link was down crosses now
                     // (`synced.rs`).
                     self.synced_on_connect(&peer, generation);

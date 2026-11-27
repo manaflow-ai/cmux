@@ -1,10 +1,17 @@
 //! Client-owned presence carried over a shared daemon link. Tokens are scoped to that link;
 //! closing a client, detaching, or switching Live off withdraws only that client's entries.
+//!
+//! Reconnect restores accepted visible views after every successful peer handshake, without
+//! needing a fresh client request. Typing is transient and never replaces the saved view.
+//! Requests, replay and withdrawal serialize per entry and are pinned to the negotiated link.
+//! Incoming tokens are bounded and belong to one canonical chat; detach releases that chat's
+//! tokens even when a request used an alias. The peer integration presence tests cover these
+//! lifecycle boundaries.
 use super::{Conn, view};
 use crate::{
     hub::Hub,
     no_panic::LockExt,
-    peer::Peer,
+    peer::{ATTACH_RETRY_AFTER, Peer, refuses_attach},
     rpc::{RpcError, method},
 };
 use serde_json::{Value, json};
@@ -24,9 +31,11 @@ struct Entry {
     author: String,
     token: String,
     link: AtomicU64,
+    restored_link: AtomicU64,
+    replay_link: AtomicU64,
     live_epoch: u64,
     leave: Value,
-    replay: Mutex<(String, Value)>,
+    view: Mutex<Option<Value>>,
     active: AtomicBool,
     sending: tokio::sync::Mutex<()>,
 }
@@ -82,6 +91,55 @@ impl Outgoing {
         self.remove(hub, |entry| entry.chat == chat);
     }
 
+    /// Called when a peer finishes a handshake; coalesced notices restore every current link.
+    pub(super) fn reconnected(&self, hub: &Arc<Hub>) {
+        let entries = self.0.lock_or_recover().as_ref().cloned().unwrap_or_default();
+        for entry in entries {
+            if !entry.peer.connected.load(Ordering::SeqCst) {
+                continue;
+            }
+            let Some(link) = entry.peer.lists_on(crate::hub::presence::PEER_FEATURE) else {
+                continue;
+            };
+            if entry.restored_link.load(Ordering::Acquire) == link
+                || entry.replay_link.swap(link, Ordering::AcqRel) == link
+            {
+                continue;
+            }
+            let owner = hub.clone();
+            hub.scope.spawn_until_cancelled("peer-presence-replay", async move {
+                for attempt in 0..=ATTACH_RETRY_AFTER.len() {
+                    if attempt > 0 {
+                        // Never hold `sending` during backoff: a leave must get through.
+                        tokio::time::sleep(ATTACH_RETRY_AFTER[attempt - 1]).await;
+                    }
+                    let _sending = entry.sending.lock().await;
+                    if !entry.active.load(Ordering::Acquire)
+                        || !owner.presence.is_live()
+                        || owner.presence.off_epoch() != entry.live_epoch
+                        || entry.peer.lists_on(crate::hub::presence::PEER_FEATURE) != Some(link)
+                        || !entry.peer.connected.load(Ordering::SeqCst)
+                    {
+                        break;
+                    }
+                    match restore(&entry, link, true).await {
+                        Ok(()) => break,
+                        Err(error) if refuses_attach(&error) => {
+                            tracing::info!(peer = %entry.peer.name, %error, "presence replay refused; not retrying");
+                            break;
+                        }
+                        Err(error) if attempt == ATTACH_RETRY_AFTER.len() => {
+                            tracing::warn!(peer = %entry.peer.name, %error, attempt, "presence replay retries exhausted; next link or client request retries");
+                        }
+                        Err(error) => {
+                            tracing::debug!(peer = %entry.peer.name, %error, attempt, "presence replay failed; retrying");
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     pub(super) async fn send(
         &self,
         hub: &Arc<Hub>,
@@ -95,7 +153,7 @@ impl Outgoing {
         let author =
             crate::author::author(&params)?.ok_or_else(crate::hub::presence::peer_unsupported)?.id;
         let epoch = hub.presence.off_epoch();
-        let (entry, replay) = {
+        let entry = {
             let subs = conn.subs.lock_or_recover();
             if *conn.ended.borrow()
                 || subs.get(&chat).is_none_or(|sub| {
@@ -109,24 +167,12 @@ impl Outgoing {
             let mut table = self.0.lock_or_recover();
             let entries =
                 table.as_mut().ok_or_else(|| RpcError::invalid_params("client closed"))?;
-            let mut replay = Vec::new();
-            for entry in entries.iter() {
-                if Arc::ptr_eq(&entry.peer, &peer)
-                    && entry.link.load(Ordering::Acquire) != link
-                    && entry.active.load(Ordering::Acquire)
-                {
-                    entry.link.store(link, Ordering::Release);
-                    replay.push(entry.clone());
-                }
-            }
-            let entry = if let Some(entry) = entries.iter().find(|e| {
+            if let Some(entry) = entries.iter().find(|e| {
                 Arc::ptr_eq(&e.peer, &peer)
-                    && e.link.load(Ordering::Acquire) == link
                     && e.chat == chat
                     && e.author == author
                     && e.live_epoch == epoch
             }) {
-                *entry.replay.lock_or_recover() = (method.to_owned(), params.clone());
                 entry.clone()
             } else {
                 let token = uuid::Uuid::now_v7().to_string();
@@ -142,38 +188,18 @@ impl Outgoing {
                     author,
                     token,
                     link: AtomicU64::new(link),
+                    restored_link: AtomicU64::new(link),
+                    replay_link: AtomicU64::new(link),
                     live_epoch: epoch,
                     leave,
-                    replay: Mutex::new((method.to_owned(), params.clone())),
+                    view: Mutex::new(None),
                     active: AtomicBool::new(true),
                     sending: tokio::sync::Mutex::new(()),
                 });
                 entries.push(entry.clone());
                 entry
-            };
-            (entry, replay)
-        };
-        for replay_entry in replay {
-            if Arc::ptr_eq(&replay_entry, &entry) {
-                continue;
             }
-            let hub = hub.clone();
-            drop(hub.scope.spawn_named("peer-presence-replay", async move {
-                let _sending = replay_entry.sending.lock().await;
-                if !replay_entry.active.load(Ordering::Acquire)
-                    || !hub.presence.is_live()
-                    || hub.presence.off_epoch() != replay_entry.live_epoch
-                {
-                    return;
-                }
-                let (method, mut params) = replay_entry.replay.lock_or_recover().clone();
-                crate::hub::merge_mux_meta(
-                    &mut params,
-                    json!({"presenceClient": replay_entry.token, "presenceLeave": false}),
-                );
-                let _ = replay_entry.peer.request_on(&method, params, Some(link)).await;
-            }));
-        }
+        };
         let owner = hub.clone();
         let hub = hub.clone();
         let method = method.to_owned();
@@ -189,15 +215,55 @@ impl Outgoing {
                 {
                     return Err(crate::hub::presence::peer_unsupported());
                 }
+                // A new view supersedes the saved one. In particular, hiding must not
+                // depend on successfully replaying a stale visible view first.
+                restore(&entry, link, method != method::MUX_VIEW).await?;
                 crate::hub::merge_mux_meta(
                     &mut params,
                     json!({"presenceClient": entry.token, "presenceLeave": false}),
                 );
-                entry.peer.request_on(&method, params, Some(link)).await
+                let result = entry.peer.request_on(&method, params.clone(), Some(link)).await?;
+                // Only accepted viewing state survives reconnect. Typing has a short lifetime
+                // and must neither overwrite a view nor be resurrected after an outage.
+                if method == method::MUX_VIEW {
+                    *entry.view.lock_or_recover() = (params["visible"] == true).then_some(params);
+                    entry.restored_link.store(link, Ordering::Release);
+                }
+                Ok(result)
             })
             .await
             .map_err(|_| RpcError::internal("presence forwarding task ended"))?
     }
+}
+
+/// Caller holds `sending`, so reconnect, fresh requests and withdrawal stay ordered.
+async fn restore(entry: &Entry, link: u64, replay_view: bool) -> Result<(), RpcError> {
+    if entry.restored_link.load(Ordering::Acquire) == link {
+        return Ok(());
+    }
+    if entry.peer.lists_on(crate::hub::presence::PEER_FEATURE) != Some(link) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
+    // The ready notice can precede the handshake's hidden reattachments. Establish the
+    // subscription on this exact link before restoring its synthetic client's view.
+    entry
+        .peer
+        .request_on(
+            method::MUX_ATTACH,
+            json!({"sessionId": entry.chat, "visible": false, "limit": 0}),
+            Some(link),
+        )
+        .await?;
+    // A withdrawal must target this link even if a view is accepted but its reply is lost.
+    entry.link.store(link, Ordering::Release);
+    if replay_view {
+        let view = entry.view.lock_or_recover().clone();
+        if let Some(params) = view {
+            entry.peer.request_on(method::MUX_VIEW, params, Some(link)).await?;
+        }
+        entry.restored_link.store(link, Ordering::Release);
+    }
+    Ok(())
 }
 
 /// Synthetic connection ids distinguish clients on the same authenticated peer link.
@@ -210,7 +276,7 @@ struct IncomingEntry {
 }
 
 impl Incoming {
-    pub(super) fn key(&self, conn: &Conn, params: &Value) -> Result<String, RpcError> {
+    pub(super) fn key(&self, conn: &Conn, params: &Value, chat: &str) -> Result<String, RpcError> {
         if !view::a_link(conn) {
             return Ok(conn.id.clone());
         }
@@ -223,29 +289,42 @@ impl Incoming {
         }
         let mut entries = self.0.lock_or_recover();
         if let Some(entry) = entries.get(token) {
+            if entry.chat != chat {
+                return Err(RpcError::invalid_params("presence client belongs to another chat"));
+            }
             return Ok(entry.key.clone());
         }
         if entries.len() >= MAX_INCOMING_TOKENS {
             return Err(RpcError::invalid_params("too many presence clients on peer link"));
         }
-        let chat = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
         let key = format!("{}:presence:{}", conn.id, token);
-        entries.insert(token.to_owned(), IncomingEntry { chat, key: key.clone() });
+        entries.insert(token.to_owned(), IncomingEntry { chat: chat.to_owned(), key: key.clone() });
         Ok(key)
     }
 
-    pub(super) fn leave(&self, hub: &Hub, conn: &Conn, params: &Value) -> bool {
+    pub(super) fn leave(
+        &self,
+        hub: &Hub,
+        conn: &Conn,
+        params: &Value,
+        chat: &str,
+    ) -> Result<bool, RpcError> {
         if !view::a_link(conn)
             || params.pointer("/_meta/acpmux/presenceLeave") != Some(&json!(true))
         {
-            return false;
+            return Ok(false);
         }
         if let Some(token) = params.pointer("/_meta/acpmux/presenceClient").and_then(Value::as_str)
-            && let Some(entry) = self.0.lock_or_recover().remove(token)
         {
-            hub.presence.close(&entry.key);
+            let mut entries = self.0.lock_or_recover();
+            if entries.get(token).is_some_and(|entry| entry.chat != chat) {
+                return Err(RpcError::invalid_params("presence client belongs to another chat"));
+            }
+            if let Some(entry) = entries.remove(token) {
+                hub.presence.close(&entry.key);
+            }
         }
-        true
+        Ok(true)
     }
 
     pub(super) fn detach(&self, hub: &Hub, chat: &str) {

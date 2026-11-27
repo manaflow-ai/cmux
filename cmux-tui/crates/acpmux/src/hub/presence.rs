@@ -274,6 +274,7 @@ struct Inner {
     live: AtomicBool,
     live_changes: tokio::sync::watch::Sender<bool>,
     off_changes: tokio::sync::watch::Sender<u64>,
+    peer_connections: tokio::sync::watch::Sender<u64>,
     changes: broadcast::Sender<Arc<Value>>,
 }
 
@@ -291,6 +292,7 @@ impl Default for Presence {
                 live: AtomicBool::new(false),
                 live_changes: tokio::sync::watch::Sender::new(false),
                 off_changes: tokio::sync::watch::Sender::new(0),
+                peer_connections: tokio::sync::watch::Sender::new(0),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
         }
@@ -350,6 +352,16 @@ impl Presence {
     /// Every change, as `_acpmux/presence` params.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Value>> {
         self.inner.changes.subscribe()
+    }
+
+    /// Each successful handshake, including a path switch whose visible state is unchanged.
+    /// Coalescing is safe: consumers restore all their entries on the current link epochs.
+    pub(crate) fn peer_connected(&self) {
+        self.inner.peer_connections.send_modify(|epoch| *epoch = epoch.wrapping_add(1));
+    }
+
+    pub(crate) fn subscribe_peer_connections(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.peer_connections.subscribe()
     }
 
     /// The chat's presence now, as `_acpmux/presence` params.
