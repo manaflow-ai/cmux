@@ -16,14 +16,25 @@
   "image": {
     "pool": "RUNNER_POOLS.macos_26 (ephemeral Blacksmith macOS 26)",
     "macos": "26",
-    "xcode": "26.6"
+    "xcode": "27.2",
+    "xcode_build": "27B48"
+  },
+  "measurement": {
+    "run": "https://github.com/manaflow-ai/cmux/actions/runs/46073620005",
+    "source_sha": "e71997d4272d7c50eb7eb86d82a560742c720421",
+    "jobs": {
+      "iphone": "https://github.com/manaflow-ai/cmux/actions/runs/46073620005/job/140759077389",
+      "ipad": "https://github.com/manaflow-ai/cmux/actions/runs/46073620005/job/140759077525",
+      "duo": "https://github.com/manaflow-ai/cmux/actions/runs/46073620005/job/140759077453"
+    },
+    "method": "Each job selected Xcode 27.2 build 27B48. The gate picker found iPhone 17 Pro Max and iPad Pro 13-inch (M5); the duo picker returned its no-compatible-simulator result. These observations precede XCTest execution."
   },
   "families": {
     "iphone": {"on_image": true},
     "ipad": {"on_image": true},
     "duo": {
       "on_image": false,
-      "reason": "the macOS 26 image's Xcode 26.6 has no iPhone Duo device type or runtime"
+      "reason": "the gate picker found no compatible iPhone Duo simulator on the macOS 26 image with Xcode 27.2 (run 46073620005)"
     }
   }
 }

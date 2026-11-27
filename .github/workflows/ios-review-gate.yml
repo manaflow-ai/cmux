@@ -61,6 +61,7 @@ on:
       - "scripts/ci/ios_app_package_paths.py"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - ".github/scripts/ios_review_gate_products.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/AppStoreReview/**"
@@ -101,6 +102,7 @@ on:
       - "scripts/ci/ios_app_package_paths.py"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - ".github/scripts/ios_review_gate_products.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/AppStoreReview/**"
@@ -660,7 +662,7 @@ jobs:
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
-      # 'false' when gate-products built this commit's products: the leg takes them and builds nothing.
+      # A fleet candidate still must match this worker's XCTest runtime before skipping its build.
       BUILD_HERE: ${{ needs.gate-products-fleet.outputs.use != 'true' }}
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -729,6 +731,32 @@ jobs:
           python3 -I .review-gate/.github/scripts/ios_review_gate_devices.py check --plan "$DEVICE_PLAN" \
             --picker .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py \
             --out "$RESULTS/device-plan-mismatch.json"
+      # gate-products' build of this commit: Products/ with the .xctestrun, the app and its UI test runner.
+      - name: Download the products the build fleet built
+        if: env.UDID != '' && env.BUILD_HERE != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-gate-products-${{ env.LANE }}
+          path: ${{ runner.temp }}/gate-products
+      - name: Check the products against this worker's XCTest runtime
+        if: env.UDID != '' && env.BUILD_HERE != 'true'
+        run: |
+          set -euo pipefail
+          # Its own directory, not the derived data slot: a slot's earlier Build/Products is not this commit.
+          mkdir -p "$RUNNER_TEMP/gate-build"
+          tar -xzf "$RUNNER_TEMP/gate-products/ios-sim-build.tar.gz" -C "$RUNNER_TEMP/gate-build"
+          # Decide before FFI, Rust and package setup: a mismatch needs all the
+          # existing local-build prerequisites, not just a different xctestrun.
+          if python3 -I .review-gate/.github/scripts/ios_review_gate_products.py \
+            --products "$RUNNER_TEMP/gate-build/Products" \
+            --developer "${DEVELOPER_DIR:-$(xcode-select -p)}" > "$RESULTS/products-runtime.log" 2>&1; then
+            echo "PRODUCTS=$RUNNER_TEMP/gate-build/Products" >> "$GITHUB_ENV"
+            echo "built by the build fleet (gate-products, run $GITHUB_RUN_ID); runtime matches selected Xcode" > "$RESULTS/build.log"
+          else
+            echo "BUILD_HERE=true" >> "$GITHUB_ENV"
+            echo "::notice::Fleet XCTest runtime is incompatible or unknown; building and testing with this worker's selected Xcode"
+          fi
+          cat "$RESULTS/products-runtime.log"
       # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
       # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
       # about 3 minutes of a Mac (run 43652999096). It lives in cmux NEXT's
@@ -888,23 +916,6 @@ jobs:
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
           # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
-      # gate-products' build of this commit: Products/ with the .xctestrun, the app and its UI test runner.
-      - name: Download the products the build fleet built
-        if: env.UDID != '' && env.BUILD_HERE != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ios-gate-products-${{ env.LANE }}
-          path: ${{ runner.temp }}/gate-products
-      - name: Put the products in place
-        if: env.UDID != '' && env.BUILD_HERE != 'true'
-        run: |
-          set -euo pipefail
-          # Its own directory, not the derived data slot: a slot's earlier Build/Products is not this commit.
-          mkdir -p "$RUNNER_TEMP/gate-build"
-          tar -xzf "$RUNNER_TEMP/gate-products/ios-sim-build.tar.gz" -C "$RUNNER_TEMP/gate-build"
-          echo "PRODUCTS=$RUNNER_TEMP/gate-build/Products" >> "$GITHUB_ENV"
-          echo "built by the build fleet (gate-products, run $GITHUB_RUN_ID); this leg built nothing" > "$RESULTS/build.log"
-          find "$RUNNER_TEMP/gate-build/Products" -maxdepth 2 \( -name '*.xctestrun' -o -name '*.app' \) -print
       - name: Walk the reviewer path on ${{ matrix.family }}
         if: env.UDID != ''
         env:
