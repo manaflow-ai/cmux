@@ -82,9 +82,9 @@ const harnessProfile = (cmuxTui: string, script: string) =>
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
-type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
+export type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
 
-async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
+export async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
   const key = await crypto.subtle.importKey("jwk", state.jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const ch = await http("POST", `${state.api}/v1/auth/challenge`, { user: state.user, install: state.install }, {});
   if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
@@ -105,7 +105,7 @@ async function mintMode(stateFile: string): Promise<number> {
 
 // ---------------------------------------------------------------- the Mac daemon's socket (ACP + acpmux methods)
 
-class Socket {
+export class Socket {
   private buf = "";
   private next = 1;
   private waiting = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>();

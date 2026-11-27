@@ -15,6 +15,7 @@ import plistlib
 import re
 import subprocess
 import sys
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 CI = Path(__file__).resolve().parents[1] / "ci"
@@ -31,17 +32,24 @@ def pick_build(xml: bytes, build: str) -> dict[str, str]:
         raise ValueError("build must be an explicit numbered NIGHTLY")
     matches = []
     for item in ET.fromstring(xml).iter("item"):
-        if (item.findtext(SPARKLE + "version") or "").strip() != build:
-            continue
         enclosure = item.find("enclosure")
         if enclosure is None:
             continue
+        version = item.findtext(SPARKLE + "version")
+        if version is None:
+            version = enclosure.get(SPARKLE + "version", "")
+        if version.strip() != build:
+            continue
         url = enclosure.get("url", "")
         expected = f"cmux-nightly-next-macos-arm64-{build}.dmg"
-        if url not in (
-            f"https://files-next.cmux.com/nightly-next/{expected}",
-            f"https://github.com/manaflow-ai/cmux/releases/download/nightly-next/{expected}",
-        ):
+        parsed = urlsplit(url)
+        allowed = (
+            parsed.netloc == "files-next.cmux.com" and parsed.path.startswith("/nightly-next/")
+        ) or (
+            parsed.netloc == "github.com"
+            and parsed.path.startswith("/manaflow-ai/cmux/releases/download/nightly-next/")
+        )
+        if not (parsed.scheme == "https" and allowed and parsed.path.rsplit("/", 1)[-1] == expected):
             raise ValueError("feed enclosure is not this numbered arm64 NIGHTLY")
         length = enclosure.get("length", "")
         signature = enclosure.get(SPARKLE + "edSignature", "")
@@ -116,11 +124,13 @@ def prepare(build: str, out: Path, repo: Path, required: str) -> Path:
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     feed = out / "feed.xml"
-    run("curl", "-fsSL", "--proto", "=https", "--max-time", "60", "-H",
+    run("curl", "-fsSL", "--proto", "=https", "--max-time", "60", "-A",
+        "cmux-journal-nightly-recovery/1", "-H",
         "Cache-Control: no-cache", "-o", str(feed), FEED, timeout=70)
     selected = pick_build(feed.read_bytes(), build)
     dmg = out / "nightly.dmg"
-    run("curl", "-fsSL", "--proto", "=https", "--max-time", "600", "-o", str(dmg),
+    run("curl", "-fsSL", "--proto", "=https", "--max-time", "600", "-A",
+        "cmux-journal-nightly-recovery/1", "-o", str(dmg),
         selected["url"], timeout=610)
     digest = artifact.check_dmg(dmg, selected["length"], selected["signature"])
     source, source_receipt = artifact.expected_commit(

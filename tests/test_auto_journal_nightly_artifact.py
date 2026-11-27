@@ -34,6 +34,21 @@ class FeedTests(unittest.TestCase):
             with self.subTest(build=build, xml=xml), self.assertRaises(ValueError):
                 artifact.pick_build(xml, build)
 
+    def test_published_subdirectory_and_enclosure_version(self):
+        url = f"https://files-next.cmux.com/nightly-next/next/cmux-nightly-next-macos-arm64-{BUILD}.dmg"
+        xml = self.feed(url).replace(f"<sparkle:version>{BUILD}</sparkle:version>".encode(), b"")
+        xml = xml.replace(b"<enclosure ", f'<enclosure sparkle:version="{BUILD}" '.encode())
+        self.assertEqual(artifact.pick_build(xml, BUILD)["url"], url)
+
+    def test_duplicate_build_and_lookalike_origin_are_rejected(self):
+        xml = self.feed().replace(b"</channel>", self.feed().split(b"<channel>")[1].split(b"</channel>")[0] + b"</channel>")
+        with self.assertRaises(ValueError):
+            artifact.pick_build(xml, BUILD)
+        for url in (f"https://files-next.cmux.com.evil.test/nightly-next/cmux-nightly-next-macos-arm64-{BUILD}.dmg",
+                    f"https://files-next.cmux.com@evil.test/nightly-next/cmux-nightly-next-macos-arm64-{BUILD}.dmg"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                artifact.pick_build(self.feed(url), BUILD)
+
 
 class AppTests(unittest.TestCase):
     def setUp(self):

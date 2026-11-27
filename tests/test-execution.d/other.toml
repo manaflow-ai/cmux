@@ -39,6 +39,11 @@ path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_auto_journal_nightly_artifact.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_auto_journal_nightly_artifact.py"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
