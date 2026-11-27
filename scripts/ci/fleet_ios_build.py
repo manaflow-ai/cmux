@@ -49,6 +49,7 @@ CALL_TIMEOUT = 30
 # signature): every submit failed in 0 s that way (2026-11-26, run 45898219170), so name the client.
 USER_AGENT = "cmux-ci-fleet-ios-build"
 POLL_START, POLL_MAX = 5, 20
+SUBMIT_RETRY_S = 120  # how long a submit retries a controller that is restarting
 # A failed build's answer names its compiler errors (`errors`: file, line, col, message; at most 20), the file a path
 # in this checkout. Each becomes a GitHub error annotation on that line, so a job that no longer builds on a Mac still
 # shows what broke: run 45923302765 showed only "the build failed: build" for WorkspaceGroupTests.swift:476's error.
@@ -139,10 +140,25 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
     if not bearer[0]:
         log("no OIDC token (the job needs permissions: id-token: write)")
         return 2
-    status, ans, retry = ask({"op": "submit", "what": what})
-    if status != 200 or not ans.get("job"):
+    # A controller that is restarting answers 503 "the controller is starting; retry" for a few seconds; the
+    # kit run 45926512987 (2026-11-27) gave up on its first 503 and the Mac built instead. Retry a submit that
+    # got no answer, a 5xx or a 429 for up to SUBMIT_RETRY_S (the Mac fallback waits on this), except a route
+    # that says it is not enabled: that answer does not change on a retry.
+    wait = POLL_START
+    while True:
+        status, ans, retry = ask({"op": "submit", "what": what})
+        if status == 200 and ans.get("job"):
+            break
         log(f"submit: HTTP {status} {ans.get('error', '')}".rstrip())
-        return 2
+        transient = status in (0, 429) or (status >= 500 and "not enabled" not in str(ans.get("error", "")))
+        if not transient or clock() - start > min(queue_timeout, SUBMIT_RETRY_S):
+            return 2
+        try:
+            pause = max(wait, int(retry)) if retry else wait
+        except ValueError:
+            pause = wait
+        sleep(pause)
+        wait = min(wait * 2, POLL_MAX)
     job = ans["job"]
     log(f"job {job} {ans.get('state', '')}".rstrip())
     queued_since, wait = start, POLL_START

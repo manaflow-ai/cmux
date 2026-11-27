@@ -71,11 +71,14 @@ class Route:
         assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
         self.bodies.append(body)
-        ans = self.submit if body["op"] == "submit" else self.statuses.pop(0)
+        if body["op"] == "submit":
+            ans = self.submit.pop(0) if isinstance(self.submit, list) else self.submit
+        else:
+            ans = self.statuses.pop(0)
         if isinstance(ans, tuple):
-            code, retry = ans
+            code, retry, text = (ans + (b"not enabled",))[:3]
             raise urllib.error.HTTPError(fib.ROUTE, code, "x", {"Retry-After": retry} if retry else {},
-                                         io.BytesIO(b"not enabled"))
+                                         io.BytesIO(text))
         return Resp(ans)
 
 
@@ -154,6 +157,26 @@ class FleetIOSBuild(unittest.TestCase):
     def test_route_not_enabled_is_2(self):
         route = Route((503, "10"), [])
         self.assertEqual(run(route, self.out), 2)
+        self.assertEqual(len(route.bodies), 1)  # "not enabled" does not change on a retry
+
+    def test_submit_to_a_starting_controller_is_retried(self):
+        # Kit run 45926512987 (2026-11-27): the first submit got 503 "the controller is starting; retry" and the
+        # client gave up after 20 s, so the Mac built the simulator tests instead.
+        starting = (503, None, b"the controller is starting; retry")
+        route = Route([starting, starting, {"job": "j1"}],
+                      [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}], tgz(FFI))
+        self.assertEqual(run(route, self.out), 0)
+        self.assertEqual([b["op"] for b in route.bodies], ["submit", "submit", "submit", "status"])
+
+    def test_submit_to_a_controller_that_stays_down_is_2(self):
+        route = Route([(503, None, b"the controller is starting; retry")] * 100, [])
+        self.assertEqual(run(route, self.out), 2)
+        self.assertLess(len(route.bodies), 15)
+
+    def test_submit_refused_is_not_retried(self):
+        route = Route([(403, None, b"workflow not allowed"), {"job": "j1"}], [])
+        self.assertEqual(run(route, self.out), 2)
+        self.assertEqual(len(route.bodies), 1)
 
     def test_ended_without_verdict_is_2(self):
         route = Route({"job": "j1"}, [{"state": "cancelled"}])
