@@ -86144,7 +86144,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -136705,9 +136705,8 @@
     },
     {
       "accepts" : [
-        "click",
-        "never",
-        "always"
+        true,
+        false
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -136840,8 +136839,9 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "click",
+        "never",
+        "always"
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,

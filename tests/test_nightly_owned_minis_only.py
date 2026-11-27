@@ -119,6 +119,7 @@ CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-t
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews")
+# report-nightly-shelf-red holds issues: write, so it takes the nightly-only route every nightly report job does.
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")

@@ -798,6 +798,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "carrier-sweep: TOTAL CUT GATE" (tests/carrier_faults.rs carrier_drop_sweep): streams "ev-1 "
+    # to "ev-CUT ", waits until the file GATE exists (the test cuts the carrier at that frame
+    # boundary, then makes it), streams the rest to "ev-TOTAL " while the carrier is down, then
+    # end_turn. No ask: the only thing under test is the stream across the cut.
+    if text.startswith("carrier-sweep:"):
+        total, cut, gate = text[len("carrier-sweep:"):].split("<", 1)[0].split()
+        total, cut = int(total), int(cut)
+        chunk = lambda n: update(sid, {"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": f"ev-{n} "}})
+        for n in range(1, cut + 1):
+            chunk(n)
+        while not os.path.exists(gate):
+            time.sleep(0.005)
+        for n in range(cut + 1, total + 1):
+            chunk(n)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
@@ -840,6 +857,14 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "remote-repository-refused":
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "remote-git",
+                     "status": "failed", "content": [{"type": "content", "content": {
+                         "type": "text", "text": "cannot create .git/index.lock: Permission denied"}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "BLOCKED: cannot create .git/index.lock"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "stuck-loop":
         return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
@@ -903,6 +928,16 @@ def handle_prompt(rid, params):
     if sid in rate_failures and rate_failures[sid][0] > 0:
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
+    # "interim-then-final: A | B" says A, calls a tool, then ends the turn saying B: a turn whose
+    # interim text and final reply differ (durable_watch_lifecycle: a match on the final reply).
+    if text.startswith("interim-then-final: "):
+        interim, final = text[len("interim-then-final: "):].split(" | ", 1)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": interim}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "interim-1", "title": "Read file",
+                     "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": final}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
     # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
