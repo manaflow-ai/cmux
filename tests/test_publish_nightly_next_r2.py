@@ -742,6 +742,22 @@ class PublicationHistoryTests(FeedWriteCase):
         self.assertEqual(self.run_with([None], [0], source_sha="a" * 40), 0)
         self.assertEqual([entry["build"] for entry in self.receipts()], ["200"])
 
+    def test_new_dev_publication_preserves_live_nightly_history(self) -> None:
+        live = r2.add_publication_history(self.published(150), self.published(100, 50), False)
+        dev = self.published(200).replace(b"</item>", b"<sparkle:channel>cmux-next-dev</sparkle:channel></item>")
+        self.path.write_bytes(dev)
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        self.assertEqual(self.receipts(), self.receipts(live))
+
+    def test_same_build_promotion_records_the_actual_live_dev_item(self) -> None:
+        dev = self.published(200).replace(b"</item>", b"<sparkle:channel>cmux-next-dev</sparkle:channel></item>")
+        live = r2.add_publication_history(dev, self.published(150, 100), False)
+        self.path.write_bytes(self.published(200).replace(self.DATE.encode(), b"Sat, 28 Nov 2026 15:00:00 +0000"))
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200", "150", "100"])
+        self.assertEqual(self.receipts()[0]["pubDate"], self.DATE)
+
 
 class KeepEarlierBuildsTests(FeedWriteCase):
     """The feed keeps two builds, so nightly-next-rollback.yml always has a published build to serve."""

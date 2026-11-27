@@ -520,7 +520,7 @@ def publication_receipt_valid(receipt: dict[str, str]) -> bool:
         return False
 
 
-def publication_receipts(xml: bytes) -> list[dict[str, str]]:
+def publication_receipts(xml: bytes, promoted_builds: set[int] | None = None) -> list[dict[str, str]]:
     """Read the live receipt window, bootstrapping only from actual live items.
 
     An incomplete release ends the provable window: skipping it would falsely
@@ -537,11 +537,12 @@ def publication_receipts(xml: bytes) -> list[dict[str, str]]:
         embedded = [dict(entry.attrib) for entry in history.findall(f"{{{CMUX_NS}}}publication")]
     receipts = {entry.get("build"): entry for entry in reversed(embedded)}
     for item in channel.findall("item"):
-        if item.findtext(f"{{{SPARKLE_NS}}}channel") not in (None, "cmux-next"):
-            continue
         enclosure = item.find("enclosure")
         build = (item.findtext(f"{{{SPARKLE_NS}}}version") or "").strip()
         if not build.isdigit():
+            continue
+        if (item.findtext(f"{{{SPARKLE_NS}}}channel") not in (None, "cmux-next")
+                and int(build) not in (promoted_builds or set())):
             continue
         receipts.setdefault(build, {
             "build": build,
@@ -567,9 +568,13 @@ def add_publication_history(candidate: bytes, live: bytes | None, same_build: bo
     unpublished builds. Every retry derives predecessors from its fresh live
     snapshot; only this write's newest item is a prospective publication.
     """
-    receipts = publication_receipts(live) if live is not None else []
-    if not same_build:
-        newest = newest_build(candidate)
+    nightly_builds = {build for item, build in item_builds(candidate) if nightly_item(item.group(0))}
+    # A ring promotion joins the history using that build's actual live item,
+    # not a revision's replacement source/date/URL. A Dev-only publication keeps
+    # the proven Nightly window intact until its build is promoted.
+    receipts = publication_receipts(live, promoted_builds=nightly_builds) if live is not None else []
+    newest = newest_build(candidate)
+    if not same_build and newest in nightly_builds:
         # Strip candidate history before reading the prospective item.
         clean = PUBLICATION_HISTORY.sub(b"", candidate)
         current = next((entry for entry in publication_receipts(clean)
