@@ -112,7 +112,7 @@ final class BrowserTabService {
     /// Where `localhost` goes for a new tab of `pane` on `daemon` with `engine` (the notice says so).
     var localhostRoute: @MainActor (DaemonService, PaneModel, BrowserEngineKind) -> RemoteLocalhostRoute? = { _, _, _ in nil }
     /// Start URLs of incognito tabs, by surface, in memory only.
-    private var incognitoURLs: [SurfaceKey: String] = [:]
+    private var incognitoURLs: [SurfaceKey: String] = [:]; var onIncognitoStartURLStored: @MainActor (String) -> Void = { _ in }
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private var openedSurfaces: Set<SurfaceKey> = []
@@ -319,7 +319,7 @@ final class BrowserTabService {
         defer { ended?() }
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after, split)
         let key = key(daemon, surface)
-        if offTheRecord { incognitoURLs[key] = url }
+        if offTheRecord { incognitoURLs[key] = url; if let tab = daemon.store.tab(surface: surface) { await onIncognitoStartURLStored(tab.id) } }
         // The tab's page may exist already (the store echoed the tab before
         // the reply): it shows the notice now; else its page takes it.
         if let notice, !showNotice(daemon, surface, notice) {

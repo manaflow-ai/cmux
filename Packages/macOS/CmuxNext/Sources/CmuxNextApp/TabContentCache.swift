@@ -182,7 +182,7 @@ final class TabContentCache {
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, spareTab: WebKitSpareTab(memoryPressure: memoryPressure))
         self.afterFrame = afterFrame
         self.resizes = resizes
-        browserTabs = BrowserTabService(daemon: daemon, cef: cef)
+        browserTabs = BrowserTabService(daemon: daemon, cef: cef); browserTabs.onIncognitoStartURLStored = { [weak self] tabID in self?.pageInstalls.bump([tabID], installed: false) }
         wireNotices()
     }
 
