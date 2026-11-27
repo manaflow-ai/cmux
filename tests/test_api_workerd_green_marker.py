@@ -83,7 +83,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_scope_only_on_pull_request_without_full_ci(self):
         scope = self.job("api-workerd-scope")
-        self.assertIn("github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci')", scope)
+        self.assertIn("github.event_name == 'pull_request' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", scope)
         self.assertIn("lookup-only: true", scope)
         self.assertIn("key: api-workerd-green-${{ steps.key.outputs.key }}", scope)
 

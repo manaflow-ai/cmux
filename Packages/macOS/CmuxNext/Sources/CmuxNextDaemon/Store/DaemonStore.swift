@@ -110,6 +110,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
     /// `whenApplied` callbacks waiting for their transaction's echo.
     @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
+    /// ``whenLoaded(_:)`` work waiting for the first live snapshot.
+    @ObservationIgnored var loadedWaiters: [@MainActor () -> Void] = []
     /// A disconnect was applied: every waiter runs at the next flush.
     @ObservationIgnored var drainAppliedWaiters = false
     struct AppliedWaiter {
@@ -419,6 +421,16 @@ public final class DaemonStore: StateResourceQueries {
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
+        if !loadedWaiters.isEmpty { let waiting = loadedWaiters; loadedWaiters.removeAll(); for body in waiting { body() } }
+    }
+
+    /// Runs `body` in the main-actor turn that applies the first live snapshot (``isLoaded``), after the
+    /// snapshot's own waiters; at once when one already applied. An `ObservationStream` on `isLoaded`
+    /// resumes in a later main-queue job instead, behind every job the launch queued before it: on a warm
+    /// NIGHTLY launch the window restore that shows the terminal started 50.4 ms after the tree applied
+    /// (hq step 2510611e50d84481264d625c: `daemon.first_tree_applied` 670.7, `window.restore_wait_end` 721.1).
+    public func whenLoaded(_ body: @escaping @MainActor () -> Void) {
+        if isLoaded { body() } else { loadedWaiters.append(body) }
     }
 
     /// The tree a snapshot applied up to `barrier` holds every personal change at or below it; a
