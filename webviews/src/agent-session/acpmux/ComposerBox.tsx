@@ -7,21 +7,39 @@ import React, {
   useInsertionEffect,
   useLayoutEffect,
 } from "react";
-import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
-import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
+import {
+  type ComposerAttachment,
+  type DroppedKind,
+  inlineCopyId,
+} from "./attachments";
+import {
+  composerCopy,
+  forgetCopy,
+  pastePlan,
+  pastesPlaced,
+  writeComposerCopy,
+} from "./composer/composerCopy";
 import { stagesComposerCopy } from "./composer/composerCopyStage";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
 import { attachStripSize } from "./composer/attachStrip.experiment";
 import { experimentArm } from "../../experiments/experiment";
-import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
+import {
+  backspacedAttachment,
+  type MadeFile,
+  type PendingAttachment,
+} from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
 import { lookRowInBox } from "./composerLook";
 import { useComposerLookWithV2, useComposerV2 } from "./composerV2";
 import { useRowFit } from "./composerRowFit";
-import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
+import {
+  MarkdownField,
+  type MarkdownFieldHandle,
+  type MarkdownFieldProps,
+} from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
@@ -33,7 +51,10 @@ import { Slot } from "../../slots/Slot";
 import { composerCaretSlot } from "../../slots/composerCaret";
 import { watchFocusVisible } from "./focusVisibleMark";
 import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
-import { ComposerCopyStatusLine, useComposerCopyStatus } from "./composer/ComposerCopyStatus";
+import {
+  ComposerCopyStatusLine,
+  useComposerCopyStatus,
+} from "./composer/ComposerCopyStatus";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -71,7 +92,9 @@ export type ComposerBoxProps = {
   attachments: ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
-  setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
+  setAttachments(
+    update: (current: ComposerAttachment[]) => ComposerAttachment[],
+  ): void;
   /// The host's copy of `attachments`, written ahead of a render where the host does (a pick
   /// attached at once), so a paste right after it counts it. Unset, the box keeps its own.
   attachmentsRef?: RefObject<ComposerAttachment[]>;
@@ -139,17 +162,29 @@ export type ComposerBoxProps = {
 /// anchor to the field and the controls of their row.
 /// The handlers the box gives its field, each its own function.
 type FieldHandlers = Required<
-  Pick<MarkdownFieldProps, "onReady" | "onCopy" | "onPasteFirst" | "onChange" | "onBeforeInput" | "onKeyDown">
+  Pick<
+    MarkdownFieldProps,
+    | "onReady"
+    | "onCopy"
+    | "onPasteFirst"
+    | "onChange"
+    | "onBeforeInput"
+    | "onKeyDown"
+  >
 >;
 
 /// One function per handler for the field's whole life, each calling the box's latest.
-function stableFieldHandlers(latest: RefObject<FieldHandlers | null>): FieldHandlers {
+function stableFieldHandlers(
+  latest: RefObject<FieldHandlers | null>,
+): FieldHandlers {
   return {
     onReady: () => latest.current?.onReady(),
-    onCopy: (copy, cut, commitCut) => latest.current?.onCopy(copy, cut, commitCut) ?? false,
+    onCopy: (copy, cut, commitCut) =>
+      latest.current?.onCopy(copy, cut, commitCut) ?? false,
     onPasteFirst: (event) => latest.current?.onPasteFirst(event) ?? false,
     onChange: (markdown, caret) => latest.current?.onChange(markdown, caret),
-    onBeforeInput: (data, state) => latest.current?.onBeforeInput(data, state) ?? false,
+    onBeforeInput: (data, state) =>
+      latest.current?.onBeforeInput(data, state) ?? false,
     onKeyDown: (event) => latest.current?.onKeyDown(event),
   };
 }
@@ -227,12 +262,17 @@ export function ComposerBox({
   /// the same call and puts it at the start of the prompt, as every attachment goes in the text.
   const atStart = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const keepsTextNow = useRef({ keeps: pasteKeepsText, refused: onPasteRefused });
+  const keepsTextNow = useRef({
+    keeps: pasteKeepsText,
+    refused: onPasteRefused,
+  });
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
     prompt,
-    onPasteFile && ((file, inText = true) => holdFlag(atStart, !inText, () => onPasteFile(file))),
+    onPasteFile &&
+      ((file, inText = true) =>
+        holdFlag(atStart, !inText, () => onPasteFile(file))),
     () => keepsTextNow.current.keeps,
     () => keepsTextNow.current.refused?.(),
   );
@@ -280,7 +320,11 @@ export function ComposerBox({
       },
       pastes: () => pastedChips.pastes.current,
       rememberPastes: (texts) => {
-        for (const text of texts) pastedChips.pastes.current = remember(pastedChips.pastes.current, text);
+        for (const text of texts)
+          pastedChips.pastes.current = remember(
+            pastedChips.pastes.current,
+            text,
+          );
       },
     }),
     [inline, pastedChips.pastes],
@@ -296,13 +340,16 @@ export function ComposerBox({
   const staged = () => (attachmentsRef ?? ownAttachments).current;
   /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
   const dropStrip = (selected?: ReadonlySet<string>) => {
-    for (const chip of staged().filter((each) => !placed.has(each.id) && (!selected || selected.has(each.id)))) {
+    for (const chip of staged().filter(
+      (each) => !placed.has(each.id) && (!selected || selected.has(each.id)),
+    )) {
       inline.remove(chip.id);
       onRemoveAttachment(chip.id);
     }
     if (onCancelAttachment)
       for (const chip of pending ?? [])
-        if (!placed.has(chip.id) && (!selected || selected.has(chip.id))) inline.cancel(chip.id);
+        if (!placed.has(chip.id) && (!selected || selected.has(chip.id)))
+          inline.cancel(chip.id);
   };
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -313,7 +360,8 @@ export function ComposerBox({
     if (event.button !== 0 || event.ctrlKey) return;
     const target = event.target as Element;
     // React hands up presses from what the card portals elsewhere (a menu, a dialog, a backdrop).
-    if (!event.currentTarget.contains(target) || target.closest(CARD_OWN_PRESS)) return;
+    if (!event.currentTarget.contains(target) || target.closest(CARD_OWN_PRESS))
+      return;
     // A long prompt's scrollbar (the field scrolls past eight lines) keeps its drag.
     if (
       target instanceof HTMLElement &&
@@ -383,7 +431,10 @@ export function ComposerBox({
       }
       setCopyStatus(undefined);
       if (cut && stagesComposerCopy(made)) {
-        const selected = new Set([...staged().map((chip) => chip.id), ...(pending ?? []).map((chip) => chip.id)]);
+        const selected = new Set([
+          ...staged().map((chip) => chip.id),
+          ...(pending ?? []).map((chip) => chip.id),
+        ]);
         writeComposerCopy(made, setCopyStatus, () => {
           if (commitCut() && copy.whole) dropStrip(selected);
         });
@@ -395,7 +446,8 @@ export function ComposerBox({
     },
     onPasteFirst: (event) => {
       const plan = pastePlan(event.clipboardData, inline.known);
-      if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
+      if (!plan || (!onPasteFiles && plan.some((part) => "file" in part)))
+        return false;
       pastesPlaced.add(event);
       onPersonEdit?.();
       for (const part of plan) {
@@ -403,7 +455,11 @@ export function ComposerBox({
         // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
         else if ("id" in part)
           prompt.current?.insertInline(
-            [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+            [
+              staged().some((each) => each.id === part.id)
+                ? inlineCopyId(part.id)
+                : part.id,
+            ],
             true,
           );
         else onPasteFiles?.([part.file]);
@@ -442,14 +498,16 @@ export function ComposerBox({
         onKeyDown?.(event);
         return;
       }
-      // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-      const backspaced = composing
-        ? undefined
-        : backspacedAttachment(
-            event,
-            prompt.current?.atStart() ?? false,
-            attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-          );
+      // Backspace at the prompt's start takes back the last chip outside the text
+      // (backspacedAttachment), in the inline view only: the strip's attachments go by their ×.
+      const backspaced =
+        composing || attachmentView === "strip"
+          ? undefined
+          : backspacedAttachment(
+              event,
+              prompt.current?.atStart() ?? false,
+              attachments.filter((chip) => !placed.has(chip.id)),
+            );
       if (backspaced) {
         event.preventDefault();
         inline.remove(backspaced.id);
@@ -483,10 +541,17 @@ export function ComposerBox({
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
         <AttachmentStrip
-          attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
+          attachments={
+            attachmentView === "inline"
+              ? attachments.filter((chip) => !placed.has(chip.id))
+              : attachments
+          }
           {...(pending
             ? {
-                pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
+                pending:
+                  attachmentView === "inline"
+                    ? pending.filter((chip) => !placed.has(chip.id))
+                    : pending,
               }
             : {})}
           {...(attachError ? { error: attachError } : {})}
@@ -503,7 +568,12 @@ export function ComposerBox({
           {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
-        <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
+        <ContextMenu
+          className="acpmux-composer-field-menu"
+          items={fieldMenu}
+          selection="menu"
+          onOpen={onFieldMenuOpen}
+        >
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={setPrompt}
@@ -512,6 +582,7 @@ export function ComposerBox({
             onReady={stableHandlers.onReady}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            inlineHidden={attachmentView === "strip"}
             onWholeSelection={setWhole}
             onCopy={stableHandlers.onCopy}
             onPasteFirst={stableHandlers.onPasteFirst}
@@ -523,10 +594,17 @@ export function ComposerBox({
           {fieldOverlay}
           {/* The theme slot `composer.caret` (slots/composerCaret): its default draws nothing, the
               field's own caret as before. */}
-          <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
+          <Slot
+            slot={composerCaretSlot}
+            props={{ empty: !/\S/.test(field.value) }}
+          />
         </ContextMenu>
         {vimMode && (
-          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+          <output
+            className="acpmux-vim-mode"
+            data-vim-mode={vimMode}
+            aria-live="off"
+          >
             {vimMode === "normal" ? "NORMAL" : "INSERT"}
           </output>
         )}
@@ -544,7 +622,11 @@ export function ComposerBox({
               {actionsLead}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
-                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                <span
+                  className="acpmux-fit-mic"
+                  data-fit-part="mic"
+                  data-fit-forms="full"
+                >
                   {accessory}
                 </span>
               )}
