@@ -306,10 +306,12 @@ extension IPhoneHostService {
     /// Whether the dev auto-approve pairs `request` without the prompt: a tagged dev build's
     /// (`devAutoApprove`, nil otherwise), for a phone of this tag's iPhone app, on the paired list of
     /// the signed-in user. Never true for a machine, another tag, no account or another user's list.
+    /// The rule is Rust's (`cmux-mobile-host-core` `dev_auto_approve::approves`).
     static func devAutoApproves(_ request: MobileHostPairRequest, devAutoApprove: IPhoneDevAutoApprove?,
                                 pairedUserID: String, accountUserID: String?) -> Bool {
-        guard let devAutoApprove, let accountUserID, !accountUserID.isEmpty, pairedUserID == accountUserID else { return false }
-        return devAutoApprove.matches(request)
+        guard let devAutoApprove else { return false }
+        return IPhoneDevAutoApprove.ask(request, autoTag: devAutoApprove.tag, pairedUserID: pairedUserID,
+                                        accountUserID: accountUserID)?["approves"] as? Bool ?? false
     }
 
     /// Idle sleep is held off only while a phone this account allowed can reach this Mac: phone
