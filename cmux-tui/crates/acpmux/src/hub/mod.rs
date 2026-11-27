@@ -44,6 +44,8 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
@@ -95,6 +97,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -772,6 +775,11 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's `_acpmux/event` params (`server::event_value`) for an event stream of a chat
+    /// of this daemon's own, built by the first connection that sends it and shared by the rest
+    /// (`server::deliver`): a streamed token's message is copied and converted once, not once per
+    /// attached connection, and a client that asked for compact chunks reads it in place.
+    pub event_params: Arc<std::sync::OnceLock<serde_json::Value>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection. The ring
@@ -2190,6 +2198,7 @@ impl Hub {
             record: Arc::new(record),
             remote: None,
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
@@ -2339,7 +2348,7 @@ impl Hub {
         let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(&meta);
+            session.meta_writer.note_saved(&meta, self.store.digest(&meta));
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -3445,6 +3454,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,
