@@ -1319,6 +1319,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Test fleet submission from a plain checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_submit_fleet_test.py
+
       - name: Validate the fast checks Rust setup carries the pinned cargo-nextest
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_rust_nextest.py
