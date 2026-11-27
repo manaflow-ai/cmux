@@ -8,7 +8,7 @@ import time
 import uuid
 
 _WAIT = 5.0
-_pending = queue.Queue()
+_pending = queue.Queue(maxsize=64)
 _lock = threading.Lock()
 _worker = None
 
@@ -39,7 +39,10 @@ class _Stream:
         except (ValueError, OSError):
             self.replies.put(b"")
         finally:
-            self.child.stdin.close()
+            try:
+                self.child.stdin.close()
+            except OSError:
+                pass
             self.child.stdout.close()
             self.child.wait()
 

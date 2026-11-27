@@ -6,8 +6,9 @@ import { createInterface } from "node:readline";
 // Installed inline so each provider still loads a single, self-contained plugin.
 function journalPlugin(source) {
   let stream;
-  let legacy = false;
+  let legacyRoute;
   let tail = Promise.resolve();
+  let queued = 0;
 
   async function reply(iterator) {
     let timeout;
@@ -27,7 +28,7 @@ function journalPlugin(source) {
     return new Promise((resolve) => {
       const child = spawn(helper, [source, event], {
         env: { ...env, CMUX_TUI_PLUGIN_EVENT: key },
-        stdio: ["pipe", "ignore", "ignore"],
+        stdio: ["pipe", "ignore", "ignore"], timeout: 5000,
       });
       child.on("error", resolve);
       child.on("close", resolve);
@@ -41,9 +42,8 @@ function journalPlugin(source) {
     if (stream && stream.route !== route) {
       stream.child.stdin.end();
       stream = undefined;
-      legacy = false;
     }
-    if (!legacy) {
+    if (legacyRoute !== route) {
       try {
         if (!stream) {
           const child = spawn(helper, ["--plugin-stream=" + source], {
@@ -54,7 +54,7 @@ function journalPlugin(source) {
           const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
           stream = { route, child, lines };
           if ((await reply(lines)) !== "ready") {
-            legacy = true; // An older helper exits without consuming an event.
+            legacyRoute = route; // An older helper exits without consuming an event.
             throw new Error("stream unsupported");
           }
         }
@@ -93,7 +93,11 @@ function journalPlugin(source) {
     if (!payload || Buffer.byteLength(payload) > 1048576) return;
     const key = Date.now() + ":" + randomBytes(16).toString("hex");
     const env = { ...process.env };
-    tail = tail.then(() => deliver(helper, event, payload, key, env)).catch(() => {});
-    return tail;
+    queued++;
+    tail = tail.then(() => deliver(helper, event, payload, key, env))
+      .catch(() => {}).finally(() => { queued--; });
+    // Keep normal callbacks asynchronous. A producer that awaits callbacks
+    // applies backpressure once a burst has filled the queue.
+    if (queued >= 64) return tail;
   };
 }
