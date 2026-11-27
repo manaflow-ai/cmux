@@ -254,7 +254,10 @@ const screenshot = (index: number) =>
 const chips = () => opened!.current!.wakeState().attachments ?? [];
 const editable = () => host.querySelector<HTMLElement>(".ProseMirror")!;
 
-async function press(key: "Backspace" | "Delete", modifiers: { altKey?: boolean; repeat?: boolean } = {}) {
+async function press(
+  key: "Backspace" | "Delete",
+  modifiers: { altKey?: boolean; metaKey?: boolean; repeat?: boolean } = {},
+) {
   await act(async () => {
     editable().dispatchEvent(
       new dom.window.KeyboardEvent("keydown", {
@@ -347,6 +350,33 @@ test("strip view: Backspace at the start of the prompt takes no image", async ()
   await press("Backspace");
   expect(chips()).toHaveLength(1);
   expect(shown()).toBe("[image]hi");
+});
+
+// Review: a word or line delete is the browser's own, and took the hidden node in its reach with
+// the text. jsdom has no Selection.modify, so the stub plays the browser: the delete reaches the
+// line's start.
+test.each([
+  ["Command", { metaKey: true }],
+  ["Option", { altKey: true }],
+] as const)("strip view: %s-Backspace across the image deletes the text and keeps the image", async (_, keys) => {
+  await openComposer();
+  await view("strip");
+  await typed("hello ");
+  await paste({ files: [screenshot(8)] });
+  await typed(" world");
+  expect(shown()).toBe("hello [image] world");
+  const proto = dom.window.Selection.prototype as Selection & { modify?: unknown };
+  const before = proto.modify;
+  proto.modify = function (this: Selection) {
+    this.extend(editable().querySelector("p")!, 0);
+  };
+  try {
+    await press("Backspace", keys);
+  } finally {
+    proto.modify = before;
+  }
+  expect(shown()).toBe("[image]");
+  expect(chips()).toHaveLength(1);
 });
 
 test("strip view: Delete at the end of the prompt, before the image, does nothing", async () => {

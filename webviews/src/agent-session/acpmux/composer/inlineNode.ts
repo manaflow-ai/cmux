@@ -429,8 +429,9 @@ function deleteKey(view: EditorView, event: KeyboardEvent): { backward: boolean;
 
 /// Backspace and Delete while the nodes are hidden (Settings' strip view, the default): the strip
 /// alone shows the attachments, so the keys pass over their nodes as if they were not in the text,
-/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first Backspace after a paste (the caret right after its hidden node)
-/// took the picture out of the strip and left the letter it was pressed for. True: the key is done
+/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first
+/// Backspace after a paste (the caret right after its hidden node) took the picture out of the strip
+/// and left the letter it was pressed for. True: the key is done
 /// here (sometimes as nothing); false: the editor's as before.
 export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
   const key = deleteKey(view, event);
@@ -441,41 +442,30 @@ export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
   if (!(selection instanceof TextSelection)) return false;
   if (!selection.empty) {
     // A selection across hidden nodes: its text goes, the nodes stay where it was. The whole draft
-    // selected is the strip's too (ComposerBox `dropStrip`), and goes with it as before; so does one
-    // that reaches code, where no attachment can stand.
+    // selected is the strip's too (ComposerBox `dropStrip`), and goes with it as before.
     if (selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to) return false;
-    const kept: ProseNode[] = [];
-    let code = false;
-    doc.nodesBetween(selection.from, selection.to, (node) => {
-      if (node.type.name === INLINE_NODE) kept.push(node);
-      if (node.isTextblock && node.type.spec.code) code = true;
-      return !code;
-    });
-    if (!kept.length || code) return false;
-    const tr = state.tr.deleteSelection();
-    const near = Selection.near(tr.doc.resolve(tr.selection.from));
-    const lands = near.$from.parent;
-    if (!(near instanceof TextSelection) || !lands.inlineContent || lands.type.spec.code) return false;
-    tr.insert(near.from, Fragment.from(kept));
-    view.dispatch(tr.setSelection(TextSelection.create(tr.doc, near.from)).scrollIntoView());
-    return true;
+    return deleteKeeping(view, selection.from, selection.to);
   }
   const pos = selection.from;
+  // A word or line delete (Option, Command) is the browser's own: it would take a hidden node in its
+  // reach with the text, so where its range holds one, the text goes here and the nodes stay.
+  const reach = wide ? nativeReach(view, backward, event) : undefined;
+  if (reach !== undefined && reach !== pos) return deleteKeeping(view, Math.min(pos, reach), Math.max(pos, reach));
   const edge = pastNodes(doc, pos, backward);
   if (edge === pos) return false;
   const $edge = doc.resolve(edge);
   const beyond = backward ? $edge.nodeBefore : $edge.nodeAfter;
-  if (beyond && !wide) {
+  // Where the browser cannot say how far a word or line delete goes, it starts beyond the nodes.
+  if (beyond && wide) {
+    view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
+    return false;
+  }
+  if (beyond) {
     const size = beyond.isText ? charLength(beyond.text ?? "", backward) : beyond.nodeSize;
     view.dispatch(
       (backward ? state.tr.delete(edge - size, edge) : state.tr.delete(edge, edge + size)).scrollIntoView(),
     );
     return true;
-  }
-  // A word or line delete (Option, Command) goes from beyond the nodes, which stay.
-  if (beyond) {
-    view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
-    return false;
   }
   // Nothing beyond the nodes in this line. At the very start of the prompt, Backspace has nothing to
   // take: the strip's attachments go only by their × (ComposerBox takes none back either).
@@ -487,6 +477,48 @@ export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
   if ($edge.depth !== 1 || $edge.parent.type.name !== "paragraph") return true;
   view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
   return false;
+}
+
+/// Deletes `from`..`to` but its placed attachments' nodes, which go back where the range was. False,
+/// the key the editor's: no node in the range, or one that reaches code, where no attachment can
+/// stand.
+function deleteKeeping(view: EditorView, from: number, to: number): boolean {
+  const { state } = view;
+  const kept: ProseNode[] = [];
+  let code = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) kept.push(node);
+    if (node.isTextblock && node.type.spec.code) code = true;
+    return !code;
+  });
+  if (!kept.length || code) return false;
+  const tr = state.tr.setSelection(TextSelection.create(state.doc, from, to)).deleteSelection();
+  const near = Selection.near(tr.doc.resolve(tr.selection.from));
+  const lands = near.$from.parent;
+  if (!(near instanceof TextSelection) || !lands.inlineContent || lands.type.spec.code) return false;
+  tr.insert(near.from, Fragment.from(kept));
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, near.from)).scrollIntoView());
+  return true;
+}
+
+/// Where the browser's own word (Option, Ctrl) or line (Command) delete from the caret would end, as
+/// a document position: the DOM selection is extended that way, read and put back. Undefined where
+/// the browser cannot say (no `Selection.modify`).
+function nativeReach(view: EditorView, backward: boolean, event: KeyboardEvent): number | undefined {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (!selection?.anchorNode || !selection.focusNode || typeof selection.modify !== "function") return undefined;
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+  let reach: number | undefined;
+  try {
+    selection.modify("extend", backward ? "backward" : "forward", event.metaKey ? "lineboundary" : "word");
+    if (selection.focusNode && view.dom.contains(selection.focusNode))
+      reach = view.posAtDOM(selection.focusNode, selection.focusOffset);
+  } catch {
+    reach = undefined;
+  } finally {
+    selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
+  return reach;
 }
 
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a

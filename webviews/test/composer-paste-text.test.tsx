@@ -25,6 +25,7 @@ import {
   resentAttachments,
   shownPrompt,
 } from "../src/agent-session/acpmux/pastedText";
+import { backspacedAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
@@ -756,6 +757,21 @@ test("strip view: Backspace at the prompt's start takes no chip; in the text it 
   await backspace(true);
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   expect(words()).toBe("hi");
+});
+
+// The take-back stays the inline view's (its callers skip it in the strip view): Backspace at the
+// prompt's start takes back the last chip outside the text, one per press; a held key's repeat, a
+// modifier or a caret past the start takes none.
+test("backspacedAttachment takes back the last chip on a plain Backspace at the start only", () => {
+  const one = pastedTextAttachment(LOG);
+  const two = pastedTextAttachment(DICTATION);
+  const key = { key: "Backspace", repeat: false, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
+  expect(backspacedAttachment(key, true, [one, two])).toBe(two);
+  expect(backspacedAttachment(key, false, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, repeat: true }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, altKey: true }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, key: "Delete" }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment(key, true, [])).toBeUndefined();
 });
 
 test.each(["inline", "strip"] as const)(
