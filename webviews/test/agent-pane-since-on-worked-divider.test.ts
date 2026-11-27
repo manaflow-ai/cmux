@@ -111,13 +111,13 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
         expect(lit.tag).toBeDefined();
         expect(lit.tag!.top).toBeGreaterThanOrEqual(lit.worked.top);
         expect(lit.tag!.bottom).toBeLessThanOrEqual(lit.divider.top);
-        // And it is painted there: the mark lies past its 0 px row's box, and a row that clipped its
-        // paint (styles.css .acpmux-row, contain: paint) cut it off, leaving only the lit divider.
-        expect(lit.tagHit).toBe(true);
         // One type size on the one line: "2 new messages" is the Working for words' size, the row
         // metric, not the prose size a pixel larger (Leo, 2026-11-27: "the font size on working for
         // and new messages is different" / "just make new messages the same size as normal stuff").
         expect(lit.font.tag).toBe(lit.font.worked);
+        // And it is painted there: the mark lies past its 0 px row's box, and a row that clipped its
+        // paint (styles.css .acpmux-row, contain: paint) cut it off, leaving only the lit divider.
+        expect(lit.tagHit).toBe(true);
       } finally {
         await page.close();
       }
