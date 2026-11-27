@@ -60,8 +60,9 @@ def validate(receipt: dict, expected: dict) -> None:
             raise ValueError(f'shared Swift products {key} mismatch')
     if receipt.get('profile') != PROFILE or receipt.get('package') != PACKAGE:
         raise ValueError('unexpected shared Swift product profile')
-    if not isinstance(receipt.get('source_root'), str) or not receipt['source_root'].startswith('/'):
-        raise ValueError('invalid producer source root')
+    for field in ('source_root', 'build_root'):
+        if not isinstance(receipt.get(field), str) or not receipt[field].startswith('/'):
+            raise ValueError(f'invalid producer {field}')
 
 
 def digest(path: Path) -> str:
@@ -119,7 +120,7 @@ def checked_members(tar: tarfile.TarFile, entries: list[str]) -> list[tarfile.Ta
 def pack(root: Path, archive: Path, current: dict) -> None:
     build = root / PACKAGE / '.build' / (current['architecture'] + '-apple-macosx') / 'debug'
     entries = runtime_entries(build)
-    receipt = {**current, 'source_root': str(root.resolve()), 'producer_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'entries': entries}
+    receipt = {**current, 'source_root': str(root.resolve()), 'producer_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'entries': entries, 'build_root': str(build.resolve())}
     archive.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, 'w:gz') as tar:
         data = json.dumps(receipt, sort_keys=True).encode()
@@ -150,13 +151,23 @@ def restore(root: Path, archive: Path, sha256: str, current: dict) -> None:
             members = checked_members(tar, receipt['entries'])
             extra = {'filter': 'tar'} if hasattr(tarfile, 'tar_filter') else {}
             tar.extractall(stage, members=members, **extra)
-        alias = fleet.alias_for(receipt['source_root'], root)
-        edited, machos = fleet.relocate(stage, receipt['source_root'].encode(), alias.encode())
-        for target in sorted({fleet.bundle_of(p, stage) for p in machos}):
-            subprocess.run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(target)], check=True)
         build_root = root / PACKAGE / '.build'
         build = build_root / (current['architecture'] + '-apple-macosx') / 'debug'
+        link = build_root / 'debug'
+        if link.exists() and not link.is_symlink():
+            raise ValueError('SwiftPM debug path is not its expected product symlink')
         build.mkdir(parents=True, exist_ok=True)
+        alias = fleet.alias_for(receipt['source_root'], root)
+        edited, machos = fleet.relocate(stage, receipt['source_root'].encode(), alias.encode())
+        # Owned Mac jobs can compile through a .build symlink into their warm
+        # scratch directory. Bundle.module embeds that physical build path too.
+        if not receipt['build_root'].startswith(receipt['source_root'] + '/'):
+            build_alias = fleet.alias_for(receipt['build_root'], build.resolve())
+            build_edited, build_machos = fleet.relocate(stage, receipt['build_root'].encode(), build_alias.encode())
+            edited += build_edited
+            machos.extend(build_machos)
+        for target in sorted({fleet.bundle_of(p, stage) for p in machos}):
+            subprocess.run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(target)], check=True)
         for name in receipt['entries']:
             dest = build / name
             if dest.is_symlink() or dest.is_file():
@@ -164,11 +175,12 @@ def restore(root: Path, archive: Path, sha256: str, current: dict) -> None:
             elif dest.exists():
                 shutil.rmtree(dest)
             shutil.move(str(stage / name), str(dest))
-        link = build_root / 'debug'
         if link.is_symlink():
             link.unlink()
         if not link.exists():
             link.symlink_to(f'{current["architecture"]}-apple-macosx/debug')
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write("restored=true\n")
         print(f'SHARED_SWIFT_PRODUCTS sha={current["sha"]} producer_attempt={receipt["producer_attempt"]} entries={len(receipt["entries"])} relocated={edited} compiled=0')
 
 
