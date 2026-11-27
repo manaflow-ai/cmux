@@ -297,7 +297,7 @@ pub(crate) fn p_wake(coming: bool, delegating: bool, coordinator: bool) -> f64 {
 /// The context (tokens) under which a chat at `used` (tokens, window) no longer trips
 /// `threshold`: what surgery must reach to stand in for `/compact`.
 pub(crate) fn compact_line((_, size): (u64, u64), threshold: Threshold) -> u64 {
-    let share = (size > 0).then(|| (threshold.share * size as f64) as u64);
+    let share = (size > 0).then_some((threshold.share * size as f64) as u64);
     share.map_or(threshold.tokens, |share| share.min(threshold.tokens))
 }
 
