@@ -47,7 +47,7 @@ import Testing
     }
 
     /// Every method the old bridge decodes is an op too, or is listed as the old bridge's alone.
-    @Test func everyDecodedMethodIsAnOpOrLegacyOnly() throws {
+    @MainActor @Test func everyDecodedMethodIsAnOpOrLegacyOnly() throws {
         let contract = try Self.contract()
         let legacy = Set((contract["legacyOnly"] as? [String: String] ?? [:]).keys)
         let source = try String(contentsOf: try Self.repoRoot()
@@ -63,7 +63,9 @@ import Testing
         }
         #expect(decoded.count > 100, "found only \(decoded.count) decoder cases; did the decoder move?")
         let methods = Set(AgentPageOps.methods.values)
-        let stray = decoded.subtracting(methods).subtracting(legacy)
+        // `areSessionTargets` switches on `action.run`'s action id (the chat place controls, #52230), not on a
+        // bridge method: those `case` literals are ids of ``AgentPaneModel/placeActions``.
+        let stray = decoded.subtracting(methods).subtracting(legacy).subtracting(AgentPaneModel.placeActions)
         #expect(stray.isEmpty, "the old bridge decodes these, but the page host has no op for them; add them to AgentPageOps (and the contract), or list them in legacyOnly: \(stray.sorted())")
         #expect(legacy.isDisjoint(with: methods), "legacyOnly lists methods the page host serves: \(legacy.intersection(methods).sorted())")
     }

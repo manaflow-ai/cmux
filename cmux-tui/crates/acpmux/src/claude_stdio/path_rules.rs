@@ -249,7 +249,7 @@ impl PathRules {
 }
 
 /// Whether the feature is on now (`agents.harnessMagic.pathRules.enabled`, `ACPMUX_HM_PATHRULES`).
-pub(super) fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     crate::hub::harness_magic::enabled(FEATURE)
 }
 
