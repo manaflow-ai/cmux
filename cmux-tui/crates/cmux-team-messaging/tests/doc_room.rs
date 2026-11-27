@@ -154,9 +154,10 @@ fn bounded_people_and_devices() {
         room.join(&d, w.scope(), me(&p0), "p0-x", DEFAULT_LEASE_MS, 0),
         Err(RoomError::TooManyConnections { max: MAX_CONNS_PER_PRINCIPAL })
     );
+    // A connection id held by someone else is refused before room capacity is checked.
     assert_eq!(
         room.join(&d, w.scope(), me(&last), "p0-0", DEFAULT_LEASE_MS, 0),
-        Err(RoomError::RoomFull { max: MAX_PEOPLE })
+        Err(RoomError::ConnTaken)
     );
     let p1 = person("p1", Grants::all());
     assert_eq!(
