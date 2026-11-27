@@ -351,11 +351,6 @@ python3 tests/test_nightly_guard_steps.py
 python3 scripts/ci/nightly_guard_steps.py
 '''
 
-# ci-guards.yml's ci group, which a feat-cmux-next pull request reached only through cmux-next-guards.yml's
-# ci-guard-group: a Tier B pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #57964
-# added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
-# test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
-# by #59707). Any Python or JSON change now runs it before the merge.
 [step.ios-push-headless]
 job = "linux"
 timeout = 180
@@ -385,6 +380,11 @@ flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun run test --config vitest.push.config.ts
 '''
 
+# ci-guards.yml's ci group, which a feat-cmux-next pull request reached only through cmux-next-guards.yml's
+# ci-guard-group: a Tier B pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #57964
+# added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
+# test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
+# by #59707). Any Python or JSON change now runs it before the merge.
 [step.cdn-user-agent]
 job = "linux"
 timeout = 300
