@@ -389,13 +389,24 @@ struct Legs {
     paint: Vec<f64>,
     total: Vec<f64>,
     shown: Vec<f64>,
+    /// `shown` for the second half of the redraws only: the steady state, past any path switch.
+    shown_late: Vec<f64>,
 }
 
-const LEG_NAMES: [&str; 7] = ["daemon", "mac", "wire", "decode", "paint", "total", "shown"];
+const LEG_NAMES: [&str; 8] = ["daemon", "mac", "wire", "decode", "paint", "total", "shown", "shown_late"];
 
 impl Legs {
-    fn columns(&self) -> [&Vec<f64>; 7] {
-        [&self.daemon, &self.mac, &self.wire, &self.decode, &self.paint, &self.total, &self.shown]
+    fn columns(&self) -> [&Vec<f64>; 8] {
+        [
+            &self.daemon,
+            &self.mac,
+            &self.wire,
+            &self.decode,
+            &self.paint,
+            &self.total,
+            &self.shown,
+            &self.shown_late,
+        ]
     }
 }
 
@@ -525,6 +536,9 @@ async fn trial(rig: &Rig, duress: bool) -> (Legs, u64) {
             && wrote > 0
         {
             legs.shown.push(at - wrote as f64 / 1000.0);
+            if i >= REDRAWS / 2 {
+                legs.shown_late.push(at - wrote as f64 / 1000.0);
+            }
         }
     }
     terminal_tx.close("done", "trial over").await;
