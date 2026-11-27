@@ -5,7 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SplitEdge, splitEdgeWidth } from "./SplitEdge";
+import { openDeclarations } from "../layout/motionContract";
+import { declareSplitResize, SplitEdge, splitEdgeWidth } from "./SplitEdge";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -76,7 +77,11 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   dom?.window.localStorage.clear();
-  for (const [key, value] of saved) scope[key] = value;
+  // A global the file added goes again, never stays as `undefined` for the next file to find.
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
   dom?.window.close();
   dom = undefined;
@@ -172,4 +177,38 @@ test("an edge that leaves mid-drag gives the page its cursor and frames back", (
   render(<div className="pane" />);
   expect(doc.documentElement.dataset.splitResizing).toBeUndefined();
   expect(localStorage.getItem("test.gone")).toBeNull();
+});
+
+test("a drag declares the split's resize while it runs, and the release one more move of each box", () => {
+  const resizes = () =>
+    openDeclarations()
+      .filter((declaration) => declaration.event === "resize")
+      .map(({ by, once, scope }) => ({ by, once: !!once, scope }));
+  const doc = render(
+    <div className="pane">
+      <SplitEdge side="right" property="--list-width" storageKey="test.declared" min={160} max={400} />
+    </div>,
+  );
+  const edge = doc.querySelector(".ui-split-edge")!;
+  place(doc.querySelector(".pane")!, 0, 200);
+  // What an earlier test released has lapsed by now.
+  openDeclarations(performance.now() + 1000);
+  expect(resizes()).toEqual([]);
+  pointer(edge, "pointerdown", 200);
+  expect(resizes()).toEqual([{ by: "split edge drag", once: false, scope: "all" }]);
+  pointer(edge, "pointermove", 260);
+  flushFrames();
+  pointer(edge, "pointerup", 260);
+  expect(resizes()).toEqual([{ by: "split edge release", once: true, scope: "all" }]);
+});
+
+test("opening or closing a pane beside another declares one resize of every box", () => {
+  const before = openDeclarations().length;
+  declareSplitResize("side panel opens");
+  const opened = openDeclarations().slice(before);
+  expect(opened.map(({ event, scope, once, by }) => ({ event, scope, once, by }))).toEqual([
+    { event: "resize", scope: "all", once: true, by: "side panel opens" },
+  ]);
+  // It lapses on its own once the frames that lay it out have drawn.
+  expect(openDeclarations(performance.now() + 1000).some(({ by }) => by === "side panel opens")).toBe(false);
 });
