@@ -17,11 +17,14 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct WindowResizeAvoidersOnceTests {
     /// A workspace that lays out its page in its own layout pass, as the layout root lays out its panes: until then the
-    /// page keeps the frame it had.
+    /// page keeps the frame it had. A flipped one keeps the page's top on its own top, as Home's split view (an
+    /// `NSSplitView`) does: when its top moves, the page moves with it before its layout.
     final class Workspace: NSView {
         let page: NSView
-        init(page: NSView) {
+        let flipped: Bool
+        init(page: NSView, flipped: Bool = false) {
             self.page = page
+            self.flipped = flipped
             super.init(frame: .zero)
             page.autoresizingMask = []
             addSubview(page)
@@ -29,6 +32,8 @@ struct WindowResizeAvoidersOnceTests {
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { nil }
+
+        override var isFlipped: Bool { flipped }
 
         override func layout() {
             super.layout()
@@ -40,9 +45,9 @@ struct WindowResizeAvoidersOnceTests {
         var count = 0
     }
 
-    /// `-[NSView layout]` calls of Home's chat column since launch (`LayoutPassGuard`, by class).
-    static func columnLayouts() -> Int {
-        let name = String(describing: HomeChatColumnView.self)
+    /// `-[NSView layout]` calls of `type`'s views since launch (`LayoutPassGuard`, by class).
+    static func layouts(of type: NSView.Type) -> Int {
+        let name = String(describing: type)
         return LayoutPassGuard.shared.passesByClass.reduce(0) { $0 + ($1.viewClass == name ? $1.passes : 0) }
     }
 
@@ -92,13 +97,13 @@ struct WindowResizeAvoidersOnceTests {
 
         for step in 1...4 {
             moves.count = 0
-            let layoutsBefore = Self.columnLayouts()
+            let layoutsBefore = Self.layouts(of: HomeChatColumnView.self)
             var frame = window.frame
             frame.origin.y -= 20
             frame.size.height += 20
             window.setFrame(frame, display: true)
             window.layoutIfNeeded()
-            let layouts = Self.columnLayouts() - layoutsBefore
+            let layouts = Self.layouts(of: HomeChatColumnView.self) - layoutsBefore
             #expect(layouts == 1, "step \(step): the chat column laid out \(layouts) times for one resize")
             #expect(moves.count == 1, "step \(step): the Chats button moved \(moves.count) times for one resize")
             let lights = try #require(TrafficLightsLine.restingFrame(in: window), "step \(step): no traffic lights")
@@ -220,5 +225,86 @@ struct WindowResizeAvoidersOnceTests {
         }
         WindowControlsAvoiders.refresh(in: window)
         #expect(probe.checks == 3, "after the batch a re-check waited: the batch's end left it open")
+    }
+
+    /// A window with Home's list at its top-left, in a flipped workspace that lays it out, settled.
+    static func homeWindow(content: NSView) -> (ShellWindow, Workspace, HomeSidebarView) {
+        _ = NSApplication.shared
+        LayoutPassGuard.shared.install()
+        let window = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 640),
+                                 styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        content.frame = NSRect(x: 0, y: 0, width: 600, height: 640)
+        window.contentView = content
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 300, height: 640))
+        let workspace = Workspace(page: home, flipped: true)
+        workspace.frame = NSRect(x: 0, y: 0, width: 300, height: 640)
+        content.addSubview(workspace)
+        workspace.needsLayout = true
+        window.layoutIfNeeded()
+        return (window, workspace, home)
+    }
+
+    /// How far Home's panel top is from where the traffic lights put it now (0 when placed).
+    static func panelTopError(_ home: HomeSidebarView) -> CGFloat {
+        abs((home.bounds.height - home.panel.frame.maxY) - home.panelTopInset)
+    }
+
+    /// Home's list asked to re-check while a view above it still waits for its layout lays out once, in that layout, at
+    /// its final frame. The main pane card's move asks with no batch in the layouts of the window's root that run outside
+    /// the window's pass (the window controller's when the sidebar hides, `observeSidebarHidden`; leaving full screen;
+    /// leaving a page's presentation), and the layout root's own batch ends before the window's pass lays out the
+    /// panes' contents. Here the workspace's top moves 20 pt down and it gets shorter, as the card's when it clears the
+    /// lights: Home's list, still at its old height, moves with it and reads the lights as moved. Laid out then, it laid
+    /// out at its old frame, then again at its new one.
+    @Test func aReCheckBeforeAParentsLayoutLeavesHomesListToThatLayout() throws {
+        let (window, workspace, home) = Self.homeWindow(content: NSView())
+        defer { window.close() }
+        try #require(window.windowControlsAvoiders.count >= 1, "SETUP: Home's list did not join the window's avoiders")
+        try #require(Self.panelTopError(home) <= 0.25, "SETUP: Home's panel was not placed before the move")
+        let before = Self.layouts(of: HomeSidebarView.self)
+        workspace.frame = NSRect(x: 0, y: 0, width: 300, height: 620)
+        workspace.needsLayout = true // its size changed: its layout, which places Home's list, is still to come
+        try #require(Self.panelTopError(home) > 0.25, "SETUP: the move did not change where Home's panel top goes")
+        WindowControlsAvoiders.refresh(in: window) // the card's move, outside the window's frame change and layout pass
+        window.contentView?.layoutSubtreeIfNeeded() // the root's layout that moved the card
+        let layouts = Self.layouts(of: HomeSidebarView.self) - before
+        #expect(layouts == 1, "Home's list laid out \(layouts) times for one move: at its old frame, before its parent placed it")
+        #expect(home.frame.height == 620, "the workspace's layout did not place Home's list: \(home.frame)")
+        #expect(Self.panelTopError(home) <= 0.25, "Home's panel top is off the lights' place by \(Self.panelTopError(home)) pt")
+    }
+
+    /// A content view that runs `onLayout` once, in its next layout.
+    final class OnceLayingOut: NSView {
+        var onLayout: (() -> Void)?
+        override func layout() {
+            super.layout()
+            onLayout?()
+            onLayout = nil
+        }
+    }
+
+    /// A re-check asked inside the window's layout pass runs at its end, when the pass has laid out every view: a view
+    /// that only marked itself then waited for the next pass, a frame late. Here the workspace moves 20 pt down with no
+    /// resize (as a pane moves when an ancestor's layout places it; a density change moves the lights' line the same
+    /// way), so the pass lays out neither it nor Home's list: the re-check at the pass's end places Home's panel top in
+    /// that pass.
+    @Test func aReCheckAtTheEndOfTheWindowsPassPlacesHomesPanelInIt() throws {
+        let content = OnceLayingOut()
+        let (window, workspace, home) = Self.homeWindow(content: content)
+        defer { window.close() }
+        try #require(Self.panelTopError(home) <= 0.25, "SETUP: Home's panel was not placed before the move")
+        content.onLayout = {
+            workspace.setFrameOrigin(NSPoint(x: 0, y: -20))
+            WindowControlsAvoiders.refresh(in: window)
+        }
+        content.needsLayout = true
+        let (before, insetBefore) = (Self.layouts(of: HomeSidebarView.self), home.panelTopInset)
+        window.layoutIfNeeded()
+        try #require(workspace.frame.origin.y == -20, "SETUP: the window's pass did not run the content view's layout")
+        try #require(home.panelTopInset != insetBefore, "SETUP: the move did not change where Home's panel top goes")
+        #expect(Self.panelTopError(home) <= 0.25, "after the window's pass Home's panel top waited for the next pass: off by \(Self.panelTopError(home)) pt")
+        #expect(Self.layouts(of: HomeSidebarView.self) - before == 1, "Home's list did not lay out once at the pass's end")
     }
 }
