@@ -112,13 +112,19 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
         case .system: return isVideo ? Self.videoCollection : (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
         case .moment: return (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
-        case .live: return Self.liveCollection
+        case .live(let id):
+            // A pack (the manifest's `pack`, a product name) is its own group after Live wallpapers.
+            if let pack = LiveWallpaper.named(id)?.pack { return (Self.livePackPrefix + pack, pack) }
+            return Self.liveCollection
         case .shader: return (BackdropShader.collection, BackdropShader.collectionTitle)
         case .desktop, .pair: return nil
         }
     }
 
-    /// The picker group of every live wallpaper, after Moving wallpapers.
+    /// The picker group id prefix of a live wallpaper pack (`live-pack:<pack>`).
+    static let livePackPrefix = "live-pack:"
+
+    /// The picker group of every live wallpaper without a pack, after Moving wallpapers.
     private static var liveCollection: (String, String) {
         ("live", String(localized: "backdrop.collection.live", defaultValue: "Live wallpapers", bundle: .localizedModule))
     }

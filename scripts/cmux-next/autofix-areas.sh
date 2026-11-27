@@ -56,6 +56,10 @@ area fmt 'cmux-tui/|Native/OptChat/'
 # Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a
 # manifest reaches other workspaces' locks through path dependencies (eb4f3eb1d94).
 area locks '(.*/)?Cargo\.(toml|lock)$'
+# The acpmux protocol IR and ABI surface (base-autofix.sh --acpmux-ir): everything the IR is made of lives in the
+# acpmux crate, plus schemars in the lockfile (cmux-tui-spec.yml acpmux-protocol-ir); the surface check is
+# cmux-api-compat's.
+area acpmuxir 'cmux-tui/crates/(acpmux|cmux-api-compat)/|cmux-tui/Cargo\.lock$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
 # last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'
