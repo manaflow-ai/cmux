@@ -107,7 +107,7 @@ public struct CloudAccessToken: Sendable, Equatable {
 
     /// The backend team the platform's machine routes act in (join-token mint, credentials list, revoke, doctor):
     /// nil, the install's own (personal) team, where the app makes and lists its Cloud machines
-    /// (`CloudAPIClient.workerMachines`' `x-cmux-team`). Never the active Stack team: a Mac joined there sits in another
+    /// (`CloudDaemon.workerMachines`' `x-cmux-team`). Never the active Stack team: a Mac joined there sits in another
     /// team's mesh than the Cloud machines its ssh backup carrier dials, and its tunnel answers "no mesh"
     /// (cloud-carrier-ssh-failover, 2026-11-15T21:18Z: joined in the account's Stack sign-up team, while its machines
     /// and its mesh were in its personal team). A device restricted to a managed team uses only that team, only while
