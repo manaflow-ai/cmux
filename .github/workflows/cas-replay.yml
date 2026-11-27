@@ -49,6 +49,7 @@ on:
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
+      - "cmux-tui/crates/cmux-signed-envelope/**"
       - "scripts/cas/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/ci/cmux_tui_tree_key.py"

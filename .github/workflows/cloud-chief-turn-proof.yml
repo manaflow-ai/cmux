@@ -26,7 +26,6 @@ permissions:
 
 concurrency:
   group: cloud-chief-turn-proof-${{ github.event.pull_request.number || github.run_id }}
-  # A pull request measures only its newest head; a dispatch or push keeps its running run.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

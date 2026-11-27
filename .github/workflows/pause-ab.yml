@@ -54,7 +54,6 @@ permissions:
 
 concurrency:
   group: pause-ab-${{ github.ref }}
-  # A pull request measures only its newest head; a dispatch or push keeps its running run.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -77,7 +76,6 @@ jobs:
             /scripts/cmux-next/
             /tests/fixtures/model-stub/
             /Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/
-            /.gitmodules
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
