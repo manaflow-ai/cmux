@@ -18,7 +18,7 @@ on:
     branches:
       - main
     paths:
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
@@ -105,10 +105,13 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -143,6 +146,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -183,6 +187,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -191,11 +197,19 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "schemas/agent-pane/stylesheet-guard.json"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "schemas/type-scale/scene-type.json"
@@ -281,10 +295,13 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
@@ -319,6 +336,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -359,6 +377,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -367,6 +387,14 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 
 concurrency:
@@ -395,14 +423,14 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
       conformance: ${{ steps.graph.outputs.conformance }}
       conformance_tree: ${{ steps.graph.outputs.conformance_tree }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -505,8 +533,8 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
-      - name: Test and check the seven SDK capability descriptors
-        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+      - name: Check SDK descriptors and schema hashes have one source
+        run: python3 cmux-tui/scripts/test_check_sdk_single_source.py
 
       - name: Test deterministic SDK generator
         env:
@@ -561,7 +589,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'packages') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -575,7 +603,7 @@ jobs:
           - cpp
           - zig
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -586,13 +614,35 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Restore pinned Node 20.19.5 from the CI cache bucket
+        if: matrix.language == 'typescript'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 20.19.5 || true
+
       - name: Set up Node.js
         if: matrix.language == 'typescript'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20.19.5"
-          cache: npm
-          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (matrix.language == 'typescript') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (matrix.language == 'typescript') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
 
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
@@ -618,7 +668,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: cmux-tui/bindings/go/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -772,7 +842,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'consumers') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -786,7 +856,7 @@ jobs:
           - cpp
           - zig
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -797,15 +867,35 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Restore pinned Node 20.19.5 from the CI cache bucket
+        if: matrix.language == 'typescript'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 20.19.5 || true
+
       - name: Set up Node.js
         if: matrix.language == 'typescript'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20.19.5"
-          cache: npm
-          cache-dependency-path: |
-            cmux-tui/bindings/typescript/package-lock.json
-            cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (matrix.language == 'typescript') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json', 'cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (matrix.language == 'typescript') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json', 'cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json') }}
 
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
@@ -833,9 +923,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: |
-            cmux-tui/bindings/go/go.mod
-            cmux-tui/bindings/examples/go-terminal-bot/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -966,10 +1074,10 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'rust-msrv') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1043,11 +1151,11 @@ jobs:
     # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
     # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
     # workspace manifests) or carries full-ci; every post-merge batch the graph reaches runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')))) && (github.event_name != 'pull_request' || needs.contract.result == 'success' || needs.contract.result == 'skipped') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1072,8 +1180,13 @@ jobs:
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config cmake
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config cmake >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config cmake: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config cmake
+          fi
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1081,13 +1194,35 @@ jobs:
         with:
           python-version: "3.12.8"
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - name: Set up Node.js
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
 
       - name: Set up pinned cmux-tui Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1098,7 +1233,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: cmux-tui/bindings/go/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -1249,19 +1404,24 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'code-mode') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.
@@ -1269,8 +1429,13 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v bwrap >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y bubblewrap
+            # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+            if dpkg -s bubblewrap >/dev/null 2>&1; then
+              echo "bubblewrap: already installed"
+            else
+              sudo apt-get update
+              sudo apt-get install -y bubblewrap
+            fi
           fi
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

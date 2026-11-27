@@ -224,7 +224,11 @@ pub(super) fn parse(
         other => return Err(format!("unknown verb {other} (cmux autocloud --help)")),
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let platform = match platform.or_else(|| env("CMUX_PLATFORM_URL")) {
         Some(p) => Some(
@@ -1092,7 +1096,7 @@ pub(super) fn url_of(platform: &str, request: &Request, team: Option<&str>) -> S
     url
 }
 
-fn percent(value: &str) -> String {
+pub(super) fn percent(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {
@@ -1197,7 +1201,7 @@ async fn run(common: &Common, verb: &Verb, input: Option<Value>) -> Value {
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::autocloud")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))

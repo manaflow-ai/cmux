@@ -63,6 +63,56 @@ impl PromptClass {
     pub fn urgent(self) -> bool {
         matches!(self, Self::Block | Self::Question)
     }
+
+    /// How long a message of this class may wait in the receiver's inbox before the daemon
+    /// wakes the receiver to deliver it (`hub/inbox.rs` "Deadlines"): a block or a question at
+    /// once, a result (an action) within 15 minutes, an FYI within 60. Leo, 2026-11-25: "is
+    /// there a timeout where it can always check again at some point, like a promise of "i'll
+    /// respond within x minutes since this isn't urgent".
+    pub fn deadline_ms(self) -> u64 {
+        match self {
+            Self::Block | Self::Question => 0,
+            Self::Result => RESULT_DEADLINE_MS,
+            Self::Fyi => FYI_DEADLINE_MS,
+        }
+    }
+}
+
+/// The longest a result (an action) waits in an inbox before it wakes its receiver.
+pub const RESULT_DEADLINE_MS: u64 = 15 * 60 * 1000;
+/// The longest an FYI waits in an inbox before it wakes its receiver.
+pub const FYI_DEADLINE_MS: u64 = 60 * 60 * 1000;
+/// `_meta.acpmux.within` (`acpmux send --within 5m`): the sender's own deadline in ms, which
+/// can only tighten its class's.
+pub const WITHIN_META: &str = "within";
+
+/// When a message of `class` that came at `at` is due: `at` plus its class's deadline, or the
+/// sender's `within` when that is sooner.
+pub fn due_at(class: PromptClass, at: u64, within: Option<u64>) -> u64 {
+    let wait = within.map_or(class.deadline_ms(), |w| w.min(class.deadline_ms()));
+    at.saturating_add(wait)
+}
+
+/// `acpmux send --within`'s value: a whole number of seconds, minutes or hours (`90s`, `5m`,
+/// `1h`), in ms.
+pub fn parse_within(text: &str) -> Result<u64, String> {
+    let text = text.trim();
+    let split = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
+    let (n, unit) = text.split_at(split);
+    let n: u64 =
+        n.parse().map_err(|_| format!("{text:?}: give a duration such as 90s, 5m or 1h"))?;
+    let scale = match unit {
+        "s" => 1_000,
+        "m" | "" => 60_000,
+        "h" => 3_600_000,
+        _ => return Err(format!("{text:?}: give a duration such as 90s, 5m or 1h")),
+    };
+    Ok(n.saturating_mul(scale))
+}
+
+/// `_meta.acpmux.within` of a `session/prompt`, in ms; `None` when absent or not a number.
+pub fn within(params: &Value) -> Option<u64> {
+    params.pointer("/_meta/acpmux/within").and_then(Value::as_u64)
 }
 
 impl std::fmt::Display for PromptClass {

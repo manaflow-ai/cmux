@@ -215,11 +215,13 @@ async fn a_join_without_its_ticket_is_refused() {
     assert_eq!(server.relay_joins(), 0);
 }
 
-/// A working network never touches the relay: direct UDP wins, nobody joins.
+/// Under the older rule (a peer that does not dial the relay first), a
+/// working network never touches the relay: direct UDP wins, nobody joins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_network_that_passes_udp_never_joins_the_relay() {
-    let rig = rig(FakeOptions::default(), options(), true).await;
-    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let older = DialOptions { relay_first: false, ..options() };
+    let rig = rig(FakeOptions::default(), older.clone(), true).await;
+    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..older };
     let connected =
         dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
             .await
@@ -230,6 +232,43 @@ async fn a_network_that_passes_udp_never_joins_the_relay() {
     echo(&connected.link, 1).await;
     assert_eq!(*connected.path.borrow(), LinkPath::Direct);
     assert_eq!(rig.server.relay_joins(), 0);
+    connected.link.close("done");
+}
+
+/// Relay first on a working network: both sides join as the dial starts (the
+/// Mac before it heard anything, so its join is kept), yet the link is direct,
+/// and the relay is let go by the leave rule once direct UDP has been
+/// confirmed for the leave time (2 s here, 60 s in a build).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_on_a_network_that_passes_udp_rides_direct_and_lets_the_relay_go() {
+    let leave = Some(Duration::from_secs(2));
+    let mac_options = DialOptions { relay_leave_after: leave, ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone =
+        DialOptions { relay: relay(&rig.server, &rig.phone_id), relay_leave_after: leave, ..options() };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    echo(&connected.link, 2).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::Direct);
+    let session = connected.session_id.clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        assert_eq!(*connected.path.borrow(), LinkPath::Direct);
+        let phone_held = cmux_mobile_link::dial::wireguard::relay_held(&session, true);
+        let mac_held = cmux_mobile_link::dial::wireguard::relay_held(&session, false);
+        if phone_held != Some(true) && mac_held != Some(true) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "phone holds the relay: {phone_held:?}, Mac: {mac_held:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(rig.server.relay_joins() <= 2, "one join per side: {}", rig.server.relay_joins());
     connected.link.close("done");
 }
 
@@ -325,7 +364,10 @@ async fn a_mac_without_the_relay_is_named_as_the_reason() {
     let DialError::Blocked(failures) = error else { panic!("not blocked: {error}") };
     assert_eq!(failures.relay.as_deref(), Some("peer_cannot"));
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(rig.server.relay_joins(), 0);
+    // A phone with no other path joins on its early ticket before the Mac's
+    // answer says it cannot relay (PROTOCOL.md "Early relay ticket"); that
+    // join is aborted, never more than the one.
+    assert!(rig.server.relay_joins() <= 1, "{}", rig.server.relay_joins());
 }
 
 /// Plain UDP is lost on both sides (this test's switch); `drop_udp_to`
@@ -487,6 +529,100 @@ async fn a_relay_reset_does_not_keep_the_session_on_the_relay() {
     connected.link.close("done");
 }
 
+/// A network whose only way out is its HTTP proxy (P6, PROTOCOL.md
+/// "Corporate networks"): the relay join leaves through `CONNECT`, as
+/// signaling and TURN over TLS do, with or without Basic sign-in, and the
+/// link rides the relay. "Proxy only" never goes around the proxy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_relay_goes_through_the_system_http_proxy() {
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    for auth in [ProxyAuth::None, ProxyAuth::Basic("ann@corp".into(), "s3cret:pw".into())] {
+        let proxy = TestProxy::start(auth.clone()).await;
+        let rig = rig(FakeOptions::default(), options(), true).await;
+        let phone = DialOptions {
+            force_relay: true,
+            relay: relay(&rig.server, &rig.phone_id),
+            egress: Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() },
+            ..options()
+        };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .unwrap_or_else(|error| panic!("{auth:?}: {error}"));
+        eprintln!("{auth:?}: relay through the proxy, link up in {:?}", started.elapsed());
+        echo(&connected.link, 2).await;
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay, "{auth:?}");
+        let service = rig.server.base_url.trim_start_matches("http://").trim_end_matches('/').to_owned();
+        assert!(
+            proxy.tunnels().contains(&service),
+            "{auth:?}: the join skipped the proxy: {:?}",
+            proxy.tunnels()
+        );
+        assert_eq!(proxy.refused(), 0, "{auth:?}");
+        connected.link.close("done");
+    }
+}
+
+/// A proxy the relay join cannot sign in to (NTLM or Kerberos only): the
+/// join fails at once as the proxy's refusal (407), not as a timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_proxy_the_relay_cannot_sign_in_to_is_a_refusal() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    let proxy = TestProxy::start(ProxyAuth::NtlmOrNegotiate).await;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() };
+    let started = std::time::Instant::now();
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("refused by the proxy");
+    assert!(matches!(failure, RelayFailure::Refused { status: 407, .. }), "{failure:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(server.relay_joins(), 0);
+}
+
+/// A network that needs a proxy with none set for the relay: the join fails
+/// at once as the proxy's refusal, not a service `403`, and is tried again
+/// (the proxy settings can change with the network).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { require_proxy: true, ..Egress::default() };
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("no proxy to carry it");
+    assert!(matches!(failure, RelayFailure::ProxyRefused { .. }), "{failure:?}");
+    assert!(!failure.is_final());
+    assert_eq!(server.relay_joins(), 0);
+}
+
 /// The Mac's network drops UDP, so its trickled answer takes its own TURN
 /// allocation after the tunnel starts, and that allocation is slow (its TLS
 /// connection takes 3.2 s, past the relay's 3 s). The relay waits for it: the
@@ -507,12 +643,19 @@ async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
         ice_servers: vec![turn.ice.clone(), silent_stun],
         turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
         drop_udp_to: Some(|addr| !cmux_mobile_link::testing::is_test_relay(addr)),
+        // The older rule: relay first would carry the link before this slow
+        // allocation finishes, which is the point of it.
+        relay_first: false,
         ..options()
     };
     let rig = rig(FakeOptions::default(), mac_options, true).await;
     let leave = Some(Duration::from_secs(2));
-    let phone =
-        DialOptions { relay: relay(&rig.server, &rig.phone_id), relay_leave_after: leave, ..options() };
+    let phone = DialOptions {
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_leave_after: leave,
+        relay_first: false,
+        ..options()
+    };
     let connected =
         dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
             .await
@@ -539,5 +682,414 @@ async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
         "the Mac joined the relay while its TURN allocation was under way"
     );
     assert!(matches!(rig.mac_path(), Some(LinkPath::Turn | LinkPath::TurnTls)), "{:?}", rig.mac_path());
+    connected.link.close("done");
+}
+
+/// Plain UDP to the peer goes nowhere (both NATs map per destination, as
+/// symmetric NAT and CGNAT do, so no punch lands).
+fn udp_to_the_peer_lost(_: &std::net::SocketAddr) -> bool {
+    true
+}
+
+/// Direct UDP and TURN both fail; how long the WireGuard dial takes to be
+/// up on the relay, and when each side joined it (since the dial started).
+/// No TURN server, rather than an unreachable one: a TURN host that never
+/// answers holds the phone's gather (and so `wg-init`) about 2 s before the
+/// relay plays any part, which is the gather's cost, not the relay's.
+async fn dial_with_direct_and_turn_failing(relay_first: bool) -> (Duration, Duration, Duration) {
+    dial_with_direct_and_turn_failing_by(relay_first, relay_first).await
+}
+
+/// The same, with each side's build chosen: `phone_first` and `mac_first` say whether it
+/// offers `relay: "first"` (a build with relay first) or `ready` (one before it).
+async fn dial_with_direct_and_turn_failing_by(
+    phone_first: bool,
+    mac_first: bool,
+) -> (Duration, Duration, Duration) {
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_to_the_peer_lost),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_first: phone_first,
+        ..options()
+    };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay");
+    let up = started.elapsed();
+    echo(&connected.link, 2).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    assert_eq!(rig.mac_path(), Some(LinkPath::HttpsRelay));
+    let joined = |device: &str| {
+        let joins = rig.server.relay_joins_of(device);
+        joins.first().expect("joined the relay").duration_since(started)
+    };
+    let (phone_joined, mac_joined) = (joined(&rig.phone_id), joined(&rig.mac_id));
+    connected.link.close("done");
+    (up, phone_joined, mac_joined)
+}
+
+/// Relay first (`relay: "first"` from both sides): when direct UDP and TURN
+/// both fail, each side joins the relay as its dial starts (the Mac on the
+/// phone's offer, the phone as its tunnel starts, beside the direct race),
+/// and the phone's pending handshake goes through it as it joins, so the
+/// link is up on the relay well under the 3 s the older join rule waited
+/// for nothing to authenticate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_direct_udp_and_turn_failing_the_relay_carries_the_dial_from_its_start() {
+    let (up, phone_joined, mac_joined) = dial_with_direct_and_turn_failing(true).await;
+    eprintln!("relay first: link up {up:?}, phone joined at {phone_joined:?}, Mac at {mac_joined:?}");
+    assert!(up < Duration::from_secs(1), "link up after {up:?}");
+    assert!(phone_joined < Duration::from_millis(500), "the phone joined at {phone_joined:?}");
+    assert!(mac_joined < Duration::from_millis(500), "the Mac joined at {mac_joined:?}");
+}
+
+/// One relay-first dial with direct UDP and TURN failing, a Mac that answers
+/// `answer` late and relay joins that take `join` (TCP, TLS and the upgrade):
+/// link up, the phone's first relay join landed, and `wg-resp` forwarded, all
+/// since the dial started. `old_hub`: a hub that never answers `ticketEarly`,
+/// which is also what a phone before this change got in relay first (it never
+/// asked), so the phone's ticket comes only on `wg-resp`.
+async fn relay_first_dial_with_a_slow_answer(
+    old_hub: bool,
+    mac_first: bool,
+    answer: Duration,
+    join: Duration,
+) -> (Duration, Duration, Duration, usize) {
+    let fake = FakeOptions {
+        no_early_ticket: old_hub,
+        answer_delay: answer,
+        relay_join_delay: join,
+        ..FakeOptions::default()
+    };
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
+    let rig = rig(fake, mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_to_the_peer_lost),
+        relay: relay(&rig.server, &rig.phone_id),
+        ..options()
+    };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay");
+    let up = started.elapsed();
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    let session = rig.server.sessions_with("wg-init").remove(0);
+    let resp = rig.server.forwarded_at(&session, "wg-resp").expect("wg-resp forwarded");
+    let joins = rig.server.relay_joins_of(&rig.phone_id);
+    let phone_joined = joins.first().expect("the phone joined the relay").duration_since(started);
+    connected.link.close("done");
+    (up, phone_joined, resp.duration_since(started), joins.len())
+}
+
+fn median(mut samples: Vec<Duration>) -> Duration {
+    samples.sort();
+    samples[samples.len() / 2]
+}
+
+/// RFD 0142 R1, ticket at dial start: in relay first the phone asks for its
+/// relay ticket in its `wg-init` (`ticketEarly`), so its join starts when the
+/// hub forwards the offer, beside the direct race and the Mac's own join,
+/// instead of after `wg-resp`. With a Mac that answers 300 ms late and joins
+/// that take 200 ms, the phone's join lands before `wg-resp` and the session
+/// takes it (one join); an older hub leaves it after `wg-resp`, as before.
+/// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_takes_its_ticket_at_dial_start_and_joins_before_the_answer() {
+    let (answer, join) = (Duration::from_millis(300), Duration::from_millis(200));
+    let runs: usize = std::env::var("CMUX_RELAY_TICKET_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let mut rows = Vec::new();
+    for old_hub in [true, false] {
+        let (mut ups, mut joined, mut resps) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..runs {
+            let (up, phone_joined, resp, joins) =
+                relay_first_dial_with_a_slow_answer(old_hub, true, answer, join).await;
+            assert_eq!(joins, 1, "old hub {old_hub}: the phone joined once");
+            if old_hub {
+                assert!(phone_joined > resp, "an older hub: the phone joins after wg-resp");
+            } else {
+                assert!(
+                    phone_joined < resp,
+                    "the ticket at dial start: joined {phone_joined:?}, wg-resp {resp:?}"
+                );
+            }
+            ups.push(up);
+            joined.push(phone_joined);
+            resps.push(resp);
+        }
+        let row = (median(ups), median(joined), median(resps));
+        eprintln!(
+            "{} (n={runs}): link up {:?}, phone's relay join landed {:?}, wg-resp {:?}",
+            if old_hub { "before: ticket on wg-resp" } else { "after: ticket at dial start" },
+            row.0,
+            row.1,
+            row.2
+        );
+        rows.push(row);
+    }
+    assert!(rows[1].0 < rows[0].0, "link up: before {:?}, after {:?}", rows[0].0, rows[1].0);
+}
+
+/// A new phone against a Mac that offers only `ready` (a build before relay
+/// first): the phone's early join is let go, the Mac keeps the 3 s rule, and
+/// the link still comes up on the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_ticket_at_dial_start_with_an_older_mac_still_rides_the_relay() {
+    let (up, _, _, _) =
+        relay_first_dial_with_a_slow_answer(false, false, Duration::ZERO, Duration::ZERO).await;
+    assert!(up >= Duration::from_secs(3), "an older Mac keeps the 3 s rule: up after {up:?}");
+}
+
+/// A side whose peer offers only `relay: "ready"` (a build before relay
+/// first) keeps the older rule: it joins only once nothing authenticated
+/// for 3 s, and the link still comes up on the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_keeps_the_three_second_relay_rule() {
+    let (up, phone_joined, mac_joined) = dial_with_direct_and_turn_failing(false).await;
+    eprintln!("older rule: link up {up:?}, phone joined at {phone_joined:?}, Mac at {mac_joined:?}");
+    assert!(phone_joined >= Duration::from_secs(3), "the phone joined at {phone_joined:?}");
+    assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
+}
+
+/// An older phone (it offers `relay: "ready"`) against a Mac with relay first: the
+/// Mac reads `ready` and keeps the older rule, so neither side joins before 3 s, and
+/// the link still comes up on the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_phone_against_a_new_mac_keeps_the_three_second_relay_rule() {
+    let (up, phone_joined, mac_joined) = dial_with_direct_and_turn_failing_by(false, true).await;
+    eprintln!(
+        "older phone, new Mac: link up {up:?}, phone joined at {phone_joined:?}, Mac at {mac_joined:?}"
+    );
+    assert!(phone_joined >= Duration::from_secs(3), "the phone joined at {phone_joined:?}");
+    assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
+}
+
+/// Disco over the relay (ledger 13h): two devices on one LAN whose signaling
+/// carried no direct endpoint (an older or stripping signaling path, a
+/// relay-only meeting) meet on cmux's relay. Plain UDP between them works, so
+/// once the tunnel is up they must swap their LAN endpoints through it and
+/// move the link to the direct path: relayed -> direct, both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
+    met_on_the_relay_goes_direct(false, "nearby_disco_over_relay").await;
+}
+
+/// The same with each side taking the other for an older peer (no `version`
+/// in wg-init or wg-resp): the endpoints ride the roam announcement, which
+/// older builds already take, so nothing new is negotiated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_met_on_the_relay_also_goes_direct() {
+    met_on_the_relay_goes_direct(true, "nearby_disco_over_relay_old_peer").await;
+}
+
+async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
+    let fake =
+        FakeOptions { strip_direct_endpoints: true, strip_wg_version: old_peer, ..FakeOptions::default() };
+    let rig = rig(fake, options(), true).await;
+    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial with no direct endpoint in signaling");
+    echo(&connected.link, 1).await;
+    let up_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let first = *connected.path.borrow();
+    let up = std::time::Instant::now();
+    let deadline = up + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still {:?} (mac {:?}) 10 s after the link came up on {first:?}",
+            *connected.path.borrow(),
+            rig.mac_path()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    println!(
+        "MATRIX {{\"cell\": \"{cell}\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
+        up.elapsed().as_secs_f64() * 1000.0
+    );
+    connected.link.close("done");
+}
+
+static UDP_LOST_LATER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn udp_lost_later(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_LATER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Relay first marks only the dial's cold join. A later join is recovery:
+/// once both sides have left the relay and direct UDP dies, the phone's
+/// rejoin asks the Mac at once (`wg-relay`). Before the per-attempt flag the
+/// whole session counted as "relay first", so the ask was skipped and the
+/// Mac joined only after the phone's ask-back timer (5 s and more).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_recovery_after_leaving_the_relay_asks_the_peer_at_once() {
+    let leave = Some(Duration::from_secs(2));
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_lost_later), relay_leave_after: leave, ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_later),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_leave_after: leave,
+        timeout: Duration::from_secs(20),
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    echo(&connected.link, 1).await;
+    let session = connected.session_id.clone();
+    // Both sides let the relay go once direct is confirmed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        let phone_held = cmux_mobile_link::dial::wireguard::relay_held(&session, true);
+        let mac_held = cmux_mobile_link::dial::wireguard::relay_held(&session, false);
+        if phone_held != Some(true) && mac_held != Some(true) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "relay held: phone {phone_held:?}, Mac {mac_held:?}");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let phone_joins = rig.server.relay_joins_of(&rig.phone_id).len();
+    let mac_joins = rig.server.relay_joins_of(&rig.mac_id).len();
+    // Direct UDP dies silently on both sides.
+    UDP_LOST_LATER.store(true, std::sync::atomic::Ordering::Relaxed);
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let phone_rejoin = loop {
+        if let Some(at) = rig.server.relay_joins_of(&rig.phone_id).get(phone_joins) {
+            break *at;
+        }
+        assert!(std::time::Instant::now() < deadline, "the phone never rejoined the relay");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let deadline = phone_rejoin + Duration::from_secs(8);
+    let mac_rejoin = loop {
+        if let Some(at) = rig.server.relay_joins_of(&rig.mac_id).get(mac_joins) {
+            break *at;
+        }
+        assert!(std::time::Instant::now() < deadline, "the Mac never rejoined the relay");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let lag = mac_rejoin.saturating_duration_since(phone_rejoin);
+    eprintln!("relay recovery: Mac joined {lag:?} after the phone");
+    assert!(lag < Duration::from_secs(2), "the Mac joined {lag:?} after the phone's rejoin (ask skipped)");
+    // And the link carries again, on the relay.
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while *connected.path.borrow() != LinkPath::HttpsRelay {
+        assert!(std::time::Instant::now() < until, "path: {:?}", *connected.path.borrow());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    echo(&connected.link, 1).await;
+    connected.link.close("done");
+}
+
+/// PROTOCOL.md "Early relay ticket", new and old hub: a phone with no path but
+/// the relay asks for its ticket in its `wg-init`; a hub that answers
+/// (`wg-ticket`) lets its join run while a slow Mac answers, and the session
+/// takes that join (one join per side). A hub that never answers leaves the
+/// phone joining after `wg-resp`, as before. Prints both dial times.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_early_ticket_joins_while_the_mac_answers_and_an_older_hub_still_works() {
+    let mut took = Vec::new();
+    for old_hub in [false, true] {
+        let fake = FakeOptions {
+            no_early_ticket: old_hub,
+            answer_delay: Duration::from_millis(600),
+            relay_join_delay: Duration::from_millis(400),
+            ..FakeOptions::default()
+        };
+        let rig = rig(fake, options(), true).await;
+        let phone = DialOptions { force_relay: true, relay: relay(&rig.server, &rig.phone_id), ..options() };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .expect("dial through the relay");
+        echo(&connected.link, 2).await;
+        took.push(started.elapsed());
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+        let session = rig.server.sessions_with("wg-init").remove(0);
+        let resp = rig.server.forwarded_at(&session, "wg-resp").expect("wg-resp forwarded");
+        let joins = rig.server.relay_joins_of(&rig.phone_id);
+        assert_eq!(joins.len(), 1, "old hub {old_hub}: the phone joined once: {joins:?}");
+        if old_hub {
+            assert!(joins[0] > resp, "an older hub: the phone joins after wg-resp");
+        } else {
+            assert!(joins[0] < resp, "the early ticket's join ran before wg-resp");
+        }
+        connected.link.close("done");
+    }
+    eprintln!(
+        "relay-only dial with a 600 ms Mac answer: early ticket {:?}, older hub {:?}",
+        took[0], took[1]
+    );
+    assert!(took[0] < took[1], "{took:?}");
+}
+
+/// Plain UDP for the test below, its own switch.
+static UDP_LOST_LATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+fn udp_lost_late(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_LATE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// RFD 0142 R1, disco's call-me-maybe: a link riding the relay whose direct
+/// path opens a moment later (a late NAT mapping, a firewall that lets UDP
+/// through again, a candidate learned through the relay) moves to it one
+/// round trip after the peer's first direct datagram arrives
+/// (`Paths::heard`). Before, the probe that went out while the path was
+/// black-holed had to time out first (1 s). Prints the
+/// `relay_then_direct_late` cell: time from UDP opening to both sides on the
+/// direct path (the echo below keeps the link busy, as a live terminal does).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_direct_path_that_opens_just_after_the_relay_takes_over_within_a_spray() {
+    let mac_options = DialOptions { drop_udp_to: Some(udp_lost_late), ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_late),
+        relay: relay(&rig.server, &rig.phone_id),
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay once nothing else answers");
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    // The direct path opens 1 s after the link rode the relay.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    UDP_LOST_LATE.store(false, std::sync::atomic::Ordering::Relaxed);
+    let opened = std::time::Instant::now();
+    let deadline = opened + Duration::from_secs(25);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "still on the relay: {:?}", *connected.path.borrow());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let direct_after = opened.elapsed();
+    println!(
+        "MATRIX {{\"cell\": \"relay_then_direct_late\", \"direct_after_ms\": {:.1}}}",
+        direct_after.as_secs_f64() * 1000.0
+    );
+    assert!(direct_after < Duration::from_millis(1500), "direct {direct_after:?} after UDP opened");
     connected.link.close("done");
 }

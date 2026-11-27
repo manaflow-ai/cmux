@@ -19,10 +19,11 @@
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::listing_patch::Patch;
 use crate::lower::Ext;
 use crate::wire::{self, Ask, Part};
 use crate::{Fetch, FetchError};
@@ -449,6 +450,22 @@ impl Link {
         Ok((epoch, files))
     }
 
+    /// What changed in the folder's listing since journal sequence `since` (RFD 0065, piece 7):
+    /// the patch to apply to a kept listing ([`crate::manifest::Manifest::patched`]), or `None`
+    /// when the Mac cannot say (its journal does not reach back, or it keeps none) and the whole
+    /// listing must be taken. Asked only of a Mac that advertised patches (an older Mac ends a
+    /// stream on an ask it does not know).
+    pub fn listing_since(&self, since: u64) -> Result<Option<Patch>, FetchError> {
+        let parts = self.ask(&|ask| Ask::Listing { ask, since })?;
+        match parts.into_iter().next() {
+            Some(Part { status: wire::OK, bytes }) => {
+                Patch::decode(&bytes).map(Some).map_err(|_| FetchError::Failed)
+            }
+            Some(Part { status: wire::CHANGED | wire::REFUSED, .. }) | None => Ok(None),
+            Some(_) => Err(FetchError::Failed),
+        }
+    }
+
     /// Asks the Mac whether it is there; true on an answer.
     pub fn ping(&self) -> bool {
         self.ask(&|ask| Ask::Ping { ask }).is_ok()
@@ -481,10 +498,17 @@ impl Fetch for Link {
     }
 }
 
-/// The Mac's end: answers every ask read from `reader` with `source`, until the stream ends.
+/// How many asks the Mac answers at once (RFD 0065 piece 9). Served one at a time, 30,039 asks
+/// took 308 s: the 16 FUSE workers on the machine each waited on the one before them on the Mac.
+/// Answers go back as each is ready; asks are numbered, so the machine takes them in any order
+/// ([`crate::wire`]). At most this many answers are held in memory at once.
+pub const ANSWER_WORKERS: usize = 8;
+
+/// The Mac's end: answers every ask read from `reader` with `source`, until the stream ends, up
+/// to [`ANSWER_WORKERS`] at once.
 pub fn answer_asks(
     reader: impl Read,
-    writer: impl Write,
+    writer: impl Write + Send,
     source: &(dyn Source + Sync),
 ) -> std::io::Result<()> {
     answer_asks_as(reader, writer, source, false)
@@ -494,37 +518,87 @@ pub fn answer_asks(
 /// said it reads them.
 pub fn answer_asks_packed(
     reader: impl Read,
-    writer: impl Write,
+    writer: impl Write + Send,
     source: &(dyn Source + Sync),
 ) -> std::io::Result<()> {
     answer_asks_as(reader, writer, source, true)
 }
 
+/// The parts that answer `ask`.
+fn answer_of(source: &(dyn Source + Sync), ask: &Ask) -> Vec<Part> {
+    match ask {
+        Ask::Read { entry, offset, len, .. } => vec![source.read(*entry, *offset, *len)],
+        Ask::Batch { entries, .. } => entries.iter().map(|entry| source.whole(*entry)).collect(),
+        Ask::Ping { .. } => Vec::new(),
+        Ask::Stored { since, .. } => source.stored(*since),
+        Ask::Listing { since, .. } => vec![source.listing(*since)],
+    }
+}
+
+/// Reads asks on this thread and answers them on [`ANSWER_WORKERS`] others, each answer written
+/// whole under one lock as soon as it is ready. A failed write ends the stream: no further ask
+/// is answered, and the read loop stops at its next ask.
 fn answer_asks_as(
     reader: impl Read,
-    writer: impl Write,
+    writer: impl Write + Send,
     source: &(dyn Source + Sync),
     packed: bool,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
-    let mut writer = BufWriter::with_capacity(1024 * 1024, writer);
-    while let Some(ask) = Ask::read(&mut reader)? {
-        let parts = match &ask {
-            Ask::Read { entry, offset, len, .. } => vec![source.read(*entry, *offset, *len)],
-            Ask::Batch { entries, .. } => {
-                entries.iter().map(|entry| source.whole(*entry)).collect()
-            }
-            Ask::Ping { .. } => Vec::new(),
-            Ask::Stored { since, .. } => source.stored(*since),
-        };
-        if packed {
-            wire::write_packed_answer(&mut writer, ask.number(), &parts)?;
-        } else {
-            wire::write_answer(&mut writer, ask.number(), &parts)?;
+    let writer = Mutex::new(BufWriter::with_capacity(1024 * 1024, writer));
+    let write_error: Mutex<Option<std::io::Error>> = Mutex::new(None);
+    let failed = AtomicBool::new(false);
+    let (asks, queue) = sync_channel::<Ask>(ANSWER_WORKERS);
+    let queue = Mutex::new(queue);
+    let read = std::thread::scope(|scope| {
+        for _ in 0..ANSWER_WORKERS {
+            scope.spawn(|| {
+                loop {
+                    let next = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
+                    let Ok(ask) = next else { return };
+                    if failed.load(Ordering::Relaxed) {
+                        continue;
+                    }
+                    let parts = answer_of(source, &ask);
+                    let mut out = writer.lock().unwrap_or_else(PoisonError::into_inner);
+                    let written = if packed {
+                        wire::write_packed_answer(&mut *out, ask.number(), &parts)
+                    } else {
+                        wire::write_answer(&mut *out, ask.number(), &parts)
+                    }
+                    .and_then(|()| out.flush());
+                    if let Err(error) = written {
+                        failed.store(true, Ordering::Relaxed);
+                        write_error
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .get_or_insert(error);
+                    }
+                }
+            });
         }
-        writer.flush()?;
+        let read = loop {
+            if failed.load(Ordering::Relaxed) {
+                break Ok(());
+            }
+            match Ask::read(&mut reader) {
+                Ok(Some(ask)) => {
+                    if asks.send(ask).is_err() {
+                        break Ok(());
+                    }
+                }
+                Ok(None) => break Ok(()),
+                Err(error) => break Err(error),
+            }
+        };
+        // The workers answer what was queued, then end.
+        drop(asks);
+        read
+    });
+    if let Some(error) = write_error.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        return Err(error);
     }
-    Ok(())
+    read
 }
 
 /// What the Mac serves a projection's bytes from.
@@ -539,6 +613,13 @@ pub trait Source {
     fn stored(&self, since: u32) -> Vec<Part> {
         let _ = since;
         Vec::new()
+    }
+    /// The answer to [`Ask::Listing`]: the encoded patch since journal sequence `since`
+    /// ([`Part::ok`]), or [`wire::CHANGED`] when this Mac keeps no journal or it no longer reaches
+    /// back that far (the machine then takes the whole listing).
+    fn listing(&self, since: u64) -> Part {
+        let _ = since;
+        Part::status(wire::CHANGED)
     }
 }
 

@@ -36,12 +36,14 @@ public struct SetupCardEnvironment {
     public var screenReader: @MainActor () -> Bool
     /// The Text Size and Density row's reads and writer; nil: the card has no such row.
     public var look: SetupCardLook?
+    /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
+    public var signInBackend: String?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                look: SetupCardLook? = nil) {
+                look: SetupCardLook? = nil, signInBackend: String? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
@@ -49,6 +51,7 @@ public struct SetupCardEnvironment {
         self.openAgents = openAgents
         self.screenReader = screenReader
         self.look = look
+        self.signInBackend = signInBackend
     }
 }
 
@@ -171,6 +174,8 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
+        // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
+        if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
         return ["agents": .array(rows),
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
                 "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]

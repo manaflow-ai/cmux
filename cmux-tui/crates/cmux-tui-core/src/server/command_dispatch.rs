@@ -292,6 +292,7 @@ fn dispatch_command(
             projection,
             mutation,
         ),
+        Command::FlushLaunchSnapshot => launch_snapshot::flush_command(mux),
         Command::JournalFrontendEvent { event } => {
             cmd_frontend::journal_frontend_event(mux, client, event)
         }
@@ -446,8 +447,17 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, first_tab, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
+        Command::CreateWorkspace { name, key, first_tab, name_source, mutation } => {
+            let explicit_name = name_source == Some(crate::resource_name::NameSource::User);
+            cmd_workspaces::create_workspace(
+                mux,
+                client,
+                name,
+                key,
+                first_tab,
+                explicit_name,
+                mutation,
+            )
         }
         Command::CreateTerminal {
             workspace,
@@ -533,15 +543,18 @@ fn dispatch_command(
             cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
+            input_qos::note_drag(writer, transaction.is_some() && input_qos::from_app(&actor));
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
         }
         Command::SetDividerVisible { split, visible, transaction } => {
             cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
+            input_qos::note_drag(writer, transaction.is_some() && input_qos::from_app(&actor));
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
         Command::SetLayoutSizes { values, transaction } => {
+            input_qos::note_drag(writer, input_qos::from_app(&actor));
             cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
@@ -697,6 +710,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         } => cmd_workspaces::set_workspace_metadata(
             mux,
@@ -708,6 +722,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         ),
         Command::ListPersonal => cmd_profiles::list_personal(mux),
@@ -1006,6 +1021,7 @@ fn dispatch_command(
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
         Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+            input_qos::note_view_resize();
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
