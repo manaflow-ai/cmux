@@ -25,7 +25,7 @@ function runsOn(pin: HybridPin): HTMLElement {
 for (const [pin, key] of [
   ["local", "hybrid.pin.local"],
   ["cloud", "hybrid.pin.cloud"],
-  ["auto", "hybrid.mode.hybrid"],
+  ["auto", "composer.auto"],
 ] as const) {
   test(`Runs On (${pin}) is a whole-row menu trigger with its choice as the row's end value`, () => {
     const row = runsOn(pin);

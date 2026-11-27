@@ -208,64 +208,100 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return exit_code;
         }
     }
-    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
-        Ok(stream) => stream,
-        Err(error) if restart && is_absent(&error) => {
-            return ensure_after_stop(expected_session, None);
+    // A session that is starting, being replaced, or restoring answers in a
+    // moment: wait for it here instead of telling the person to run the
+    // command again. Only the connect and `identify` repeat, and neither
+    // changes anything in the session.
+    let mut patience =
+        cmux_tui_core::retry::Patience::new("the cmux session to start", LIFECYCLE_CONNECT_WAIT);
+    // Set once an owner answered on the socket and then went away: the next
+    // owner binds it in a moment, so a missing listener is worth waiting for.
+    let mut owner_seen = false;
+    let (mut connection, identity, deadline) = loop {
+        let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+        {
+            Ok(stream) => stream,
+            Err(error) if restart && is_absent(&error) => {
+                return ensure_after_stop(expected_session, None);
+            }
+            Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
+                // A start lock an earlier owner left goes too.
+                let removed = remove_start_lock(&socket);
+                return print_success(
+                    json!({
+                        "status":"not_running",
+                        "session":expected_session,
+                        "socket":socket_output,
+                        "removed":removed,
+                        "message":crate::localization::catalog().local_server.not_running,
+                    }),
+                    global.output,
+                );
+            }
+            Err(error) => {
+                if (connect_may_pass_later(&error) || (owner_seen && is_absent(&error)))
+                    && patience.sleep(None)
+                {
+                    continue;
+                }
+                return local_error(
+                    "server.unavailable",
+                    crate::localization::catalog().local_server.connect_failed,
+                    global.output,
+                    3,
+                );
+            }
+        };
+        let mut connection = BufReader::new(stream);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
+            Ok(identity) => identity,
+            // A timeout is a busy session, not a foreign one: say so, or the
+            // reader restarts a healthy session with another build.
+            Err(ExchangeError::Timeout) => {
+                return local_error(
+                    "server.busy",
+                    crate::localization::catalog().local_server.identity_timeout,
+                    global.output,
+                    3,
+                );
+            }
+            // The owner closed the connection before it answered (it is
+            // stopping for a restart, or still binding): ask the next one.
+            Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                owner_seen = true;
+                if patience.sleep(None) {
+                    continue;
+                }
+                return local_error(
+                    "server.unavailable",
+                    crate::localization::catalog().local_server.communication_failed,
+                    global.output,
+                    3,
+                );
+            }
+            Err(_) => {
+                return local_error(
+                    "server.identity_failed",
+                    crate::localization::catalog().local_server.identity_failed,
+                    global.output,
+                    3,
+                );
+            }
+        };
+        if identity.get("app").and_then(Value::as_str) == Some("cmux-tui")
+            && identity.get("lifecycle_ready") == Some(&Value::Bool(false))
+        {
+            // Still starting: it takes lifecycle commands once it is ready.
+            if patience.sleep(None) {
+                continue;
+            }
+            let message = crate::localization::catalog().local_server.starting;
+            // Still retryable for a program that can wait longer.
+            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            return super::wire::print_local_error(&error, global.output, 3);
         }
-        Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
-            // A start lock an earlier owner left goes too.
-            let removed = remove_start_lock(&socket);
-            return print_success(
-                json!({
-                    "status":"not_running",
-                    "session":expected_session,
-                    "socket":socket_output,
-                    "removed":removed,
-                    "message":crate::localization::catalog().local_server.not_running,
-                }),
-                global.output,
-            );
-        }
-        Err(_) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.connect_failed,
-                global.output,
-                3,
-            );
-        }
-    };
-    let mut connection = BufReader::new(stream);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
-        Ok(identity) => identity,
-        // A timeout is a busy session, not a foreign one: say so, or the
-        // reader restarts a healthy session with another build.
-        Err(ExchangeError::Timeout) => {
-            return local_error(
-                "server.busy",
-                crate::localization::catalog().local_server.identity_timeout,
-                global.output,
-                3,
-            );
-        }
-        Err(ExchangeError::Closed | ExchangeError::Transport) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.communication_failed,
-                global.output,
-                3,
-            );
-        }
-        Err(_) => {
-            return local_error(
-                "server.identity_failed",
-                crate::localization::catalog().local_server.identity_failed,
-                global.output,
-                3,
-            );
-        }
+        break (connection, identity, deadline);
     };
     if identity["app"] != "cmux-tui" {
         return local_error(
@@ -276,13 +312,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
     match identity.get("lifecycle_ready") {
-        Some(Value::Bool(true)) | None => {}
-        Some(Value::Bool(false)) => {
-            let message = crate::localization::catalog().local_server.starting;
-            // The message says to retry: a server still starting is retryable.
-            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
-            return super::wire::print_local_error(&error, global.output, 3);
-        }
+        Some(Value::Bool(_)) | None => {}
         Some(_) => {
             return local_error(
                 "server.invalid_identity",
@@ -604,8 +634,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
 /// What a stop knows of an owner that is not ready yet.
 #[derive(Clone, Copy)]
 enum RestorePhase {
-    /// The owner holds the connection unanswered: it restores its session
-    /// (registry, terminal hosts), or it is too busy to answer.
+    /// The owner restores its session (registry, terminal hosts): it says so
+    /// in its identity (`restore`), or (an older owner) holds the connection
+    /// unanswered, as one too busy to answer does.
     Restoring,
     /// The owner answered `lifecycle_ready: false` (its pid when it said):
     /// it restored and finishes its startup, and refuses `shutdown-daemon`.
@@ -696,7 +727,11 @@ impl StopWait<'_> {
             let mut id = 0_u64;
             loop {
                 id += 1;
-                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
+                let request = json!({
+                    "id": format!("stop-wait-{id}"),
+                    "cmd": "identify",
+                    "restore_progress": true,
+                });
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());
                 if sent.is_err() {
@@ -709,6 +744,10 @@ impl StopWait<'_> {
                     let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
                     match read_reply(&mut connection, &request["id"], slice) {
                         Ok(identity) => match identity.get("lifecycle_ready") {
+                            // The owner answers while it restores (restoring.rs).
+                            Some(Value::Bool(false)) if identity.get("restore").is_some() => {
+                                break RestorePhase::Restoring;
+                            }
                             Some(Value::Bool(false)) => {
                                 break RestorePhase::Starting(
                                     identity.get("pid").and_then(Value::as_u64),
@@ -1102,15 +1141,20 @@ const ADOPTION_POLL: Duration = Duration::from_millis(25);
 
 /// One restore progress line on stdout (`server ensure --restore-progress`). The
 /// result stays the last JSON line, so a reader that takes the last line
-/// still reads the result.
+/// still reads the result. `restore` is the owner's own report (phase,
+/// done, total, elapsed_ms, last_advance_ms) when it gave one: a restore
+/// whose `last_advance_ms` moves is working, however long it takes.
 fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
     use std::io::Write as _;
-    let line = json!({
+    let mut line = json!({
         "progress": "restoring",
         "session": session,
         "pid": restoring.pid,
         "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
     });
+    if let Some(restore) = &restoring.restore {
+        line.set("restore", restore.clone());
+    }
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
 }
@@ -1235,6 +1279,26 @@ fn exchange_io_error(error: std::io::Error) -> ExchangeError {
     } else {
         ExchangeError::Transport
     }
+}
+
+/// How long a lifecycle command waits for a session that is starting,
+/// being replaced or restoring before it names the cause.
+const LIFECYCLE_CONNECT_WAIT: Duration = Duration::from_secs(20);
+
+/// Whether a later connect to the session socket can pass: an interrupted,
+/// reset or backed-up connect can. No listener at all (`NotFound`,
+/// `ConnectionRefused`) means no session runs there, and `daemon status` says
+/// so at once; a permission error never passes.
+fn connect_may_pass_later(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        error.kind(),
+        ErrorKind::Interrupted
+            | ErrorKind::WouldBlock
+            | ErrorKind::TimedOut
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+    )
 }
 
 fn is_absent(error: &std::io::Error) -> bool {
