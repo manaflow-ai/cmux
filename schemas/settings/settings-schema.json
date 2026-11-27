@@ -139420,8 +139420,9 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "click",
+        "never",
+        "always"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -139554,9 +139555,8 @@
     },
     {
       "accepts" : [
-        "click",
-        "never",
-        "always"
+        true,
+        false
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,

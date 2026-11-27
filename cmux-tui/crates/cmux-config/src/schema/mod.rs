@@ -297,12 +297,6 @@ impl Row {
         // The text is this row's own JSON (checked in `row`), so it parses.
         serde_json::from_str(self.raw.text()).unwrap_or_default()
     }
-
-    /// Parses one exported row (a member of the document's `rows`).
-    pub fn from_export(raw: Value) -> Result<Row, String> {
-        let compact = serde_json::to_string(&raw).map_err(|error| error.to_string())?;
-        row(raw, RowText::Owned(compact.into_boxed_str()))
-    }
 }
 
 /// The whole schema.
