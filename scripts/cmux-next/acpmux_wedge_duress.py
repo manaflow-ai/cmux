@@ -28,7 +28,9 @@ home or socket is touched: a private HOME, ACPMUX_HOME and socket, as acpmux_dis
 - `--sessions` (default 8) local chats on the stand-in agent (tests/fake_agent.py) and the mesh
   relay pointed at the fake hub of acpmux_disconnect_stress.py, which leases agent messages to
   them at `--hub-rate` a second: deliveries and inbox items;
-- the load: `--cpu-x` (default 12, Leo's 187/15) x cores busy loops, during the `duress` phase only.
+- the load: `--cpu-x` (default 12, Leo's 187/15) busy loops per core, the whole run pinned to `--cpus`
+  (default 4) cores so a big host cannot absorb it; and the daemon at work: every `--fanout-every` s
+  a `send --tag wedge=live --no-wait` to every live peer chat on all 200 links (`duress` only).
 
 Phases: `idle` (no load, no churn), `duress` (load and churn, `--secs`), `recovered` (both lifted).
 Each phase reads `acpmux --json session inbox <id>` and `acpmux session inbox <name>` (the name is
@@ -477,6 +479,30 @@ class Wedge:
             except OSError:
                 pass
 
+    def fanout(self) -> None:
+        """In duress, the daemon under test sends to every tagged peer chat on every link
+        (`acpmux send --tag wedge=live --no-wait`): deliveries out over 200 links, turns there,
+        their row notices back into `remote_sessions`, as Leo's daemon's agents messaging peers."""
+        n = 0
+        while not self.stop.is_set():
+            if not (self.churn_on.wait(0.5) and self.a.fanout_every > 0):
+                continue
+            n += 1
+            argv = [self.acpmux, "send", "--tag", "wedge=live", "--no-wait", f"FANOUT-{n} status?"]
+            if n <= 2:
+                try:
+                    rr = self.run(argv, 120)
+                    with (self.out / "fanout.log").open("a") as f:
+                        f.write(f"rc={rr.returncode} lines={len(rr.stdout.splitlines())}\n{rr.stdout[-600:]}{rr.stderr[-800:]}\n")
+                except subprocess.TimeoutExpired:
+                    with (self.out / "fanout.log").open("a") as f:
+                        f.write("timeout\n")
+            else:
+                self.procs.append(subprocess.Popen(argv, env=self.env, start_new_session=True, stdin=subprocess.DEVNULL,
+                                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            self.fanouts = n
+            self.stop.wait(self.a.fanout_every)
+
     def churner(self) -> None:
         while not self.stop.is_set():
             if self.churn_on.wait(0.5) and not self.stop.is_set():
@@ -489,14 +515,15 @@ class Wedge:
 
     def burn(self, on: bool) -> None:
         if on:
-            n = (os.cpu_count() or 4) * self.a.cpu_x
+            cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 4)
+            n = cores * self.a.cpu_x
             cap = str(int(self.a.secs) + 120)
             killer = ["timeout", "-s", "KILL", cap] if shutil.which("timeout") else []
             for _ in range(n):
                 self.burners.append(subprocess.Popen(
                     [*killer, sys.executable, "-c", "while True: pass"], start_new_session=True,
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            log(f"load: {n} busy loops ({self.a.cpu_x} x {os.cpu_count()} cores)")
+            log(f"load: {n} busy loops ({self.a.cpu_x} x {cores} cores)")
         else:
             for p in self.burners:
                 try:
@@ -569,7 +596,7 @@ class Wedge:
                "log": logc, "logPerMin": {k: round(v / mins, 1) for k, v in logc.items() if isinstance(v, int)},
                "linksUp": self.links_up(),
                "proxyAccepts": sum(p.accepted for p in self.proxies), "proxyCuts": sum(p.cuts for p in self.proxies),
-               "hub": dict(self.hub.counts)}
+               "hub": dict(self.hub.counts), "fanouts": getattr(self, "fanouts", 0)}
         for k, rs in reads.items():
             ms = [r["ms"] for r in rs]
             row[k] = {"p50": pct(ms, 50), "p95": pct(ms, 95), "max": max(ms) if ms else None, "n": len(ms),
@@ -642,15 +669,17 @@ class Wedge:
             for k in range(a.peer_live):
                 nm = f"peer{i}-live-{k}"
                 subprocess.run([self.peer_acpmux, "new", "-n", nm, "-m", "fake", "--policy", "approve-all", "-d",
-                                "--cwd", str(work), "hello"], env=env, capture_output=True, timeout=60,
+                                "--tag", "wedge=live", "--cwd", str(work), "hello"], env=env, capture_output=True, timeout=60,
                                stdin=subprocess.DEVNULL)
                 self.peer_live.append((env, nm))
         log(f"{len(self.peer_live)} live chats on the peer daemons, a turn every {a.peer_prompt_every}s")
-        for f in (self.hub_sender, self.churner, self.reaper, self.peer_prompter):
+        self.fanouts = 0
+        for f in (self.hub_sender, self.churner, self.reaper, self.peer_prompter, self.fanout):
             threading.Thread(target=f, daemon=True).start()
         self.stop.wait(a.settle)
         res = {"schema": "acpmux.wedge-duress.v1", "acpmux": self.acpmux, "version": version,
                "host": socket.gethostname(), "platform": sys.platform, "cores": os.cpu_count(),
+               "pinnedCores": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
                "args": vars(a), "phases": []}
         res["phases"].append(self.phase("idle", a.idle_secs))
         self.churn_on.set()
@@ -753,7 +782,12 @@ def main() -> int:
     ap.add_argument("--flap", type=float, default=0.5, help="seconds between link cuts in duress")
     ap.add_argument("--sessions", type=int, default=8)
     ap.add_argument("--hub-rate", type=float, default=5.0)
-    ap.add_argument("--cpu-x", type=int, default=12)
+    ap.add_argument("--cpu-x", type=int, default=12, help="busy loops per (pinned) core in duress")
+    ap.add_argument("--cpus", type=int, default=4,
+                    help="pin the harness and all it starts to this many cores (Linux; 0: all). On a 32-core "
+                         "pool host 12 x 32 loops left the daemon at 6%% CPU, unstarved: Leo's was 187 on 15")
+    ap.add_argument("--fanout-every", type=float, default=1.0,
+                    help="seconds between the daemon's `send --tag` to every peer chat in duress (0: none)")
     ap.add_argument("--secs", type=float, default=180, help="the duress phase's length")
     ap.add_argument("--idle-secs", type=float, default=20)
     ap.add_argument("--settle", type=float, default=30, help="seconds after start for the peers to list")
@@ -774,6 +808,9 @@ def main() -> int:
               "(cmux-ci test) or where ACPMUX_WEDGE_HERE=1 says this host may take it; never a person's Mac",
               file=sys.stderr)
         return 4
+    if a.cpus and hasattr(os, "sched_setaffinity"):
+        have = sorted(os.sched_getaffinity(0))
+        os.sched_setaffinity(0, set(have[-a.cpus:]))  # inherited by every child
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     w = Wedge(a, out)
