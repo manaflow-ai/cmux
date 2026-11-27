@@ -1100,7 +1100,8 @@ mod tests {
         let dir = root.path().join("m.git");
         assert!(Mirrors::init(&dir).await);
         assert_eq!(Mirrors::adopt_cut_fetch_packs(&dir, &url, None).await, 0, "no keep, no work");
-        let mut args = vec!["fetch", "-q", url.as_str()];
+        // A fetch this small is unpacked into loose objects; the real one is one pack.
+        let mut args = vec!["-c", "fetch.unpackLimit=1", "fetch", "-q", url.as_str()];
         args.extend(REFSPECS);
         sh_git(&dir, &args);
         // What the cut fill left: the pack and fetch's keep on it, no ref.
