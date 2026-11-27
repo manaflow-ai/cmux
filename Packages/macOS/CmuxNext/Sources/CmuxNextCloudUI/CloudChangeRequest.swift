@@ -4,7 +4,7 @@ public import CmuxNextDesign
 
 /// The person's yes before a Cloud machine change an agent or a script asked for (restore, fork, snapshot
 /// delete), as a create's request asks first. A change that only resizes the person's own machine or adds a
-/// snapshot of it (``unasked``) never asks: it runs at once and ``notice(_:)`` says so after the fact. cmux-platform holds such a
+/// snapshot of it (``unasked``) never asks: it runs at once and only the activity log records it (``noticed(_:title:)``). cmux-platform holds such a
 /// change for a person's approval; the App sends it only as the person's own, through the approval
 /// loop, so nothing is sent until they click Allow. The App lists ``identifier`` as user-only
 /// (DebugDialog), so automation never answers it. Keys live in Resources/Cloud.xcstrings with every app locale.
@@ -39,10 +39,10 @@ public struct CloudChangeRequest {
                       name, details.joined(separator: ", "))
     }
 
-    /// Once `action`'s change ran: an ``unasked`` one tells the person in a toast in `window`; any other said its Allow first.
-    @MainActor public func noticed(_ action: String, title: String, in window: NSWindow?) {
-        guard Self.unasked.contains(action), let window else { return }
-        CmuxToastCenter.shared.showNotice(notice(title), id: "cloud-change-" + action, in: window)
+    /// Once `action`'s change ran: an ``unasked`` one gives its ``notice(_:)`` line for the activity log, never a toast
+    /// (Leo, ask-ae0163978a: "why are we showing this"); any other said its Allow first, so gives nil.
+    public func noticed(_ action: String, title: String) -> String? {
+        Self.unasked.contains(action) ? notice(title) : nil
     }
     /// The id of the button that says yes.
     public static let accept = "allow"

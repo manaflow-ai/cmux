@@ -546,7 +546,7 @@ extension CloudHandlers {
         let key = CloudChangeRuns.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
         result(label, context) {
             do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: CloudChangeRuns.ask(id.rawValue, ask ?? { allows(id, invocation, registry, context, shown: $0) })) { allow in
-                let answer = try await work(allow); CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).noticed(id.rawValue, title: registry.descriptor(for: id)?.title ?? id.rawValue, in: window(context)); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
+                let answer = try await work(allow); if let said = CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).noticed(id.rawValue, title: registry.descriptor(for: id)?.title ?? id.rawValue) { context.services.cloud.logger.notice("cloud change: \(said, privacy: .public)") }; return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
         }
     }
 

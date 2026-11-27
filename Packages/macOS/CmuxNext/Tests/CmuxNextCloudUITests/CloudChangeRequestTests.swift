@@ -13,11 +13,18 @@ import Testing
         #expect(spec.buttons.map(\.id).contains(CloudChangeRequest.accept))
     }
 
-    /// A resize, snapshot or template runs without the sheet; its toast after the fact names it, the machine and what was asked.
+    /// A resize, snapshot or template runs without the sheet; its log line after the fact (never a toast) names it, the machine and what was asked.
     @Test func anUnaskedChangesNoticeNamesTheMachineAndWhatWasAsked() {
         #expect(CloudChangeRequest(machine: "fsr-runner-proto", asked: ["size": "medium"]).notice("Resize Machine…")
             == "Resize Machine by an agent or a script: fsr-runner-proto, size: medium")
         #expect(CloudChangeRequest.unasked == ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"])
+    }
+
+    /// An unasked change gives a line for the activity log; one that asked first, none.
+    @Test func onlyAnUnaskedChangeGivesALogLine() {
+        let request = CloudChangeRequest(machine: "m", asked: ["size": "large"])
+        #expect(request.noticed("cloudResizeMachine", title: "Resize Machine…") == "Resize Machine by an agent or a script: m, size: large")
+        #expect(request.noticed("cloudRestoreMachine", title: "Restore") == nil)
     }
 
     @Test func aChangeWithNothingAskedShowsOnlyTheBody() {
