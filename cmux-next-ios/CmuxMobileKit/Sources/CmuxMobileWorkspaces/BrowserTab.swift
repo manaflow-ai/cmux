@@ -463,6 +463,8 @@ struct BrowserCard: View {
     var insets: EdgeInsets
     /// The tab's last-known picture (`TabCardSnapshots`): shown until this launch has a snapshot.
     var lastKnown: UIImage?
+    var lastKnownPixelWidth: Int = 0
+    var lastKnownPixelHeight: Int = 0
     /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
     var tabID: String?
     /// The page's host, for the site monogram (`SiteMonogram`, off by default).
@@ -472,11 +474,13 @@ struct BrowserCard: View {
     var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if let image = model?.snapshot ?? lastKnown {
+            if let image = model?.snapshot {
                 GeometryReader { geo in
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                 }
+            } else if lastKnown != nil || (lastKnownPixelWidth > 0 && lastKnownPixelHeight > 0) {
+                TabSnapshotPicture(image: lastKnown, pixelWidth: lastKnownPixelWidth, pixelHeight: lastKnownPixelHeight)
             } else if monograms, SiteMonogram.letter(host) != nil {
                 SiteMonogramFace(host: host)
             }
@@ -484,7 +488,7 @@ struct BrowserCard: View {
             // a grid of globes: "wer need to chase all these placeholders doen and prevent them").
         }
         .modifier(TabCardFaceRecord(tabID: tabID,
-                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown"
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil || (lastKnownPixelWidth > 0 && lastKnownPixelHeight > 0) ? "lastKnown"
                                         : monograms && SiteMonogram.letter(host) != nil ? "monogram" : "nothing"))
     }
 }

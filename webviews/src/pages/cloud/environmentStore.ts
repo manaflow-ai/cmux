@@ -48,7 +48,8 @@ export type EnvironmentState = {
     | "vaultHost"
     | "vaultText"
     | "vaultUnreadable"
-    | "vaultRefused";
+    | "vaultRefused"
+    | "click";
 };
 
 /** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
@@ -70,6 +71,9 @@ const refusals: Record<string, EnvironmentState["error"]> = {
   "vault.secret_unreadable": "vaultUnreadable",
   "vault.grant_refused": "vaultRefused",
   "vault.request_rejected": "vaultRefused",
+  // The app saves an environment only on the person's own click (AgentPaneModel's cloud.environment gate);
+  // a click another process posted is refused. Say so, instead of the generic "try again" that hides why.
+  "transport.gesture_required": "click",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */

@@ -58,7 +58,7 @@ import Testing
             },
             claudeStatus: { _, _ in nil },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true),
-            openSignInPage: { url in recorder.opened.append(url); return nil })
+            openSignInPage: { url, _ in recorder.opened.append(url); return nil })
         return (harnesses, recorder, OnboardingSignIn.forwarding { harnesses })
     }
 

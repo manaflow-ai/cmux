@@ -171,9 +171,10 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert ('          if [ "$NIGHTLY_VARIANT" = "universal" ]; then\n            NIGHTLY_APPCAST="appcast.xml"\n'
             '          else\n            NIGHTLY_APPCAST="appcast-${NIGHTLY_VARIANT}.xml"\n          fi\n') in builder
     assert builder.count("NIGHTLY_APPCAST=") == 3, "the two assignments above, and its export"
-    # nightly-next builds only arm64, so it bakes and publishes only appcast-arm64.xml.
-    assert "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] :" in WORKFLOW
-    assert "const feeds = track === 'nightly-next'\n              ? ['appcast-arm64.xml']\n" in WORKFLOW
+    # nightly-next builds only arm64, so it bakes and publishes only appcast-arm64.xml. Since #56983 every
+    # track but rc (nightly-next and NIGHTLY) is arm64 only.
+    assert "const variants = fastBuild || track !== 'rc' ? ['arm64'] :" in WORKFLOW
+    assert "const feeds = track !== 'rc'\n              ? ['appcast-arm64.xml']\n" in WORKFLOW
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
     # publish-nightly-next-r2.py write-feed puts nightly-out/<feed> at NIGHTLY_NEXT_R2_PREFIX + <feed>

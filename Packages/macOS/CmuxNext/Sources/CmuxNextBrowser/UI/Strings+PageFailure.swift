@@ -18,6 +18,7 @@ extension Strings {
     }
 
     static func pageGoneMessage(_ reason: BrowserProcessExit.Reason) -> String {
+        // retry-prompt-ok: the sad tab: a crashed or ended page reloads on the person's click (crash loop, or their Exit); a memory end reloads once by itself
         String(localized: "browser.pageGone.message", defaultValue: "Other tabs are not affected. Reload to open the page again.", bundle: .localizedModule)
     }
 
@@ -37,6 +38,7 @@ extension Strings {
     }
 
     static var pageGoneReload: String {
+        // retry-prompt-ok: the sad tab's Reload: a crash could loop, an Exit was the person's
         String(localized: "browser.pageGone.reload", defaultValue: "Reload", bundle: .localizedModule)
     }
 
@@ -57,6 +59,7 @@ extension Strings {
     }
 
     static func extensionsCrashed(_ names: [String]) -> String {
+        // retry-prompt-ok: a crashed extension reloads on a click: reloading by itself could loop a crashing process
         String(format: String(localized: "browser.extensions.crashed", defaultValue: "Crashed: %@. Click to reload.", bundle: .localizedModule),
                names.joined(separator: ", "))
     }
