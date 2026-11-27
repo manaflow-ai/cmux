@@ -1,0 +1,14 @@
+/mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/deps/serde-167d2acac65caf41.d: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/build/serde-f791f8e144077b01/out/private.rs
+
+/mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/deps/libserde-167d2acac65caf41.rlib: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/build/serde-f791f8e144077b01/out/private.rs
+
+/mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/deps/libserde-167d2acac65caf41.rmeta: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/build/serde-f791f8e144077b01/out/private.rs
+
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/mnt/lane-data/checkouts/cmux/lane--turn-stream-link/first-party-apps/cloud/server/target/debug/build/serde-f791f8e144077b01/out/private.rs:
+
+# env-dep:OUT_DIR=/home/cmux/sweep-scratch/target-test/debug/build/serde-f791f8e144077b01/out

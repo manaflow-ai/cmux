@@ -2,6 +2,9 @@
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
  "todo_max": 22,
  "sites": {
+  "acpmux::cmux_rd::fetch": {
+   "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
+  },
   "acpmux::happy_dial::http_client": {
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
@@ -45,7 +48,7 @@
    "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
   },
   "cmux_git_cache::server": {
-   "none": "the fleet's git and crates cache server, not the app: it fetches what its git and cargo clients ask for from the upstreams its operator configured (--upstream, --edge, --peer, --crates-index, --crates-dl), passing on only each client's own request and credential; it adds no secret of its own"
+   "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
   },
   "cmux_mobile_host::auth": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
@@ -101,6 +104,9 @@
   "cmux_tui::carrier::tunnel": {
    "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
   },
+  "cmux_tui::cli::api_tokens": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
+  },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
   },
@@ -124,6 +130,9 @@
   },
   "cmux_tui::cli::customize::pr": {
    "todo": true
+  },
+  "cmux_tui::cli::device_login": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/device_login_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::ext::share": {
    "todo": true
