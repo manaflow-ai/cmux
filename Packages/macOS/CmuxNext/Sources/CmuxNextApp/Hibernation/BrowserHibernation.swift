@@ -527,6 +527,17 @@ final class BrowserHibernation {
 
     // MARK: Freeze
 
+    /// Chromium's loading state settled after a hidden page was skipped by the last plan.
+    /// The event-driven replan avoids a timer while a page is loading and makes it eligible immediately.
+    func browserLoadingStopped(_ key: String) {
+        guard cache?.browsers[key] != nil else { return }
+        replan()
+    }
+
+    private func isLoadingSettled(_ tab: any BrowserTab) -> Bool {
+        (tab as? CEFTab)?.isLoadingSettled ?? !tab.state.isLoading
+    }
+
     /// Freezes every hidden page past `freezeSeconds` and arms one deadline
     /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
@@ -536,7 +547,7 @@ final class BrowserHibernation {
         var recheck: Double?
         let candidates = hidden.filter { candidate in
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
-                  let tab = cache.browsers[candidate.key]?.tab, !tab.state.isLoading,
+                  let tab = cache.browsers[candidate.key]?.tab, isLoadingSettled(tab),
                   let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
                 let left = threshold - (now - kept).seconds
@@ -567,7 +578,8 @@ final class BrowserHibernation {
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
-                  cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else {
+                  cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil,
+                  self.isLoadingSettled(tab) else {
                 // Shown and hidden again while it was asked: that hide's replan skipped it (it was
                 // being probed), so plan again for a page still hidden, or it never freezes.
                 if cache.lifecycle.phase(key) == .mountedHidden { self.replan() }

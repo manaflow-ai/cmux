@@ -375,6 +375,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// timeline (navigation start, DOMContentLoaded, first contentful paint) is all in. ``onReadyForKeys`` is not that
     /// moment for a page made with no URL: it fires on the empty document at attach, before the page loads its own.
     @ObservationIgnored public var onRealDocumentLoaded: (@MainActor () -> Void)?
+    /// Chromium reported that the current load settled. The App uses this event to replan hidden-page work that
+    /// was skipped while the renderer was loading.
+    @ObservationIgnored public var onLoadingStopped: (@MainActor () -> Void)?
     /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
     @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
@@ -399,6 +402,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedThisLoad = false
     /// Chromium is loading (its last `.loadingState`).
     @ObservationIgnored var chromiumLoading = false
+    /// True once Chromium has reported a settled load state, including an adoptable blank spare with no navigation.
+    public var isLoadingSettled: Bool { !state.isLoading && !chromiumLoading && (loadingStopped || host.adoptablePlaceholder) }
     /// Whether the current document painted content, asked of the page (``BrowserFirstPaintScript/query``): it waits
     /// for the first contentful paint, and its observer is buffered, so a paint before it asked still counts. Nil: the
     /// call failed or timed out. A test answers instead.

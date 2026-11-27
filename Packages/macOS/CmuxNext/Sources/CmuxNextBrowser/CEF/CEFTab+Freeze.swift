@@ -37,7 +37,7 @@ extension CEFTab: BrowserFreezing {
     /// mid-load can leave Chromium's TabIcon compositor animation running in its GPU process.
     func freezeNeverShownPageIfReady() {
         guard host.freezesPlaceholder, host.placeholder === self,
-              let browserID, !isClosed, !state.isLoading, !host.placeholderFrozen else { return }
+              let browserID, !isClosed, isLoadingSettled, !host.placeholderFrozen else { return }
         host.placeholderFrozen = true
         freezeNeverShownPage(browserID)
     }
