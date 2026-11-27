@@ -132,6 +132,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
+import { useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
   hasPendingDraftWrite,
@@ -579,6 +580,7 @@ import {
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
 import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
+import { CloudAgentStartContext } from "./conversation/CloudAgentStartLine";
 import type { TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type PaneFolds } from "./conversation/wakeFolds";
@@ -1425,6 +1427,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ),
       ),
     [clientSnapshot, switchView, catalog, shownStarting],
+  );
+  // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
+  // `unsettle`); a refusal says so in a toast.
+  const unsettleChat = useCallback(
+    (entry: AcpmuxSessionEntry) => {
+      const client = directClient.current;
+      if (!client) return notices.failed(translate("error.notOpen"));
+      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+    },
+    [notices],
+  );
+  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
+  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
+  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const shown = snapshot.sessionId;
+    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
+  }, [snapshot.sessionId]);
+  const holdsChat = useCallback(
+    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
+    [shownChats],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -2554,6 +2577,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ),
   );
   // The chat's rows before turns fold their work and before its silent turns go to the hat.
+  // The rows draw a kept tail's open turn as running until acpmux says whether it runs (direct.ts
+  // `tailMidTurn`): the attach that says it does then moves no row. Only the rows: the composer, Stop
+  // and the clock read `isWorking`.
+  const rowsWorking = snapshot.isWorking || snapshot.tailMidTurn === true;
   const allSourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
@@ -2570,8 +2597,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts);
     // one "While you were away" card, the newest (conversation/oneRecap.ts).
-    return withoutQuietThoughts(oneRecap(rows), snapshot.isWorking);
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
+    return withoutQuietThoughts(oneRecap(rows), rowsWorking);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, rowsWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
@@ -2708,8 +2735,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // why were these 0 text output from you (is that a personal setting on my end)"). The Quick
   // Composer has no hat, so it keeps them.
   const silentSplit = useMemo(
-    () => (quick ? { rows: allSourceRows, silent: NO_SILENT } : splitSilentTurns(allSourceRows, snapshot.isWorking)),
-    [quick, allSourceRows, snapshot.isWorking],
+    () => (quick ? { rows: allSourceRows, silent: NO_SILENT } : splitSilentTurns(allSourceRows, rowsWorking)),
+    [quick, allSourceRows, rowsWorking],
   );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = silentSplit.rows;
@@ -2741,7 +2768,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         heldWorked,
         heldWorkedClosing,
         snapshot: {
-          isWorking: snapshot.isWorking,
+          isWorking: rowsWorking,
           canLoadNewer: snapshot.canLoadNewer,
           clockOffsetMs: snapshot.clockOffsetMs,
           turnStartedAtMs: snapshot.turnStartedAtMs,
@@ -2762,7 +2789,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sourceRows,
       started,
       folds,
-      snapshot.isWorking,
+      rowsWorking,
       snapshot.canLoadNewer,
       snapshot.clockOffsetMs,
       snapshot.turnStartedAtMs,
@@ -4294,6 +4321,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // A chat acpmux settles while the pane is open says so (settledToasts.ts): Undo on a chat this
+  // pane holds, else Open, which selects it as a Home row does.
+  useSettledToasts({
+    sessions: snapshot.sessions,
+    toasts: paneToasts,
+    holds: holdsChat,
+    unsettle: unsettleChat,
+    open: selectSession,
+    t,
+  });
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -4365,6 +4402,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return undefined;
   }, [snapshot.rows]);
   const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  // A Cloud chat's agent by name: its first prompt's line names it while it starts on the machine
+  // (conversation/CloudAgentStartLine.tsx).
+  const cloudAgentStart = cloudPreviewChat ? (snapshot.switching?.name ?? asker) : undefined;
   const cloudPreviewPortList = useCloudPreviewPorts();
   // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
   // take the composer's room below the transcript and shorten it.
@@ -8448,6 +8488,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
+      settled: findSession(snapshot.sessions, snapshot.sessionId)?.settled !== undefined,
     },
     (archived) => ignoreFailure(archiveChat(archived)),
     t,
@@ -10007,7 +10048,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
         <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
-          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>
+            <CloudAgentStartContext.Provider value={cloudAgentStart}>
+              {transcriptContent}
+            </CloudAgentStartContext.Provider>
+          </CapacityWaitContext.Provider>
         </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
