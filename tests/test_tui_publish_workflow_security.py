@@ -259,7 +259,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # 1e6665b9e6e1 (#51608): the owner's run is read through run_read, which tries the controller's
+    # run feed first and falls back to this REST read of the run it is given.
+    assert '"$API_URL/repos/$REPOSITORY/actions/runs/$1"' in owner_wait
+    assert 'run_read "$OWNER_RUN_ID"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -274,9 +277,17 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    assert "for attempt in 1 2 3" in daemon
-    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
-    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
+    assert "run: ../scripts/ci/cmux-next-daemon-tests.sh" in daemon
+    # The shared gate owns retries now; keep checking the implementation
+    # reached by the workflow rather than requiring an inline shell copy.
+    daemon_gate = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text()
+    assert "for attempt in 1 2 3" in daemon_gate
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon_gate
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon_gate
+    assert "set -euo pipefail" in daemon_gate
+    assert 'tee "$log" || status=$?' in daemon_gate
+    assert 'exit "$status"' in daemon_gate
+    assert "cargo test ran no cmux_next_ test" in daemon_gate
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); main's cmux-tui-artifacts-retry.yml retries completed
@@ -1201,18 +1212,30 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
 def test_windows_unit_tests_build_without_fat_lto() -> None:
     # The Windows leg ends every tree publication. Its long-path unit tests compiled with the
     # release profile's fat LTO in one codegen unit took 13 of 33 min (run 38259768770); the
-    # test binary needs optimization, not whole-program LTO (cx-3gstu).
+    # test binary needs optimization, not whole-program LTO (cx-3gstu). Since 067b36ff368e
+    # (#57692) cross-build-windows builds that test binary on Linux and build-windows runs it.
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    cross_steps = jobs["cross-build-windows"]["steps"]
+    step = next(s for s in cross_steps if s.get("name") == "Build the Windows long-path test binary")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
     run = step["run"]
-    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
+    assert "for crate in cmux-tui-core cmux-tui-platform; do" in run
+    assert 'profile.release.package.$crate.codegen-units=16' in run
     # The published binaries still build with the release profile as written.
-    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    build = next(
+        s for s in cross_steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU, on Linux)"
+    )
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
+    # The Windows runner runs each of the three long-path tests from that binary.
+    test = next(s for s in jobs["build-windows"]["steps"] if s.get("name") == "Test Windows long-path state handling")
+    for spec in (
+        "cmux-tui-platform:normalize_long_windows",
+        "cmux-tui-core:registry_opens_and_persists_under_a_long_windows_state_root",
+        "cmux-tui-core:socket_start_lock_acquires_a_new_lock_file",
+    ):
+        assert spec in test["run"]
 
 
 def test_package_workflow_uses_no_shared_build_cache() -> None:
@@ -1227,7 +1250,13 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
         if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
-            assert "actions/cache" not in str(step.get("uses", "")), name
+            uses = str(step.get("uses", ""))
+            # The repository's own ./.github/actions/cache-restore and cache-save are the R2 cargo
+            # cache (a1c57ce47620, #51874): the separate, write-protected scope this decision asks
+            # for. Its write credentials live in an environment only feat-cmux-next builds hold.
+            if uses.startswith("./"):
+                continue
+            assert not uses.startswith("actions/cache"), (name, step.get("name"))
 
 
 PACKAGE_BUILD_JOBS = (
@@ -1298,13 +1327,19 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
             if isinstance(step, dict)
             and "actions/checkout" in str(step.get("uses", ""))
         ]
-        assert len(checkouts) == 1, job_name
+        # 240ac7911033 (#57362): a tree-path job may retry its checkout once, from a fresh .git,
+        # only when the first stalled; the retry checks out the same ref the same way.
+        assert 1 <= len(checkouts) <= 2, job_name
         checkout = checkouts[0]
         assert checkout["name"] == "Checkout caller or requested ref"
-        with_config = checkout["with"]
-        assert isinstance(with_config, dict)
-        assert with_config["persist-credentials"] == "false"
-        assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+        for extra in checkouts[1:]:
+            assert extra["name"] == "Retry checkout caller or requested ref after a stalled fetch", job_name
+            assert extra.get("if") == f"steps.{checkout['id']}.outcome == 'failure'", job_name
+        for each in checkouts:
+            with_config = each["with"]
+            assert isinstance(with_config, dict)
+            assert with_config["persist-credentials"] == "false"
+            assert with_config["ref"] == "${{ inputs.checkout_ref }}"
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
