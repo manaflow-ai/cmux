@@ -39,7 +39,32 @@ public nonisolated struct AcpmuxHere: Decodable, Sendable, Equatable {
         public let unacknowledgedEdits: UInt64
     }
 
-    public nonisolated enum Kind: String, Decodable, Sendable { case person, agent }
-    public nonisolated enum Status: String, Decodable, Sendable { case active, idle, away }
-    public nonisolated enum DeviceKind: String, Decodable, Sendable { case mac, vm, phone, web, other }
+    // The daemon can update before the app. New string values must not discard
+    // the rest of a presence snapshot; malformed non-string values still throw.
+    public nonisolated enum Kind: String, Decodable, Sendable {
+        case person, agent, unknown
+
+        public init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .unknown
+        }
+    }
+
+    public nonisolated enum Status: String, Decodable, Sendable {
+        case active, idle, away, unknown
+
+        public init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .unknown
+        }
+    }
+
+    public nonisolated enum DeviceKind: String, Decodable, Sendable {
+        case mac, vm, phone, web, other, unknown
+
+        public init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .unknown
+        }
+    }
 }
