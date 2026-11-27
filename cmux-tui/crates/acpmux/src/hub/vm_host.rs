@@ -78,6 +78,18 @@ impl Hub {
         true
     }
 
+    /// Restarts `session`'s agent, after the turn under way when there is one, so its next spawn
+    /// reads its environment again (the gateway fallback above; a Cloud machine's model route
+    /// that resolved after the spawn, `hub/turns.rs`).
+    pub(crate) fn restart_agent_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
+        let hub = Arc::clone(self);
+        let ids = std::collections::BTreeSet::from([session.id.clone()]);
+        // task-owner: one restart of one chat's agent; it ends with the restart.
+        drop(tokio::spawn(async move {
+            let _ = hub.restart_harnesses(None, Some(&ids)).await;
+        }));
+    }
+
     /// Whether the creation marker says cmux created this machine as one
     /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {
