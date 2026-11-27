@@ -82,6 +82,10 @@ impl std::fmt::Debug for Admission {
 impl Admission {
     /// A prompt's admission as it comes, before it waits for the lock ([`Self::acquire`]).
     pub(crate) fn new(session: &Session) -> Arc<Self> {
+        Self::arrived(session, Instant::now())
+    }
+
+    fn arrived(session: &Session, came: Instant) -> Arc<Self> {
         Arc::new(Self {
             guard: StdMutex::new(None),
             stage: StdMutex::new(Stage::Setup("admission")),
@@ -89,7 +93,7 @@ impl Admission {
             acquired: AtomicBool::new(false),
             queue_owned: AtomicBool::new(false),
             defer_requested: AtomicBool::new(false),
-            came: Instant::now(),
+            came,
             listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
@@ -114,7 +118,8 @@ impl Admission {
             return;
         }
         let lock = session.prompt_admission.clone().lock_owned();
-        let Ok(guard) = tokio::time::timeout(ADMISSION_BOUND, lock).await else {
+        let due = self.answer_due().min(Instant::now() + ADMISSION_BOUND);
+        let Ok(guard) = tokio::time::timeout_at(due, lock).await else {
             tracing::warn!(session = %session.id, "prompt admission wait lapsed: the prompt goes on unordered");
             return;
         };
@@ -199,8 +204,12 @@ impl Admission {
 
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
-    let admission = Admission::new(session);
+pub(crate) async fn admit(
+    session: &Arc<Session>,
+    scope: &cmux_scope::Scope,
+    came: Instant,
+) -> Arc<Admission> {
+    let admission = Admission::arrived(session, came);
     admission.acquire(session, scope).await;
     admission
 }
