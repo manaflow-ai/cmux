@@ -178,7 +178,7 @@ pub(super) fn start_surface_thread(
                         && let Some(mux) = mux.upgrade()
                     {
                         mux.emit(MuxEvent::Status(format!(
-                            "cmux-browser provider disconnected: {reason}; waiting to reconnect"
+                            "cmux-browser provider disconnected: {reason}; cmux is reconnecting it"
                         )));
                         mux.emit(MuxEvent::SurfaceOutput(id));
                         let _ = browser.defer_registry_work(&route, RegistryWork::RestartProvider);
