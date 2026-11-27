@@ -111,6 +111,22 @@ export type RunRow = {
   create_trace?: unknown;
 };
 
+/**
+ * No PR or dispatch run of this drill reached a verdict on 11-26/27: 20 of 21 measure jobs ran into the
+ * job's timeout (40 min, 60 on lane/fork-native-drill), about 15 runner-hours a day, and wrote no
+ * fork-placement.json. Every timed run's fork call answered 404 machine.not_found (past the 60 s retry),
+ * 401 or 503, or the run failed before its fork call, and each run still spent 2-15 min on a
+ * parent (jobs 140215233872, 140362817873). Once the first DEAD_DRILL_RUNS timed runs have all failed,
+ * the rest would only spend the timeout: the drill stops there, skips duress, and writes its failing
+ * verdict with the reason. A drill whose fork worked once keeps every run, so its numbers stay whole.
+ */
+export const DEAD_DRILL_RUNS = 2;
+export function deadDrill(rows: RunRow[], asked: number): string | null {
+  if (rows.length < DEAD_DRILL_RUNS || rows.length >= asked || rows.some((r) => r.error === null)) return null;
+  const seen = rows.map((r) => (r.fork_status === null ? "no fork call" : `fork HTTP ${r.fork_status}`)).join(", ");
+  return `stopped after ${rows.length} of ${asked} runs: every run so far failed (${seen})`;
+}
+
 /** --duress N: N forks of one parent at once; each fork's call and fork-to-first-exec, then every copy deleted. */
 export type DuressRow = { forks: number; parent: string | null; fork_call_ms: number[]; fork_to_first_exec_ms: number[]; errors: string[]; cleanup: string[] };
 
@@ -382,6 +398,7 @@ async function main(): Promise<number> {
   const platformHeaders = () => ({ authorization: `Bearer ${bearer}`, ...(team ? { "x-cmux-team": team } : {}) });
   const journey = { secrets };
   const rows: RunRow[] = [];
+  let stopped: string | null = null;
   for (let run = 1; run <= runs + pausedRuns; run++) {
     const paused = run > runs;
     const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [], ...(risky ? { risky: null } : {}) };
@@ -487,8 +504,13 @@ async function main(): Promise<number> {
     }
     say({ row });
     rows.push(row);
+    stopped = deadDrill(rows.filter((r) => !r.parent_paused), runs);
+    if (stopped) {
+      say(stopped);
+      break;
+    }
   }
-  const duressN = Math.max(0, Math.min(8, Number(arg("--duress", "0"))));
+  const duressN = stopped ? 0 : Math.max(0, Math.min(8, Number(arg("--duress", "0"))));
   let duress: DuressRow | null = null;
   if (duressN > 0) {
     const d: DuressRow = { forks: duressN, parent: null, fork_call_ms: [], fork_to_first_exec_ms: [], errors: [], cleanup: [] };
@@ -532,7 +554,7 @@ async function main(): Promise<number> {
   const running = rows.filter((r) => !r.parent_paused);
   const pausedRows = rows.filter((r) => r.parent_paused);
   const v = {
-    ...verdict(running, { backend: backend.name, platform, at: new Date().toISOString(), mode: divergence ? "divergence" : risky ? "risky" : "placement" }),
+    ...verdict(running, { backend: backend.name, platform, at: new Date().toISOString(), mode: divergence ? "divergence" : risky ? "risky" : "placement", runs_asked: runs, stopped }),
     ...(pausedRows.length ? { paused: armSummary(pausedRows) } : {}),
     ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}),
   };

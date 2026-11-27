@@ -81,6 +81,8 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
@@ -144,6 +146,7 @@ import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
 import { deckOf, hatHeaderLook, hideOf } from "./hatHeader.experiment";
+import { type HatLineArm, hatLineLook } from "./hatLine.experiment";
 import { HatHeadDeck } from "./HatHeadDeck";
 import "./hatHeader.css";
 import { DoneMark } from "./DoneMark";
@@ -198,6 +201,7 @@ export const SubagentTray = memo(function SubagentTray({
   shown,
   stepLook,
   foldHeadLook,
+  lineDeckLook,
   enters = false,
   chat,
   onTuck,
@@ -246,6 +250,8 @@ export const SubagentTray = memo(function SubagentTray({
   stepLook?: HatStepArm;
   /// The folded header's arm a stage pins (trayFoldHead.experiment.ts), over the experiment's.
   foldHeadLook?: TrayFoldHeadArm;
+  /// The one-line hat's marks arm, pinned (a gallery stage or test about one arm). Else the experiment's.
+  lineDeckLook?: HatLineArm;
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
   /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
@@ -329,6 +335,9 @@ export const SubagentTray = memo(function SubagentTray({
   // The top bar (hatHeader.experiment.ts; Leo, 2026-11-20: "thumb through them like a Rolodex or
   // whatever at the top"): a deck of marks to thumb through, and where the hide control sits.
   const [headerLook] = useState(() => experimentArm(hatHeaderLook));
+  // The one-line hat's marks (hatLine.experiment.ts, design pass c-fadfd55bc5): the same deck, on the
+  // line, and the hide control flush at the line's end.
+  const [lineLook] = useState(() => lineDeckLook ?? experimentArm(hatLineLook));
   // The line the header names while the pointer is on its mark (HatHeadDeck.tsx); a pointer event
   // sets it, never the clock.
   const [peeked, setPeeked] = useState<string | undefined>(undefined);
@@ -390,6 +399,8 @@ export const SubagentTray = memo(function SubagentTray({
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
   // bar, instead of today's tab on the top edge.
+  // The one-line hat draws no hide eye of its own (Leo, 2026-11-27: "remove the hide eye icon"): on its
+  // card it tucks from the top edge's tab, as the other headers do.
   const hideAt = onTuck && headed && !hidesInHead ? hideOf(headerLook) : undefined;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
@@ -652,8 +663,17 @@ export const SubagentTray = memo(function SubagentTray({
   // The `strip` and `cards` arms: the header's marks are one per running line, to thumb through. A lone
   // item's header already names it, so its one mark only opens it; with nothing running the header
   // keeps today's marks.
-  const deck = leading.length > 0 && !lineHead ? deckOf(headerLook) : undefined;
-  const peekItem = deck && !lone && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
+  // The one-line hat (hatLine.experiment.ts) draws its own deck: after the words (`trail`), or leading
+  // them (`lead`, `cards`). Its sentence never names a lone item, so a lone mark peeks too.
+  const lineDeck = lineHead && leading.length > 0 && lineLook !== "words" ? lineLook : undefined;
+  const deck =
+    leading.length > 0
+      ? lineHead
+        ? lineDeck && (lineDeck === "cards" ? "cards" : "strip")
+        : deckOf(headerLook)
+      : undefined;
+  const peeks = Boolean(deck) && (!lone || lineHead);
+  const peekItem = peeks && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
   // What the header says while a mark is pointed at: that line's name and latest step, as a lone
   // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
   const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true, connectionQuiet) : undefined;
@@ -708,6 +728,18 @@ export const SubagentTray = memo(function SubagentTray({
     setExpanded((current) => (current.has(key) ? current : new Set([...current, key])));
     if (!open) toggle();
   };
+  // The deck of marks to thumb through (HatHeadDeck.tsx), where the arm draws one.
+  const headDeck = deck ? (
+    <HatHeadDeck
+      items={leading}
+      chatHarness={chatHarness}
+      look={deck}
+      at={lineDeck === "trail" ? "trail" : "lead"}
+      peeked={peekItem ? peeked : undefined}
+      onPeek={peeks ? setPeeked : noPeek}
+      onOpenItem={openItem}
+    />
+  ) : null;
   // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
   // on each line's edge, lands on a whole line, and folds below half the first. A press that never
   // moves does nothing; a double-click goes back to the default five lines.
@@ -786,8 +818,10 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0;
-  // A card (the tray's glass, joined to the composer) only while there is more than the one line.
-  const carded = lineHead ? open && headed : items.length > 0 || surface !== "none";
+  // A card (the tray's glass, joined to the composer), the one line's too: folded it is the line on its
+  // own opaque backing, at the composer's row height (Leo, 2026-11-27: "add the opaque backing to it
+  // again with proper size"). #56287 had dropped it for a bare line.
+  const carded = items.length > 0 || surface !== "none";
   // The `line` arm: Esc tucks the open list back to its line, focus back on the line.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (!lineHead || !open || !headed || event.key !== "Escape" || event.defaultPrevented) return;
@@ -823,7 +857,7 @@ export const SubagentTray = memo(function SubagentTray({
       // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
       // thing now looks mildly awkward").
       data-card={carded || undefined}
-      // The `line` arm: folded, the hat is one muted line flush on the composer, no bar around it.
+      // The `line` arm: the hat is one plain sentence on its card, at the chat's text size.
       data-line={lineHead || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
@@ -863,16 +897,12 @@ export const SubagentTray = memo(function SubagentTray({
       {hideAt === "bar" && (
         // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
         // over it passes a press that never dragged through to it); its eye-slash shows on hover.
-        <button
-          type="button"
-          className="acpmux-hat-hide-bar"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
-          <Icon name="action.hide" size={10} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-hat-hide-bar" aria-label={t("tray.tuck")} onClick={onTuck}>
+            {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
+            <Icon name="action.hide" size={10} />
+          </Button>
+        </Tooltip>
       )}
       {headed && (
         <button
@@ -887,15 +917,10 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The `pill` arm: the hide pill's room, leading the bar (the pill lies over it, outside the
               header's own button). */}
           {hideAt === "pill" && <span className="acpmux-hat-hide-slot" data-at="pill" aria-hidden="true" />}
-          {lineHead ? null : deck ? (
-            <HatHeadDeck
-              items={leading}
-              chatHarness={chatHarness}
-              look={deck}
-              peeked={peekItem ? peeked : undefined}
-              onPeek={lone ? noPeek : setPeeked}
-              onOpenItem={openItem}
-            />
+          {lineHead ? (
+            deck && lineDeck !== "trail" && headDeck
+          ) : deck ? (
+            headDeck
           ) : summaryHead ? (
             <HeadSummary
               t={t}
@@ -996,6 +1021,9 @@ export const SubagentTray = memo(function SubagentTray({
               slide
             />
           )}
+          {/* The one line's `trail` marks, after its words (hatLine.experiment.ts). */}
+          {lineDeck === "trail" && headDeck}
+
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
@@ -1120,54 +1148,56 @@ export const SubagentTray = memo(function SubagentTray({
       {hidesInHead && (
         // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
         // the hat or it has keyboard focus; the top edge keeps only the resize rim.
-        <button
-          type="button"
-          className="acpmux-running-tray__hide"
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__hide"
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
         // hat's edge. Each lies over its slot in the header, outside the header's own button.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at={hideAt}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at={hideAt}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
+          </Button>
+        </Tooltip>
       )}
       {onTuck && !hidesInHead && !hideAt && (
-        <button
-          type="button"
-          className="acpmux-running-tray__tuck"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="disclosure.expanded" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
+            <Icon name="disclosure.expanded" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {headed && opensPanel === "button" && (!lineHead || open) && (
-        <button
-          type="button"
-          className="acpmux-running-tray__open"
-          aria-label={t("backgroundTasks.open")}
-          title={t("backgroundTasks.open")}
-          onClick={onOpenPanel}
-        >
-          <Icon name="panel.right" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("backgroundTasks.open")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__open"
+            aria-label={t("backgroundTasks.open")}
+            onClick={onOpenPanel}
+          >
+            <Icon name="panel.right" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
     </section>
   );

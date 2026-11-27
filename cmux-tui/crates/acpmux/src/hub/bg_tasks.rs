@@ -39,6 +39,8 @@ const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    /// Its CPU class (`bg_start`'s `class`): a filler task's scope runs at `CPUWeight=idle`.
+    class: crate::session_budget::TaskClass,
 }
 
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
@@ -105,6 +107,7 @@ impl Hub {
     /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
     /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
     /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -114,8 +117,9 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        class: crate::session_budget::TaskClass,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent };
+        let spawn = BgSpawn { fixed_id: None, subagent, class };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -134,7 +138,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent };
+        let spawn = BgSpawn { fixed_id, subagent, class: Default::default() };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -148,7 +152,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent } = spawn;
+        let BgSpawn { fixed_id, subagent, class } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -237,7 +241,7 @@ impl Hub {
             result_line,
             subagent,
         };
-        bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        bg_spawn(&runner, &spec, class).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
             bg_run::request_stop(&dir, &id, &spec.generation);
@@ -326,6 +330,18 @@ impl Hub {
     /// How many of the chat's tasks run.
     pub(super) fn bg_running_count(&self, session: &Session) -> usize {
         self.bg_running_in(&self.bg_dir(session), |_| true)
+    }
+
+    /// The pids of the chat's running tasks: roots of its process trees (`session_usage.rs`).
+    pub(super) fn bg_running_pids(&self, session: &Session) -> Vec<u32> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .map(|t| &t.record)
+            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
+            .map(|r| r.pid)
+            .collect()
     }
 
     /// How many of the chat's tasks run that bring their end to the chat (`notify`,
@@ -458,7 +474,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view["state"] != "running"
+            && view.get("state").and_then(Value::as_str) != Some("running")
         {
             self.bg_end_told(session, &dir, id);
         }
@@ -807,7 +823,11 @@ pub(super) fn bg_view_at(
 }
 
 /// Starts the runner in a session of its own and waits for its one-line answer: the task runs.
-async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec) -> Result<()> {
+async fn bg_spawn(
+    runner: &crate::self_command::SelfCommand,
+    spec: &bg_run::Spec,
+    class: crate::session_budget::TaskClass,
+) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let mut cmd = tokio::process::Command::from(runner.command(&[bg_run::RUN_ARG]));
     cmd.stdin(std::process::Stdio::piped())
@@ -836,7 +856,7 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         } else {
             None
         };
-        crate::agent_host::scope::place_in(pid, slice).await;
+        crate::agent_host::scope::place_in(pid, slice, class).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;
