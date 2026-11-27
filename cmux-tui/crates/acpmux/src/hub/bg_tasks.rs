@@ -45,6 +45,33 @@ struct BgSpawn<'a> {
     class: crate::session_budget::TaskClass,
 }
 
+/// The harness identity a background task carries, for [`Hub::bg_env`]: the chat's own harness
+/// session id and the family it belongs to, under the names `agent-identity` reads first
+/// ([`crate::agent_tools::HARNESS_SESSION_ENV`]).
+///
+/// A task runs under the daemon's runner, not under the harness, so it inherits none of the
+/// variables a harness sets only for its own tool calls (`CLAUDE_CODE_SESSION_ID` and the like),
+/// and `build_harness_command` clears the rest. That left one route to the chat's identity: shell
+/// back out to `acpmux info` and ask this daemon for a value it already had in hand. When that one
+/// route failed the task saw "no agent session in this environment", and because hq
+/// `scripts/lib/testbox_test.py` signs every fast-checks snapshot with an `Agent-Session` trailer
+/// and refuses to dispatch unsigned, each `cmux-ci test` from a task died on it (2026-11-23,
+/// big-red: two dispatches refused, both re-run by hand through a plain background shell, which
+/// works only because it inherits the harness's own variables). The id travels with the task
+/// instead. An empty value is no answer and is left out, so a chat whose harness session is not
+/// yet recorded is unchanged rather than carrying a blank identity.
+fn harness_identity_env(meta: &SessionMeta) -> Vec<(String, String)> {
+    let word = |value: &Option<String>| {
+        value.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned)
+    };
+    let Some(id) = word(&meta.agent_session_id) else { return Vec::new() };
+    let mut env = vec![(crate::agent_tools::HARNESS_SESSION_ENV.to_owned(), id)];
+    if let Some(family) = word(&meta.agent_session_family) {
+        env.push((crate::agent_tools::HARNESS_FAMILY_ENV.to_owned(), family));
+    }
+    env
+}
+
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
 /// every task of its chat and stopped all ten running ones, none of them its own (other
 /// subagents' CI waits and the lead's stall watcher). So the chat's own agent acts on the tasks
@@ -284,7 +311,10 @@ impl Hub {
         let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
             .await
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
-        Ok(crate::agent::command_env(&cmd).into_iter().collect())
+        let mut env: BTreeMap<String, String> =
+            crate::agent::command_env(&cmd).into_iter().collect();
+        env.extend(harness_identity_env(meta));
+        Ok(env)
     }
 
     /// The folder's tasks, oldest first: only records of its own generation, so a runner that

@@ -101,16 +101,38 @@ pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
 /// (`caller.agent_session`), so the app opens their tabs beside its chat.
 pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
+/// The *harness* session id (Claude Code's own session id, Codex's thread id), as opposed to
+/// [`AGENT_SESSION_ENV`], which is this daemon's chat id. It is the first name
+/// `agent-identity` looks in, so a command that carries it is attributable without asking the
+/// daemon anything: hq `tools/remote-agents/agent_identity.py` (`detect_session`) reads
+/// `CMUX_AGENT_SESSION_ID`, then the harness's own variables, and only then shells out to
+/// `acpmux info`. A background task (`bg_start`) inherits none of the harness's own variables,
+/// because the harness sets those only for its own tool calls, so that shell-out was its only
+/// route; when it failed the task saw "no agent session in this environment" and every
+/// `cmux-ci test` dispatch from a task refused, since hq `scripts/lib/testbox_test.py` signs each
+/// fast-checks snapshot with an `Agent-Session` trailer and will not dispatch unsigned
+/// (2026-11-02 huge-blue, 2026-11-23 big-red). The daemon has the id in hand
+/// ([`crate::store::SessionMeta::agent_session_id`]), so it hands it over instead.
+pub const HARNESS_SESSION_ENV: &str = "CMUX_AGENT_SESSION_ID";
+/// The family that [`HARNESS_SESSION_ENV`]'s id belongs to (`claude`, `codex`, ...), from
+/// [`crate::store::SessionMeta::agent_session_family`], which records it with the id rather than
+/// inferring it. Without it a reader has an id and no way to know whose it is.
+pub const HARNESS_FAMILY_ENV: &str = "CMUX_AGENT_HARNESS";
+
 /// Caller ids an agent must not inherit from the daemon's own environment
 /// (a daemon an agent started carries that agent's session too, and a
 /// terminal Claude's answer to cmux's tools, [`TOOLS_ANSWER_ENV`]; a chat's own
-/// answer comes from its session env, applied after).
-pub const INHERITED_CALLER_ENV: [&str; 5] = [
+/// answer comes from its session env, applied after). The harness ids are here for the same
+/// reason: a daemon an agent started carries that agent's harness session, and a chat that
+/// inherited it would sign its snapshots and commits as the agent that started the daemon.
+pub const INHERITED_CALLER_ENV: [&str; 7] = [
     "CMUX_TUI_TERMINAL_ID",
     "CMUX_SURFACE_ID",
     "CMUX_PANEL_ID",
     AGENT_SESSION_ENV,
     TOOLS_ANSWER_ENV,
+    HARNESS_SESSION_ENV,
+    HARNESS_FAMILY_ENV,
 ];
 
 /// The harness families whose ACP server refuses `mcpServers` in `session/new` and

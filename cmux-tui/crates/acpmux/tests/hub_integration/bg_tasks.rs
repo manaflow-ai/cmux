@@ -383,6 +383,43 @@ async fn a_task_sees_the_agents_environment() {
     }
 }
 
+/// A task carries the chat's own harness session identity, under the names `agent-identity` reads
+/// first (`CMUX_AGENT_SESSION_ID`, `CMUX_AGENT_HARNESS`), and it names the same session
+/// `_acpmux/info` would answer with.
+///
+/// A task inherits none of the variables a harness sets only for its own tool calls, so without
+/// these the only route to the chat's identity was to shell back out to `acpmux info` and ask this
+/// daemon for a value it already had. Every failure of that one route is swallowed, and the caller
+/// is told only "no agent session in this environment": hq `scripts/lib/testbox_test.py` signs
+/// each fast-checks snapshot with an `Agent-Session` trailer and refuses to dispatch unsigned, so
+/// `cmux-ci test` from a task died on it while the identical command from a plain background shell
+/// (which does inherit the harness's variables) passed (2026-11-23, big-red).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_carries_the_chats_harness_session_identity() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "identity").await;
+    r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+    let (agent, family) = {
+        let session = r.hub.resolve(&id).unwrap();
+        let meta = session.meta();
+        (meta.agent_session_id.clone(), meta.agent_session_family.clone())
+    };
+    let agent = agent.expect("the launched chat recorded its harness session");
+    let family = family.expect("recorded with the id");
+    assert!(!agent.is_empty() && !family.is_empty(), "{agent:?}/{family:?}");
+    let task = start(&mut r, &id, "echo \"$CMUX_AGENT_SESSION_ID/$CMUX_AGENT_HARNESS\"").await;
+    let task = task["id"].as_str().unwrap().to_owned();
+    r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
+    assert_eq!(
+        text(&r, &id, &task),
+        format!("{agent}/{family}\n"),
+        "a task that names no harness session leaves every tool that signs with one \
+         (cmux-ci test) with nothing to sign as"
+    );
+}
+
 /// A record of another generation of the chat's folder (a runner that outlived a purge, writing
 /// under the old path) is neither listed nor reached.
 #[cfg(unix)]
