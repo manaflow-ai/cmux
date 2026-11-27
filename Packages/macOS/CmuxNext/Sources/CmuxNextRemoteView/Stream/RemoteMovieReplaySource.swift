@@ -132,7 +132,7 @@ public nonisolated final class RemoteMovieReplaySource: RemoteViewStreamSource {
             replay: for loop in 0 ..< loops {
                 for sample in samples {
                     let due = start + .seconds((Double(loop) * period + sample.seconds) / rate)
-                    if due > clock.now { await Self.wait(timer, for: clock.now.duration(to: due)) }
+                    if due > clock.now { await Self.untilDeadline(timer, after: clock.now.duration(to: due)) }
                     if Task.isCancelled { break replay }
                     let now = DispatchTime.now().uptimeNanoseconds
                     continuation.yield(RemoteAccessUnit(
@@ -195,7 +195,7 @@ public nonisolated final class RemoteMovieReplaySource: RemoteViewStreamSource {
     }
 
     /// Resumes after `delay` on `timer`, or at once when the replay is cancelled.
-    private static func wait(_ timer: DemandTimer, for delay: Duration) async {
+    private static func untilDeadline(_ timer: DemandTimer, after delay: Duration) async {
         let pending = PendingResume()
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
