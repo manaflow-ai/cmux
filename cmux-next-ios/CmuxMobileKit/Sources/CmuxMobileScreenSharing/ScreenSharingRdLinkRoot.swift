@@ -2,6 +2,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileBrowserStream
 import CmuxMobileTransport
+import CmuxEgress
 import CoreVideo
 import Foundation
 import Network
@@ -145,7 +146,8 @@ private final class RdInputSender: @unchecked Sendable {
     init(target: RdLinkTarget) {
         key = target.inputKey ?? ""
         if let host = target.inputHost, let port = target.inputPort.flatMap(NWEndpoint.Port.init(rawValue:)) {
-            let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .udp)
+            let connection = CmuxEgress.connection(host: NWEndpoint.Host(host), port: port, using: .udp,
+                                                   site: "CmuxMobileScreenSharing.ScreenSharingRdLinkRoot")
             connection.start(queue: DispatchQueue(label: "dev.cmux.mobile.rd-eval-input", qos: .userInteractive))
             self.connection = connection
         } else {
