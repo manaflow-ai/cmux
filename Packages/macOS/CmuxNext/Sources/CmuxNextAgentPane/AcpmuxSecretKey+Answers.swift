@@ -42,7 +42,7 @@ nonisolated extension AcpmuxSecretKey {
 /// The canonical proof operations are Rust-owned. The request encoder is intentionally local and
 /// narrower than JSONSerialization: it keeps UInt64 and negative zero intact before serde parses
 /// the request, and it fails closed for values outside the JSON-shaped Foundation subset.
-private enum AcpmuxCanonicalPolicy {
+nonisolated private enum AcpmuxCanonicalPolicy {
     private static let maximumValueContainerDepth = 126
 
     static func call(_ op: String, value: Any) -> [String: Any]? {
