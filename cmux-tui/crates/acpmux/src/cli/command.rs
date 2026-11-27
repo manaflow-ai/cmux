@@ -1169,6 +1169,9 @@ pub enum Command {
     HistoryDelete(HistoryDeleteArgs),
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
+    /// Manage the opt-in durable replica of ordinary running chats.
+    #[command(subcommand, name = "running-replica")]
+    RunningReplica(RunningReplicaCmd),
     #[command(hide = true)]
     TranscriptOffload(TranscriptOffloadArgs),
     #[command(hide = true)]
@@ -1293,6 +1296,24 @@ pub enum Command {
         /// then exits 1, never 75, so the unit keeps retrying.
         #[arg(long)]
         take_over: bool,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum RunningReplicaCmd {
+    /// Show the latest replica checkpoint and enrollment state.
+    Status,
+    /// Capture a durable checkpoint for a running chat.
+    Checkpoint { session: String },
+    /// Derive the opaque root address for a chat from its id.
+    Address { session: String },
+    /// Recover a checkpoint into a new idle chat identity.
+    Recover {
+        pair: String,
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long, short)]
+        name: Option<String>,
     },
 }
 

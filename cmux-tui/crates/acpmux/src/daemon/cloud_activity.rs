@@ -412,6 +412,10 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // The agent is here. On a Cloud machine, Auto mode's side starts with it.
     if crate::cloud_host::is_cloud_vm() {
         hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+        hub.scope.spawn_until_cancelled(
+            "running-chat-replica",
+            super::running_replica::run(hub.clone()),
+        );
         // ~/README.md: what this machine is and how to get more capacity (`cloud_readme.rs`).
         if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
             let home = std::path::PathBuf::from(home);

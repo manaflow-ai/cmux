@@ -1097,6 +1097,9 @@ pub mod method {
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
     pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// Durable opt-in replicas of ordinary running chats (`daemon/running_replica.rs`):
+    /// `{action: status|checkpoint|address|recover, ...}`. Local socket only.
+    pub const MUX_RUNNING_REPLICA: &str = "_acpmux/running_replica";
     /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
     /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
     pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";

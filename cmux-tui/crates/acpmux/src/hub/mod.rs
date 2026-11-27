@@ -352,6 +352,7 @@ mod route_switch;
 pub(crate) mod row_log;
 mod rows_source;
 pub mod rules;
+mod running_replica;
 mod secrets;
 mod seen;
 #[cfg(test)]

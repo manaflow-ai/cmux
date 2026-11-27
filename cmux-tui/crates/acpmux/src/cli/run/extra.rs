@@ -213,6 +213,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::RunningReplica(action) => {
+            let client = connect(true).await?;
+            let params = match action {
+                RunningReplicaCmd::Status => json!({"action": "status"}),
+                RunningReplicaCmd::Checkpoint { session } => {
+                    json!({"action": "checkpoint", "sessionId": session})
+                }
+                RunningReplicaCmd::Address { session } => {
+                    json!({"action": "address", "sessionId": session})
+                }
+                RunningReplicaCmd::Recover { pair, cwd, name } => {
+                    let cwd = std::path::absolute(cwd)?;
+                    json!({"action": "recover", "pair": pair, "cwd": cwd, "name": name})
+                }
+            };
+            let value = client.request(method::MUX_RUNNING_REPLICA, params).await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;

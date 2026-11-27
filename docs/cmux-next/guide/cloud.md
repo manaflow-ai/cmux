@@ -42,6 +42,9 @@ cmux cloud start-session --name dev --agent codex
 
 ## Fork, snapshot, hand off
 
+For an opted-in ordinary chat interrupted by machine loss, see
+[Recover a running chat replica](../running-chat-replicas.md).
+
 ```bash
 cmux cloud fork-machine
 cmux cloud snapshot-machine

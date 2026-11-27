@@ -11,8 +11,22 @@ pub trait BlobStore: Send + Sync {
     fn put(&self, sha256: &str, bytes: &[u8]) -> anyhow::Result<()>;
     fn get(&self, sha256: &str) -> anyhow::Result<Vec<u8>>;
     fn has(&self, sha256: &str) -> anyhow::Result<bool>;
+    /// Batched existence check; HTTP stores avoid one round trip per reused replica chunk.
+    fn missing(&self, hashes: &[String]) -> anyhow::Result<Vec<String>> {
+        let mut missing = Vec::new();
+        for hash in hashes {
+            if !self.has(hash)? {
+                missing.push(hash.clone());
+            }
+        }
+        Ok(missing)
+    }
     /// Names every blob this machine's history needs, so the store's GC keeps them (`POST /v1/sync/roots`).
     fn set_root(&self, pair: &str, hashes: &[String]) -> anyhow::Result<()>;
+    /// Reads a named root's verified tree. Older/custom stores may not support recovery.
+    fn get_root(&self, _pair: &str) -> anyhow::Result<Vec<String>> {
+        bail!("this store does not support reading roots")
+    }
     fn describe(&self) -> String;
 }
 
@@ -24,6 +38,43 @@ pub fn tree_bytes(hashes: &[String]) -> Vec<u8> {
         text.push('\n');
     }
     text.into_bytes()
+}
+
+pub(crate) fn validate_hash(hash: &str) -> anyhow::Result<()> {
+    if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+        bail!("invalid sync blob hash");
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_pair(pair: &str) -> anyhow::Result<()> {
+    if pair.is_empty()
+        || pair.len() > 128
+        || pair == "."
+        || pair == ".."
+        || !pair.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+    {
+        bail!("invalid sync root pair");
+    }
+    Ok(())
+}
+
+fn read_tree(store: &dyn BlobStore, hash: &str) -> anyhow::Result<Vec<String>> {
+    validate_hash(hash)?;
+    let bytes = store.get(hash)?;
+    if bytes.len() > MAX_BLOB || crate::sha256_hex(&bytes) != hash {
+        bail!("sync root tree digest mismatch or oversized tree");
+    }
+    let mut lines = std::str::from_utf8(&bytes)?.lines();
+    if lines.next() != Some("cmux-sync-tree 1") {
+        bail!("unsupported sync root tree");
+    }
+    lines
+        .map(|line| {
+            validate_hash(line)?;
+            Ok(line.to_string())
+        })
+        .collect()
 }
 
 /// A folder laid out as the store lays out R2: `<sha[0..2]>/<sha>`.
@@ -45,6 +96,9 @@ impl FsStore {
 
 impl BlobStore for FsStore {
     fn put(&self, sha256: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        if bytes.len() > MAX_BLOB {
+            bail!("sync.too_large");
+        }
         if crate::sha256_hex(bytes) != sha256 {
             bail!("sync.digest_mismatch");
         }
@@ -60,14 +114,28 @@ impl BlobStore for FsStore {
     }
 
     fn get(&self, sha256: &str) -> anyhow::Result<Vec<u8>> {
-        std::fs::read(self.path(sha256)).with_context(|| format!("sync.blob_not_found {sha256}"))
+        validate_hash(sha256)?;
+        use std::io::Read;
+        let file = std::fs::File::open(self.path(sha256))
+            .with_context(|| format!("sync.blob_not_found {sha256}"))?;
+        let mut bytes = Vec::new();
+        file.take(MAX_BLOB as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_BLOB {
+            bail!("sync.too_large");
+        }
+        Ok(bytes)
     }
 
     fn has(&self, sha256: &str) -> anyhow::Result<bool> {
+        validate_hash(sha256)?;
         Ok(self.path(sha256).exists())
     }
 
     fn set_root(&self, pair: &str, hashes: &[String]) -> anyhow::Result<()> {
+        validate_pair(pair)?;
+        for hash in hashes {
+            validate_hash(hash)?;
+        }
         let tree = tree_bytes(hashes);
         let sha = crate::sha256_hex(&tree);
         self.put(&sha, &tree)?;
@@ -75,6 +143,16 @@ impl BlobStore for FsStore {
         std::fs::create_dir_all(&roots)?;
         crate::write_durable(&roots.join(pair), sha.as_bytes())?;
         Ok(())
+    }
+
+    fn get_root(&self, pair: &str) -> anyhow::Result<Vec<String>> {
+        validate_pair(pair)?;
+        use std::io::Read;
+        let mut hash = String::new();
+        std::fs::File::open(self.dir.join("roots").join(pair))?
+            .take(129)
+            .read_to_string(&mut hash)?;
+        read_tree(self, hash.trim())
     }
 
     fn describe(&self) -> String {
@@ -171,6 +249,7 @@ impl BlobStore for HttpStore {
     }
 
     fn get(&self, sha256: &str) -> anyhow::Result<Vec<u8>> {
+        validate_hash(sha256)?;
         let url = self.url(&format!("/v1/sync/blobs/{sha256}"));
         self.runtime.block_on(async {
             let mut last = anyhow!("the store did not answer");
@@ -179,12 +258,17 @@ impl BlobStore for HttpStore {
                     tokio::time::sleep(Duration::from_millis(250 << attempt)).await;
                 }
                 match self.http.get(&url).bearer_auth(&self.credential).send().await {
-                    Ok(r) if r.status().is_success() => {
-                        return Ok(r
-                            .bytes()
-                            .await
-                            .map_err(|e| anyhow!("{}", e.without_url()))?
-                            .to_vec());
+                    Ok(mut r) if r.status().is_success() => {
+                        let mut bytes = Vec::new();
+                        while let Some(chunk) =
+                            r.chunk().await.map_err(|e| anyhow!("{}", e.without_url()))?
+                        {
+                            if bytes.len().saturating_add(chunk.len()) > MAX_BLOB {
+                                bail!("sync.too_large");
+                            }
+                            bytes.extend_from_slice(&chunk);
+                        }
+                        return Ok(bytes);
                     }
                     Ok(r) if r.status().is_server_error() => {
                         last = anyhow!("the store answered {}", r.status().as_u16());
@@ -206,7 +290,37 @@ impl BlobStore for HttpStore {
         Ok(missing.is_empty())
     }
 
+    fn missing(&self, hashes: &[String]) -> anyhow::Result<Vec<String>> {
+        for hash in hashes {
+            validate_hash(hash)?;
+        }
+        let mut missing = Vec::new();
+        // SyncMissingRequest accepts at most 1000 hashes.
+        for batch in hashes.chunks(1000) {
+            let answer = self.runtime.block_on(
+                self.post_json("/v1/sync/blobs/missing", serde_json::json!({ "sha256": batch })),
+            )?;
+            let values =
+                answer.get("missing").and_then(|m| m.as_array()).context("no missing list")?;
+            if values.len() > batch.len() {
+                bail!("invalid missing list");
+            }
+            for value in values {
+                let hash = value.as_str().context("invalid missing hash")?;
+                if !batch.iter().any(|requested| requested == hash) {
+                    bail!("unexpected missing hash");
+                }
+                missing.push(hash.to_string());
+            }
+        }
+        Ok(missing)
+    }
+
     fn set_root(&self, pair: &str, hashes: &[String]) -> anyhow::Result<()> {
+        validate_pair(pair)?;
+        for hash in hashes {
+            validate_hash(hash)?;
+        }
         let tree = tree_bytes(hashes);
         let sha = crate::sha256_hex(&tree);
         self.put(&sha, &tree)?;
@@ -214,6 +328,40 @@ impl BlobStore for HttpStore {
             self.post_json("/v1/sync/roots", serde_json::json!({ "pair": pair, "tree": sha })),
         )?;
         Ok(())
+    }
+
+    fn get_root(&self, pair: &str) -> anyhow::Result<Vec<String>> {
+        validate_pair(pair)?;
+        // SyncRootRead is { pair, tree, registeredAt }; the tree remains an immutable blob.
+        let hash = self.runtime.block_on(async {
+            let mut response = self
+                .http
+                .get(self.url(&format!("/v1/sync/roots/{pair}")))
+                .bearer_auth(&self.credential)
+                .send()
+                .await
+                .map_err(|e| anyhow!("the store did not answer: {}", e.without_url()))?;
+            if !response.status().is_success() {
+                bail!("the store refused root read: {}", response.status().as_u16());
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) =
+                response.chunk().await.map_err(|e| anyhow!("{}", e.without_url()))?
+            {
+                if bytes.len().saturating_add(chunk.len()) > 4096 {
+                    bail!("oversized root response");
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if value.get("pair").and_then(|v| v.as_str()) != Some(pair) {
+                bail!("root response names another pair");
+            }
+            Ok::<_, anyhow::Error>(
+                value.get("tree").and_then(|v| v.as_str()).context("root has no tree")?.to_string(),
+            )
+        })?;
+        read_tree(self, &hash)
     }
 
     fn describe(&self) -> String {

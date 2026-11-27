@@ -3521,6 +3521,15 @@ async fn dispatch_request_with_identity(
                 .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
             hub.cold_archive_request(s, archived).await
         }
+        // Durable replicas of ordinary running chats are a local maintenance operation. They
+        // never forward to a peer or accept a remote WebSocket caller: recovery writes a new
+        // chat identity and must use this machine's configured cloud key and store.
+        method::MUX_RUNNING_REPLICA if conn.origin.web_class() => Err(RpcError::method_not_found(
+            "_acpmux/running_replica (not served to a remote WebSocket connection or a peer)",
+        )),
+        method::MUX_RUNNING_REPLICA => {
+            crate::daemon::running_replica::request(hub.clone(), params).await
+        }
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
