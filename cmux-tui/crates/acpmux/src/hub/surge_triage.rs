@@ -849,19 +849,19 @@ impl Hub {
             return triage::decide(batch, answer.as_deref(), owners);
         }
         let calls = (0..votes).map(|_| self.surge_triage_answer(harness, prompt.clone(), batch));
-        let votes: Vec<Vec<Option<Decision>>> = futures::future::join_all(calls)
+        let ballots: Vec<Vec<Option<Decision>>> = futures::future::join_all(calls)
             .await
             .iter()
             .map(|a| triage::decide(batch, a.as_deref(), owners))
             .collect();
-        let kept = triage::majority(&votes);
+        let kept = triage::majority(&ballots);
         tracing::info!(
             recipient = %batch.recipient,
             batch = %batch.batch_id,
             votes,
             messages = batch.messages.len(),
             decided = kept.iter().filter(|d| d.is_some()).count(),
-            split = triage::split_count(&votes, &kept),
+            split = triage::split_count(&ballots, &kept),
             "surge triage: consensus"
         );
         kept
