@@ -310,8 +310,12 @@ async function run(): Promise<Reading> {
       );
     }
     const want = PAINTER === "worker" ? 2 : 1;
+    const attachStart = Date.now();
     for (let tries = 0; sockets.size < want && tries < 600; tries++) await page.waitForTimeout(50);
-    if (sockets.size < want) throw new Error(`${log.name}: the pane never attached`);
+    if (sockets.size < want)
+      throw new Error(
+        `${log.name}: the pane never attached (${sockets.size}/${want} sockets after ${Date.now() - attachStart} ms); console: ${consoleTail.slice(-8).join(" | ")}`,
+      );
 
     // ---------- the replay: RATE records a second on the stand-in's clock, never waiting on a frame ----------
     let sent = 0;

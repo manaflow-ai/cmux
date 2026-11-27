@@ -116,7 +116,7 @@ else
   # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
   # the bench's "FAILED:" line, goes first.
   [ "$status" -ne 0 ] && grep -m1 -F 'replay-under-load: FAILED:' "$work/bench.log" | cut -c1-600 >&2
-  tail -3 "$work/bench.log"
+  grep -v -F '[BABEL] Note:' "$work/bench.log" | tail -3
 fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
   "${REPLAY_UNDER_LOAD_PINNED:+pinned}" <<'PY'
@@ -126,7 +126,10 @@ n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
 except (OSError, ValueError):
-    log = open(os.path.join(work, "bench.log"), errors="replace").read()
+    # Babel's "deoptimised the styling" notes print on every build of the 500 KB App.tsx, so a failed run's tail was
+    # those notes and the sensor's head_error never reached its cause (2026-11-27, head 4d193af): drop them first.
+    log = "\n".join(l for l in open(os.path.join(work, "bench.log"), errors="replace").read().splitlines()
+                    if not l.startswith("[BABEL] Note:"))
     # The cause first: the bench's FAILED line (or the first line naming an error), then the log's tail.
     lines = [line.strip() for line in log.splitlines() if line.strip()]
     cause = next((l for l in lines if l.startswith("replay-under-load: FAILED:")), "") or next(
