@@ -10,6 +10,7 @@ import { resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, typ
 import type { UpstreamConfig } from "./live.ts";
 import { pendingVmCreationEvidenceOf, cancellingVmCreationEvidenceOf, type VmCreationEvidence } from "../proofs/vm-creation.ts";
 import { upstreamName } from "./naming.ts";
+import type { Environment } from "../policy.ts";
 import { vaultTenantMetadata } from "./vault-tenant.ts";
 
 const Receipt = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields, slug: Schema.String, metadata: Schema.Record({ key: Schema.String, value: Schema.String }), snapshotId: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -29,6 +30,20 @@ const CUSTOMER_ID = /^[A-Za-z0-9_.:@-]{1,128}$/u;
  */
 const sameIdleTimeout = (reported: number | null | undefined, requested: number) =>
   reported === requested || (requested < 0 && (reported === null || reported === undefined || reported < 0));
+
+/**
+ * A staging or dev VM is a test machine: unless its create asked for its own autoDeleteSeconds, Freestyle deletes it
+ * once it has gone this long without running (every start resets the clock; a running VM is never deleted for it).
+ * 2026-11-27 00:05Z, GET /v5/vms: 1,021 cmux-vm-staging VMs, 908 of them paused or stopped and none deleted, up from 115
+ * on 2026-11-21 (docs fleet/vm-population-delete-paths); each paused 5 min after its last use (idleTimeoutSeconds 300)
+ * and then kept its disk forever. Production (and local tests) keep exactly what was asked: a user's machine is never
+ * timed out here.
+ */
+export const NON_PRODUCTION_AUTO_DELETE_SECONDS = 24 * 3600;
+const AUTO_DELETED_ENVIRONMENTS: ReadonlySet<Environment> = new Set<Environment>(["staging", "preview"]);
+
+export const autoDeleteFor = (environment: Environment, asked: number | undefined): number | undefined =>
+  asked ?? (AUTO_DELETED_ENVIRONMENTS.has(environment) ? NON_PRODUCTION_AUTO_DELETE_SECONDS : undefined);
 
 const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 
@@ -90,11 +105,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
     if (spec.createdBy !== undefined && spec.createdBy.length <= 63) metadata["cmux_actor"] = spec.createdBy;
     if (caller.value.tenantId.length <= 63) metadata["cmux_tenant"] = caller.value.tenantId;
+    const autoDeleteSeconds = autoDeleteFor(config.environment, spec.autoDeleteSeconds);
     const body = {
       slug, displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), metadata,
       idleTimeoutSeconds: spec.idleTimeoutSeconds,
       ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
-      ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+      ...(autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds }),
       ...initialNetworkBody(network),
       ...((sourceId ?? imageId ?? baseImageFor(spec.size)) === null ? {} : { snapshotId: sourceId ?? imageId ?? baseImageFor(spec.size) }),
     };
