@@ -312,6 +312,7 @@ import { tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import {
+  BACKGROUND_PANE,
   type BackgroundPanel,
   backgroundPanelFor,
   isBackgroundPane,
@@ -599,8 +600,14 @@ import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chat
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
 import { usePublishHostRecovery } from "./composerStatusStore";
-import { hostLineText } from "./hostLine";
-import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
+import { hostLineText, peerLinkFailure } from "./hostLine";
+import {
+  AcpmuxRestartGate,
+  type HostRestoring,
+  hostRefusedTooLarge,
+  hostSelfRetrying,
+  readHostRestoring,
+} from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
@@ -3259,6 +3266,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentDraftChat = shownSessionId ?? chatName;
   const subagentDraftChatRef = useRef(subagentDraftChat);
   subagentDraftChatRef.current = subagentDraftChat;
+  // The subagent a pane opened on one shows now (one it opened in place, else the one it opened on),
+  // or its background tasks, for the wake state: a page built again after the hidden one let go shows
+  // it, never the chat (pane/paneSnapshot.ts).
+  const subagentPaneNow = useRef<string | undefined>(undefined);
+  subagentPaneNow.current = ownBackgroundPane
+    ? BACKGROUND_PANE
+    : ownSubagentPane
+      ? (subagentView ?? requestedSubagent)
+      : undefined;
   /// Opens the turn's changes in a diff tab right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"; Leo, 2026-11-03: "just put it in a tab???"): the chat folder's diff, on the chat's
@@ -7100,9 +7116,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [linkDown, setLinkDown] = useState(false);
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
-  /// The pane's handshake loop stopped past its bound (paneSnapshot.ts `stopped`): the failure line
-  /// says why and offers Retry, and an event (focus, shown, online, acpmux answering) asks again.
-  const [hostGaveUp, setHostGaveUp] = useState(false);
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -8115,6 +8128,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       toggleInspector,
       sessionIdRef,
       subagentDraftChatRef,
+      subagentPaneNow,
       openChangesTab,
       setClientEpoch,
       folderContinuation,
@@ -8174,7 +8188,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       restartGate,
       setLinkDown,
       setHostTroubleSince,
-      setHostGaveUp,
       setHostRestoring,
       runPendingAdoption,
       freshRef,
@@ -8217,7 +8230,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A failure the pane clears by asking again by itself (a machine rebooting) is quiet in the
   // header too: the one line above the composer says Reconnecting… (HostError.tsx).
   const header = paneHeader(composerSnapshot, t, {
-    hostRecovering: !hostErrorShown || (!hostGaveUp && hostSelfRetrying(hostFailure, acpmuxRestartOffered)),
+    hostRecovering: !hostErrorShown || hostSelfRetrying(hostFailure, acpmuxRestartOffered),
   });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
@@ -10932,18 +10945,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         message={hostWords.line}
         detail={hostWords.detail}
         retrying={retryQueued}
-        onRetry={() => retryHost.current?.()}
+        // Retry only where asking now is the person's step: a chat too large to open (after updating
+        // cmux), or a machine they brought back. This app's own agent service is asked again by the
+        // pane itself, forever, so its line has no Retry (cmux#60478, a brief forwarded as Leo's, unverified: "retry on its own ... just
+        // remove it").
+        onRetry={
+          hostRefusedTooLarge(hostFailure) || peerLinkFailure(hostFailure) ? () => retryHost.current?.() : undefined
+        }
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        // A stopped loop (paneSnapshot.ts `stopped`) is not retrying: the line says why and offers Retry.
-        selfRetrying={
-          !hostGaveUp &&
-          hostSelfRetrying(
-            hostFailure,
-            acpmuxRestartOffered,
-            hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
-          )
-        }
+        selfRetrying={hostSelfRetrying(
+          hostFailure,
+          acpmuxRestartOffered,
+          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+        )}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered

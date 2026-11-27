@@ -4060,6 +4060,26 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         # It only reads the result the controller posts back, so no gateway runner waits (note-557).
         self.assertEqual(route_of(job, context), "cmux-linux")
 
+    def test_a_pr_with_no_mac_release_input_leaves_it_off_the_verdict(self):
+        """NOW pr_verdict, 2026-11-25 15:27Z: this Debug compile ended 3 of the newest 20 PR verdicts at p50
+        20.8 min. A PR whose change is no Mac Release input is proven by its `Compiled:` trailer (cmux-next-swift-check)
+        and the tip check's Release compile, so neither this job nor its placement runs, and release-compile does
+        not start in its place (Leo, 2026-11-25: "maintaining a partial semblance of checks. and we can infrequenrly
+        have fuller checks.")."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        context = {**self.context(), "needs.path_route.outputs.mac_release": "false",
+                   "needs.path_route.outputs.macos": "true", "vars.CI_PR_POOL_OWNED": "1",
+                   "needs.app-compile-placement.outputs.gateway_attempt": "1",
+                   "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
+        self.assertFalse(evaluate(jobs["app-compile-fleet"]["if"], context))
+        self.assertFalse(evaluate(jobs["app-compile-placement"]["if"], context))
+        self.assertTrue(evaluate(jobs["app-compile-placement"]["if"],
+                                 {**context, "needs.path_route.outputs.mac_release": "true"}))
+        self.assertTrue(evaluate(jobs["app-compile-fleet"]["if"],
+                                 {**context, "needs.path_route.outputs.mac_release": "true"}))
+        self.assertIn("needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict",
+                      jobs["release-compile"]["if"])
+
     def test_a_push_canary_reads_the_tip_check_on_linux_whatever_the_placement(self):
         job = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["swift-canary-fleet"]
         context = {**self.context("push"), "needs.path_route.outputs.swift_canary": "true"}
