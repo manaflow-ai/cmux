@@ -44,6 +44,11 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     public var now: @Sendable () -> UInt64 = { 0 }
     /// After each shown frame, on the decode queue.
     public var shown: @Sendable (Shown) -> Void = { _ in }
+    #if DEBUG
+    /// Right after each decoded picture goes to the layer, on the decode queue (a latency probe;
+    /// set it before the stream opens).
+    public var debugEnqueued: (@Sendable (CVPixelBuffer) -> Void)?
+    #endif
 
     public init(layer: AVSampleBufferDisplayLayer = AVSampleBufferDisplayLayer()) {
         self.layer = layer
@@ -168,6 +173,9 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         } else {
             lastPixels = pixels
             enqueue(pixels)
+            #if DEBUG
+            debugEnqueued?(pixels)
+            #endif
         }
         let done = now()
         let decodeMicros = UInt32(clamping: done >= started ? done - started : 0)
