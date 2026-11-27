@@ -131,6 +131,8 @@ struct Read<'a> {
     schema: &'static Schema,
     values: Map<String, Value>,
     diagnostics: Vec<Value>,
+    /// Keys this module asked for that the schema lacks (a typo): one diagnostic each.
+    missing: std::cell::RefCell<Vec<String>>,
 }
 
 /// Swift's `Double` description: `60.0`, `0.35`.
@@ -157,16 +159,33 @@ fn number_json(number: f64) -> Value {
 
 impl<'a> Read<'a> {
     fn new(root: &'a Value) -> Self {
-        Self { root, schema: Schema::embedded(), values: Map::new(), diagnostics: Vec::new() }
+        Self {
+            root,
+            schema: Schema::embedded(),
+            values: Map::new(),
+            diagnostics: Vec::new(),
+            missing: Default::default(),
+        }
     }
 
-    fn finish(self) -> Value {
+    fn finish(mut self) -> Value {
+        let mut missing = self.missing.take();
+        missing.dedup();
+        for key in missing {
+            self.diagnostics.push(
+                json!({"kind": "unknownRow", "path": key, "message": "the schema has no such row"}),
+            );
+        }
         json!({"values": self.values, "diagnostics": self.diagnostics})
     }
 
-    fn row(&self, key: &str) -> &'static Row {
-        // crash-allow: a key typo here fails the tests that read every key of this module.
-        self.schema.row(key).unwrap_or_else(|| panic!("the schema has no row `{key}`"))
+    /// The schema row; none only for a key typo, which this module's tests catch.
+    fn row(&self, key: &str) -> Option<&'static Row> {
+        let row = self.schema.row(key);
+        if row.is_none() {
+            self.missing.borrow_mut().push(key.to_owned());
+        }
+        row
     }
 
     fn at(&self, key: &str) -> Option<&'a Value> {
@@ -179,7 +198,7 @@ impl<'a> Read<'a> {
 
     /// The row's default, or null.
     fn default_of(&self, key: &str) -> Value {
-        self.row(key).default.clone().unwrap_or(Value::Null)
+        self.row(key).and_then(|row| row.default.clone()).unwrap_or(Value::Null)
     }
 
     fn set(&mut self, field: &str, value: Value) {
@@ -187,18 +206,23 @@ impl<'a> Read<'a> {
     }
 
     fn number_range(&self, key: &str) -> NumberRange {
-        match &self.row(key).kind {
-            Kind::Number(range) | Kind::ChoiceOrNumber(_, range) => range.clone(),
-            // crash-allow: a key typo here fails the tests that read every key of this module.
-            _ => panic!("`{key}` is not a number row"),
+        match self.row(key).map(|row| &row.kind) {
+            Some(Kind::Number(range) | Kind::ChoiceOrNumber(_, range)) => range.clone(),
+            // Only a key typo: no bound, so nothing is refused for it.
+            _ => NumberRange {
+                min: f64::NEG_INFINITY,
+                max: f64::INFINITY,
+                step: 0.0,
+                unit: String::new(),
+                placeholder: 0.0,
+            },
         }
     }
 
     fn choices_of(&self, key: &str) -> Vec<String> {
-        match &self.row(key).kind {
-            Kind::Choice(choices) => choices.iter().map(|c| c.value.clone()).collect(),
-            // crash-allow: a key typo here fails the tests that read every key of this module.
-            _ => panic!("`{key}` is not a choice row"),
+        match self.row(key).map(|row| &row.kind) {
+            Some(Kind::Choice(choices)) => choices.iter().map(|c| c.value.clone()).collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -321,7 +345,7 @@ fn descriptors(read: &mut Read, fields: &[(&str, &str)]) {
 }
 
 fn descriptor(read: &mut Read, field: &str, key: &str) -> Option<Value> {
-    let row = read.row(key);
+    let row = read.row(key)?;
     let mut value = read.default_of(key);
     let mut accepted = None;
     if let Some(raw) = read.at(key) {
@@ -452,8 +476,8 @@ fn home_server(read: &mut Read) {
         "expected \"hosted\" or {\"selfHosted\": \"http://<name>.<tailnet>.ts.net:7320\"}";
     let mut value = json!({"mode": "hosted"});
     if let Some(raw) = read.at(key) {
-        let choices = match &read.row(key).kind {
-            Kind::ChoiceOrUrl(choices, _) => {
+        let choices = match read.row(key).map(|row| &row.kind) {
+            Some(Kind::ChoiceOrUrl(choices, _)) => {
                 choices.iter().map(|c| c.value.clone()).collect::<Vec<_>>()
             }
             _ => Vec::new(),
@@ -1081,7 +1105,7 @@ fn chat_diagnostics(read: &mut Read) {
         "agents.chats.roots",
     ] {
         let Some(raw) = read.at(key) else { continue };
-        let row = read.row(key);
+        let Some(row) = read.row(key) else { continue };
         if schema::accepts(row, raw, &Domains::default()).is_ok() {
             continue;
         }
@@ -1170,6 +1194,19 @@ mod tests {
             let answer = read(name, json!({}));
             assert!(answer["diagnostics"].as_array().unwrap().is_empty(), "{name}: {answer}");
         }
+    }
+
+    #[test]
+    fn a_key_the_schema_lacks_is_one_diagnostic_not_a_crash() {
+        let root = json!({});
+        let read = Read::new(&root);
+        assert!(read.row("no.such.row").is_none());
+        assert!(read.choices_of("no.such.row").is_empty());
+        let answer = read.finish();
+        assert_eq!(
+            messages(&answer),
+            vec![("no.such.row".to_owned(), "the schema has no such row".to_owned())]
+        );
     }
 
     #[test]
