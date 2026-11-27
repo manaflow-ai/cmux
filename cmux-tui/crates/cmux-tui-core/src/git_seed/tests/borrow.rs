@@ -58,7 +58,10 @@ fn a_borrowed_seed_needs_no_remote_and_tracks_the_mirrors_branch() {
 
 #[test]
 fn a_mirror_of_another_repository_clones_instead() {
-    let world = World::new("borrow-other");
+    let mut world = World::new("borrow-other");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     dirty_branch(&world);
     let snapshot = world.snapshot("one", &[&world.base]);
     let mirror = mirror(&world, "mirror.git", "https://github.com/o/other.git");
@@ -74,7 +77,10 @@ fn a_mirror_of_another_repository_clones_instead() {
 
 #[test]
 fn a_mirror_without_the_base_clones_instead() {
-    let world = World::new("borrow-stale");
+    let mut world = World::new("borrow-stale");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     let mirror = mirror(&world, "mirror.git", URL);
     write(&world.mac.join("a"), "a\nnext\n");
     git(&world.mac, &["commit", "-q", "-a", "-m", "next"]);
@@ -182,10 +188,10 @@ fn the_configured_mirror_folder_is_laid_out_as_wt_keeps_it() {
     let root = world.home.join("mirrors");
     std::fs::create_dir_all(root.join("o/n.git")).unwrap();
     let root = root.to_str().unwrap();
-    let found = super::super::run::borrow::mirror_under(root, URL);
+    let found = run::borrow::mirror_under(root, URL);
     assert_eq!(found, Some(format!("{root}/o/n.git")));
-    assert_eq!(super::super::run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
-    assert_eq!(super::super::run::borrow::mirror_under("relative", URL), None);
+    assert_eq!(run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
+    assert_eq!(run::borrow::mirror_under("relative", URL), None);
 }
 
 /// A Cloud chat opened with a folder (clone only): the folder borrows a mirror baked before the
@@ -229,7 +235,10 @@ fn a_clone_only_seed_borrows_a_stale_mirror_and_fetches_the_rest() {
 /// A clone-only seed whose mirror is another repository's, or absent, clones as before.
 #[test]
 fn a_clone_only_seed_without_a_usable_mirror_clones() {
-    let world = World::new("borrow-clone-other");
+    let mut world = World::new("borrow-clone-other");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     let other = mirror(&world, "other.git", "https://github.com/o/other.git");
     for (name, mirror) in [("other", other), ("absent", world.home.join("absent.git"))] {
         let folder = world.home.join(name);

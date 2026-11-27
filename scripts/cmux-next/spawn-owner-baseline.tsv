@@ -1,11 +1,15 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
+cmux-tui/crates/acpmux-tui/src/actions.rs	3
+cmux-tui/crates/acpmux-tui/src/lib.rs	6
+cmux-tui/crates/acpmux-tui/src/links.rs	3
+cmux-tui/crates/acpmux-tui/src/run.rs	2
+cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/agent_host/host.rs	11
 cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
 cmux-tui/crates/acpmux/src/agent_host/wait.rs	1
 cmux-tui/crates/acpmux/src/agent_login.rs	3
-cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs	1
 cmux-tui/crates/acpmux/src/bg_run.rs	5
 cmux-tui/crates/acpmux/src/cli/bounded_child.rs	2
 cmux-tui/crates/acpmux/src/cli/cli_agent.rs	8
@@ -34,7 +38,7 @@ cmux-tui/crates/acpmux/src/codex_desktop.rs	1
 cmux-tui/crates/acpmux/src/complete/run.rs	3
 cmux-tui/crates/acpmux/src/config/launchers.rs	1
 cmux-tui/crates/acpmux/src/config/profile_env.rs	1
-cmux-tui/crates/acpmux/src/daemon.rs	11
+cmux-tui/crates/acpmux/src/daemon.rs	9
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	1
 cmux-tui/crates/acpmux/src/daemon/login_session.rs	2
 cmux-tui/crates/acpmux/src/daemon/managed_unit.rs	1
@@ -49,7 +53,7 @@ cmux-tui/crates/acpmux/src/github_broker.rs	1
 cmux-tui/crates/acpmux/src/hand/agent.rs	3
 cmux-tui/crates/acpmux/src/hand/daemon.rs	1
 cmux-tui/crates/acpmux/src/hand/exec.rs	3
-cmux-tui/crates/acpmux/src/hand/link.rs	3
+cmux-tui/crates/acpmux/src/hand/link.rs	2
 cmux-tui/crates/acpmux/src/harness_health/probe.rs	2
 cmux-tui/crates/acpmux/src/harness_install.rs	1
 cmux-tui/crates/acpmux/src/hosted_mcp.rs	1
@@ -81,7 +85,6 @@ cmux-tui/crates/acpmux/src/hub/inbox.rs	3
 cmux-tui/crates/acpmux/src/hub/inbox_digest.rs	1
 cmux-tui/crates/acpmux/src/hub/lane_reports.rs	4
 cmux-tui/crates/acpmux/src/hub/lifecycle.rs	1
-cmux-tui/crates/acpmux/src/hub/list_guard.rs	1
 cmux-tui/crates/acpmux/src/hub/live_models.rs	3
 cmux-tui/crates/acpmux/src/hub/live_name.rs	1
 cmux-tui/crates/acpmux/src/hub/media_handles.rs	1
@@ -92,7 +95,7 @@ cmux-tui/crates/acpmux/src/hub/offer_results.rs	1
 cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs	2
 cmux-tui/crates/acpmux/src/hub/peers.rs	1
 cmux-tui/crates/acpmux/src/hub/permission_groups.rs	1
-cmux-tui/crates/acpmux/src/hub/permissions.rs	2
+cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2
 cmux-tui/crates/acpmux/src/hub/pool/held.rs	1
 cmux-tui/crates/acpmux/src/hub/pool/mod.rs	6
 cmux-tui/crates/acpmux/src/hub/pool/spare.rs	2
@@ -103,7 +106,6 @@ cmux-tui/crates/acpmux/src/hub/prompt_coach.rs	1
 cmux-tui/crates/acpmux/src/hub/question_replies.rs	1
 cmux-tui/crates/acpmux/src/hub/queue.rs	2
 cmux-tui/crates/acpmux/src/hub/races.rs	1
-cmux-tui/crates/acpmux/src/hub/retention.rs	1
 cmux-tui/crates/acpmux/src/hub/route_switch.rs	2
 cmux-tui/crates/acpmux/src/hub/secrets.rs	1
 cmux-tui/crates/acpmux/src/hub/silent_turn.rs	1
@@ -129,7 +131,6 @@ cmux-tui/crates/acpmux/src/hub/watches.rs	1
 cmux-tui/crates/acpmux/src/hub/withdraw.rs	1
 cmux-tui/crates/acpmux/src/hub/workflow_activity.rs	1
 cmux-tui/crates/acpmux/src/hub/workflow_runs.rs	2
-cmux-tui/crates/acpmux/src/hub/worktree_care.rs	1
 cmux-tui/crates/acpmux/src/hub_carrier.rs	2
 cmux-tui/crates/acpmux/src/linux_sandbox/bwrap.rs	1
 cmux-tui/crates/acpmux/src/linux_sandbox/keeper.rs	2
@@ -138,7 +139,6 @@ cmux-tui/crates/acpmux/src/login_env.rs	1
 cmux-tui/crates/acpmux/src/mesh_http.rs	1
 cmux-tui/crates/acpmux/src/native.rs	2
 cmux-tui/crates/acpmux/src/parent_watch.rs	2
-cmux-tui/crates/acpmux/src/peer.rs	1
 cmux-tui/crates/acpmux/src/peer_carriers.rs	1
 cmux-tui/crates/acpmux/src/peer_health.rs	1
 cmux-tui/crates/acpmux/src/peer_overlay.rs	1
@@ -146,41 +146,30 @@ cmux-tui/crates/acpmux/src/peer_ssh.rs	1
 cmux-tui/crates/acpmux/src/server/carrier.rs	4
 cmux-tui/crates/acpmux/src/server/chat_windows.rs	1
 cmux-tui/crates/acpmux/src/server/chats.rs	1
-cmux-tui/crates/acpmux/src/server/durable_gate.rs	1
 cmux-tui/crates/acpmux/src/server/fanout.rs	1
 cmux-tui/crates/acpmux/src/server/fix_from_link.rs	1
 cmux-tui/crates/acpmux/src/server/media_forward.rs	1
 cmux-tui/crates/acpmux/src/server/mesh_relay.rs	2
 cmux-tui/crates/acpmux/src/server/mod.rs	7
-cmux-tui/crates/acpmux/src/server/outbound.rs	2
 cmux-tui/crates/acpmux/src/server/outbox.rs	2
 cmux-tui/crates/acpmux/src/server/peer_forward.rs	1
 cmux-tui/crates/acpmux/src/server/races/peer.rs	1
 cmux-tui/crates/acpmux/src/server/requests.rs	1
 cmux-tui/crates/acpmux/src/server/requests/briefs.rs	1
-cmux-tui/crates/acpmux/src/server/requests/cancel_refused.rs	1
 cmux-tui/crates/acpmux/src/server/requests/workflow_dispatch.rs	1
 cmux-tui/crates/acpmux/src/server/review_queue.rs	1
 cmux-tui/crates/acpmux/src/server/stream.rs	2
 cmux-tui/crates/acpmux/src/server/trigger_chat.rs	1
-cmux-tui/crates/acpmux/src/server/update_cost_bench.rs	1
 cmux-tui/crates/acpmux/src/server/upload_frames.rs	1
 cmux-tui/crates/acpmux/src/server/windows_socket.rs	2
 cmux-tui/crates/acpmux/src/server/workflow_activity.rs	2
 cmux-tui/crates/acpmux/src/session_scope.rs	1
 cmux-tui/crates/acpmux/src/ssh_forward.rs	1
-cmux-tui/crates/acpmux/src/stress/reconnect.rs	2
 cmux-tui/crates/acpmux/src/subsession_worktree.rs	3
 cmux-tui/crates/acpmux/src/supervise.rs	2
 cmux-tui/crates/acpmux/src/tailnet.rs	3
 cmux-tui/crates/acpmux/src/tailnet/embedded.rs	2
 cmux-tui/crates/acpmux/src/tailnet/embedded_service.rs	3
-cmux-tui/crates/acpmux/src/test_exec.rs	1
-cmux-tui/crates/acpmux-tui/src/actions.rs	3
-cmux-tui/crates/acpmux-tui/src/links.rs	3
-cmux-tui/crates/acpmux-tui/src/lib.rs	6
-cmux-tui/crates/acpmux-tui/src/run.rs	2
-cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/vault.rs	1
 cmux-tui/crates/acpmux/src/vault/store.rs	3
 cmux-tui/crates/acpmux/src/wireguard.rs	2
@@ -196,7 +185,6 @@ cmux-tui/crates/chatmux-relay/src/workspace/git.rs	3
 cmux-tui/crates/cmux-app-host/src/script/session.rs	1
 cmux-tui/crates/cmux-automations/src/exec.rs	6
 cmux-tui/crates/cmux-automations/src/watch.rs	3
-cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs	1
 cmux-tui/crates/cmux-browser-host/src/cdp/pipe.rs	1
 cmux-tui/crates/cmux-build-identity/build.rs	1
 cmux-tui/crates/cmux-coderouter/src/free_tier.rs	2
@@ -252,7 +240,6 @@ cmux-tui/crates/cmux-server/src/pairing/machine_join.rs	1
 cmux-tui/crates/cmux-server/src/process.rs	2
 cmux-tui/crates/cmux-tasks/src/client.rs	1
 cmux-tui/crates/cmux-tasks/src/server.rs	1
-cmux-tui/crates/cmux-tui-core/src/apps/host.rs	1
 cmux-tui/crates/cmux-tui-core/src/apps/servers.rs	1
 cmux-tui/crates/cmux-tui-core/src/browser_host.rs	1
 cmux-tui/crates/cmux-tui-core/src/chief_brains.rs	2
@@ -266,8 +253,6 @@ cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_relay.rs	1
 cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room.rs	1
 cmux-tui/crates/cmux-tui-core/src/server/browser_runtime.rs	1
 cmux-tui/crates/cmux-tui-core/src/server/mobile_chat.rs	2
-cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs	3
-cmux-tui/crates/cmux-tui-core/src/shell_integration/test_pty.rs	1
 cmux-tui/crates/cmux-tui-core/src/surface/shutdown.rs	3
 cmux-tui/crates/cmux-tui-hooks/src/lib.rs	1
 cmux-tui/crates/cmux-tui-platform/src/host_exe.rs	2
@@ -314,9 +299,7 @@ cmux-tui/crates/cmux-tui/src/remote_runtime.rs	1
 cmux-tui/crates/cmux-tui/src/remote_runtime/link_sidecars.rs	1
 cmux-tui/crates/cmux-tui/src/session/remote.rs	1
 cmux-tui/crates/cmux-tui/src/staged_update.rs	1
-cmux-tui/crates/cmux-tui/src/test_exec.rs	1
 cmux-tui/crates/cmux-vault-egress/src/proxy.rs	3
-cmux-tui/crates/cmux-vnc/src/session_backpressure.rs	1
 cmux-tui/crates/cmux-vnc/src/transport.rs	1
 cmux-tui/crates/cmux-weft/src/client/mod.rs	6
 cmux-tui/crates/cmux-weft/src/client/relay_pool.rs	1

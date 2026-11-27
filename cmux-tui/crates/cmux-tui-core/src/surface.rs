@@ -26,7 +26,7 @@ mod input;
 mod local_output;
 mod metadata;
 mod mirror_park;
-pub(crate) use mirror_park::TerminalMirror;
+pub(crate) use mirror_park::{MirrorGuard, ParkedLook, TerminalMirror};
 mod mouse_input;
 mod options;
 mod pending_bells;
@@ -310,6 +310,9 @@ pub struct AttachStream {
     /// left out (`replay_history_start`); `None` when the replay reaches the
     /// screen.
     pub history_rows_skipped: Option<u64>,
+    /// The terminal's output stream offset at the replay's cut: the offset of
+    /// the first byte `stream` delivers (`attach-frames-v1` OUTPUT frames).
+    pub stream_offset: u64,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
     /// Where the output stream stood at the replay (`terminal-resume-v1`).
@@ -862,10 +865,11 @@ impl Surface {
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
+                reader_detached: AtomicBool::new(false),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term)),
+                term: TerminalMirror::new(Box::new(term), opts.scrollback),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),

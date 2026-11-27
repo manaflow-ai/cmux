@@ -22,8 +22,8 @@ use super::*;
 #[test]
 fn a_process_in_a_subfolder_is_inside_but_a_sibling_prefix_is_not() {
     let processes = vec![
-        Process { pid: 1, cwd: PathBuf::from("/w/a-2/src") },
-        Process { pid: 2, cwd: PathBuf::from("/w/a/src") },
+        Process { pid: 1, cwd: PathBuf::from("/w/a-2/src"), session_id: None },
+        Process { pid: 2, cwd: PathBuf::from("/w/a/src"), session_id: None },
     ];
     assert_eq!(inside(&processes, Path::new("/w/a")).map(|p| p.pid), Some(2));
     assert_eq!(inside(&processes, Path::new("/w/b")), None);
@@ -37,14 +37,17 @@ fn care_a_running_claude_session_is_found_and_a_stale_one_is_not() {
     let me = std::process::id();
     std::fs::write(
         sessions.join("1.json"),
-        format!(r#"{{"pid":{me},"cwd":"/w/a","kind":"interactive"}}"#),
+        format!(r#"{{"pid":{me},"sessionId":"s-1","cwd":"/w/a","kind":"interactive"}}"#),
     )
     .unwrap();
     // Far above any pid_max: never running.
     std::fs::write(sessions.join("2.json"), r#"{"pid":2000000000,"cwd":"/w/b"}"#).unwrap();
     std::fs::write(sessions.join("3.json"), "{not json").unwrap();
     let found = claude_sessions(&[dir.clone(), dir.join("absent")]).unwrap();
-    assert_eq!(found, vec![Process { pid: me, cwd: PathBuf::from("/w/a") }]);
+    assert_eq!(
+        found,
+        vec![Process { pid: me, cwd: PathBuf::from("/w/a"), session_id: Some("s-1".into()) }]
+    );
     // A format change: no record reads, so the pass must not act.
     for name in ["1.json", "2.json"] {
         std::fs::write(sessions.join(name), r#"{"processId":1,"folder":"/w/a"}"#).unwrap();
