@@ -1105,6 +1105,11 @@ path = "tests/test_vm_scp.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_webviews_no_duplicate_import_names.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_webviews_no_duplicate_import_names.py"
+
+[[test]]
 path = "tests/test_webviews_test_history.py"
 lane = "linux-guard"
 

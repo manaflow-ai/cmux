@@ -109,6 +109,47 @@ fn a_resumed_chat_names_the_configured_model_provider() {
 }
 
 #[test]
+fn a_fast_pick_during_pagination_settles_after_the_last_page_or_close() {
+    for close in [false, true] {
+        let tr = translator_with(false);
+        #[cfg(unix)]
+        {
+            *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(None));
+        }
+        let init = split(tr.start()).server[0]["id"].clone();
+        let out = split(tr.from_server(&json!({"id":init,"result":{}})));
+        let list = out.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+        let out =
+            split(tr.from_server(&json!({"id":list,"result":{"data":[],"nextCursor":"two"}})));
+        let page = out.server[0]["id"].clone();
+        let out = split(tr.from_client(
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+        ));
+        let start =
+            out.server.iter().find(|m| m["method"] == "thread/start").unwrap()["id"].clone();
+        tr.from_server(&json!({"id":start,"result":{"thread":{"id":"t"},"model":"live-model"}}));
+        let pick = json!({"id":"pick","method":"session/set_config_option","params":{"sessionId":"t","configId":"fast-mode","value":"priority"}});
+        assert!(tr.from_client(&pick).is_empty());
+        let out = if close {
+            tr.server_closed("catalog connection closed")
+        } else {
+            tr.from_server(&json!({"id":page,"result":{"data":[{"model":"live-model","serviceTiers":["priority"]}]}}))
+        };
+        let reply =
+            split(out).hub.into_iter().map(|m| m.into_value()).find(|m| m["id"] == "pick").unwrap();
+        if close {
+            assert_eq!(reply["error"]["message"], "catalog connection closed");
+        } else {
+            assert!(reply["result"]["configOptions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["id"] == "fast-mode" && v["currentValue"] == "priority"));
+        }
+    }
+}
+
+#[test]
 fn the_global_switch_gives_codex_chats_prompt_suggestions() {
     let has_option = |o: &Value| {
         o.as_array()
@@ -235,10 +276,9 @@ fn failed_file_read_settles_current_and_held_requests() {
     tr.auth.lock().unwrap().login_id = Some(json!("login"));
     tr.background().request(&json!({"id":"inflight", "method":TERMINATE,
         "params":{"threadId":"thread", "processId":"process"}}));
-    assert!(
-        tr.handle_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
-            .is_empty()
-    );
+    assert!(tr
+        .handle_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
+        .is_empty());
     let out = tr.handle_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
     for id in ["queued", "current", "inflight"] {
         assert!(
