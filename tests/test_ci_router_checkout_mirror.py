@@ -14,14 +14,26 @@ Run: python3 tests/test_ci_router_checkout_mirror.py
 from __future__ import annotations
 
 import unittest
+import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/pr-router.yml"
-SAME_REPO_NO_FILTER = ("${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-                       " == github.repository && '' || 'blob:none' }}")
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+from pr_test_lanes import Expression
+
+
+def checkout_filter(step, event, head_repo):
+    value = step.get("with", {}).get("filter", "")
+    if value.startswith("${{") and value.endswith("}}"):
+        return Expression(value[3:-2], {
+            "github.event_name": event,
+            "github.repository": "manaflow-ai/cmux",
+            "github.event.pull_request.head.repo.full_name": head_repo,
+        }).evaluate()
+    return value
 
 
 class RouterCheckoutReadsTheMirror(unittest.TestCase):
@@ -32,7 +44,15 @@ class RouterCheckoutReadsTheMirror(unittest.TestCase):
         self.assertTrue(checkouts, "pr-router.yml has no checkout step")
         for step in checkouts:
             with self.subTest(step=step.get("name")):
-                self.assertEqual(step.get("with", {}).get("filter"), SAME_REPO_NO_FILTER)
+                self.assertEqual(checkout_filter(step, "pull_request", "manaflow-ai/cmux"), "")
+                # An explicit filter preserves blob:none for forks and non-PR events.
+                if "filter" in step.get("with", {}):
+                    self.assertEqual(checkout_filter(step, "pull_request", "contributor/fork"), "blob:none")
+                    self.assertEqual(checkout_filter(step, "push", "manaflow-ai/cmux"), "blob:none")
+
+    def test_an_empty_true_operand_does_not_disable_the_filter(self):
+        broken = {"with": {"filter": "${{ true && '' || 'blob:none' }}"}}
+        self.assertEqual(checkout_filter(broken, "pull_request", "manaflow-ai/cmux"), "blob:none")
 
 
 if __name__ == "__main__":
