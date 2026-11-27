@@ -88,6 +88,7 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-team-messaging",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
@@ -2514,6 +2515,7 @@ name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
  "regex-automata",
+ "url",
 ]
 
 [[package]]

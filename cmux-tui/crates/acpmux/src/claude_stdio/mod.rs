@@ -310,6 +310,9 @@ mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
 mod dedupe_search;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
 pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
 #[cfg(test)]

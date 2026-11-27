@@ -762,6 +762,26 @@ split wins.
   join and talk exactly as before, and an older Worker's relay object that
   answers the prewarm with `426` is created all the same. A prewarmed object
   holds no socket and no storage, so it is evicted soon after if nobody joins.
+- **Central pick (RFD 0142 O2, added 2026-11-25, server-only, off by
+  default, no version change):** with the Worker var
+  `LINK_RELAY_CENTRAL_PICK=on`, the user's hub learns where relays actually
+  ran fast, after Google Espresso. It keys a network pair on both ends'
+  AS number and ingress colo (`asn@colo>asn@colo`, phone first; no user,
+  device or address) and keeps, per pair and region, a moving average of the
+  relayed link's median round trip from the phone's existing `link_stat`
+  (`path: "https-relay"`, at least 3 samples; credited only when the phone's
+  placements in the last 30 minutes all went to one pair and region). The
+  prewarm then places the relay by the Rust pick
+  (`rust/crates/cmux-region-pick`, loaded as wasm): a learned region scores
+  what it measured, an unmeasured one its estimate plus the pair's least
+  learned-minus-estimate gap (at most 60 ms), and the pair moves off its
+  last region only for one at least max(10 ms, 20 %) faster, the margin
+  `relay_rank.rs` uses for TURN. With nothing learned, or a pair with no AS
+  number, the placement is exactly the one above. At most 64 pairs per user
+  are kept, and a row unseen for 7 days is dropped. Off (the default) the hub
+  creates no table and places as before. No frame, field, header or status
+  is new: old phones' `link_stat` feeds it as is, and an extra field in it is
+  ignored as before.
 
 ### When no path works
 
@@ -1458,7 +1478,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
   "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
   `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
-  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+  the phone's receive, (c) `phone_paint` receive to present, and `total`. It answers the
+  same join on the channel, as `{"kind": "paint-summary", ...}` with `offset_error_ms` (half
+  the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
+  `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
+  line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the
