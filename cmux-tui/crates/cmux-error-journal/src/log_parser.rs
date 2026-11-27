@@ -47,16 +47,17 @@ pub fn log_events(text: &str, source: &str, file: &str, now: f64) -> Vec<Event> 
     let context = BTreeMap::from([("file".to_owned(), file.to_owned())]);
     let mut events = Vec::new();
     let mut index = 0;
-    while index < lines.len() {
-        let line = &lines[index];
+    while let Some(line) = lines.get(index) {
         index += 1;
         let date = line_date(patterns, line).unwrap_or(now);
         if let Some(captures) = patterns.panic.captures(line)
             && let (Some(frame), Some(rest)) = (captures.get(1), captures.get(2))
         {
             let mut message = trim_whitespaces(rest.as_str()).to_owned();
-            if message.is_empty() && index < lines.len() {
-                message = trim_whitespaces(&lines[index]).to_owned();
+            if message.is_empty()
+                && let Some(next) = lines.get(index)
+            {
+                message = trim_whitespaces(next).to_owned();
                 index += 1;
             }
             events.push(Event {
@@ -77,8 +78,10 @@ pub fn log_events(text: &str, source: &str, file: &str, now: f64) -> Vec<Event> 
             "ERROR" => Level::Error,
             _ => Level::Fault,
         };
-        let message =
-            line[word.end()..].trim_matches(|c| matches!(c, ' ' | ':' | ']' | '-' | '\t'));
+        let message = line
+            .get(word.end()..)
+            .unwrap_or_default()
+            .trim_matches(|c| matches!(c, ' ' | ':' | ']' | '-' | '\t'));
         events.push(Event {
             source: source.to_owned(),
             level,

@@ -218,10 +218,11 @@ fn is_query_key_lead(character: char) -> bool {
 /// `(^|lead)(key+)=` looked ahead.
 pub fn query_assignments(text: &str) -> Vec<(usize, usize)> {
     let key_end = |start: usize| -> Option<usize> {
-        let rest = &text[start..];
+        let rest = text.get(start..).unwrap_or_default();
         let length: usize =
             rest.chars().take_while(|&c| is_query_key_character(c)).map(char::len_utf8).sum();
-        (length > 0 && rest[length..].starts_with('=')).then_some(start + length)
+        (length > 0 && rest.get(length..).is_some_and(|after| after.starts_with('=')))
+            .then_some(start + length)
     };
     let mut keys = Vec::new();
     for (position, character) in text.char_indices() {
@@ -245,7 +246,7 @@ fn redact_query_assignments(text: &str) -> String {
     let mut ranges = Vec::new();
     let mut covered_until = 0;
     for (start, end) in query_assignments(text) {
-        if !is_sensitive_query_key(&text[start..end]) {
+        if !is_sensitive_query_key(text.get(start..end).unwrap_or_default()) {
             continue;
         }
         let value_start = end + 1;
@@ -265,14 +266,14 @@ fn percent_decoded(text: &str) -> Option<String> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
-        if bytes[index] == b'%' {
-            let hex = bytes.get(index + 1..index + 3)?;
-            let high = (hex[0] as char).to_digit(16)?;
-            let low = (hex[1] as char).to_digit(16)?;
+        let byte = byte_at(bytes, index);
+        if byte == b'%' {
+            let high = (byte_at(bytes, index + 1) as char).to_digit(16)?;
+            let low = (byte_at(bytes, index + 2) as char).to_digit(16)?;
             out.push((high * 16 + low) as u8);
             index += 3;
         } else {
-            out.push(bytes[index]);
+            out.push(byte);
             index += 1;
         }
     }
@@ -310,7 +311,7 @@ fn normalized_assignment_key(key: &str) -> String {
             }
             continue;
         }
-        let previous = index.checked_sub(1).map(|i| characters[i]);
+        let previous = index.checked_sub(1).and_then(|i| characters.get(i).copied());
         let next = characters.get(index + 1).copied();
         if character.is_uppercase()
             && (previous.is_some_and(|p| p.is_lowercase() || p.is_numeric())
@@ -323,6 +324,12 @@ fn normalized_assignment_key(key: &str) -> String {
         normalized.extend(character.to_lowercase());
     }
     normalized.trim_matches('_').to_owned()
+}
+
+/// The byte at `index`, or 0 past the end: callers check the length first, and 0 matches no
+/// boundary, quote or key byte, so a missed check reads as "not here" instead of panicking.
+fn byte_at(source: &[u8], index: usize) -> u8 {
+    source.get(index).copied().unwrap_or(0)
 }
 
 fn is_unquoted_boundary(byte: u8) -> bool {
@@ -348,17 +355,18 @@ fn is_assignment_key_character(byte: u8) -> bool {
 /// whitespace that starts the next `key=`.
 fn assignment_value_end(source: &[u8], start: usize) -> usize {
     let mut quote_index = start;
-    while quote_index < source.len() && source[quote_index] == b'\\' {
+    while quote_index < source.len() && byte_at(source, quote_index) == b'\\' {
         quote_index += 1;
     }
     if quote_index >= source.len() {
         return source.len();
     }
-    let quote = source[quote_index];
+    let quote = byte_at(source, quote_index);
     if quote != b'"' && quote != b'\'' {
         let mut end = start;
-        while end < source.len() && !is_unquoted_boundary(source[end]) {
-            if is_horizontal_whitespace(source[end]) && has_assignment_after_whitespace(source, end)
+        while end < source.len() && !is_unquoted_boundary(byte_at(source, end)) {
+            if is_horizontal_whitespace(byte_at(source, end))
+                && has_assignment_after_whitespace(source, end)
             {
                 return end;
             }
@@ -369,16 +377,16 @@ fn assignment_value_end(source: &[u8], start: usize) -> usize {
     let depth = quote_index - start;
     let mut index = quote_index + 1;
     while index < source.len() {
-        let character = source[index];
+        let character = byte_at(source, index);
         if character == 10 || character == 13 {
             return index;
         }
         if character == b'\\' {
             let run_start = index;
-            while index < source.len() && source[index] == b'\\' {
+            while index < source.len() && byte_at(source, index) == b'\\' {
                 index += 1;
             }
-            if index < source.len() && source[index] == quote {
+            if index < source.len() && byte_at(source, index) == quote {
                 if index - run_start == depth {
                     return index + 1;
                 }
@@ -396,26 +404,28 @@ fn assignment_value_end(source: &[u8], start: usize) -> usize {
 
 fn has_assignment_after_whitespace(source: &[u8], start: usize) -> bool {
     let mut index = start;
-    while index < source.len() && is_horizontal_whitespace(source[index]) {
+    while index < source.len() && is_horizontal_whitespace(byte_at(source, index)) {
         index += 1;
     }
-    if index >= source.len() || !is_assignment_key_start(source[index]) {
+    if index >= source.len() || !is_assignment_key_start(byte_at(source, index)) {
         return false;
     }
     index += 1;
-    while index < source.len() && is_assignment_key_character(source[index]) {
+    while index < source.len() && is_assignment_key_character(byte_at(source, index)) {
         index += 1;
     }
-    while index < source.len() && is_horizontal_whitespace(source[index]) {
+    while index < source.len() && is_horizontal_whitespace(byte_at(source, index)) {
         index += 1;
     }
-    index < source.len() && matches!(source[index], b':' | b'=')
+    index < source.len() && matches!(byte_at(source, index), b':' | b'=')
 }
 
 fn query_value_end(source: &[u8], start: usize) -> usize {
     let mut end = start;
-    while end < source.len() && !matches!(source[end], 10 | 13 | 35 | 38 | 59 | 125) {
-        if is_horizontal_whitespace(source[end]) && has_assignment_after_whitespace(source, end) {
+    while end < source.len() && !matches!(byte_at(source, end), 10 | 13 | 35 | 38 | 59 | 125) {
+        if is_horizontal_whitespace(byte_at(source, end))
+            && has_assignment_after_whitespace(source, end)
+        {
             return end;
         }
         end += 1;

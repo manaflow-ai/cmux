@@ -71,10 +71,10 @@ pub fn log_plan(
 ) -> LogPlan {
     let saved = cursor.and_then(|cursor| {
         let parts = split_colon(cursor);
-        if parts.len() != 2 {
+        let [inode, offset] = parts.as_slice() else {
             return None;
-        }
-        Some((parse_integer::<u64>(parts[0])?, parse_integer::<i64>(parts[1])?))
+        };
+        Some((parse_integer::<u64>(inode)?, parse_integer::<i64>(offset)?))
     });
     let mut start = match (cursor, saved) {
         (Some(_), Some((saved_inode, offset)))
@@ -118,7 +118,7 @@ pub fn log_chunk(
     };
     let mut text = text;
     if starts_mid_line && let Some(after) = after_first_line_break(text) {
-        text = &text[after..];
+        text = text.get(after..).unwrap_or_default();
     }
     (log_events(text, source, file, now), format!("{inode}:{}", start + complete_bytes))
 }
@@ -197,7 +197,7 @@ pub fn crash_event(text: &str, path: &str, modified: f64) -> Event {
     let stem = {
         let name = path.rsplit('/').next().unwrap_or(path);
         match name.rfind('.') {
-            Some(dot) if dot > 0 => &name[..dot],
+            Some(dot) if dot > 0 => name.get(..dot).unwrap_or(name),
             _ => name,
         }
     };
@@ -240,9 +240,9 @@ pub fn oslog_start(cursor: Option<&str>, process_id: i32, launch: f64, now: f64)
     let mut start = launch;
     if let Some(cursor) = cursor {
         let parts = split_colon(cursor);
-        if parts.len() == 2
-            && parse_integer::<i32>(parts[0]) == Some(process_id)
-            && let Some(ms) = parse_double(parts[1])
+        if let [pid, ms] = parts.as_slice()
+            && parse_integer::<i32>(pid) == Some(process_id)
+            && let Some(ms) = parse_double(ms)
         {
             start = ms / 1000.0;
         }
@@ -283,7 +283,7 @@ pub fn oslog_collect(
         .collect();
     let mut newest = start;
     let mut events = Vec::new();
-    for record in &found[found.len().saturating_sub(OSLOG_MOST_ENTRIES)..] {
+    for record in found.get(found.len().saturating_sub(OSLOG_MOST_ENTRIES)..).unwrap_or_default() {
         newest = newest.max(record.date);
         events.push(oslog_event(
             &record.subsystem,
@@ -321,7 +321,7 @@ pub fn oslog_event(
         .skip(1)
         .map(|line| trim_whitespaces(line))
         .find(|line| line.starts_with("at "))
-        .map(|line| line[3..].to_owned());
+        .map(|line| line.get(3..).unwrap_or_default().to_owned());
     let mut level = if is_fault { Level::Fault } else { Level::Error };
     if source.starts_with("page:") && first.starts_with("[warn] ") {
         level = Level::Warning;

@@ -17,7 +17,7 @@ pub fn utf8_prefix(text: &str, bytes: usize) -> String {
         }
         end = index;
     }
-    format!("{}…", &text[..end])
+    format!("{}…", text.get(..end).unwrap_or_default())
 }
 
 /// Swift's `CharacterSet.whitespaces`: tab and the space separators (Zs).
@@ -56,12 +56,12 @@ pub fn split_lines(text: &str, omit_empty: bool) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
     for (index, &byte) in bytes.iter().enumerate() {
-        if byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r') {
-            lines.push(&text[start..index]);
+        if byte == b'\n' && (index == 0 || bytes.get(index - 1) != Some(&b'\r')) {
+            lines.push(text.get(start..index).unwrap_or_default());
             start = index + 1;
         }
     }
-    lines.push(&text[start..]);
+    lines.push(text.get(start..).unwrap_or_default());
     if omit_empty {
         lines.retain(|line| !line.is_empty());
     }
@@ -74,7 +74,9 @@ pub fn after_first_line_break(text: &str) -> Option<usize> {
     bytes
         .iter()
         .enumerate()
-        .find(|&(index, &byte)| byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r'))
+        .find(|&(index, &byte)| {
+            byte == b'\n' && (index == 0 || bytes.get(index - 1) != Some(&b'\r'))
+        })
         .map(|(index, _)| index + 1)
 }
 
@@ -124,12 +126,12 @@ pub fn parse_iso8601(text: &str) -> Option<f64> {
         Some(slice.iter().fold(0_i64, |value, digit| value * 10 + i64::from(digit - b'0')))
     };
     if bytes.len() < 20
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes[10] != b'T'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
-        || bytes[bytes.len() - 1] != b'Z'
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+        || bytes.last() != Some(&b'Z')
     {
         return None;
     }
@@ -138,10 +140,10 @@ pub fn parse_iso8601(text: &str) -> Option<f64> {
     let millis = match bytes.len() {
         20 => 0,
         _ => {
-            if bytes[19] != b'.' {
+            if bytes.get(19) != Some(&b'.') {
                 return None;
             }
-            let fraction = &bytes[20..bytes.len() - 1];
+            let fraction = bytes.get(20..bytes.len() - 1).unwrap_or_default();
             if fraction.is_empty() || !fraction.iter().all(u8::is_ascii_digit) {
                 return None;
             }
@@ -154,7 +156,7 @@ pub fn parse_iso8601(text: &str) -> Option<f64> {
         [31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     if !(1..=12).contains(&month)
         || day < 1
-        || day > month_days[(month - 1) as usize]
+        || month_days.get((month - 1) as usize).is_none_or(|&days| day > days)
         || hour > 23
         || minute > 59
         || second > 59
