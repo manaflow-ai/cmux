@@ -39,7 +39,6 @@ pub mod outcome;
 pub mod policy;
 pub mod preview;
 pub mod record;
-pub mod reread;
 pub mod session;
 pub mod stop;
 pub mod tools;

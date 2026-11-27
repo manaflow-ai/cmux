@@ -553,9 +553,9 @@ async fn dispatch_brief(
             ))
         })?;
         if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
-            // A link on its way back is waited for; one down for long refuses as
-            // `peer_unreachable` (retryable: nothing was sent).
-            peer.await_reconnect().await?;
+            return Err(RpcError::internal(format!(
+                "peer {peer_name:?} is not connected; retry after it reconnects"
+            )));
         }
         let epoch = if durable {
             Some(peer.lists_on(workflow_dispatch::FEATURE).ok_or_else(|| {
@@ -605,7 +605,9 @@ async fn dispatch_brief(
                 if !durable {
                     hub.briefs.release(&id);
                 }
-                return Err(forward_failed(format!("dispatch to {peer_name}"), e));
+                return Err(RpcError::internal(format!(
+                    "dispatch to {peer_name} failed: {e}; recovery: reconnect the peer and retry"
+                )));
             }
         };
         if let Some(row) = result.get("brief").cloned() {
@@ -5021,17 +5023,6 @@ async fn agent_credentials_update(
     let env = params.get("env").cloned().unwrap_or(Value::Null);
     let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
     hub.update_credential(id, credential).await
-}
-
-/// A request forwarded to a peer failed: what was forwarded and why, keeping the peer's
-/// `data` (a `peer_unreachable` stays retryable, the request was not sent). The link already
-/// waited for a peer on its way back (`Peer::await_reconnect`).
-pub(super) fn forward_failed(what: String, e: RpcError) -> RpcError {
-    let error = RpcError::internal(format!("{what} failed: {e}"));
-    match e.data {
-        Some(data) => error.with_data(data),
-        None => error,
-    }
 }
 
 /// The attach asked for no `timeBreakdown` (`omitTimeBreakdown: true`, the phone): its rows leave

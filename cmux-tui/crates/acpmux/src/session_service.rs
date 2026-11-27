@@ -182,9 +182,6 @@ impl ConfiguredSessionGate {
     }
 }
 
-/// How long an admission waits for the hub's book to list the dialer.
-const BOOK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
 #[async_trait]
 impl SessionGate for ConfiguredSessionGate {
     async fn admit(&self, from: &str) -> Result<PathBuf, ServiceRefusal> {
@@ -192,24 +189,11 @@ impl SessionGate for ConfiguredSessionGate {
             self.hub.upgrade().ok_or_else(|| ServiceRefusal::new("service.off", "stopping"))?;
         // Defense in depth beside the carrier's handshake (the platform's list of this person's
         // machines): this machine's own read of the hub's book must list the dialer too.
-        // A machine that just joined reaches here before the hub's next book does: wait for
-        // the book a few seconds rather than refuse the dialer.
-        let listed = cmux_tui_util::retry::Patience::new("the hub book", BOOK_WAIT)
-            .quiet()
-            .spaced(std::time::Duration::from_millis(100), std::time::Duration::from_secs(1))
-            .run_async(|| (), {
-                let hub = &hub;
-                move || async move {
-                    hub.mesh_book_machine(from).ok_or(cmux_tui_util::retry::Attempt::Retry(()))
-                }
-            })
-            .await;
-        let Ok(host) = listed else {
+        let Some(host) = hub.mesh_book_machine(from) else {
             return Err(ServiceRefusal::new(
                 "machine.unlisted",
-                "this machine's hub book does not list the asking machine for its account; \
-                 the asking machine is not signed in to this account, or the hub has not \
-                 listed it",
+                "this machine's hub book does not list the asking machine for its account yet; \
+                 try again in a moment",
             ));
         };
         tokio::task::spawn_blocking(move || {

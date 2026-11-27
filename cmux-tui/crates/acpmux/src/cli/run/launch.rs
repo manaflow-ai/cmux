@@ -482,19 +482,19 @@ pub(super) fn show_in_group(
         if error.kind() == std::io::ErrorKind::TimedOut {
             return crate::cli::errors::AppError::timeout(format!(
                 "session {session_name} was created, but showing it in --group {group} did not finish \
-                 before the deadline ({error}); to show it, run only: {command}"
+                 before the deadline ({error}); retry only the open: {command}"
             ))
             .with_session(id)
             .into();
         }
         anyhow::anyhow!(
             "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
-             bundled CLI on PATH and run on that Mac: {command}"
+             bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "session {session_name} was created, but the cmux app did not show it ({}): {}; to show it, run only: {command}",
+            "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
             out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );

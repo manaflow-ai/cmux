@@ -148,22 +148,6 @@ struct Refs {
     fenced: HashMap<String, usize>,
 }
 
-/// How long a write of a fork's history waits for that fork's first save, and a new fork for a
-/// move or delete of its chat to end.
-const FORK_SAVE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// A fork reserved and not saved yet, past [`FORK_SAVE_WAIT`]: its history has nowhere to go.
-#[derive(Debug)]
-struct ForkUnsaved;
-
-impl std::fmt::Display for ForkUnsaved {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a fork of this chat is still being made, so the chat's history cannot be written into it yet")
-    }
-}
-
-impl std::error::Error for ForkUnsaved {}
-
 fn is_history(kind: &str) -> bool {
     HISTORY_KINDS.contains(&kind)
 }
@@ -181,51 +165,6 @@ impl ForkView {
             return Held::Nested;
         }
         Held::Shared(self.dropping.read().unwrap_or_else(|e| e.into_inner()))
-    }
-
-    /// `f` under `dropping` ([`Self::exclusive`]), run again while a fork it must write is still
-    /// being made ([`ForkUnsaved`]: reserved, its meta not saved yet). That fork saves in moments,
-    /// under this same lock, so the lock is let go between tries, for at most
-    /// [`FORK_SAVE_WAIT`]. A caller already under the lock (nested) gets one try: waiting there
-    /// would hold off the very save it waits for.
-    fn exclusive_awaiting_forks<T>(&self, mut f: impl FnMut() -> Result<T>) -> Result<T> {
-        use cmux_tui_util::retry::{Attempt, Patience};
-        Patience::new("a fork of this chat to be saved", FORK_SAVE_WAIT)
-            .quiet()
-            .spaced(std::time::Duration::from_millis(10), std::time::Duration::from_millis(200))
-            .run(|| {
-                let held = self.exclusive();
-                let nested = matches!(held, Held::Nested);
-                f().map_err(|e| {
-                    if !nested && e.is::<ForkUnsaved>() {
-                        Attempt::Retry(e)
-                    } else {
-                        Attempt::Fail(e)
-                    }
-                })
-            })
-    }
-
-    /// [`Self::reserve_reference`]'s wait for a move or delete of the chat (`fenced`) to end.
-    fn exclusive_unfenced(&self, chat: &str) -> Result<Held<'_>> {
-        use cmux_tui_util::retry::{Attempt, Patience};
-        Patience::new("a move or delete of the chat to end", FORK_SAVE_WAIT)
-            .quiet()
-            .spaced(std::time::Duration::from_millis(10), std::time::Duration::from_millis(200))
-            .run(|| {
-                let held = self.exclusive();
-                let nested = matches!(held, Held::Nested);
-                let fenced =
-                    self.refs.read().unwrap_or_else(|e| e.into_inner()).fenced.contains_key(chat);
-                match (fenced, nested) {
-                    (false, _) => Ok(held),
-                    (true, false) => Err(Attempt::Retry(())),
-                    (true, true) => Err(Attempt::Fail(())),
-                }
-            })
-            .map_err(|()| {
-                anyhow::anyhow!("the chat is being moved or deleted, so it cannot be forked now")
-            })
     }
 
     fn exclusive(&self) -> Held<'_> {
@@ -287,7 +226,8 @@ impl ForkView {
                 return Ok(());
             }
         }
-        self.exclusive_awaiting_forks(|| self.materialize_locked(id))
+        let _dropping = self.exclusive();
+        self.materialize_locked(id)
     }
 
     /// [`ForkView::materialize`] under `dropping`.
@@ -299,7 +239,7 @@ impl ForkView {
         // takes as already there. Its first save comes under `dropping` too, so the chat waits
         // for that save (review of #37020).
         let Some(mut meta) = self.inner.load(id)? else {
-            return Err(ForkUnsaved.into());
+            anyhow::bail!("a fork of this chat is still being made: try again");
         };
         let Some(mut writer) = self.inner.history_writer(id)? else {
             anyhow::bail!("this store cannot hold a fork's history");
@@ -463,12 +403,11 @@ impl Store for ForkView {
     /// default stages through this view, which stages nothing for a store with no segments (the
     /// memory store), and the cut never happened.
     fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
-        self.exclusive_awaiting_forks(|| {
-            for fork in self.forks_of(id)? {
-                self.materialize_locked(&fork)?;
-            }
-            self.inner.truncate_after(id, after)
-        })
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.truncate_after(id, after)
     }
     /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
     /// store's own, beside its log. The trait's default keeps nothing across a restart.
@@ -995,20 +934,18 @@ impl Store for ForkView {
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {
-        self.exclusive_awaiting_forks(|| {
-            for fork in self.forks_of(id)? {
-                self.materialize_locked(&fork)?;
-            }
-            // Under the same hold as the writes: no fork reserves between them and the fence.
-            *self
-                .refs
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .fenced
-                .entry(id.to_owned())
-                .or_default() += 1;
-            Ok(())
-        })
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        *self
+            .refs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .fenced
+            .entry(id.to_owned())
+            .or_default() += 1;
+        Ok(())
     }
     fn end_release(&self, id: &str) {
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
@@ -1022,14 +959,13 @@ impl Store for ForkView {
     /// A chat that forks reference goes only once each holds its history itself. Under
     /// `dropping`, as a reservation is: a fork being made is either known here or refused.
     fn delete(&self, id: &str) -> Result<()> {
-        self.exclusive_awaiting_forks(|| {
-            for fork in self.forks_of(id)? {
-                self.materialize_locked(&fork)?;
-            }
-            self.inner.delete(id)?;
-            self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
-            Ok(())
-        })
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.delete(id)?;
+        self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
+        Ok(())
     }
     /// Its files as files: a fork's history is in them first. None when it cannot be written
     /// there: a caller that read, moved or removed the files would take a fork without its
@@ -1061,14 +997,13 @@ impl Store for ForkView {
     /// one after writes the history into the fork first (review of #37020: the reference was
     /// known only once the fork's meta was saved, after a delete or compaction could pass it).
     fn reserve_reference(&self, fork: &str, reference: &HistoryRef) -> Result<()> {
-        // Its folder is being replaced or removed: a fork now would read what comes after. A
-        // move ends in moments, so the fork waits for it; after a delete the chat is gone.
-        let _dropping = self.exclusive_unfenced(&reference.session)?;
+        let _dropping = self.exclusive();
         anyhow::ensure!(self.inner.load(&reference.session)?.is_some(), "the chat is gone");
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        // Its folder is being replaced or removed: a fork now would read what comes after.
         anyhow::ensure!(
             !refs.fenced.contains_key(&reference.session),
-            "the chat is being moved or deleted, so it cannot be forked now"
+            "the chat is being moved or deleted: try again"
         );
         refs.known.insert(fork.to_owned());
         refs.by_fork.insert(fork.to_owned(), reference.clone());

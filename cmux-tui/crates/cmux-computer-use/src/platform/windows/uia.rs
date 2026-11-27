@@ -167,43 +167,26 @@ impl Uia {
         late: impl FnOnce() -> DResult<T>,
         job: impl FnOnce(&mut State) -> DResult<T> + Send + 'static,
     ) -> DResult<T> {
-        let (done_tx, done_rx) = mpsc::channel();
-        let mut job: Job = Box::new(move |state: &mut State| {
-            let _ = done_tx.send(job(state));
-        });
-        // A thread that stopped gets the job back unrun (a failed send never
-        // ran it), so it is started afresh once and handed the same job.
-        let mut tries = 0;
-        let serial = loop {
-            let (serial, tx) = {
-                let mut worker = self.worker.lock().unwrap_or_else(|e| e.into_inner());
-                match worker.as_ref() {
-                    Some((serial, tx)) => (*serial, tx.clone()),
-                    None => {
-                        let tx = start().map_err(DesktopError::Failed)?;
-                        let serial = self.serial.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        *worker = Some((serial, tx.clone()));
-                        (serial, tx)
-                    }
-                }
-            };
-            match tx.send(job) {
-                Ok(()) => break serial,
-                Err(mpsc::SendError(unrun)) => {
-                    let mut worker = self.worker.lock().unwrap_or_else(|e| e.into_inner());
-                    if worker.as_ref().is_some_and(|(s, _)| *s == serial) {
-                        *worker = None;
-                    }
-                    tries += 1;
-                    if tries >= 2 {
-                        return Err(DesktopError::Failed(
-                            "the UI Automation thread stopped right after it was started again, so nothing was done (UI Automation may be failing on this desktop)".into(),
-                        ));
-                    }
-                    job = unrun;
+        let (serial, tx) = {
+            let mut worker = self.worker.lock().unwrap_or_else(|e| e.into_inner());
+            match worker.as_ref() {
+                Some((serial, tx)) => (*serial, tx.clone()),
+                None => {
+                    let tx = start().map_err(DesktopError::Failed)?;
+                    let serial = self.serial.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    *worker = Some((serial, tx.clone()));
+                    (serial, tx)
                 }
             }
         };
+        let (done_tx, done_rx) = mpsc::channel();
+        let sent = tx.send(Box::new(move |state: &mut State| {
+            let _ = done_tx.send(job(state));
+        }));
+        if sent.is_err() {
+            *self.worker.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return Err(DesktopError::Failed("the UI Automation thread stopped; try again".into()));
+        }
         match done_rx.recv_timeout(deadline) {
             Ok(result) => result,
             Err(_) => {

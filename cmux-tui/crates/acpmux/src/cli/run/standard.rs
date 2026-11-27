@@ -422,8 +422,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if !client.daemon_lists(crate::hub::require_asking::FEATURE) {
                     anyhow::bail!(
                         "the running acpmux daemon is older than this CLI and cannot refuse a \
-                         start that would not ask, so nothing started; `acpmux daemon restart` \
-                         runs the installed one"
+                         start that would not ask, so nothing started; run `acpmux daemon \
+                         restart`, then try again"
                     );
                 }
                 meta.set(crate::hub::require_asking::FIELD, json!(true));

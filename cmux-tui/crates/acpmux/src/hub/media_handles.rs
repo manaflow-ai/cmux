@@ -98,15 +98,7 @@ impl<O: Send + Sync + 'static> Handles<O> {
         }
         state.entries.retain(|_, entry| entry.owner.strong_count() > 0);
         let slot = Slot::take().ok_or_else(|| {
-            let mut e = refused(
-                "media.busy",
-                "the daemon has its most media files open over all connections; one frees as \
-                 another is read to its end",
-            );
-            if let Some(data) = e.data.as_mut().and_then(serde_json::Value::as_object_mut) {
-                data.insert("retryable".into(), serde_json::Value::Bool(true));
-            }
-            e
+            refused("media.busy", "the daemon has too many media files open; try again soon")
         })?;
         let Opened { file, identity, .. } = opened;
         let entry = Entry {

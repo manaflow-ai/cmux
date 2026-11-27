@@ -377,15 +377,13 @@ impl Hub {
                     .await
                     .map_err(|e| RpcError::internal(format!("could not list the chat: {e}")))?
                     .ok_or_else(|| {
-                        RpcError::internal(
-                            "another chat showed it meanwhile, so it was not listed twice",
-                        )
+                        RpcError::internal("another chat showed it meanwhile; run it again")
                     })?
             }
         };
         if session.meta().name != name {
             return Err(RpcError::invalid_params(format!(
-                "session name {name:?} was taken meanwhile: pick another"
+                "session name {name:?} was taken meanwhile: pick another, or run it again"
             ))
             .with_data(json!({"reason": "register.name_taken"})));
         }

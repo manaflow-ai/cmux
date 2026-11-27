@@ -788,7 +788,6 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     if json_out {
         crate::cli::output::print_json(&out);
     } else if out["joinIncomplete"] == true {
-        // retry-prompt-ok: join resumes a side-effecting enrollment the person started.
         println!("join incomplete, rerun join");
     } else if cloned {
         println!("cloned: {CLONED_HINT}");

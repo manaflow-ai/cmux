@@ -793,7 +793,7 @@ impl<D: Daemon> Caller<D> {
                 return Err(Outcome::Failed {
                     code: "computer_use_unavailable".into(),
                     message: format!(
-                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; status shows when it is back.",
+                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; try again in a moment, or call status.",
                         self.budget.as_secs()
                     ),
                 });

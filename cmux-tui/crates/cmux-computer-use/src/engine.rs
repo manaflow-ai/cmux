@@ -1330,14 +1330,9 @@ impl Engine {
             });
         }
         if !self.takeover.wait_idle(TAKEOVER_WAIT) {
-            // retry-prompt-ok: a wait on the person, already waited out for
-            // TAKEOVER_WAIT inside this call; the agent's next call is the only way on.
             return Err(ToolOutput::error(
                 "person_in_control",
-                format!(
-                    "The person kept using the mouse or keyboard for the {} s this call waited, so nothing was done. Make the call again once they stop, or ask them to step away.",
-                    TAKEOVER_WAIT.as_secs()
-                ),
+                "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
             ));
         }
         Ok(())

@@ -1728,23 +1728,6 @@ fn perform_bounded_file_operation(
 
 /// Execute one action_request frame. Returns the `action_result` frame to
 /// send back (never fails).
-/// How long a file action waits for a free file slot before it is refused.
-const FILE_SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// The refusal when every file slot stayed taken for [`FILE_SLOT_WAIT`].
-const FILE_SLOTS_BUSY: &str = "relay file actions stayed busy for 5 s (other file actions are still running), so this one was not started; restart the relay if this persists";
-
-/// A file slot, waiting up to [`FILE_SLOT_WAIT`] for one to free up (a
-/// moment of load passes without a refusal); `None` past it.
-async fn file_slot(
-    slots: &Arc<tokio::sync::Semaphore>,
-) -> Option<tokio::sync::OwnedSemaphorePermit> {
-    match tokio::time::timeout(FILE_SLOT_WAIT, Arc::clone(slots).acquire_owned()).await {
-        Ok(Ok(permit)) => Some(permit),
-        _ => None,
-    }
-}
-
 pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     let version = frame.get("version").and_then(Value::as_i64).unwrap_or(3);
     let action_id = frame.get("actionId").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -1845,8 +1828,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         _ => None,
     };
     if let Some(operation) = file_operation {
-        let Some(file_permit) = file_slot(&context.file_slots).await else {
-            return fail("busy", FILE_SLOTS_BUSY);
+        let file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return fail(
+                    "busy",
+                    "relay file actions are busy; retry or restart the relay if this persists",
+                );
+            }
         };
         // The connection task selects its cancellation token against this
         // await. Tokio keeps a started blocking task alive after the future
@@ -1880,8 +1869,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
 
     match verb.as_str() {
         "grep" => {
-            let Some(file_permit) = file_slot(&context.file_slots).await else {
-                return fail("busy", FILE_SLOTS_BUSY);
+            let file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return fail(
+                        "busy",
+                        "relay file actions are busy; retry or restart the relay if this persists",
+                    );
+                }
             };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
