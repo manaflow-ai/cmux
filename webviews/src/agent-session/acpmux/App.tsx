@@ -731,6 +731,7 @@ import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, cachedSnapshot } from "./snapshotCache";
+import { shownChrome } from "./shownChrome";
 import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
@@ -1967,16 +1968,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const rulesLocal = snapshot.summary !== undefined && healthLocal;
   useEffect(() => {
     const client = directClient.current;
+    // The same rules again (every chat switch reads them) keep the list held: a new but equal list
+    // rendered the whole pane once more before a chat switch's first frame painted.
+    const show = (next: ForumRule[]) =>
+      setRules((held) => (JSON.stringify(held) === JSON.stringify(next) ? held : next));
     if (!connected || !client || !rulesLocal) {
-      setRules([]);
+      show([]);
       return;
     }
     let live = true;
     void Promise.resolve()
       .then(() => client.forumRules())
-      .then((reply) => live && setRules(forumRules(reply)))
+      .then((reply) => live && show(forumRules(reply)))
       // An older acpmux without the forum, or a failed read: no rules rather than stale ones.
-      .catch(() => live && setRules([]));
+      .catch(() => live && show([]));
     return () => {
       live = false;
     };
@@ -3866,6 +3871,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => onHandedBackRecorded((back) => composerHandle.current?.withdraw(back.text, back.attachments)), []);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
+  /// A chat's chrome the page drew before its attach answered stays drawn until then (shownChrome.ts):
+  /// what the page showed first (the reload copy) until the first frame replaces it, then the last one.
+  const [chrome] = useState(() => shownChrome());
+  const firstShown = useRef<AcpmuxSnapshot | undefined>(clientSnapshot);
   const turnActions = useMemo<TurnActions>(
     () =>
       turnActionsFrom({
@@ -8077,6 +8086,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       thoughtEpoch,
       pendingPaneDraw,
       snapshotRef,
+      chrome,
+      firstShown,
       readSendAgain,
       readInterruptedResume,
       opensSideChat,
@@ -8133,6 +8144,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quoteReply,
     inheritedFolderRef,
     pendingPaneDraw,
+    chrome,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
