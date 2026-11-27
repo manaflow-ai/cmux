@@ -41,32 +41,57 @@ import Testing
                                              charactersIgnoringModifiers: key, isARepeat: false, keyCode: keyCode))
     }
 
+    /// The window reports a first responder change to the focus model (`ShellWindow.reportResponder`), so a message box
+    /// that takes the keyboard moves the model to a text field, and terminal shortcuts stop applying. While the report
+    /// is held (an edit's teardown, `endEditing(for:)`), the model still names the terminal: then the box's keyboard
+    /// alone (`typingOutsideFocusedTerminal`) keeps the edit keys from the terminal. Both must leave Cmd-V, Cmd-C and
+    /// Cmd-A to the box.
     @Test func aMessageBoxWithTheKeyboardKeepsCmdVFromTheNamedTerminal() throws {
         let (services, controller, window, box) = try Self.harness()
         defer { for controller in services.windows.controllers { controller.window?.close() }; AppHarnessWindows.closeThoseThisTestOpened() }
         let router = services.keyRouter
+        let shell = try #require(window as? ShellWindow)
+        let held = try Self.editKeys(in: window), settled = try Self.editKeys(in: window)
 
         // The model names the terminal and nothing else has the keyboard: Cmd-V is the terminal's Paste.
         let before = router.keyContext(for: controller.focus.state, facts: router.facts(in: window, controller: controller))
         #expect(before.bits.contains(.terminalFocused))
 
-        // A click put the caret in the message box; the model still names the terminal.
-        try #require(window.makeFirstResponder(box), "the message box never took the keyboard")
-        try #require(window.firstResponder === box)
-        let facts = router.facts(in: window, controller: controller)
-        #expect(facts.typingOutsideFocusedTerminal, "the box's keyboard went unseen")
-        let context = router.keyContext(for: controller.focus.state, facts: facts)
-        #expect(!context.bits.contains(.terminalFocused), "terminal shortcuts still apply while the box has the keyboard")
+        // A click put the caret in the message box while the window held its responder report: the model still
+        // names the terminal.
+        shell.holdingResponderReports {
+            #expect(window.makeFirstResponder(box), "the message box never took the keyboard")
+            #expect(window.firstResponder === box)
+            #expect(controller.focus.state.resolved == .terminal(pane: "terminal-pane", tab: "terminal-tab"),
+                    "the model left the terminal before the window reported the box (\(controller.focus.state.resolved))")
+            #expect(router.facts(in: window, controller: controller).typingOutsideFocusedTerminal, "the box's keyboard went unseen")
+            Self.expectEditKeysReachTheBox(held, router: router, controller: controller, window: window, while: "the report is held")
+        }
 
-        for (key, code) in [("v", UInt16(9)), ("c", 8), ("a", 0)] {
-            let event = try Self.command(key, keyCode: code, in: window)
+        // The hold ended: the window reported the box, and the model names a text field.
+        #expect(controller.focus.state.resolved == .textField, "the model never followed the box (\(controller.focus.state.resolved))")
+        Self.expectEditKeysReachTheBox(settled, router: router, controller: controller, window: window, while: "the model names the box")
+    }
+
+    /// Cmd-V, Cmd-C and Cmd-A key-downs in `window`, Cmd-V first.
+    private static func editKeys(in window: NSWindow) throws -> [(key: String, event: NSEvent)] {
+        try [("v", UInt16(9)), ("c", 8), ("a", 0)].map { ($0.0, try command($0.0, keyCode: $0.1, in: window)) }
+    }
+
+    /// None of `keys` runs the terminal's Paste, Copy or Select All, and the router leaves Cmd-V to AppKit (the box).
+    private static func expectEditKeysReachTheBox(_ keys: [(key: String, event: NSEvent)], router: KeyRouter, controller: WindowController,
+                                                  window: NSWindow, while when: String) {
+        let facts = router.facts(in: window, controller: controller)
+        #expect(!router.keyContext(for: controller.focus.state, facts: facts).bits.contains(.terminalFocused),
+                "terminal shortcuts still apply while the box has the keyboard (\(when))")
+        for (key, event) in keys {
             let candidate = router.candidate(for: event, focus: controller.focus.state, facts: facts)
             #expect(candidate.map { !["terminalPaste", "terminalCopy", "terminal.selectAll"].contains($0.id.rawValue) } ?? true,
-                    "Cmd-\(key.uppercased()) ran \(candidate?.id.rawValue ?? "-") on the terminal instead of the message box")
+                    "Cmd-\(key.uppercased()) ran \(candidate?.id.rawValue ?? "-") on the terminal instead of the message box (\(when))")
         }
-        let paste = try Self.command("v", keyCode: 9, in: window)
+        let paste = keys[0].event
         let consumed = router.dispatchingSynthetic(paste) { router.interceptKeyDown(paste, in: window) }
-        #expect(!consumed, "the router took Cmd-V; AppKit never gave it to the message box")
+        #expect(!consumed, "the router took Cmd-V; AppKit never gave it to the message box (\(when))")
     }
 
     /// The Chief chat as a Chromium page: its page window over the cmux window has the keys while the
