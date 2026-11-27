@@ -191,7 +191,20 @@ mod tests {
     #[test]
     fn submodule_object_stores_keep_the_clone() {
         let (base, clone) = clone_pair("clone-modules-preserve");
-        std::fs::create_dir_all(clone.join(".git/modules/local")).unwrap();
+        git(
+            &clone,
+            &["-c", "protocol.file.allow=always", "submodule", "add", "-q", "../origin", "dep"],
+        );
+        git(&clone, &["commit", "-qam", "add submodule"]);
+        git(&clone, &["push", "-q", "origin", "HEAD:refs/heads/with-module"]);
+        let module = clone.join("dep");
+        git(&module, &["checkout", "-qb", "local-only"]);
+        std::fs::write(module.join("a"), "local module work").unwrap();
+        git(&module, &["commit", "-qam", "local module commit"]);
+        git(&module, &["checkout", "--detach", "-q", "HEAD~1"]);
+        assert!(
+            crate::git::user_git(&clone, &["status", "--porcelain=v1"], LIMIT).unwrap().is_empty()
+        );
         let store = Store::open(base.join("store")).unwrap();
         assert!(work(&clone).is_err());
         assert!(archive(&clone, &store, 1).is_err());
