@@ -8,8 +8,6 @@ import {
   apnsTopics,
   clean,
   isSealedText,
-  MAILBOX_MAX_HOLD_MS,
-  MAILBOX_TTL_MS,
   MAX_MAILBOX_SEALED,
   notifyFailures,
   notifyLimitKey,
@@ -20,11 +18,14 @@ import {
   turnPushKey,
   wantedKinds,
   notifyTargets,
+  MAILBOX_MAX_HOLD_MS,
+  MAILBOX_TTL_MS,
 } from "./push.ts";
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
 import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER } from "./link-relay.ts";
+import { CHUNK_BATCH_MAX_BODY_BYTES, CHUNK_ID, CHUNK_MAX_BYTES, chunkPairName } from "./chunk-cache.ts"
 import { CACHE_VIEWER_HEADER, relayCacheRoomName } from "./relay-cache.ts"
 import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
 import {
@@ -40,6 +41,7 @@ import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
 export { LinkRelay } from "./link-relay.ts"
+export { ChunkCache } from "./chunk-cache.ts"
 export { HubRelay } from "./hub-relay.ts"
 export { locationHintFor } from "./placement.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
@@ -176,6 +178,32 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
     if (typeof v === "object" && v !== null && !Array.isArray(v)) return v as Record<string, unknown>
   } catch {}
   throw new HttpError(400, "bad_request", "body must be a JSON object")
+}
+
+const readBodyAtMost = async (req: Request, maxBytes: number): Promise<ArrayBuffer | null> => {
+  const declared = Number(req.headers.get("content-length"))
+  if (Number.isFinite(declared) && declared > maxBytes) return null
+  if (!req.body) return new ArrayBuffer(0)
+  const reader = req.body.getReader()
+  const parts: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      return null
+    }
+    parts.push(value)
+  }
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    body.set(part, offset)
+    offset += part.byteLength
+  }
+  return body.buffer
 }
 
 /**
@@ -381,7 +409,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const space = spaceOf(req, env)
 
   if (path === "/v1/health" && method === "GET")
-    return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id), colo: colo(req) })
+    return json({ ok: true, version: env.API_VERSION, capabilities: ["sealed-chunk-cache-v1"], stackProjects: stackProjects(env).map((p) => p.id), colo: colo(req) })
 
   const bearer = bearerOf(req)
   if (!bearer) return fail(401, "unauthorized", "missing or invalid Stack access token")
@@ -436,6 +464,31 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
     if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
     return t.span("relay", room.fetch("https://link-relay/join", { headers }))
+  }
+
+  const chunk = path.match(/^\/v1\/chunks\/(have|get|[0-9a-fA-F]{64})$/)
+  if (chunk && (method === "PUT" || method === "GET" || method === "POST")) {
+    if ((method === "PUT" || method === "GET") && (chunk[1] === "have" || chunk[1] === "get")) throw new HttpError(405, "method_not_allowed", "method not allowed")
+    if (method === "POST" && chunk[1] !== "have" && chunk[1] !== "get") throw new HttpError(405, "method_not_allowed", "method not allowed")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the sealed chunk cache is turned off")
+    const sessionId = (url.searchParams.get("sessionId") ?? req.headers.get("x-cmux-chunk-session") ?? "").toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? req.headers.get("x-cmux-chunk-device") ?? "").toLowerCase()
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    // The device's own relay ticket, as for the relay: another device of the same user cannot pass this one's id.
+    const ticket = req.headers.get(RELAY_TICKET_HEADER)
+    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId, ticket))
+    if (!bound) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const peer = bound.peer
+    if (chunk[1] !== "have" && chunk[1] !== "get" && (!CHUNK_ID.test(chunk[1]!) || chunk[1] !== chunk[1]!.toLowerCase())) throw new HttpError(400, "bad_request", "chunk id must be 64 lowercase hexadecimal characters")
+    const cache = env.CHUNK_CACHE.get(env.CHUNK_CACHE.idFromName(chunkPairName(me, space, deviceId, peer)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const target = chunk[1] === "have" ? "/have" : chunk[1] === "get" ? "/get" : `/${chunk[1]!.toLowerCase()}`
+    const headers = new Headers(req.headers)
+    headers.set("x-cmux-chunk-device", deviceId)
+    headers.delete("authorization")
+    headers.delete("cookie")
+    const body = method === "PUT" || method === "POST" ? await readBodyAtMost(req, method === "PUT" ? CHUNK_MAX_BYTES : CHUNK_BATCH_MAX_BODY_BYTES) : undefined
+    if (body === null) return fail(413, "payload_too_large", "chunk request body is too large")
+    return t.span("chunks", cache.fetch(`https://chunk-cache${target}`, { method, headers, body }))
   }
 
   const cachePath = path.match(/^\/v1\/relay-cache\/([^/]+)\/(snapshot|delta|catch-up|ack)$/)

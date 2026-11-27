@@ -63,6 +63,28 @@ class Holder(unittest.TestCase):
         self.assertFalse(live.FINISHER.match("sidebar-finish-pass"))
         self.assertTrue(live.FINISHER.match("finish-cmux-52161"))
 
+    def test_a_lane_that_only_mentions_the_area_never_holds_the_role(self):
+        # 2026-11-25: `lanes *sidebar*` sent ~12 "you hold it now" notices in two days to rex-sidebar-look, a lane on
+        # one sidebar PR (cmux#54990). A glob is anchored at the name's start; with no lane of the area, the push
+        # goes the unheld way.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        rows = [row("g7/rex-sidebar-look", "running", updated=99), row("g9/finish-cmux-52161-sidebar", updated=98),
+                row("g3/sidebar-owner", updated=2)]
+        self.assertEqual(live.holder(cell, rows, ""), ("g3/sidebar-owner", "a lane of *sidebar*"))
+        rows = rows[:2] + [row("c/coord", owns="coordinator")]
+        who, how = live.holder(cell, rows, "")
+        self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar*; the coordinator"))
+        self.assertTrue(live.is_fallback(how))
+        tagged = rows + [row("g7/rex-sidebar-look-2", owns="PL-sidebar")]
+        self.assertEqual(live.holder("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "g7/rex-sidebar-look-2")
+        for name, globs in [("ghostty-scroll", ["*-ghostty*"]), ("tdaemon-journal", ["*tdaemon*"]),
+                            ("tab-strip-pins", ["tab-strip*"]), ("tabs-refine", ["tabs-refine"])]:
+            self.assertTrue(live.fills_role(name, globs), name)
+        for name, globs in [("rex-sidebar-look", ["*sidebar*"]), ("finish-cmux-52161-sidebar", ["*sidebar*"]),
+                            ("chat-hover-card-pin", ["*hover-card*"]), ("cmux-tdaemon", ["*tdaemon*"]),
+                            ("sidebar-owner", ["tabs-*"])]:
+            self.assertFalse(live.fills_role(name, globs), name)
+
     def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
         rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
         merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])

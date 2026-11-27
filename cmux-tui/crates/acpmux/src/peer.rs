@@ -97,6 +97,9 @@ mod handshake_tests;
 #[cfg(test)]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
+#[cfg(test)]
+#[path = "peer_link_quality_tests.rs"]
+mod link_quality_tests;
 #[path = "peer_liveness.rs"]
 pub mod liveness;
 #[cfg(test)]
@@ -174,6 +177,8 @@ pub enum PeerNotice {
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
     /// JSON, which the hub parses one row at a time.
     Sessions(Vec<Arc<str>>),
+    /// A whole list waiting in this peer instance’s outbox slot.
+    WaitingList(u64),
     /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
     /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
     /// the peer last listed them.
@@ -404,6 +409,9 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
+    /// The shard skipped a superseded whole list. Relative patches and their completions
+    /// cannot establish a baseline before the replacement list reaches its turn.
+    pub(crate) list_baseline_missing: AtomicBool,
     /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
@@ -564,6 +572,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// How good the link is, from its pings' round trips and late ticks (`peer_link_quality.rs`):
+    /// `quality` in `_acpmux/peers`. Kept across links, like `silence`.
+    quality: StdMutex<crate::peer_link_quality::LinkQuality>,
     /// A link dialed while the last one sat silent past its budget, and opened first
     /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
     replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,

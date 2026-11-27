@@ -124,6 +124,14 @@ pub struct CarrierAnswer {
     /// Register: the keys this machine lets in.
     #[serde(default)]
     pub peers: Vec<String>,
+    /// Connect: the far machine's join name (`cmux16`), when the platform says
+    /// (cmux-platform#1917). It names machines the carrier lends from another team of the
+    /// person, which this team's mesh address book never lists ([`Self::peer_host`] too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_name: Option<String>,
+    /// Connect: the far machine's hostname, when the platform says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_host: Option<String>,
     /// Register: the services each key in `peers` serves (RFD 0127 cut 3), by key. A machine the
     /// map names refuses a service it leaves out at the dialer, before any circuit
     /// ([`HubCarrier::dial_service_on`]); a key it does not name, or an answer with no map (a
@@ -925,6 +933,13 @@ impl HubCarrier {
     /// The daemon id peer `name` is reached at, when one was named.
     pub fn route(&self, name: &str) -> Option<String> {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()
+    }
+
+    /// The key of the machine the platform's pre-minted Connect tickets name `name` (its join
+    /// name or hostname, [`tickets::TicketCache::named`]): every machine this carrier lends,
+    /// the ones joined in another team of the person included.
+    pub fn lent_machine(&self, name: &str) -> Option<String> {
+        self.ticket_cache.named(name)
     }
 
     /// Let circuits reach this machine's cmux-tui remote daemon as `gate` decides.

@@ -133,6 +133,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.on_cloud_host() {
         capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
+        capabilities.push(agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY);
     }
     if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
@@ -242,6 +243,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
         *capability != crate::fs_ops::FS_CAPABILITY
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
@@ -569,3 +571,7 @@ pub(super) fn advertised_capabilities(
 #[cfg(test)]
 #[path = "capabilities_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "gui_capabilities_tests.rs"]
+mod gui_capabilities_tests;

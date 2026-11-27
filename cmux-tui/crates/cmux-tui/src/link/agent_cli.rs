@@ -550,11 +550,13 @@ impl SyncFlags {
 }
 
 fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
-    let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
-        match e.downcast_ref::<record::Busy>() {
-            Some(busy) => Failed::new("move_in_progress", busy.to_string()),
-            None => Failed::state(&e),
-        }
+    // The record is filed by the tab's public id: a source daemon restart gives the tab a new
+    // surface slot, and a rerun by that slot must still find this chat's move.
+    let tab = slot_tab(&args.from, args.surface);
+    let records = Records::open(args.state_dir.clone(), &args.from, args.surface, tab.as_deref())
+        .map_err(|e| match e.downcast_ref::<record::Busy>() {
+        Some(busy) => Failed::new("move_in_progress", busy.to_string()),
+        None => Failed::state(&e),
     })?;
     let earlier = records.load().map_err(|e| Failed::state(&e))?;
     clock.lap("state");
@@ -1444,6 +1446,13 @@ fn pin_begin(
     };
     records.save(&record).ok()?;
     Some(record)
+}
+
+/// The public id of the tab in `surface` of the source (its `agent-transfer-source` read, which
+/// never attaches the chat); None from a source too old to answer one or that cannot be asked.
+fn slot_tab(from: &std::path::Path, surface: u64) -> Option<String> {
+    let answer = call_source(from, "agent-transfer-source", json!({"surface": surface})).ok()?;
+    answer.get("tab").and_then(Value::as_str).filter(|tab| !tab.is_empty()).map(str::to_owned)
 }
 
 /// Whether the tab still shows the chat `record`'s move took (the source's

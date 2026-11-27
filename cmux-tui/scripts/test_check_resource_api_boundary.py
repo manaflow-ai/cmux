@@ -416,6 +416,40 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_quotes_in_chars_and_comments_do_not_open_strings(self) -> None:
+        prefixes = [
+            "let quote = '\"'; let surface = 1;",
+            "let quote = b'\"'; let surface = 1;",
+            r"let quote = '\''; let surface = 1;",
+            r"let quote = '\u{22}'; let surface = 1;",
+            '// a lone " surface quote\nlet surface = 1;',
+            '/* " surface /* nested " */ still a comment */ let surface = 1;',
+            "fn borrow<'a>(surface: &'a str) {}",
+        ]
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, prefix + '\nconst HELP: &str = "cmux surface list";\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                    ("boundary.surface", prefix.count('\n') + 2),
+                ])
+
+    def test_cli_comment_markers_inside_strings_remain_public(self) -> None:
+        strings = [
+            '"// surface"', '"/* surface */"',
+            'r#"// \" surface"#', 'br#"/* \" surface */"#',
+            'cr#"/* \" surface */"#',
+        ]
+        for literal in strings:
+            with self.subTest(literal=literal), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, f'const HELP = {literal};\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([item.code for item in diagnostics], ["boundary.surface"])
+
     def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

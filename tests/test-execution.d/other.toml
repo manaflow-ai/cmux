@@ -239,6 +239,21 @@ path = "tests/test_ensure_setup_node.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ext_prompt_checks.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_checks.py"
+
+[[test]]
+path = "tests/test_ext_prompt_composer.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_composer.py"
+
+[[test]]
+path = "tests/test_ext_prompt_palette.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_palette.py"
+
+[[test]]
 path = "tests/test_fake_socket_env.py"
 lane = "linux-guard"
 
@@ -470,6 +485,11 @@ reason = "Run by the lane that changes scripts/live-code/switch.sh (kept manual 
 path = "tests/test_live_code_two_pass.py"
 lane = "manual"
 reason = "Run by the lane that changes scripts/live-code/lib/two-pass.sh (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_live_code_two_pass.py; needs only python3 and bash."
+
+[[test]]
+path = "tests/test_live_frames.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/cmux-next/live_frames.py or a live loop that calls it (rust-live.py, chromium-live.py, live-code/live-mode.py): python3 tests/test_live_frames.py; under 1 s, no build, no app."
 
 [[test]]
 path = "tests/test_live_mode.py"
@@ -1002,6 +1022,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_style_guards_level.py"
 lane = "linux-guard"
 
 [[test]]

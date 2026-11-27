@@ -18,6 +18,11 @@ head before any merge. How a draft gets the full tier: mark it ready for review 
 not listen to `labeled` (it would start on every label of every PR), so there the label takes effect at the next
 push: push a commit (an empty one does) after adding it.
 
+Heavy-at-land rule (off unless the repository variable CI_HEAVY_AT_LAND is 1; Leo, 2026-11-26: "de facto, im asking
+for 99% fewer minutes of ci time, period."): a pull request from this repository runs the full tier only on the
+`labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
+`full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
+
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
 ci.yml and cmux-next.yml run it like a draft. Base merges were 37% of PR runner-minutes over 11-13..19, most on
@@ -454,14 +459,46 @@ def land_affected(decided: tuple[str, str]) -> bool:
     return decided[0] == "cheap" and str(decided[1]).startswith(LAND_AFFECTED_REASON)
 
 
+HEAVY_AT_LAND_REASON = "heavy at land (CI_HEAVY_AT_LAND=1)"
+
+
+def same_repo(event: dict) -> bool:
+    """Whether EVENT's pull request comes from this repository (a fork's head keeps its tier)."""
+    pr = event.get("pull_request") or {}
+    base_repo = str(((pr.get("base") or {}).get("repo") or {}).get("full_name") or "")
+    head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
+    return bool(base_repo) and base_repo == head_repo
+
+
+def land_handoff(event: dict) -> bool:
+    """Heavy-at-land rule (CI_HEAVY_AT_LAND, default off; cmux#ci-min-per-pr-30): whether EVENT is the one event
+    that hands a ready pull request to land, `ready-to-land` or `full-ci` being added. Only that event keeps the
+    full tier; every other push of the pull request, the landing ones and stacked pull requests on other bases
+    included, runs the cheap tier, so a heavy job runs once per landing attempt instead of on every head (merged
+    PRs' superseded heads and never-merged PRs were 93% of PR-head minutes on 11-25..26)."""
+    pr = event.get("pull_request") or {}
+    added = str((event.get("label") or {}).get("name") or "")
+    return event.get("action") == "labeled" and added in (LAND_LABEL, FULL_CI) and pr.get("draft") is not True
+
+
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
-         labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1") -> tuple[str, str]:
+         labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1",
+         heavy_at_land_switch: str = "0") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
-    LAND_SWITCH on) not-yet-landing pull request head is `full`."""
+    LAND_SWITCH on) not-yet-landing pull request head is `full`. With HEAVY_AT_LAND_SWITCH on, a full head of a pull
+    request from this repository is `cheap` unless its event is the land handoff itself (see heavy_at_land)."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
+    if (heavy_at_land_switch or "0").strip() not in ("0", "") and same_repo(event) and not land_handoff(event):
+        decided = tier(event_name, event, switch, facts, now, idle_switch, land_switch, sync_switch, green_switch,
+                       carry_switch, land_full_switch, labelled_switch, rerun_switch, full_carry_switch)
+        if decided[0] == "full":
+            return "cheap", (f"{HEAVY_AT_LAND_REASON}: heavy jobs run once, on the event that hands this pull "
+                             f"request to land (adding `{LAND_LABEL}` or `{FULL_CI}`), not on every push; "
+                             f"without CI_HEAVY_AT_LAND this head would be full ({decided[1]})")
+        return decided
     pr = event.get("pull_request") or {}
     labels = labels_of(event)
     carried_run = full_carry(facts) if full_carry_rule_applies(event, full_carry_switch) else None
@@ -660,6 +697,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
     rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
     full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
+    heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "0")
     labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     if pull and full_carry_rule_applies(event, full_carry_switch):
@@ -697,7 +735,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0"), facts
+                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0", heavy_at_land_switch), facts
 
 
 def _load(path: str) -> dict:

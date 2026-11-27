@@ -132,13 +132,15 @@ env:
 jobs:
   # The pull request half: the engine's plan, on the PR head, with no secret. Drafts wait until they are ready,
   # forks never run, and CI_QUOTA_HOLD=1 pauses it while the GITHUB_TOKEN budget is held for the nightly.
+  # A head that carries ready-to-land is planned whatever the land tier's CI_LAND_FULL_PER_PR says (Leo: "hot-swap in
+  # dev and CI loops"): the look runs on a fleet Mac, and one that starts only at the merge commit came about 2 h after
+  # the merge (p50 126 min, 2026-11-27) while the newest 20 merges span about an hour, so 2 of 20 had a receipt.
   plan:
     name: plan the look
-    if: ${{ (vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged)) && (github.event.action == 'closed' || (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged)) && (github.event.action == 'closed' || contains(github.event.pull_request.labels.*.name, 'ready-to-land') || (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    # 10 minutes for the plan; the dispatch waits 65 minutes at most (GH_BUDGET_WAIT_MAX_SECONDS): a reset is at
-    # most an hour away.
-    timeout-minutes: 80
+    # 10 minutes for the plan, 2 for the dispatch's rate-limit wait (GH_BUDGET_WAIT_MAX_SECONDS), plus its retries.
+    timeout-minutes: 15
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
@@ -237,12 +239,14 @@ jobs:
           # 141 MB and 31-34 s of fetch per plan, 7 days 20 MB and 6 s, and 5 open PRs planned the same JSON with
           # either (2026-11-23). A nightly older than the window fetches the 45 days below.
           since="$(date -u -d '7 days ago' +%Y-%m-%d)"
-          # A fetch from github.com that stalls fails in 30 s, not git's own 60 s, and is tried three times: one stall
-          # failed this step and the head waited 32 min for a rerun by hand (run 45787715231, 2026-11-26).
+          # A fetch from github.com that stalls is tried three times: one stall failed this step and the head waited
+          # 32 min for a rerun by hand (run 45787715231, 2026-11-26). The abort is 1 B/s for 60 s, not 1000 B/s: GitHub
+          # sends only keepalives while it builds a pack, so 1000 B/s for 30 s killed healthy fetches on every try
+          # (handbook network-transfer-stalls-the-whole-job).
           fetch_retry() {
             local bound="$1" try; shift
             for try in 1 2 3; do
-              timeout "$bound" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch "$@" && return 0
+              timeout "$bound" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch "$@" && return 0
               echo "hot verify plan: fetch attempt $try failed" >&2; [[ $try == 3 ]] || sleep $((try * 5))
             done
             return 1
@@ -350,7 +354,12 @@ jobs:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
-          GH_BUDGET_WAIT_MAX_SECONDS: 3900
+          # 2026-11-24 21:29-23:00Z every pool was spent and this step slept out the reset on a Linux runner, 1,425 s
+          # in run 45491644909 and 1,429 s in 45501419444, about 50 such runs in the 3 of 10 pages read that day. The
+          # look is advisory and a merged PR with no receipt gets one at its merge commit (the closed event), so a
+          # rate limit past 2 minutes skips this head's look instead of holding the runner (cmux#60036 did the same
+          # for the gallery read; the other dispatches in this file already wait 120 s at most).
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
           KIND: ${{ github.event.action == 'closed' && 'merge' || 'head' }}
@@ -360,7 +369,7 @@ jobs:
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
           # A dispatch that fails is a PR with no look, and ends this job red. gh is gh_budget_wait.sh: a rate
-          # limit moves to the next pool at once and waits for a reset only when every pool is spent. This loop
+          # limit moves to the next pool at once and waits at most 120 s when every pool is spent. This loop
           # retries other failures (a 5xx), at most 3 tries, 30 s doubling.
           pause=30
           for attempt in 1 2 3; do
@@ -375,8 +384,13 @@ jobs:
             grep -v '^::' "$RUNNER_TEMP/dispatch.err" > "$RUNNER_TEMP/dispatch.why" || true
             why="$(tail -n 3 "$RUNNER_TEMP/dispatch.why" | tr '\n' ' ' | cut -c1-300)"
             echo "hot verify: attempt $attempt could not start the look: $why"
-            # The wrapper already waited out a rate limit on every pool; another try would only wait again.
-            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/dispatch.why" && break
+            # Every pool is rate limited past the wrapper's 2-minute wait: no look for this head, and no red for an
+            # advisory step (tests/test_ci_hot_verify_dispatch_wait_capped.py).
+            if grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/dispatch.why"; then
+              echo "::notice title=hot verify::every token's GitHub API hour is spent; no look for ${HEAD_SHA:0:12} (a merged PR with no look gets one at its merge commit)"
+              echo "hot verify: no look for ${HEAD_SHA:0:12}; every token is rate limited: $why" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             [[ $attempt == 3 ]] || sleep "$pause"
             pause=$(( pause * 2 ))
           done
@@ -863,8 +877,14 @@ jobs:
           git config gc.auto 0
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
+          # 1 B/s for 60 s, a 240 s bound, 3 tries (handbook network-transfer-stalls-the-whole-job); the mirror holds the
+          # objects, so a retry into this repository is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
@@ -1010,10 +1030,16 @@ jobs:
           done
           echo "::error title=hot verify::could not start one more look for ${HEAD_SHA:0:12}: $(grep -v '^::' "$err" | tail -n 2 | tr '\n' ' ' | cut -c1-300)"
           exit 1
+      # Advisory: a read that fails says gallery=false (the comment only drops its gallery line). Uncapped, a spent hour on
+      # every token slept up to gh_budget_wait.sh's 3600 s here: 2026-11-26 22:21-22:54Z, jobs 140197196758,
+      # 140198476666 and 140197628927 sat 1,839-2,036 s in this one GET (goal ci-min-per-pr-1500).
       - name: Is the gallery advisory also on this head
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
+        timeout-minutes: 2
+        continue-on-error: true
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: 30
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
@@ -1033,6 +1059,10 @@ jobs:
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         uses: ./.github/actions/pr-media-publish
         env:
+          # hot-verify-ci.py retries timed-out reads with these identities. The action's Publish step
+          # overwrites GH_TOKEN from github-token, so pass the alternates explicitly through this step.
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}

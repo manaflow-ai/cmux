@@ -87,7 +87,7 @@ enum AgentHandlers {
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)
-                             } else { pane = try context.pane(invocation) }
+                             } else { let focused = try context.pane(invocation); pane = context.explicitTarget(invocation, kinds: [.pane]) != nil ? focused : context.services.windowController(showing: focused)?.content?.pageTabPane(from: focused) ?? focused }  // beside Home's dock, as the sidebar's open
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
                          }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
@@ -111,6 +111,9 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // Capture Screenshot to Chat: its key, the palette, and the same key from any app while
+        // `app.captureScreenshotGlobalHotKey` is on, into the chat route from other apps.
+        context.services.externalOpen.captureToChat.bind(into: registry)
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the

@@ -39,6 +39,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_COMPOSERS,
     method::MUX_COMPOSER_SET,
     method::MUX_CUSTOMIZE_RUN,
+    method::MUX_DELETED,
     method::MUX_DETACH,
     method::MUX_DETACH_PARENT,
     method::MUX_DISPATCH,
@@ -153,6 +154,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_ROOMS,
     method::MUX_FOLLOW,
     method::MUX_TYPING,
+    method::MUX_UNDELETE,
     method::MUX_UPLOADS_KEEP,
     method::MUX_USAGE,
     method::MUX_V2,
@@ -414,5 +416,7 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
     let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
     conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
-    *conn.sent_rows.lock_or_recover() = Default::default();
+    *conn.sent_rows.lock_or_recover() = super::super::session_patch::SentRows::bounded(
+        super::super::session_patch::bound(conn.raw_text),
+    );
 }

@@ -6,14 +6,16 @@
 // the follow chase: it wears a translate, and the row over it is clipped where the line is drawn
 // (pinnedLiveLine.ts). A reader who scrolls up in that motion takes the view, and the line and the
 // clip hold where they are drawn until the view follows again. A fold above it (the reader opens a
-// finished run) then moved the rows under the run by translate (foldRide.ts), the live line among
+// finished run) then moved the rows under the run by translate (a fold ride, since removed), the live line among
 // them: the ride wrote over the held translate and took it off at the fold's end. The line went to
 // its layout place, the row over it kept the clip made for the held place, and a blank band showed
 // between them.
 //
 // The page is send-stream-motion's (browser/send-stream-motion.harness.tsx, `heldFold`) on the frames'
-// own clock, on the blocks follow arm (below), with live-turn-work `runs` as the app ships it (each
-// finished run of a running turn is a closed line that a click opens).
+// own clock, on the blocks follow arm (below), on live-turn-work's `runs` arm (each finished run of a
+// running turn is a closed line that a click opens). The app ships `open` since #48766 ("a running
+// turn folds nothing until it ends"), where a running turn draws no closed line to open, so the page
+// sets `runs` itself: the arm is still in the gallery and this is the scene it draws.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { HeldFold, RowSample, Sample } from "./browser/send-stream-motion.harness";
@@ -86,6 +88,11 @@ await requireBrowserLane("held-live-line-fold-browser.test.ts", async () => {
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
       await frames.page.getByText(`History answer ${HISTORY - 1}.`).waitFor();
+      // Read on every shaping of the rows (experiment.ts `experimentArm`), so the turn below draws on it.
+      await frames.page.evaluate(() => {
+        const scope = window as unknown as { cmuxExperiments?: Record<string, string> };
+        scope.cmuxExperiments = { ...scope.cmuxExperiments, "live-turn-work": "runs" };
+      });
       frames.start();
       out = (await frames.page.evaluate(() =>
         (window as unknown as { __sendStream: { heldFold(): Promise<HeldFold> } }).__sendStream.heldFold(),
