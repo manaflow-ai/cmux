@@ -1404,8 +1404,8 @@ class PipelineTest(unittest.TestCase):
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-production-build", "cmux-vm-cloud"}
-        wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "web-complexity", "webviews-typecheck",
-                      "cmux-vm-cloud"}
+        wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
+                      "webviews-typecheck", "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -1471,7 +1471,7 @@ class MacJobTest(unittest.TestCase):
             wf["jobs"]["mac"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+            "'cmux-mac' }}")
 
     def test_its_mac_setup_steps_keep_their_names(self) -> None:
         # owned_pool_rescue.py reads "Select Xcode"; the lease's holder lives as long as the workflow step.
@@ -2012,6 +2012,7 @@ class IosJobTest(unittest.TestCase):
 
     def test_it_runs_where_the_picker_places_it_and_a_fork_on_blacksmith(self) -> None:
         jobs = self.wf()["jobs"]
+        self.assertEqual(jobs["ios-macos"]["runs-on"], jobs["mac"]["runs-on"])
         self.assertEqual(jobs["ios"]["needs"], ["ios-runner"])
         self.assertEqual(
             jobs["ios"]["runs-on"],
@@ -2019,8 +2020,14 @@ class IosJobTest(unittest.TestCase):
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
             "fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || "
             "needs.ios-runner.outputs.runs_on) }}")
-        pick = next(s["run"] for s in jobs["ios-runner"]["steps"] if "ios_runner_pool.py" in s.get("run", ""))
-        self.assertIn("--lane pipeline", pick)
+        for picker in ("ios-runner", "ios-fast-runner"):
+            steps = jobs[picker]["steps"]
+            pick = next(s for s in steps if s.get("id") == "pool")
+            self.assertIn('--lane pipeline', pick["run"])
+            self.assertIn('--order "$POOL_ORDER"', pick["run"])
+            self.assertEqual(pick["env"]["POOL_ORDER"], "${{ vars.CI_PR_POOL_ORDER }}")
+            sparse = steps[0]["with"]["sparse-checkout"].splitlines()
+            self.assertTrue("scripts/ci/xcode-pins.txt" in sparse or "scripts/ci/" in sparse, picker)
         names = [s.get("name") for s in jobs["ios"]["steps"]]
         # owned_pool_rescue.py reads "Select Xcode"; it comes before the steps that need Xcode.
         self.assertLess(names.index("Select Xcode"), names.index("Run the routed ios steps (ci/steps.toml)"))
@@ -2076,11 +2083,6 @@ class IosJobTest(unittest.TestCase):
         leg = jobs["ios-macos"]
         self.assertEqual(leg["name"], "ios macos")
         self.assertNotIn("needs", leg)
-        self.assertEqual(
-            leg["runs-on"],
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
         self.assertEqual(jobs["ios"]["permissions"]["actions"], "read")
         ios_run = next(s for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
         self.assertEqual(ios_run["env"]["GH_TOKEN"], "${{ github.token }}")
