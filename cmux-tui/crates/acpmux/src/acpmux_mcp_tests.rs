@@ -104,7 +104,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "cancel",
             "machine_read",
             "machine_edit",
-            "machine_exec"
+            "machine_exec",
+            "machine_request"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1564,8 +1565,11 @@ async fn census_replay_wrap_up_run_wait_inbox_reply() {
     }
 }
 
+/// Only the tools in `ALWAYS_LOADED` carry `anthropic/alwaysLoad`; every other one is deferred
+/// behind ToolSearch. Today none qualifies by its cost rule, so every tool is deferred and still
+/// listed.
 #[test]
-fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+fn only_the_always_loaded_tools_skip_toolsearch() {
     let tools = super::tools();
     let list = tools.as_array().unwrap();
     for name in super::ALWAYS_LOADED {
@@ -1576,6 +1580,9 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
     assert!(rest.clone().count() > 5);
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+    for name in ["wrap_up", "bg_start", "bg_output", "who_else", "inbox_read", "inbox_reply"] {
+        assert!(list.iter().any(|t| t["name"] == name), "{name} is still listed");
+    }
 }
 
 /// Why the bloat was possible: nothing measured what a tool costs, so a description, a field
@@ -1588,7 +1595,10 @@ fn every_tool_schema_fits_its_byte_budget() {
     const PER_TOOL: usize = 3 * 1024;
     let mut over = Vec::new();
     for (server, list, budget) in [
-        ("acpmux", tools(), 28 * 1024),
+        // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
+        // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
+        ("acpmux", tools(), 32 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {
         let mut total = 0;

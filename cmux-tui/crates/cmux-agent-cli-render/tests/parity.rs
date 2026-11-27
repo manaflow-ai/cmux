@@ -96,15 +96,23 @@ fn real_screen(session: &Session, t: u64) -> Grid {
 }
 
 fn terminal() -> ghostty_vt::Terminal {
+    terminal_at(COLS, ROWS)
+}
+
+fn terminal_at(cols: u16, rows: u16) -> ghostty_vt::Terminal {
     let mut term =
-        ghostty_vt::Terminal::new(COLS, ROWS, 10_000_000, ghostty_vt::Callbacks::default())
+        ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
             .unwrap();
-    term.resize(COLS, ROWS, 8, 16).unwrap();
+    term.resize(cols, rows, 8, 16).unwrap();
     term
 }
 
 /// The terminal's screen as a grid.
 fn snapshot(term: &mut ghostty_vt::Terminal) -> Grid {
+    snapshot_at(term, COLS, ROWS)
+}
+
+fn snapshot_at(term: &mut ghostty_vt::Terminal, cols: u16, rows: u16) -> Grid {
     let mut state = ghostty_vt::RenderState::new().unwrap();
     state.update(term).unwrap();
     let frame = state.build_frame().unwrap();
@@ -113,7 +121,7 @@ fn snapshot(term: &mut ghostty_vt::Terminal) -> Grid {
         ghostty_vt::ColorSpec::Palette(i) => Color::Palette(i),
         ghostty_vt::ColorSpec::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
     };
-    let mut grid = Grid::blank(COLS, ROWS);
+    let mut grid = Grid::blank(cols, rows);
     for (slot, row) in grid.cells.iter_mut().zip(frame.styled_rows()) {
         *slot = row
             .iter()
@@ -122,7 +130,7 @@ fn snapshot(term: &mut ghostty_vt::Terminal) -> Grid {
                 style: Style { fg: color(c.fg), bg: color(c.bg), attrs: c.attrs() },
             })
             .collect();
-        slot.resize(usize::from(COLS), Cell::default());
+        slot.resize(usize::from(cols), Cell::default());
     }
     grid
 }
@@ -266,6 +274,8 @@ fn chrome(draft: &str) -> Chrome {
         effort: Some("medium".into()),
         draft: draft.into(),
         utc_offset_minutes: 0,
+        done_verb: None,
+        placeholder: None,
     }
 }
 
@@ -275,7 +285,7 @@ fn pct((same, total): (usize, usize)) -> f64 {
 
 fn diff_rows(real: &Grid, drawn: &Grid) -> String {
     let mut out = String::new();
-    for y in 0..usize::from(ROWS) {
+    for y in 0..real.cells.len().min(drawn.cells.len()) {
         let row_same = real.cells[y].iter().zip(&drawn.cells[y]).all(|(a, b)| a.looks_same(b));
         if !row_same {
             let col = real.cells[y]
@@ -1261,4 +1271,126 @@ fn the_phones_parity_fixtures_hold_and_are_current() {
             path.display()
         );
     }
+}
+
+// Parity at the phone's own grid (Leo, 2026-11-25: "we know what a Mac's Claude code pane looks
+// like. And we know it/can know it for any variation/combination at various phone sizes ... do
+// everything at parity on the phone"). Each fixture under `tests/fixtures/phone/` is a real
+// Claude Code session recorded in a PTY of one iPhone grid (`scripts/agent-cli-render/
+// record_session.py` on a fleet Mac), with `chrome.json`: the facts the host reports beside the
+// records (banner, footer). The renderer draws each scripted moment at that grid from the records;
+// the real screen at the same moment is the reference. `parity-floor.json` holds each width's
+// measured parity: a drop below it fails, a rise is printed so the floor is raised with it.
+
+fn phone_fixtures() -> Vec<String> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/phone");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .filter(|e| e.path().join("pty.jsonl").is_file())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+fn phone_chrome(name: &str, moment: &str, draft: &str) -> Chrome {
+    let v: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture(&format!("phone/{name}"), "chrome.json")).unwrap(),
+    )
+    .unwrap();
+    let text = |k: &str| v[k].as_str().map(str::to_owned);
+    Chrome {
+        version: text("version"),
+        model_line: text("model_line"),
+        cwd: text("cwd"),
+        mode: text("mode").unwrap_or_default(),
+        effort: text("effort"),
+        draft: draft.into(),
+        utc_offset_minutes: v["utc_offset_minutes"].as_i64().unwrap_or(0) as i32,
+        done_verb: text("done_verb"),
+        // The host's fact for this moment: a tip before the first prompt, the suggested next
+        // prompt after a turn.
+        placeholder: match moment {
+            "start" => v["placeholders"]["start"].as_str().map(str::to_owned),
+            "done" => v["placeholders"]["done"].as_str().map(str::to_owned),
+            _ => None,
+        },
+    }
+}
+
+#[test]
+fn claude_code_at_the_phones_grid_from_records() {
+    let names = phone_fixtures();
+    assert!(!names.is_empty(), "no phone fixtures under tests/fixtures/phone");
+    let floors: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture("phone", "parity-floor.json")).unwrap_or("{}".into()),
+    )
+    .unwrap();
+    let scratch = std::env::temp_dir()
+        .join(format!("cmux-agent-cli-render-phone-{}.jsonl", std::process::id()));
+    let mut report =
+        String::from("| fixture | screen | live | seeded |\n| --- | --- | ---: | ---: |\n");
+    let mut failures = Vec::new();
+    for name in &names {
+        let session = load(&format!("phone/{name}"));
+        let (_, cols, rows) = *session.resizes.first().expect("the recorded size");
+        let prompt = session
+            .transcript
+            .iter()
+            .find_map(|(_, l)| {
+                let v: Value = serde_json::from_str(l).ok()?;
+                (v["type"] == "user")
+                    .then(|| v["message"]["content"].as_str().map(str::to_owned))
+                    .flatten()
+            })
+            .unwrap_or_default();
+        let mut totals = [(0, 0), (0, 0)];
+        let mut dumps = String::new();
+        for (moment, t) in &session.moments {
+            let mut term = terminal_at(cols, rows);
+            for (at, bytes) in &session.chunks {
+                if *at <= *t {
+                    term.vt_write(bytes);
+                }
+            }
+            let real = snapshot_at(&mut term, cols, rows);
+            let lines: Vec<&(Option<u64>, String)> =
+                session.transcript.iter().filter(|(at, _)| at.is_none_or(|at| at <= *t)).collect();
+            let (live, open) = live_records(&lines);
+            let seeded = seeded_records(&lines, open, &scratch);
+            let draft = if moment == "typed" { prompt.as_str() } else { "" };
+            let chrome = phone_chrome(name, moment, draft);
+            let a = real.parity(&claude::render(&live, &chrome, cols, rows));
+            let seeded_grid = claude::render(&seeded, &chrome, cols, rows);
+            let b = real.parity(&seeded_grid);
+            for (total, p) in totals.iter_mut().zip([a, b]) {
+                total.0 += p.0;
+                total.1 += p.1;
+            }
+            report.push_str(&format!("| {name} | {moment} | {:.1}% | {:.1}% |\n", pct(a), pct(b)));
+            dumps.push_str(&format!(
+                "  {name} {moment} (seeded):\n{}",
+                diff_rows(&real, &seeded_grid)
+            ));
+        }
+        let (live, seeded) = (pct(totals[0]), pct(totals[1]));
+        report.push_str(&format!("| {name} | all | {live:.1}% | {seeded:.1}% |\n"));
+        println!("rows that differ, {name}:\n{dumps}");
+        for (kind, got) in [("live", live), ("seeded", seeded)] {
+            let floor = floors[name.as_str()][kind].as_f64().unwrap_or(0.0);
+            if got + 0.05 < floor {
+                failures.push(format!("{name} {kind}: {got:.1}% under its floor {floor:.1}%"));
+            } else if got > floor + 0.05 {
+                println!(
+                    "{name} {kind}: {got:.1}% over its floor {floor:.1}%: raise parity-floor.json"
+                );
+            }
+        }
+    }
+    std::fs::remove_file(&scratch).ok();
+    println!("{report}");
+    assert!(failures.is_empty(), "{failures:#?}");
 }

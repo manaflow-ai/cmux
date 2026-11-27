@@ -30,6 +30,9 @@ import {
   triggerKey,
 } from "./placeModel";
 import { evacuateActions, placeActions } from "./usePlace";
+import { MoveDock, PlaceChip } from "./PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
+import { setExperimentSwitches } from "../../../experiments/switches";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,7 +41,16 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "CSS",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -47,6 +59,7 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    CSS: dom.window.CSS ?? { escape: (text: string) => text },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
@@ -134,6 +147,18 @@ test("place carries Rust's blocked reason and slot holders, and drops ones it do
       ?.holders,
   ).toEqual([{ session: "h", title: "Held" }]);
   expect(placeOf({ mode: "auto", at: "local", holders: [] })?.holders).toBeUndefined();
+  expect(
+    placeOf({ mode: "auto", at: "local", keep: { priority: "high", lit: false, waiting: true, used: 1, total: 1 } })
+      ?.keep,
+  ).toEqual({ priority: "high", lit: false, waiting: true, used: 1, total: 1 });
+  expect(placeOf({ mode: "auto", at: "local", keep: { used: -2, total: "3" } })?.keep).toEqual({
+    priority: "normal",
+    lit: false,
+    waiting: false,
+    used: 0,
+    total: 0,
+  });
+  expect(placeOf({ mode: "auto", at: "local" })?.keep).toBeUndefined();
 });
 
 test("the header state keeps the place until a push names it again", () => {
@@ -143,6 +168,24 @@ test("the header state keeps the place until a push names it again", () => {
   expect(headerState().place?.mode).toBe("auto");
   setHeaderState({ place: null });
   expect(headerState().place).toBeUndefined();
+});
+
+test("the chat's cloud controls draw only while Settings > Experiments' Cloud Toggle is on", async () => {
+  setHeaderState({ place: { mode: "auto", at: "local", move: MOVES.moving } });
+  const mounts = (
+    <>
+      <PlaceChip session="s1" />
+      <HybridChip session="s1" />
+      <MoveDock session="s1" />
+    </>
+  );
+  setExperimentSwitches({});
+  const off = await draw(mounts);
+  expect(off.textContent).toBe("");
+  await act(async () => setExperimentSwitches({ cloudToggle: true }));
+  expect(off.textContent).not.toBe("");
+  await act(async () => setExperimentSwitches({}));
+  expect(off.textContent).toBe("");
 });
 
 test("the clock ticks from the start while moving and stops at the app's time when it ended", () => {

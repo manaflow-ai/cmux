@@ -158,6 +158,7 @@ import Testing
         }
     }
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (a) A prompt whose write took longer than the window (a large attachment on a slow link)
     /// and then failed is held, not bounced as "unreachable": it is delivered once the link is
     /// back, with no notice and no draft returned.
@@ -184,7 +185,9 @@ import Testing
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
     }
+    #endif
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (b) A prompt write that times out on a ready link says nothing within the window, though
     /// each write took longer than the window; past a window with no write getting through, the
     /// draft comes back with the short line.
@@ -209,12 +212,16 @@ import Testing
         // A whole window passes between two attempts (the prompt is held, not being written;
         // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
-        clock.advance(by: .seconds(11))
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        // Past the window the outbox holds (``AgentChatStore/sendDeadline``), not a number of its own.
+        clock.advance(by: source.heldPromptWindow + .seconds(1))
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.returnedDraft == nil)
+        #expect(store.clientError == nil)
     }
+    #endif
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (b2) A write that fails at once, again and again, on a channel that still says ready is
     /// not held for good: each failure moves the wait on only by what the write took (nothing),
     /// so the window still runs out and the draft comes back.
@@ -232,20 +239,23 @@ import Testing
         // with a failed attempt in each: never a whole window between two attempts, so only a
         // wait that is not restarted by each failure can run out (the Rust outbox ages it from
         // the first failure and moves it on by what each write took: nothing here).
-        for _ in 0..<6 where store.returnedDraft == nil {
+        // Enough 4 s steps to pass the window the outbox holds (``AgentChatStore/sendDeadline``), and two more.
+        let steps = Int(source.heldPromptWindow / .seconds(4)) + 2
+        for _ in 0..<steps where store.turns.last?.localSend != .notSent {
             let before = channel.promptWrites
             clock.advance(by: .seconds(4))
             // The prompt is queued (not mid-write) whenever the test moves the clock, so the
             // advance is never counted as time a write took.
             await eventually {
-                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
+                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.turns.last?.localSend == .notSent
             }
         }
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
         #expect(mac.prompts.isEmpty)
     }
+    #endif
 
     /// (c) A read stalled behind a large prompt write still going out on the same channel is slow,
     /// not stalled: the channel is not rebound (which cut the write off and sent the prompt twice

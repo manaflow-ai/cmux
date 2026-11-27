@@ -308,14 +308,6 @@ public extension PageDescriptor {
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
-    /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
-    /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
-    /// the page runs only three account actions. Connect adds a credential, so it is the host op
-    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
-    static let coderouter = PageDescriptor(
-        id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
-
     /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
     /// page runs through cmux.app.action.run with origin page (the actions' own rules still apply).
     static let settingsSectionActions: Set<String> = Set(SettingsSection.allCases.flatMap { section in

@@ -60,6 +60,12 @@ impl<'de> Deserialize<'de> for Kind {
 #[serde(rename_all = "camelCase", default)]
 pub struct Row {
     pub tab_id: String,
+    /// The tab's durable id on the Mac (the daemon's `tab_resource_id`):
+    /// unlike `tabId`, a surface id that only means something within one run
+    /// of the daemon, it stays the tab's across daemon restarts and is never
+    /// given to another tab. Empty when unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub tab_key: String,
     pub title: String,
     pub kind: Kind,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,7 +95,8 @@ impl Row {
     /// True when the rows show the same thing. `capturedAtMs` is not content:
     /// a recapture with the same bytes is not a change.
     pub fn same_content(&self, other: &Self) -> bool {
-        self.title == other.title
+        self.tab_key == other.tab_key
+            && self.title == other.title
             && self.kind == other.kind
             && self.favicon_hash == other.favicon_hash
             && self.thumb_hash == other.thumb_hash
@@ -120,6 +127,8 @@ where
 #[serde(rename_all = "camelCase", default)]
 pub struct RowPatch {
     pub tab_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,6 +176,7 @@ impl RowPatch {
     pub fn full(row: &Row) -> Self {
         Self {
             tab_id: row.tab_id.clone(),
+            tab_key: Some(row.tab_key.clone()),
             title: Some(row.title.clone()),
             kind: Some(row.kind.clone()),
             favicon_hash: Some(row.favicon_hash),
@@ -190,6 +200,7 @@ impl RowPatch {
         }
         Some(Self {
             tab_id: new.tab_id.clone(),
+            tab_key: changed(&old.tab_key, &new.tab_key),
             title: changed(&old.title, &new.title),
             kind: changed(&old.kind, &new.kind),
             favicon_hash: changed(&old.favicon_hash, &new.favicon_hash),
@@ -208,6 +219,7 @@ impl RowPatch {
     /// Folds a later patch for the same tab into this one: a field the later
     /// patch carries wins.
     pub fn merge(&mut self, next: Self) {
+        later(&mut self.tab_key, next.tab_key);
         later(&mut self.title, next.title);
         later(&mut self.kind, next.kind);
         later(&mut self.favicon_hash, next.favicon_hash);
@@ -224,6 +236,7 @@ impl RowPatch {
 
     /// Writes the carried fields into `row`.
     pub fn apply(&self, row: &mut Row) {
+        take(&mut row.tab_key, self.tab_key.clone());
         take(&mut row.title, self.title.clone());
         take(&mut row.kind, self.kind.clone());
         take(&mut row.favicon_hash, self.favicon_hash);

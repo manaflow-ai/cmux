@@ -40,6 +40,7 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
+  retryFreestyleOverload,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -78,6 +79,19 @@ import {
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./cmux-vm-image/machine-health";
+
+/**
+ * What a failed machine-health smoke prints next: the health unit's own journal (which step of
+ * the pass ran out its 45 s, or what killed it), the units still starting (the re-arm's overdue
+ * housekeeping timers share the disk with the pass, which runs at idle I/O priority), and load.
+ * Here, not in cmux-vm-image/machine-health.ts, so it is no rebake input.
+ */
+const MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND = [
+  "journalctl -u cmux-machine-health.service -o short-monotonic --no-pager -n 40",
+  "echo activating: $(systemctl list-units --state=activating --no-legend --plain | awk '{print $1}' | tr '\\n' ' ')",
+  "echo loadavg: $(cat /proc/loadavg)",
+  "echo psi-io: $(tr '\\n' ' ' < /proc/pressure/io 2>/dev/null)",
+].join("; ");
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -333,8 +347,10 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   `[ "$(find ${DEVBOX_WORK_HOME} -not -user ${DEVBOX_WORK_USER} | wc -l)" = 0 ] && echo home-owned-by-work-user`,
   // ble.sh uses a boot-scoped /tmp runtime root instead of the transient
   // XDG runtime directory. Keep that root present while the durable shell
-  // runs, then prove the caller's XDG value remains independent.
-  `runtime_probe=$(mktemp -d /tmp/cmux-blesh-runtime-probe.XXXXXX) && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} "$runtime_probe" && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color XDG_RUNTIME_DIR="$runtime_probe" CMUX_BLESH_RUNTIME_SENTINEL="$runtime_probe/sentinel" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'set -eu; tmux -L blesh-runtime-probe new-session -d -s login -x 120 -y 30; sleep 3; test -d "/tmp/cmux-blesh-runtime-$(id -u)/blesh"; tmux -L blesh-runtime-probe send-keys -t login "printf CMUX_BLESH_RUNTIME_OK > \\\"$CMUX_BLESH_RUNTIME_SENTINEL\\\"" Enter; sleep 1; tmux -L blesh-runtime-probe capture-pane -pt login >/dev/null; test -s "$CMUX_BLESH_RUNTIME_SENTINEL"; tmux -L blesh-runtime-probe kill-server' && test -s "$runtime_probe/sentinel" && rm -rf "$runtime_probe" && echo blesh-runtime-dir-isolated`,
+  // runs, then prove the caller's XDG value remains independent. Each wait
+  // polls up to 30 s: a fixed 3 s/1 s sleep lost the race on a loaded bake VM
+  // (rebake runs 45897047683 and 45920283687 attempt 2).
+  `runtime_probe=$(mktemp -d /tmp/cmux-blesh-runtime-probe.XXXXXX) && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} "$runtime_probe" && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color XDG_RUNTIME_DIR="$runtime_probe" CMUX_BLESH_RUNTIME_SENTINEL="$runtime_probe/sentinel" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'set -eu; wait_for() { n=0; until "$@"; do n=$((n+1)); if [ "$n" -ge 120 ]; then echo "timed out after 30 s waiting for: $*"; tmux -L blesh-runtime-probe capture-pane -pt login || true; tmux -L blesh-runtime-probe kill-server 2>/dev/null || true; exit 1; fi; sleep 0.25; done; }; tmux -L blesh-runtime-probe new-session -d -s login -x 120 -y 30; wait_for test -d "/tmp/cmux-blesh-runtime-$(id -u)/blesh"; tmux -L blesh-runtime-probe send-keys -t login "printf CMUX_BLESH_RUNTIME_OK > \\\"$CMUX_BLESH_RUNTIME_SENTINEL\\\"" Enter; wait_for test -s "$CMUX_BLESH_RUNTIME_SENTINEL"; tmux -L blesh-runtime-probe kill-server' && test -s "$runtime_probe/sentinel" && rm -rf "$runtime_probe" && echo blesh-runtime-dir-isolated`,
   // Not cosmetic: cmux-tui refuses to store its Noise identity under a group-
   // or other-writable ancestor, and the daemon's state dir lives in this home.
   // Ubuntu's user-private-group umask (002) is what puts it there.
@@ -454,7 +470,7 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
+  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -498,7 +514,7 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
+    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
@@ -574,6 +590,12 @@ if (provider === "freestyle") {
     const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
     console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
     const healthOk = healthProblems.length === 0;
+    if (!healthOk) {
+      // Run 45897047683 failed with only "one pass: exit 1, result timeout": the problem list
+      // can't say which step of the pass ran past the unit's 45 s, or what else held the disk.
+      const why = await exec(MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND, 30_000);
+      console.log(`  $ machine-health failure context\n    ${why.output.trim().split("\n").join("\n    ")}`);
+    }
     pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!healthOk) console.log("[freestyle] machine-health check FAILED");

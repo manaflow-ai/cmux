@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "instructions.outside" : {
+      "comment" : "Agent pane: the chat menu's Edit CLAUDE.md/AGENTS.md could not open the file (cx-bopcl)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't open {file}: it's outside the folders this chat can open."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذّر فتح {file}: إنه خارج المجلدات التي يمكن لهذه الدردشة فتحها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće otvoriti {file}: izvan je foldera koje ovaj razgovor može otvoriti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke åbne {file}: den ligger uden for de mapper, denne chat kan åbne."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{file} konnte nicht geöffnet werden: Die Datei liegt außerhalb der Ordner, die dieser Chat öffnen kann."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo abrir {file}: está fuera de las carpetas que este chat puede abrir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible d'ouvrir {file} : il se trouve hors des dossiers que cette discussion peut ouvrir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile aprire {file}: si trova fuori dalle cartelle che questa chat può aprire."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{file} を開けませんでした: このチャットが開けるフォルダの外にあります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចបើក {file} បានទេ៖ វានៅក្រៅថតដែលការជជែកនេះអាចបើកបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{file}을(를) 열 수 없습니다: 이 채팅이 열 수 있는 폴더 밖에 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke åpne {file}: den ligger utenfor mappene denne chatten kan åpne."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można otworzyć {file}: znajduje się poza folderami, które ten czat może otworzyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível abrir {file}: ele está fora das pastas que este chat pode abrir."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось открыть {file}: он находится за пределами папок, доступных этому чату."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิด {file} ไม่ได้: อยู่นอกโฟลเดอร์ที่แชตนี้เปิดได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{file} açılamadı: bu sohbetin açabildiği klasörlerin dışında."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося відкрити {file}: він поза теками, які може відкрити цей чат."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể mở {file}: tệp nằm ngoài các thư mục mà cuộc trò chuyện này có thể mở."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法打开 {file}：它不在此聊天可打开的文件夹中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法打開 {file}：它不在此聊天可打開的資料夾中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.start.live.help" : {
+      "comment" : "Agent pane, the three-state cloud control by the composer (hybrid start): tooltip once the chat runs on its Cloud machine",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل هذه الدردشة على جهازها السحابي، وتستمر حتى عند إغلاق هذا الـ Mac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj chat radi na svojoj Cloud mašini i nastavlja kada zatvoriš ovaj Mac."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chat kører på sin Cloud-maskine og fortsætter, når du lukker denne Mac."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Chat läuft auf seiner Cloud-Maschine und läuft weiter, wenn du diesen Mac zuklappst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat runs on its Cloud machine and keeps going when you close this Mac."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat se ejecuta en su máquina de Cloud y sigue cuando cierras este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce chat tourne sur sa machine Cloud et continue quand vous fermez ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa chat gira sulla sua macchina Cloud e continua quando chiudi questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットはCloudマシンで動いており、このMacを閉じても続きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកនេះដំណើរការលើម៉ាស៊ីន Cloud របស់វា ហើយបន្តនៅពេលអ្នកបិទ Mac នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅은 Cloud 머신에서 실행되며 이 Mac을 닫아도 계속됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chatten kjører på Cloud-maskinen og fortsetter når du lukker denne Macen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten czat działa na swojej maszynie Cloud i trwa dalej, gdy zamkniesz tego Maca."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat roda na sua máquina do Cloud e continua quando você fecha este Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот чат работает на своей машине в Cloud и продолжается, когда вы закрываете этот Mac."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชทนี้ทำงานบนเครื่อง Cloud และทำต่อไปแม้คุณปิด Mac เครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbet Cloud makinesinde çalışır ve bu Mac’i kapattığında da sürer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей чат працює на своїй машині в Cloud і триває, коли ви закриваєте цей Mac."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện này chạy trên máy Cloud và vẫn tiếp tục khi bạn đóng máy Mac này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天在它的 Cloud 机器上运行，合上这台 Mac 也会继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天在它的 Cloud 機器上執行，闔上這台 Mac 也會繼續。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

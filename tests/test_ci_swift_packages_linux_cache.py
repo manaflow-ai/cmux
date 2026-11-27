@@ -144,13 +144,35 @@ class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", True, False),
                 ("workflow_dispatch", "refs/heads/feat-cmux-next", True, False)]:
             for hit in ["true", "false", ""]:
-                # A run whose failures went to the Mac fallback (steps.handoff) passed only by handing them off.
+                # A run whose failures went to the Mac fallback (steps.handoff) passed only by handing them off;
+                # a run whose suites ran as fleet requests (steps.fleet-suites) built nothing here to save.
                 for handed in ["", "1"]:
-                    with self.subTest(event=event, ref=ref, job_succeeded=succeeded, cache_hit=hit, handed=handed):
-                        context = {"github.event_name": event, "github.ref": ref, "job_succeeded": succeeded,
-                                   "steps.build_cache.outputs.cache-hit": hit, "steps.handoff.outputs.handed": handed}
-                        self.assertIs(WithJobStatus(condition, context).evaluate(),
-                                      expected and hit != "true" and handed != "1")
+                    for fleet in ["", "success", "failure"]:
+                        with self.subTest(event=event, ref=ref, job_succeeded=succeeded, cache_hit=hit, handed=handed,
+                                          fleet=fleet):
+                            context = {"github.event_name": event, "github.ref": ref, "job_succeeded": succeeded,
+                                       "steps.build_cache.outputs.cache-hit": hit, "steps.handoff.outputs.handed": handed,
+                                       "steps.fleet-suites.outcome": fleet}
+                            self.assertIs(WithJobStatus(condition, context).evaluate(),
+                                          expected and hit != "true" and handed != "1" and fleet != "success")
+
+    def test_our_listed_suites_are_one_linux_then_mac_fleet_request_each(self):
+        steps = self.steps()
+        fetch = next(s for s in steps if s.get("id") == "fleet")
+        fleet = next(s for s in steps if s.get("id") == "fleet-suites")
+        local = next(s for s in steps if s.get("name") == "package-test-lane.sh suite, every listed package")
+        # Only our own runs (MAC_FALLBACK) ask the fleet; a fetch that fails keeps the run on this container.
+        self.assertIn("env.MAC_FALLBACK == '1'", fetch["if"])
+        self.assertTrue(fetch.get("continue-on-error"))
+        self.assertIn("--kinds", fetch["run"])
+        self.assertIn("steps.fleet.outputs.client != ''", fleet["if"])
+        self.assertIn("steps.fleet.outputs.client == ''", local["if"])
+        for needed in ("--kinds linux,mac", "--spill-after", "scripts/ci/package-test-lane.sh", "--arg=suite",
+                       "scripts/ci/swift-linux-packages.txt", 'exit "$status"'):
+            self.assertIn(needed, fleet["run"])
+        # The controller owns this path's Mac fallback: nothing from it goes to the handoff.
+        self.assertNotIn("linux-failed.tsv", fleet["run"])
+        self.assertIn("linux-failed.tsv", local["run"])
 
     def test_push_runs_are_not_cancelled_before_they_seed(self):
         cancel = load_yaml(self.LISTED)["concurrency"]["cancel-in-progress"]

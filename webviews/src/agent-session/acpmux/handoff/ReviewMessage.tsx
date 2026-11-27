@@ -197,6 +197,7 @@ export function HandoffReviewMessage({
             {s.discard}
           </button>
           <button type="button" onClick={onReload} disabled={!!state.busy}>
+            {/* retry-prompt-ok: not a failure's retry; it drops the person's unsaved edits for the saved review. */}
             {s.reload}
           </button>
         </div>

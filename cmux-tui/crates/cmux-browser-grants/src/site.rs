@@ -107,10 +107,18 @@ pub fn site_of(host: &str) -> String {
         return h;
     }
     let labels: Vec<&str> = h.split('.').collect();
-    for i in 1..labels.len() {
-        if MULTI_SUFFIXES.contains(&labels[i..].join(".").as_str()) {
-            return labels[i - 1..].join(".");
+    // `site` is a multi-label suffix plus the one label before it.
+    for start in 0..labels.len().saturating_sub(1) {
+        let (Some(site), Some(suffix)) =
+            (labels.get(start..), labels.get(start.saturating_add(1)..))
+        else {
+            break;
+        };
+        if MULTI_SUFFIXES.contains(&suffix.join(".").as_str()) {
+            return site.join(".");
         }
     }
-    labels[labels.len() - 2..].join(".")
+    labels
+        .get(labels.len().saturating_sub(2)..)
+        .map_or_else(|| h.clone(), |last_two| last_two.join("."))
 }

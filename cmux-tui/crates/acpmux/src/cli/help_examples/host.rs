@@ -459,6 +459,49 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine hypervisor",
+        &[
+            (
+                "Run the host agent on this libvirt host",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            ("List this host's cmux VMs and their leases", "acpmux machine hypervisor ls"),
+        ],
+    ),
+    (
+        "machine hypervisor serve",
+        &[
+            (
+                "Serve VMs backed by a base image",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            (
+                "One pass against the system libvirt, as JSON",
+                "acpmux machine hypervisor serve --connect qemu:///system --once --json",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor apply",
+        &[
+            (
+                "Queue a VM that is deleted after a day",
+                "cat create.json | acpmux machine hypervisor apply",
+            ),
+            (
+                "Queue a command under your own id",
+                "cat pause.json | acpmux machine hypervisor apply --id pause-a1",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor ls",
+        &[
+            ("List this host's cmux VMs", "acpmux machine hypervisor ls"),
+            ("List them with their leases as JSON", "acpmux machine hypervisor ls --json"),
+        ],
+    ),
+    (
         "channel",
         &[
             (
@@ -497,5 +540,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux channel open review --text hi --reply",
             ),
         ],
+    ),
+    ("machine vault audit", &[("Audit this machine's vault state", "acpmux machine vault audit")]),
+    (
+        "machine approvals grant",
+        &[("Record a standing pre-grant on this machine", "acpmux machine approvals grant")],
     ),
 ];

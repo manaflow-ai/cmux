@@ -87,11 +87,6 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
-                        // A new turn (not a steer into this one): the task list ages a turn
-                        // (`task_plan.rs`).
-                        if !steer {
-                            self.task_plan.lock().await.begin_turn();
-                        }
                         // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
                         if p.pointer("/prompt/0/text")
                             .and_then(Value::as_str)
@@ -106,6 +101,9 @@ impl Translator {
                         }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+                        // The files the hub's prefetch attached are in the context from now
+                        // on: a later Read of them is stubbed (dedupe.rs, RFD 0160).
+                        self.dedupe_prefetch(&blocks).await;
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {

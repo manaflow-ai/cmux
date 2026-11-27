@@ -30,7 +30,7 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
   billing files in the app.
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
-  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+  `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
 ## Try a PR on the person's phone: cmux Dev
 
@@ -119,7 +119,9 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
-3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+3. On every connected, paired iPhone of this Mac's person (a new phone plugged in by USB is
+   registered; a phone this Mac does not know that it reaches only over Wi-Fi, such as a
+   teammate's test phone, is skipped and reported; `--device-id` names one): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the
    tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
@@ -143,10 +145,10 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux-next/cmux-next.json`
   that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
   on; when it is off, `review.sh` reports that as the blocker.
-- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux-next/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
 - A development profile on this Mac for each bundle (the app and its two notification
   extensions) that names each phone; the team wildcard profile covers all three. A phone no
@@ -180,15 +182,16 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Landing an iOS PR
 
-A PR that changes iOS code waits for Aziz's review. It lands without him only when it's proven
-correct and fully functional, with its implications written in the PR. merge_hold reads one line in
-the PR body:
+An iOS PR lands like any other `feat-cmux-next` PR: green CI and a review SHIP at the exact head. Nobody
+waits on Aziz or tells him after (Leo, 2026-11-23: "i already told interim-coord: do not hold. if you can
+argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than
+can be solved. ever."; "you dont have to keep telling aziz"). His reviews are welcome as follow-ups.
 
-- `iOS-hold: strict fix`: a basic correctness fix, plus an independent review SHIP at the exact head
-  that confirms it.
-- `iOS-hold: proven`: a test that fails without the change and passes with it (run links), the flow
-  working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
-  the exact head that confirms all three.
+land-judge still asks a PR that changes iOS UI code for its case, one of these lines in the body:
 
-A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
-Either way, post a comment on the PR that mentions Aziz so he knows it's coming.
+- `Merge-case: <why it should merge now>` (at least 8 words), the usual route.
+- `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+- `iOS-hold: proven` with a test that fails without the change, the flow working in a simulator or on a
+  device, a `## Implications` section, and a review SHIP at the head that confirms them.
+
+A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` need no case.

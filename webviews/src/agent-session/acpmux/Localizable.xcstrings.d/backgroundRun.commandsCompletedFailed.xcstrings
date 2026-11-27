@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "backgroundRun.commandsCompletedFailed" : {
+      "comment" : "Agent pane transcript: the one muted line of two or more background shell commands in a row, some of which completed and some failed; {n} is how many ended well, {failed} how many failed; it opens to show each (conversation/backgroundRuns.ts)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} background commands completed, {failed} failed"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتهت {n} أوامر في الخلفية، وفشل {failed}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Završeno pozadinskih naredbi: {n}, neuspjelo: {failed}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} baggrundskommandoer afsluttet, {failed} mislykkedes"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} Hintergrundbefehle beendet, {failed} fehlgeschlagen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} comandos en segundo plano terminados, {failed} fallaron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} commandes en arrière-plan terminées, {failed} en échec"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} comandi in background completati, {failed} non riusciti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} 件のバックグラウンドコマンドが完了、{failed} 件が失敗"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់ {failed} បរាជ័យ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "백그라운드 명령 {n}개 완료, {failed}개 실패"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} bakgrunnskommandoer fullført, {failed} mislyktes"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zakończone polecenia w tle: {n}, nieudane: {failed}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} comandos em segundo plano concluídos, {failed} falharam"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Завершено фоновых команд: {n}, с ошибкой: {failed}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คำสั่งเบื้องหลังเสร็จแล้ว {n} คำสั่ง ล้มเหลว {failed} คำสั่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} arka plan komutu bitti, {failed} başarısız"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Завершено фонових команд: {n}, з помилкою: {failed}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} lệnh nền đã xong, {failed} lệnh lỗi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} 个后台命令已完成，{failed} 个失败"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} 個背景命令已完成，{failed} 個失敗"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

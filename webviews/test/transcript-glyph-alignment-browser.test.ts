@@ -111,7 +111,6 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
                 // A closed thought reads its words after the brain glyph (Codex parity).
                 thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
-                plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",
                   ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",

@@ -25,12 +25,17 @@
 //                    shiftWhat, ms }. A send's own shifts are result()'s; snappy-bench adds them up as one counter,
 //                    shifts per transition (shadow-leo for Leo, 2026-11-25: "count layout shifts across every turn
 //                    transition (send, steer, compaction) in one counter").
-//   seen(text)       whether a transcript row holds `text`; compacted(): whether a compaction note has ended
+//   seen(text)       whether a transcript row holds `text`; compacted(): whether a compaction note ended since watchArm
 (() => {
   if (window.__snappyProbe) return true;
   const ROW = ".acpmux-row";
   const REPLY = ".acpmux-row.acpmux-assistant";
   let run = null;
+  // The row ids of the compaction notes drawn as ended (any state but running).
+  const endedNotes = () =>
+    [...document.querySelectorAll(".cv-compaction")]
+      .filter((note) => note.getAttribute("data-state") !== "running")
+      .map((note) => note.closest("[data-row-id]")?.getAttribute("data-row-id") ?? "");
   let switching = null;
   let watch = null;
   const shiftsOf = (list) => ({
@@ -147,7 +152,7 @@
     watchArm(kind) {
       if (watch?.stop) watch.stop();
       const shifts = [];
-      watch = { kind, shifts, start: performance.now() };
+      watch = { kind, shifts, start: performance.now(), endedBefore: new Set(endedNotes()) };
       watch.stop = shiftObserver((entry) => {
         if (entry.hadRecentInput || !(entry.value > 0)) return;
         shifts.push({ value: entry.value, what: describe(entry.sources?.[0]?.node), at: entry.startTime });
@@ -164,9 +169,9 @@
     seen(text) {
       return [...document.querySelectorAll(ROW)].some((row) => row.textContent.includes(text));
     },
+    // A note that ended since the last watchArm: an earlier /compact's note, still on screen, is not this one's end.
     compacted() {
-      const notes = document.querySelectorAll(".cv-compaction");
-      return notes.length > 0 && notes[notes.length - 1].getAttribute("data-state") !== "running";
+      return endedNotes().some((id) => !watch?.endedBefore?.has(id));
     },
     switchArm() {
       switching = { armed: true };

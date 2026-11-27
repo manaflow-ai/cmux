@@ -261,11 +261,14 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
+/// `kind`: what each delta is: reply text (the default), a thought's text (`agent_thought_chunk`), or
+/// a status change alone (`usage_update`: the context ring's count moves, no row changes).
 export type LoadStreamOptions = {
   seconds: number;
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  kind?: "text" | "thought" | "status";
   /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
   prefixWords?: number;
   prefixSettleMs?: number;
@@ -571,7 +574,12 @@ export class MockAcpmuxSocket {
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
-      this.emit(target, { update: text(chunk) });
+      const kind = options.kind ?? "text";
+      if (kind === "thought")
+        this.emit(target, { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: chunk } } });
+      else if (kind === "status")
+        this.emit(target, { update: { sessionUpdate: "usage_update", used: 20_000 + at * 4, size: 200_000 } });
+      else this.emit(target, { update: text(chunk) });
       deltas += 1;
       const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
       if (due > toolLines) {
@@ -686,7 +694,7 @@ export class MockAcpmuxSocket {
   /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
   async addLoadTools(
     target: string,
-    options: { count: number; gapMs: number; keepOpen: boolean },
+    options: { count: number; gapMs: number; keepOpen: boolean; reply?: string },
   ): Promise<{ tools: number; events: number }> {
     let open = this.openToolTurns.get(target);
     if (!open) {
@@ -710,6 +718,17 @@ export class MockAcpmuxSocket {
         }),
       });
       events += 2;
+      await this.delay(options.gapMs);
+    }
+    // `reply`: the turn's closing answer, marked the final one (`_meta.codex.phase`, read by
+    // direct.ts), so the rows only a concluded turn draws -- its walkthrough, its tagged ask card --
+    // are in play. Without it a turn ends on its calls alone and those rows never appear, which is
+    // how the judged scenario missed the append Leo kept finding (turns.ts `concluding`). It arrives
+    // whether or not the turn then ends: with `keepOpen` the turn sits on its marked final answer,
+    // which is the state the end has to swap out of without moving anything.
+    if (options.reply) {
+      this.emit(target, { update: { ...text(options.reply), _meta: { codex: { phase: "final_answer" } } } });
+      events += 1;
       await this.delay(options.gapMs);
     }
     if (!options.keepOpen) {

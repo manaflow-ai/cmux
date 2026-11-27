@@ -212,14 +212,40 @@ pub fn web_engine(bundle_id: Option<&str>) -> WebEngine {
     if chromium { WebEngine::Chromium } else { WebEngine::Other }
 }
 
+/// Apps that draw Chromium pages inside their own windows and build those
+/// pages' accessibility trees only while a client asks, by bundle id: an
+/// exact id, or a prefix ending in `.` (any case). cmux draws its agent
+/// chats in Chromium (CEF): until `AXManualAccessibility` or
+/// `AXEnhancedUserInterface` is set on its application element
+/// (`CmuxApplication`, `CEFAccessibility` in the app), a chat page shows
+/// nothing to accessibility, so get_ui_tree saw no message or composer.
+pub const CHROMIUM_EMBEDDERS: &[&str] = &["com.cmuxterm.app", "com.cmuxterm.app."];
+
+/// Whether the app with `bundle_id` embeds Chromium pages ([`CHROMIUM_EMBEDDERS`]).
+pub fn embeds_chromium(bundle_id: Option<&str>) -> bool {
+    bundle_id.is_some_and(|id| {
+        let id = id.to_ascii_lowercase();
+        CHROMIUM_EMBEDDERS.iter().any(|p| {
+            let p = p.to_ascii_lowercase();
+            if p.ends_with('.') { id.starts_with(&p) } else { id == p }
+        })
+    })
+}
+
 /// The app attribute that makes an app show its web content to
-/// accessibility, if it needs one: Chromium builds its pages' accessibility
-/// trees only for an assistive client that sets `AXEnhancedUserInterface`
-/// (Chrome 157 on macOS 26.6 and 27.0.1: no page elements without it, the
-/// page within 2 s with it; it refuses `AXManualAccessibility`). WebKit
-/// shows its pages to any client.
-pub fn web_accessibility_attribute(engine: WebEngine) -> Option<&'static str> {
-    match engine {
+/// accessibility, if it needs one. A Chromium browser builds its pages'
+/// accessibility trees only for an assistive client that sets
+/// `AXEnhancedUserInterface` (Chrome 157 on macOS 26.6 and 27.0.1: no page
+/// elements without it, the page within 2 s with it; it refuses
+/// `AXManualAccessibility`). An app that embeds Chromium
+/// ([`embeds_chromium`]: cmux) takes `AXManualAccessibility`, the automation
+/// driver's attribute, which leaves the app's own behavior for screen readers
+/// alone. WebKit shows its pages to any client.
+pub fn web_accessibility_attribute(bundle_id: Option<&str>) -> Option<&'static str> {
+    if embeds_chromium(bundle_id) {
+        return Some("AXManualAccessibility");
+    }
+    match web_engine(bundle_id) {
         WebEngine::Chromium => Some("AXEnhancedUserInterface"),
         WebEngine::Other => None,
     }
@@ -1936,6 +1962,49 @@ pub fn layout_of(input_source_id: Option<&str>, enabled_sources_recorded: bool) 
         ) => Layout::LettersDigits,
         Some(_) => Layout::Other,
     }
+}
+
+/// One entry of HIToolbox's `AppleSelectedInputSources` or
+/// `AppleEnabledInputSources`: its `InputSourceKind` and, for a keyboard
+/// layout, its `KeyboardLayout Name`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputSourceEntry {
+    pub kind: Option<String>,
+    pub layout_name: Option<String>,
+}
+
+/// The current keyboard layout's input source ID when HIToolbox recorded no
+/// `AppleCurrentKeyboardLayoutInputSourceID` (macOS writes that key only after
+/// a layout switch, so a Mac that was never switched has none): the one
+/// keyboard layout among the selected sources, else the one enabled layout
+/// (the only one, so the current one). None, which fails closed, when either
+/// list holds an input method (it can translate keys its own way) or the
+/// chosen list holds more than one layout. Only the layout's name is known
+/// here; a name that is not its ID's last part (`U.S.` is `US`) makes an ID
+/// `layout_of` does not know, so it fails closed too.
+pub fn layout_id_from_sources(
+    selected: &[InputSourceEntry],
+    enabled: &[InputSourceEntry],
+) -> Option<String> {
+    let layout = |e: &InputSourceEntry| e.kind.as_deref() == Some("Keyboard Layout");
+    // Emoji & Symbols and other palettes do not type keys.
+    let method =
+        |e: &InputSourceEntry| !layout(e) && e.kind.as_deref() != Some("Non Keyboard Input Method");
+    if selected.iter().chain(enabled).any(method) {
+        return None;
+    }
+    let list = if selected.iter().any(layout) { selected } else { enabled };
+    let mut layouts = list.iter().filter(|e| layout(e));
+    let only = layouts.next()?;
+    if layouts.next().is_some() {
+        return None;
+    }
+    let name = only.layout_name.as_deref()?;
+    let id = match name {
+        "U.S." => "US",
+        other => other,
+    };
+    Some(format!("com.apple.keylayout.{id}"))
 }
 
 /// Whether the Services check can place `key` on `layout`: arrows, function

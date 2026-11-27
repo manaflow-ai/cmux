@@ -484,7 +484,10 @@ const DENSITIES: MakeItYoursDensity[] = [
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
  * Terminal First, and after a person picked Compact and a painting. */
-export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
+export function makeItYoursState(
+  kind: MakeItYoursFixture = "fresh",
+  { introWalk = false, walk }: { introWalk?: boolean; walk?: MakeItYoursState["walk"] } = {},
+): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
     density: kind === "picked" ? "compact" : "cozy",
@@ -497,6 +500,8 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     materials: ["none", "frosted", "glass", "glass-clear"],
     chatsRunIn: kind === "picked" ? "cloud" : "local",
     loaded: kind !== "loading",
+    ...(introWalk ? { introWalk: true } : {}),
+    ...(walk ? { walk } : {}),
   };
   return {
     step: "makeItYours",
@@ -507,3 +512,77 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     makeItYours: choices,
   };
 }
+
+// MARK: The intro walk's gallery arms (gallery only: no host op, nothing shipped reads these)
+
+/** A whole-app look, applied as one atomic write with one Undo (the walk's step 1). `traits` draw its
+ * miniature; `sets` is what the one write would change, as settings keys. */
+export interface WalkBundle {
+  id: string;
+  name: string;
+  line: string;
+  sets: string[];
+  traits: { glass?: boolean; twoTone?: boolean; solid?: boolean; dense?: boolean };
+}
+
+/** The five bundles the walk's look step offers (House is the control: today's defaults). */
+export const WALK_BUNDLES: readonly WalkBundle[] = [
+  { id: "house", name: "House", line: "Today's cmux, as it ships.", sets: [], traits: {} },
+  {
+    id: "glasshouse",
+    name: "Glasshouse",
+    line: "Glass panes over a painting that shows through.",
+    sets: ["appearance.backgroundImage", "appearance.backgroundBlur: glass", "appearance.backgroundOpacity: 60%"],
+    traits: { glass: true },
+  },
+  {
+    id: "twoToneStudio",
+    name: "Two-Tone Studio",
+    line: "Sidebar and tab bar in a second color from your theme.",
+    sets: ["appearance.twoTone: auto"],
+    traits: { twoTone: true },
+  },
+  {
+    id: "quietSolid",
+    name: "Quiet Solid",
+    line: "Opaque, no picture and no glass: the calmest window.",
+    sets: ["appearance.backgroundImage: none", "appearance.backgroundBlur: none"],
+    traits: { solid: true },
+  },
+  {
+    id: "denseOperator",
+    name: "Dense Operator",
+    line: "Compact rows, so many sessions fit at once.",
+    sets: ["appearance.density: compact"],
+    traits: { dense: true },
+  },
+];
+
+/** `agents.defaultPermissionMode`, with the shipped value (fullAccess) first-picked. */
+export const WALK_PERMISSIONS = [
+  {
+    id: "ask",
+    name: "Ask",
+    line: "Agents ask before they edit a file or run a command.",
+  },
+  {
+    id: "standard",
+    name: "Standard",
+    line: "Each agent keeps its own rules, as it does outside cmux.",
+  },
+  {
+    id: "fullAccess",
+    name: "Full access",
+    line: "Agents edit and run commands without asking; stop one any time.",
+  },
+] as const;
+export const WALK_SHIPPED_PERMISSION = "fullAccess";
+
+/** Notification noise: `notifications.desktop` and `notifications.sound` together. The shipped pair
+ * (unlessFocused, default sound) is Banners and sound. */
+export const WALK_NOISE = [
+  { id: "quiet", name: "Quiet", line: "No banners or sounds; the sidebar marks a chat that needs you." },
+  { id: "banners", name: "Banners", line: "A banner when an agent finishes or needs you, silent." },
+  { id: "bannersSound", name: "Banners and sound", line: "A banner and a sound when an agent finishes or needs you." },
+] as const;
+export const WALK_SHIPPED_NOISE = "bannersSound";

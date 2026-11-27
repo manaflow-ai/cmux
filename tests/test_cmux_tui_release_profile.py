@@ -8,11 +8,11 @@ binary 16.8 MB larger (116.5 -> 133.3 MB). Thin LTO with 16 codegen units made
 it 24% larger in #27830, so cmux-tui, cmux-tui-core and acpmux keep one unit.
 
 The build workflow's `lto: fat` input means "the Cargo.toml release profile".
-Only build-machine-channel-x86_64 and build-machine-channel (aarch64) pass
-`lto: thin` (cmux-tui-build-package.yml: release LTO off): the Cloud machine
-channel's own copy of the two Linux musl targets, one call each, artifacts
-machine-channel-*, which only point-machine-channel-early (x86_64) and
-point-machine-channel-early-linux (both) read (cmux-tui-artifacts.yml MACHINE_CHANNEL_THIN; on the cmux-linux pool a
+Only cmux-machine-channel.yml's build-x86_64 and build-aarch64 pass `lto: thin`
+(cmux-tui-build-package.yml: release LTO off): the Cloud machine channel's own
+copy of the two Linux musl targets, one call each, artifacts machine-channel-*,
+which only that workflow's point-x86_64 and point-linux (both) read
+(MACHINE_CHANNEL_THIN; on the cmux-linux pool a
 fat leg builds cold in 23-40 min). Every other caller, and so every shipped
 app, npm, PyPI, release, R2 and tree artifact, keeps the Cargo.toml profile.
 ChannelOnlyThinTest checks that.
@@ -85,6 +85,10 @@ def resolve(value):
         whole = re.fullmatch(r"\$\{\{\s*" + PROFILE_REF.pattern + r"\s*\}\}", value)
         if whole:
             return profiles()[whole.group(1)][whole.group(2)]
+        # cmux-machine-channel.yml's plan job prints the machine_channel profile as its outputs.
+        plan = re.fullmatch(r"\$\{\{\s*needs\.plan\.outputs\.([a-z0-9_]+)\s*\}\}", value)
+        if plan:
+            return profiles()["machine_channel"][plan.group(1)]
     return value
 
 
@@ -116,8 +120,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     self.assertEqual(inputs.get("artifact_prefix", ""), "")
         # MACHINE_CHANNEL_THIN: the Cloud machine channel's own copy of the Linux targets, alone.
         # LINUX_X86_64_FIRST: one call per target, so the x86_64 point waits for no aarch64 leg.
-        self.assertEqual(thin, [("cmux-tui-artifacts.yml", "build-machine-channel-x86_64"),
-                                ("cmux-tui-artifacts.yml", "build-machine-channel")])
+        self.assertEqual(thin, [("cmux-machine-channel.yml", "build-x86_64"),
+                                ("cmux-machine-channel.yml", "build-aarch64")])
+        plan = workflow(ROOT / ".github/workflows/cmux-machine-channel.yml")["jobs"]["plan"]
+        self.assertIn('["machine_channel"]', "\n".join(str(st.get("run", "")) for st in plan["steps"]))
 
     def test_the_shipped_linux_binaries_come_from_the_fat_build(self):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
@@ -125,13 +131,17 @@ class ChannelOnlyThinTest(unittest.TestCase):
         target_set = jobs["build"]["with"]["target_set"]
         refs = PROFILE_REF.findall(target_set)
         self.assertEqual(refs, [("shipped", "target_set_main"), ("shipped", "target_set")])
-        self.assertEqual(profiles()["shipped"]["target_set_main"], "all")
-        self.assertEqual(profiles()["shipped"]["target_set"], "linux-macos-arm64")
+        self.assertEqual(profiles()["shipped"]["target_set_main"], "macos")
+        self.assertEqual(profiles()["shipped"]["target_set"], "macos-arm64")
         self.assertEqual(resolve(jobs["build"]["with"]["lto"]), "fat")
+        # The shipped Linux targets: build-linux, fat, from shipped.linux_target_set.
+        linux = jobs["build-linux"]["with"]
+        self.assertEqual(PROFILE_REF.findall(linux["target_set"]), [("shipped", "linux_target_set")])
+        self.assertEqual(profiles()["shipped"]["linux_target_set"], "linux")
+        self.assertEqual(resolve(linux["lto"]), "fat")
         for name in ("publish", "darwin-fallback-plan"):
             with self.subTest(job=name):
-                self.assertNotIn("build-linux", jobs[name]["needs"])
-                self.assertNotIn("build-linux", str(jobs[name].get("if", "")))
+                self.assertIn("build-linux", jobs[name]["needs"])
 
     def test_only_the_early_channel_reads_thin_artifacts(self):
         readers = []
@@ -143,19 +153,32 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     w = step.get("with") or {}
                     names = [str(w.get(k, "")) for k in ("name", "pattern")] if "download-artifact" in str(step.get("uses", "")) else []
                     names += re.findall(r"(?:--pattern|--name|-n)[ =]+[\"']?([^\s\"']+)", str(step.get("run", "")))
-                    if any(n.startswith(MACHINE_PREFIX) for n in names):
+                    # cloud-machine-channel-journey.yml's machine-channel-journey-* artifacts are its own
+                    # journey results (cmux#57007), not thin builds.
+                    if any(n.startswith(MACHINE_PREFIX) and not n.startswith("machine-channel-journey-")
+                           for n in names):
                         readers.append((path.name, name))
-        self.assertEqual(readers, [("cmux-tui-artifacts.yml", "point-machine-channel-early"),
-                                   ("cmux-tui-artifacts.yml", "point-machine-channel-early-linux")])
-        jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
-        early = jobs["point-machine-channel-early"]
+        self.assertEqual(readers, [("cmux-machine-channel.yml", "point-x86_64"),
+                                   ("cmux-machine-channel.yml", "point-linux")])
+        jobs = workflow(ROOT / ".github/workflows/cmux-machine-channel.yml")["jobs"]
+        early = jobs["point-x86_64"]
         # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone.
-        self.assertIn("build-machine-channel-x86_64", early["needs"])
-        self.assertNotIn("build-machine-channel", early["needs"])
-        self.assertIn("needs.build-machine-channel-x86_64.result == 'success'", early["if"])
-        both = jobs["point-machine-channel-early-linux"]
-        self.assertIn("build-machine-channel-x86_64", both["needs"])
-        self.assertIn("build-machine-channel", both["needs"])
+        self.assertEqual(early["needs"], ["plan", "build-x86_64"])
+        self.assertIn("needs.build-x86_64.result == 'success'", early["if"])
+        # PR_HEAD_FAST_LANE: or the merged PR head's run, which the plan found; a pull request run points nothing.
+        for job in (early, jobs["point-linux"]):
+            self.assertIn("needs.plan.outputs.from_run != ''", job["if"])
+            self.assertIn("github.event_name == 'push'", job["if"])
+            run_ids = [step["with"].get("run-id") for step in job["steps"]
+                       if "download-artifact" in str(step.get("uses", ""))]
+            self.assertEqual(run_ids, ["${{ needs.plan.outputs.from_run || github.run_id }}"])
+            # This run's own artifacts take no token (the runtime service, not REST: run 45730730942).
+            tokens = [step["with"].get("github-token") for step in job["steps"]
+                      if "download-artifact" in str(step.get("uses", ""))]
+            self.assertEqual(tokens, ["${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}"])
+        both = jobs["point-linux"]
+        self.assertIn("build-x86_64", both["needs"])
+        self.assertIn("build-aarch64", both["needs"])
         for job, pattern in ((early, "machine-channel-cmux-tui-x86_64-unknown-linux-musl"),
                              (both, "machine-channel-cmux-tui-*-unknown-linux-musl")):
             downloads = [step["with"]["pattern"] for step in job["steps"]
@@ -182,8 +205,7 @@ class BuildProfileSourceTest(unittest.TestCase):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
         calls = {name: job.get("with") or {} for name, job in jobs.items()
                  if isinstance(job, dict) and job.get("uses") == BUILD_PACKAGE}
-        self.assertEqual(sorted(calls), ["build", "build-darwin-fallback", "build-linux", "build-machine-channel",
-                                        "build-machine-channel-x86_64", "build-windows"])
+        self.assertEqual(sorted(calls), ["build", "build-darwin-fallback", "build-linux", "build-windows"])
         keyed = profiles()
         for name, inputs in calls.items():
             for key in BUILD_DEFINING:

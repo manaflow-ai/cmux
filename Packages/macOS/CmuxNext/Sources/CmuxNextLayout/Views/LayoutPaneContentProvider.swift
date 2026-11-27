@@ -28,6 +28,10 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// The pane's content kind for the frame-timing log (`terminal`, `browser`, `agent`, `page`, ...) and whether
+    /// its content has presented a picture (a terminal's surface drew, a page's window shows); nil: unknown. Read once
+    /// per pane per timed transition, at its first frame (`TransitionFrameLog`, `surface` and `blank_first_frame`).
+    func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)?
 }
 
 extension LayoutPaneContentProvider {
@@ -35,6 +39,7 @@ extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)? { nil }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -76,6 +81,8 @@ final class LayoutViewContext {
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
     var dividerMenu: ((SplitID) -> NSMenu?)?
+    /// The divider drag's frame timing (``LayoutRootView/frameTiming``).
+    var frameTiming: TransitionFrameLog?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot

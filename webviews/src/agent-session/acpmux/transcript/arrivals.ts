@@ -18,6 +18,22 @@ export function rememberSentPromptId(ids: Set<string>, id: string): void {
     ids.delete(oldest);
   }
 }
+/// How far up from the tail `promptLanded` looks: a queued prompt lands as one of the newest rows.
+export const PROMPT_LANDED_TAIL = 64;
+/// Whether a sent prompt's own row is already among the newest rows (its optimistic `local-` row, or
+/// one under the prompt's id). A queued prompt's row can land a pass before its card leaves the bottom
+/// stack (acpmux's `dequeued` and the prompt's `user_message` come together, and the card's exit is a
+/// pass later): then no room is held under the rows for it (VirtualTranscript `floor`). Held, the room
+/// stayed under the live line until the reply's first row filled it and pushed the live line down.
+export function promptLanded(rows: readonly AcpmuxRow[], promptId: string): boolean {
+  if (!promptId) return false;
+  const local = `local-${promptId}`;
+  for (let index = rows.length - 1; index >= Math.max(0, rows.length - PROMPT_LANDED_TAIL); index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "user" && (row.id === local || row.id === promptId)) return true;
+  }
+  return false;
+}
 /// How long after a row arrived its room still counts as the arrival: the passes that measure it.
 export const ARRIVAL_PASS_MS = 100;
 export function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {

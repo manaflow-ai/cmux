@@ -49,7 +49,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertFalse(push.get("paths"))
         job = workflow["jobs"]["release-notary"]
         # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}")
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(job["if"].startswith(
+            "${{ (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request')) && "),
+            job["if"])
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
@@ -105,13 +108,23 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ (github.event.action != 'ready_for_review') && "
-                         "(!cancelled() && needs.coalesce.outputs.run != 'false') }}")
+        self.assertTrue(jobs["nightly-guards"]["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+            "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && "),
+            jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
-                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")
+        # Inside the land tier's and the label filter's wrapping (tests/test_head_tier.py), so a contained clause, not a prefix.
+        self.assertIn(  # then the land tier (tests/test_head_tier.py)
+                        "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && ",
+                        group["if"])
+        # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
+        # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
+        self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
+                      "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
+                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
+                      jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]

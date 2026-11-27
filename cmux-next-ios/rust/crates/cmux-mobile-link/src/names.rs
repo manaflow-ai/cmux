@@ -42,6 +42,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const BUNDLE: &str = "bundle-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -122,6 +123,10 @@ pub const ALL: &[Capability] = &[
     host(
         MAILBOX_SEND,
         "(2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link.",
+    ),
+    host(
+        BUNDLE,
+        "(2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest.",
     ),
     host(
         BROWSER_STREAM,
