@@ -287,6 +287,22 @@ extension CloudWait {
         return CloudMoveCore().call("link_stale", StartFailure(error), as: Reply.self)?.stale ?? false
     }
 
+    /// A start's relink after its failure (``retriedOnce(_:closed:relinkAfter:)``). A stale link (``linkStale(_:)``: a
+    /// fresh connection's first request got no reply) is still held as connected, so a wait for "a link is up" answered
+    /// at once and the one more try dialed the same dead link (cosmic-gray 2026-11-27, 2 AutoCloud starts: "started but
+    /// its agent didn't (timed out: identify (no progress for 10.0 s))"). That LINK is dropped (DROP, as after an update
+    /// that restarted the daemon) and this waits, up to ``relinkWait``, for the connection that replaces it (or a
+    /// REFUSED link) before UP, the usual wait. Any other failure: UP alone.
+    public static func relinked(after error: any Error, link: @escaping @MainActor @Sendable () -> AnyObject?,
+                                drop: () -> Void, refused: @escaping @MainActor @Sendable () -> Bool,
+                                up: () async -> Bool) async -> Bool {
+        if linkStale(error), let stale = link() {
+            drop()
+            _ = await holds(within: relinkWait) { refused() || link().map { $0 !== stale } ?? false }
+        }
+        return await up()
+    }
+
     /// A start's failure as Rust's `wait::StartFailure` reads it.
     private struct StartFailure: Encodable {
         var kind: String, code: Int32?, what: String?
