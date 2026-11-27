@@ -102,10 +102,21 @@
 //!   continuation may still fire (`auto_resume.rs` `continuation_pending`) is not woken: the
 //!   inbox is looked at again [`REFUSED_RETRY_MS`] on, and goes in behind the continuation.
 //!
-//! An agent's `session/prompt` waits for the notice that carries it and answers with that
-//! notice's answer: a steer's (`steered`, naming the turn it went into) or its own turn's; a
-//! chat that closes answers it with the closing error ([`Inbox::carrying`] holds the waiting
-//! senders, so a close reaches them). A notice goes in once its prompt is written to the agent
+//! An agent's `session/prompt` ends once its message is in the inbox: it answers `delivered`
+//! (`heldInInbox` when nothing wakes the chat for it yet), and no request, future or connection
+//! of it is left in the daemon. Before, every one waited for the notice that carried it, which for
+//! a held message is a flush minutes on: an outbox delivery (`send --no-wait`) kept its
+//! connection and request open that long or for good, 160 MB per 1000 sends to a coordinator
+//! (2026-11-19, `tests/inbox_delivery_settles.rs`; Leo's Mac 2026-11-27: 1.5-2.4 GB daemons).
+//! Only a caller that reads the reply (`PromptOptions::reply_reader`: `acpmux send` that waits,
+//! `wakeOrFail`) waits on for the notice's answer, a steer's (`steered`, naming the turn it went
+//! into) or its own turn's, and only while its connection is open and it has not cancelled: its
+//! wait ends with its client. A chat that closes answers it with the closing error
+//! ([`Inbox::carrying`] holds the waiting senders, so a close reaches them). What happened to a
+//! message later is read from the inbox and its log (`inbox_answered`), never from a parked
+//! request.
+//!
+//! A notice goes in once its prompt is written to the agent
 //! (the writer confirmed it), as a steer or a turn of its own; only then are its messages noticed
 //! (an `inbox_noticed` record). The next notice goes no sooner than that, and behind a steer only
 //! once the agent took it at its tool step (its answer). One that does not go in (a
@@ -1295,8 +1306,8 @@ fn subagent_label(sender: &Value) -> Option<String> {
 }
 
 /// Whether `item`'s sender waits for the reply now: its caller reads it
-/// (`PromptOptions::reply_reader`) and is still connected. An open request alone is no reader:
-/// the outbox's delivery of a `--no-wait` send keeps one open (bench round 4, A5).
+/// (`PromptOptions::reply_reader`) and is still connected. Only such a caller's request stays
+/// open past delivery (bench round 4, A5: an outbox delivery's open request read nothing).
 pub(super) fn reader_waits(item: &Item) -> bool {
     item.answer.as_ref().is_some_and(|tx| tx.receiver_count() > 0)
         && item.reader.as_ref().is_some_and(|ended| !*ended.borrow())
