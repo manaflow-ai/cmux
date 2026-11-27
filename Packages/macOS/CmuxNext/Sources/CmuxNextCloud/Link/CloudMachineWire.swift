@@ -22,6 +22,9 @@ public final class CloudMachineWire {
     /// pause): the app parks its link now, so its heartbeat does not redial (and wake) the VM before a list shows the pause.
     /// It may repeat for one pause (each pause attempt sends it); handling it twice is harmless.
     public var onMachinePausing: @MainActor (String) -> Void = { _ in }
+    /// An AutoSize notice (`cloud.machine.autosize`, RFD 0080 piece 4) on the active team's socket: the frame as it came
+    /// and the socket's team, for Rust's AutoSize feed (`cloud_autosize_frame`), which reads and checks it.
+    public var onAutoSizeFrame: @MainActor (Data, String?) -> Void = { _, _ in }
     /// The teams the wire subscribes in for an active team (Rust's `wireTeams`): the active one first, then the
     /// install token's team when it is another, where the person's spares live (#36037). Nil: the active team alone.
     public var teams: (@MainActor (String?) async -> [String]?)?
@@ -122,6 +125,7 @@ public final class CloudMachineWire {
                 case "ephemeral":
                     if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
                     else if let machine = Self.machinePausing(data, team: selectedTeam) { onMachinePausing(machine) }
+                    else if sink != nil, Self.isAutoSize(data) { onAutoSizeFrame(data, selectedTeam) }
                     else if let sink, let change = CloudPortChange.parseWireFrame(data) { sink(change) }
                 default:
                     break
@@ -199,6 +203,18 @@ public final class CloudMachineWire {
               let data = object["data"] as? [String: Any], data["team"] as? String == team,
               let machine = data["machine"] as? String, machine.hasPrefix("vm_") else { return nil }
         return machine
+    }
+
+    /// Whether `frame` names the `cloud.machine.autosize` event; Rust reads the rest.
+    nonisolated static func isAutoSize(_ frame: Data) -> Bool {
+        ((try? JSONSerialization.jsonObject(with: frame)) as? [String: Any])?["event"] as? String == "cloud.machine.autosize"
+    }
+
+    /// Sets ``onAutoSizeFrame`` (for a lazily built wire) and returns the wire.
+    @discardableResult
+    public func onAutoSize(_ handler: @escaping @MainActor (Data, String?) -> Void) -> Self {
+        onAutoSizeFrame = handler
+        return self
     }
 
     /// Sets ``onMachinePausing`` (for a lazily built wire) and returns the wire.
