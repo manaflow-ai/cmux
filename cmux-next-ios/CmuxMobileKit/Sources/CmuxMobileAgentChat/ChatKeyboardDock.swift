@@ -122,7 +122,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// SwiftUI's keyboard inset moved. From then on the stack follows the
     /// keyboard's notifications (inside their animation) and, while a drag
     /// dismisses the keyboard, its drawn frame every display frame.
-    private static var layoutGuideStalls = false
+    /// Process-wide latch: once one page sees the stall, every page follows
+    /// the notified frames. Only the probe in `keyboardWillChange` sets it.
+    private static var layoutGuideProbeStalled = false
+    /// This controller follows the notified keyboard frames from the start,
+    /// whatever the shared probe saw. A test window with no scene has no live
+    /// keyboard layout guide, so a test that posts keyboard frames passes
+    /// `true`; it never writes the process-wide latch other suites read.
+    private let assumesStalledLayoutGuide: Bool
+    /// The guide is stalled for this controller: its own override or the
+    /// shared probe's latch.
+    var layoutGuideStalls: Bool {
+        assumesStalledLayoutGuide || Self.layoutGuideProbeStalled
+    }
     private var lastOffsetY: CGFloat = 0
     /// The jump button's rule (clamped distance, hysteresis; see
     /// `JumpToBottomVisibility`).
@@ -147,19 +159,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Gap between the stack and the keyboard (or the bottom safe area).
     static let dockGap: CGFloat = 8
     /// Space between the last turn and the stack.
-    static let contentGap: CGFloat = 8
+    nonisolated static let contentGap: CGFloat = 8
 
     /// Either the shared probe or this controller's detached-hide recovery is
     /// driving the notified keyboard frame. Geometry and drag handling must
     /// use the same source as the active constraint pair.
     private var usesNotifiedKeyboardFrame: Bool {
-        Self.layoutGuideStalls || trackerFallbackActive
+        layoutGuideStalls || trackerFallbackActive
     }
 
     init(placement: ChatDockPlacement, surface: AgentChatSurface, store: AgentChatStore,
          empty: AnyView, dock: AnyView?, jump: AnyView?,
-         keyboardTracker: MobileKeyboardFrameTracker? = nil) {
+         keyboardTracker: MobileKeyboardFrameTracker? = nil,
+         assumesStalledLayoutGuide: Bool = false) {
         self.placement = placement
+        self.assumesStalledLayoutGuide = assumesStalledLayoutGuide
         self.surface = surface
         self.keyboardTracker = keyboardTracker
         list = ChatTranscriptList(store: store, surface: surface)
@@ -208,6 +222,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                     report(height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                // The composer's layout-shift count is measured in this host, which the keyboard
+                // and a push move whole (`layoutShiftTracked(inHost:)`).
+                .layoutShiftHost()
         )
     }
 
@@ -241,12 +258,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
     /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
     /// its rows take the theme's light or dark style and the top fade its ground.
+    /// The fill behind the transcript: the look's flat ground, the stock background without a
+    /// look, clear over a picture look (the host's backdrop draws the picture).
+    static func groundFill(for look: CmuxMobileChatLook?) -> UIColor {
+        guard let look else { return .cmuxMobileBackground }
+        return look.picture == nil ? look.groundColor : .clear
+    }
+
     func applyChatLook(_ look: CmuxMobileChatLook?) {
         loadViewIfNeeded()
         let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
         if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        // The flat ground sits behind the transcript, not in a shelf drawn over it: the rows
+        // scroll under the glass navigation bar and the native top edge effect, and no black
+        // safe-area shows above them. A picture look stays clear so its picture shows through.
+        let fill = Self.groundFill(for: look)
+        if view.backgroundColor != fill { view.backgroundColor = fill }
+        if topShelf.backgroundColor != .clear { topShelf.backgroundColor = .clear }
         topFade.ground = look?.groundColor
         bottomScrim.ground = look?.groundColor
     }
@@ -285,18 +315,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
-        if placement == .external {
-            topShelf.isUserInteractionEnabled = false
-            view.addSubview(topShelf)
-            let topEdge = UIScrollEdgeElementContainerInteraction()
-            topEdge.scrollView = scrollView
-            topEdge.edge = .top
-            topShelf.addInteraction(topEdge)
-            if #unavailable(iOS 27) {
-                topFade.isUserInteractionEnabled = false
-                topFade.isAccessibilityElement = false
-                view.addSubview(topFade)
-            }
+        // Both pushed and workspace chats need a host for the native top edge. The pushed
+        // controller still reports the navigation bar in `headerBottom`, but without this
+        // host its clear transcript exposed the window's black safe-area background.
+        topShelf.isUserInteractionEnabled = false
+        topShelf.isAccessibilityElement = false
+        topShelf.accessibilityIdentifier = "agentChat.topChrome"
+        view.addSubview(topShelf)
+        let topEdge = UIScrollEdgeElementContainerInteraction()
+        topEdge.scrollView = scrollView
+        topEdge.edge = .top
+        topShelf.addInteraction(topEdge)
+        if #unavailable(iOS 27) {
+            topFade.isUserInteractionEnabled = false
+            topFade.isAccessibilityElement = false
+            view.addSubview(topFade)
         }
         bottomShelf.isUserInteractionEnabled = false
         bottomShelf.isAccessibilityElement = false
@@ -341,7 +374,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // composer jumped there, feat-cnx-ios-e2e); `keyboardPinApplies`
         // switches the pin off for such a frame and the stack rests.
         let pin = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -Self.dockGap)
-        pin.isActive = !Self.layoutGuideStalls
+        pin.isActive = !layoutGuideStalls
         keyboardPin = pin
         // The same pin against the keyboard's frame from its notifications,
         // for when the layout guide stalls (see `layoutGuideStalls`).
@@ -349,7 +382,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let notifiedTop = notifiedKeyboard.topAnchor.constraint(equalTo: view.bottomAnchor)
         notifiedKeyboardTop = notifiedTop
         let fallback = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: notifiedKeyboard.topAnchor, constant: -Self.dockGap)
-        fallback.isActive = Self.layoutGuideStalls
+        fallback.isActive = layoutGuideStalls
         fallbackPin = fallback
         NSLayoutConstraint.activate([
             notifiedTop,
@@ -466,6 +499,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         super.viewDidAppear(animated)
         // The push has landed: warm the rows' first draws now, not under the push animation.
         list.allowWarmUp()
+        #if DEBUG
+        ComposerProof.start(self, screen: "chat")
+        #endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -475,7 +511,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             applyReconciledKeyboardFrame(frame, layoutNow: false)
         }
         list.boundsMayHaveChanged()
-        if let pin = keyboardPin, !Self.layoutGuideStalls, !trackerFallbackActive, pin.isActive != keyboardPinApplies {
+        if let pin = keyboardPin, !layoutGuideStalls, !trackerFallbackActive, pin.isActive != keyboardPinApplies {
             pin.isActive = keyboardPinApplies
             view.setNeedsLayout()
             view.layoutIfNeeded()
@@ -487,11 +523,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
-        if placement == .external {
-            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
-            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
-            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
-        }
+        let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+        if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+        if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
         let stackTop = min(dockGuide.layoutFrame.minY, dockGuide.layoutFrame.maxY - stackHeight)
         let shelfFrame = CGRect(x: 0, y: stackTop, width: view.bounds.width, height: max(0, view.bounds.maxY - stackTop))
@@ -893,7 +927,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             pendingTrackedKeyboardFrame = nil
         }
         let top = notifiedTop(note) ?? view.bounds.maxY
-        if trackerFallbackActive, !Self.layoutGuideStalls {
+        if trackerFallbackActive, !layoutGuideStalls {
             trackerFallbackActive = false
             followDraggedKeyboard(false)
             fallbackPin?.isActive = false
@@ -906,14 +940,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             self.view.layoutIfNeeded()
             // A docked keyboard the guide did not follow: switch to the
             // notified frame, in this same animation.
-            if !Self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
+            if !self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
                self.view.keyboardLayoutGuide.layoutFrame.minY > top + 40 {
-                Self.layoutGuideStalls = true
+                Self.layoutGuideProbeStalled = true
             }
             // The latch is process-wide, so a page built before it flipped
             // (any page but the first one to hear this notification) still
             // rides the stalled guide: it switches here too.
-            if Self.layoutGuideStalls, self.keyboardPin?.isActive == true {
+            if self.layoutGuideStalls, self.keyboardPin?.isActive == true {
                 self.keyboardPin?.isActive = false
                 self.fallbackPin?.isActive = true
                 self.view.setNeedsLayout()
@@ -1390,7 +1424,7 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
         // Read here so SwiftUI calls update when the Mac's chat look changes.
-        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
+        controller.applyChatLook(CmuxMobileChatLook.current)
     }
 }
 
@@ -1497,6 +1531,22 @@ private final class TopFadeView: UIView {
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
+
+#if DEBUG
+/// `-cmux-mobile-composer-proof`: the composer's cap and the strip's zero shift
+/// (`ComposerProof`, ComposerHeightCapUITests).
+extension ChatTranscriptController: ComposerProofHost {
+    var proofView: UIView { view }
+    var proofCardFrame: CGRect { surface.drawnStackFrame }
+    var proofField: ComposerReturnTextView? { surface.composerField.view }
+    var proofContentY: CGFloat? { scrollView.convert(CGPoint.zero, to: nil).y }
+    func proofSetText(_ text: String) { surface.text = text }
+    func proofSetAttachments(_ count: Int) {
+        surface.attachments = (0..<count).map { AgentAttachment(kind: .file, name: "proof-\($0).log", byteCount: 4_096) }
+    }
+    func proofSetKeyboard(_ up: Bool) { surface.composerFocused = up }
+}
+#endif
 #endif
 
 #if os(iOS)

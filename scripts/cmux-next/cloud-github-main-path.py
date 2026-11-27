@@ -58,7 +58,7 @@ parser.add_argument("--credentials-file", required=True, help="0600 Stack creden
 parser.add_argument("--out", required=True, help="where steps.json, summary.md, frames/ and the video go")
 parser.add_argument("--org", default="cmux-cloud-test-org")
 parser.add_argument("--repo", default="pr-target")
-parser.add_argument("--slug", default="cmux-cloud-staging", help="the staging GitHub App")
+parser.add_argument("--slug", default="the staging GitHub App", help="the App's name in the summary (the API names its slug at runtime)")
 parser.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
 parser.add_argument("--frame-interval", type=float, default=1.0)
 parser.add_argument("--close-pr", action="store_true", help="close the PR in GitHub's page after step 6")
