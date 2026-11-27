@@ -61,6 +61,8 @@ jobs:
       transport: ${{ steps.artifact-transport.outputs.transport }}
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CMUX_WEB_BUN_VERSION: "1.4.4"
+      CMUX_WEB_NODE_VERSION: "24.22.1"
       WEB_SOURCE_ROOT: ${{ inputs.source_ref != '' && format('{0}/web-source', github.workspace) || github.workspace }}
     steps:
       # The merge commit (pull_request's default ref) and its first parent, the base it merged onto.
