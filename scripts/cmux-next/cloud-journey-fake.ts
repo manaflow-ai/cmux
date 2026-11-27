@@ -90,6 +90,8 @@ const exec = (command: string) => {
   if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
   if (command.includes("acp send")) agentSent = true;
+  // A Claude start with its first prompt on the start's own link (launchCredentialStartProgram): one exec, both done.
+  if (command.includes("CMUX_JOURNEY_START")) { agentSent = true; return answer("@@session fixture-session\\n@@prompted\\n"); }
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
   if (command.includes("acp --json history")) return answer(JSON.stringify({ turns: lastMarker ? [{ prompt: lastMarker + " ..." }] : [] }));
   const script = fixture.github?.script;
