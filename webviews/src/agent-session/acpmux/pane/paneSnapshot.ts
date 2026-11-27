@@ -155,13 +155,13 @@ import {
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
-  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
+  hostPlannedRestart,
 } from "../hostRetry";
-import { acpmuxSendsReady, heldStartStop, paneSends, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { acpmuxSendsReady, heldStartStop, sendsHeldForHost, untilHostAnswers, paneSends } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -212,6 +212,7 @@ import {
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
+import { putToggleDraft, takeToggleDraft, toggleDraft } from "../conversation/toggleDraft";
 
 /// What the chat-list stores read of a snapshot (newtab/chatStore.ts `publishSessions`,
 /// newtab/warmSnapshot.ts `publishWarmNewTab`, newtab/recentProject.ts `rememberRecentFolders`), and
@@ -831,6 +832,9 @@ export function paneSnapshotEffect({
       const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
       return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
     },
+    toggleDraft: () => toggleDraft(composerHandle.current?.draft()),
+    takeToggleDraft: (text, until) => takeToggleDraft(composerHandle.current ?? undefined, text, until),
+    putToggleDraft: (text, until) => putToggleDraft(composerHandle.current ?? undefined, text, until),
     applyCustomization(customization) {
       if ("themeCSS" in customization) {
         applyPaneThemeCSS(customization.themeCSS ?? "");
