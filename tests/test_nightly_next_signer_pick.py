@@ -248,13 +248,14 @@ class WorkflowTests(unittest.TestCase):
         cls.one = cls.jobs["nightly-next-one"]
         cls.pick = cls.jobs["pick-nightly-next-signer"]
 
-    def test_the_pick_reads_no_secret_and_runs_before_the_build(self):
+    def test_the_pick_uses_only_the_protected_routing_key_before_the_build(self):
         import yaml
         text = yaml.safe_dump(self.pick)
         # One secret: the glaeda-route App key for a read-only (contents, actions) token, as decide mints on the same
         # runner, so the pick has its own API budget (run 45575194160's pick 403d on github.token's).
         self.assertEqual(set(re.findall(r"secrets\.\w+", text)), {"secrets.GLAEDA_ROUTE_APP_KEY"})
-        self.assertNotIn("environment", self.pick)
+        self.assertEqual(self.pick["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertIn("github.ref == 'refs/heads/nightly-next'", self.pick["if"])
         self.assertEqual(self.pick.get("permissions"), {"actions": "read", "contents": "read"})
         self.assertIn("pick-nightly-next-signer", self.one["needs"])
         self.assertIn("vars.CI_NIGHTLY_MINI == ''", self.pick["if"])
