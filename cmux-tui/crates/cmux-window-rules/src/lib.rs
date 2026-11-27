@@ -69,8 +69,8 @@
 //!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
-pub mod banner;
 pub mod auto_namer;
+pub mod banner;
 pub mod browser;
 pub mod chat;
 pub mod close;
@@ -85,9 +85,9 @@ pub mod files;
 pub mod history;
 pub mod launch;
 pub mod notification_keys;
-pub mod notification_settings;
 pub mod notification_policy;
 pub mod notification_rings;
+pub mod notification_settings;
 pub mod notifications;
 pub mod notifications_panel;
 pub mod onboarding;
