@@ -190,7 +190,7 @@ export default componentEntry<Props>({
       props: { look: "bars", model: "after", form: "plain" },
     },
     "model-calls-before": {
-      note: 'Before: thinking timed from its first thought chunk to its last, "Thinking 3ms". Claude Code\'s thinking comes in one burst at its call\'s end, and the axis opened at the first call.',
+      note: "Before: thinking timed from its first thought chunk to its last, \"Thinking 3ms\". Claude Code's thinking comes in one burst at its call's end, and the axis opened at the first call.",
       props: { look: "bars", model: "before", form: "chart" },
     },
     "one-call": {

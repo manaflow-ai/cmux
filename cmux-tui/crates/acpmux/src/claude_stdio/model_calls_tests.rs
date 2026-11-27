@@ -115,7 +115,7 @@ async fn each_main_call_is_timed_from_its_request_to_its_last_token() {
         .await;
     let after = now_ms();
 
-    let [Some(one)] = timings(&first)[..] else { panic!("{first:?}") };
+    let [Some(one)] = &timings(&first)[..] else { panic!("{first:?}") };
     let (request, first_token, last_token) = (
         one["requestAt"].as_u64().unwrap(),
         one["firstTokenAt"].as_u64().unwrap(),
@@ -130,7 +130,7 @@ async fn each_main_call_is_timed_from_its_request_to_its_last_token() {
     );
     assert_eq!(one["thought"], true);
 
-    let [Some(two)] = timings(&second)[..] else { panic!("{second:?}") };
+    let [Some(two)] = &timings(&second)[..] else { panic!("{second:?}") };
     let request = two["requestAt"].as_u64().unwrap();
     assert!(
         between <= request
