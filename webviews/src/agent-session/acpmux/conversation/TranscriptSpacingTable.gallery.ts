@@ -109,9 +109,7 @@ function allKinds(): AcpmuxSnapshot {
         id: backgroundTurnRowId("spacing-scheduled"),
         background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true, hasRows: true },
       }),
-      // A push: a quiet background turn with no effect goes to the composer hat (silentTurns.ts), and
-      // this table measures the turn's own line.
-      activity([tool("git push origin HEAD", "execute", "completed", { command: "git push origin HEAD" })], 8.4, {
+      activity([tool("git fetch origin", "execute", "completed", { command: "git fetch origin" })], 8.4, {
         inBackground: "spacing-scheduled",
       }),
       activity(

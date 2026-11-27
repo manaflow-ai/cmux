@@ -15,11 +15,8 @@ import { turnView, WORKED } from "./turns";
 // Put back exactly what was there: the key itself, when the file found none (test/support/leakDetector.ts).
 const hadExperiments = "cmuxExperiments" in globalThis;
 const previousExperiments = globalThis.cmuxExperiments;
-// The folds below are the composer hat's earlier headers' (the Settings switch off); with its `line`
-// header, the default, the hat says a background end and the transcript draws none (last tests).
-const FOLDED_HERE = { "claude-turn-fold": "runs", "subagent-tray-fold-head": "groups" };
 beforeAll(() => {
-  globalThis.cmuxExperiments = FOLDED_HERE;
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 });
 afterAll(() => {
   if (hadExperiments) globalThis.cmuxExperiments = previousExperiments;
@@ -34,7 +31,7 @@ const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow>
   at: START + second * 1000,
   ...extra,
 });
-const ended = (index: number, state: string, background?: true): AcpmuxRow =>
+const ended = (index: number, state: string): AcpmuxRow =>
   row(`subagentDone:a${index}`, "subagentDone", 400 + index, {
     subagents: [
       {
@@ -45,7 +42,6 @@ const ended = (index: number, state: string, background?: true): AcpmuxRow =>
         state,
         startedAt: START,
         endedAt: START + 400_000 + index,
-        ...(background && { background }),
       } as never,
     ],
   });
@@ -102,44 +98,4 @@ test("the person's steer is never folded or moved by the burst", () => {
   expect(shown).toContain("s-1");
   expect(shown.indexOf("u-0")).toBeLessThan(shown.indexOf("s-1"));
   expect(backgroundRunRowId).toBeDefined();
-});
-
-// Leo, 2026-11-25, on a background task's end folding into "Worked for": "what if we simply put it
-// into the composer hat and iddnt put it into the transcript?" With the hat's `line` header the hat
-// says it; the transcript draws no row for it, folded or open.
-test("with the hat's line header, a background end draws nowhere in the transcript; a failed one stays", () => {
-  globalThis.cmuxExperiments = { ...FOLDED_HERE, "subagent-tray-fold-head": "line" };
-  try {
-    const rows = steered([
-      ended(0, "completed", true),
-      ended(1, "cancelled", true),
-      ended(2, "failed", true),
-      shell(3),
-      shell(4),
-    ]);
-    const closed = view(rows);
-    expect(closed.find((r) => r.backgroundRun)).toBeUndefined();
-    const everyFold = new Set(closed.filter((r) => r.kind === WORKED).map((r) => r.id));
-    const open = ids(view(rows, everyFold));
-    expect(open.filter((id) => id.startsWith("bg-"))).toEqual([]);
-    expect(open.filter((id) => id.startsWith("subagentDone:"))).toEqual(["subagentDone:a2"]);
-    expect(open).toContain("s-1");
-  } finally {
-    globalThis.cmuxExperiments = FOLDED_HERE;
-  }
-});
-
-test("with the hat's line header, a foreground subagent's end still draws (the hat lists only background work)", () => {
-  globalThis.cmuxExperiments = { ...FOLDED_HERE, "subagent-tray-fold-head": "line" };
-  try {
-    const rows = steered([ended(0, "completed"), ended(1, "completed")]);
-    const everyFold = new Set(
-      view(rows)
-        .filter((r) => r.kind === WORKED || r.backgroundRun)
-        .map((r) => r.id),
-    );
-    expect(ids(view(rows, everyFold)).filter((id) => id.startsWith("subagentDone:"))).toHaveLength(2);
-  } finally {
-    globalThis.cmuxExperiments = FOLDED_HERE;
-  }
 });

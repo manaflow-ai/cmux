@@ -11,13 +11,8 @@ export const trayFoldHeadLook = defineExperiment({
   id: "subagent-tray-fold-head",
   title: "Running tray folded header",
   description:
-    "What the running tray's header says: one plain line (10 subagents working, 2 background commands running), two groups (subagents, background) in words that shrink, a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
+    "What the running tray's header says: two groups (subagents, background) in words that shrink, a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
   arms: {
-    line: {
-      label: "One line: what runs, in plain words",
-      description:
-        "One muted line, as Claude Code's: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
-    },
     groups: {
       label: "Groups: subagents and background, in words that shrink",
       description:
@@ -77,13 +72,5 @@ export const trayFoldHeadLook = defineExperiment({
   // boom. waits, etc, they're just normal tool calls that are backgrounded instead of dozesns of
   // possible different buttons. we can obviously keep the icons the stuff but... we can group them up
   // more"). trayHeadKinds.ts `trayHeadGroups` counts them.
-  // Then one plain line, as Claude Code tucks it after the latest message, with no tall bar around a
-  // few marks (Leo, 2026-11-25: "did we not finish the composer hat improvements? there's tons of
-  // unnecessary space to the point where it's just... not great" / "like claude code just has this and
-  // they tuck it at the very bottom of the transcript after the latest message"). trayHeadKinds.ts
-  // `trayHeadLine` writes it.
-  defaultArm: "line",
+  defaultArm: "groups",
 });
-
-/// One of the folded header's arms.
-export type TrayFoldHeadArm = keyof typeof trayFoldHeadLook.arms;
