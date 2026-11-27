@@ -48,4 +48,11 @@ import Testing
         #expect(theme < .milliseconds(200))
         #expect(looks < .milliseconds(200))
     }
+
+    @Test func keepingHoldsOnlyTheKeysARuleReads() {
+        let root: JSONValue = ["appearance": ["themeFile": "Dusk", "themeFileExceptions": ["appearance.accent"], "accent": "red"], "other": ["big": "x"]]
+        #expect(root.keeping([ThemeFileSetting.configPath]) == ["appearance": ["themeFile": "Dusk"]])
+        #expect(root.keeping([["nope", "missing"]]) == .object([:]))
+        #expect(ThemeFileSetting.name(in: root.keeping([ThemeFileSetting.configPath])) == ThemeFileSetting.name(in: root))
+    }
 }
