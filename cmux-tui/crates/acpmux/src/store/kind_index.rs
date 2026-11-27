@@ -133,7 +133,8 @@ pub(super) const HEADER_WIDTH: usize = 512;
 pub(super) const COPY_AFTER: u64 = 1 << 20;
 
 /// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
-/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+/// (`offset_of_seq`, whose probes read 8 KiB each down to a 64 KiB window), as the read back from
+/// the end does.
 const TAIL_SEEK_BYTES: u64 = 256 * 1024;
 
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
