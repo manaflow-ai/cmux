@@ -59,6 +59,8 @@ public struct MotionDebug {
                     DesignSettings.shared.paneAnimations = on
                 } else if name == "splitSnapshotOpen" {
                     DesignSettings.shared.splitSnapshotOpen = on
+                } else if name == "sideSlidePageHold" {
+                    DesignSettings.shared.sideSlidePageHold = on
                 } else if let kind = MotionKind(rawValue: name) {
                     if on { DesignSettings.shared.enabledAnimations.insert(kind) } else { DesignSettings.shared.enabledAnimations.remove(kind) }
                 }
@@ -85,6 +87,7 @@ public struct MotionDebug {
             "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
             "split_snapshot_open": DesignSettings.shared.splitSnapshotOpen,
+            "side_slide_page_hold": DesignSettings.shared.sideSlidePageHold,
             "display_links": FrameScheduler.all.filter(\.isRunning).count,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),
             "spans": MotionTrace.spans.map { span -> [String: Any] in
