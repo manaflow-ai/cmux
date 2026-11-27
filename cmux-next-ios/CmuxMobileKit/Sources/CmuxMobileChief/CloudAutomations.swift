@@ -162,6 +162,9 @@ public final class CloudAutomationsModel {
         return CloudAutomationsModel(cache: source.cache, account: source.account)
     }
 
+    /// An account is signed in: a failed load is a read to try again (on its own), not a sign-in.
+    public var isSignedIn: Bool { account() != nil }
+
     private func restoreCache() {
         guard let saved = cache?.read([CloudAutomation].self) else { return }
         automations = saved
@@ -177,9 +180,9 @@ public final class CloudAutomationsModel {
         }
         // Only a page that has not loaded shows the spinner: a reload after the last automation
         // was deleted keeps the (empty) list, so a reload that is cancelled never strands it on
-        // "Loading" (live run of this batch).
+        // "Loading" (live run of this batch). A failed page stays as it is while it loads again
+        // (its screen retries on its own), so it never flickers to "Loading" on each try.
         let before = phase
-        if automations.isEmpty, phase != .loaded { phase = .loading }
         do {
             async let listed = account.read("automation.list", params: ["limit": 100])
             async let ran = account.read("automation.runs.list", params: ["limit": 200])

@@ -525,20 +525,6 @@
           "group": "Agent Chats"
         },
         {
-          "key": "agents.modelRouter.model",
-          "title": "cmux Model Router Model",
-          "help": "The model new cmux model router chats start on.",
-          "kind": "choice",
-          "default": "deepseek/deepseek-v4.1-flash-1017",
-          "group": "Agent Chat",
-          "values": [
-            "deepseek/deepseek-v4.1-flash-1017",
-            "deepseek/deepseek-v4.1-flash",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-v4-pro"
-          ]
-        },
-        {
           "key": "agents.promptCache",
           "title": "Prompt Cache",
           "help": "One hour keeps replies after a pause cheap; its cache writes cost a little more.",
@@ -5036,14 +5022,6 @@
           "key": "sidebar.settleFinished",
           "title": "Settle Finished Chats",
           "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
-        },
-        {
-          "key": "sidebar.showAutomaticSessions",
-          "title": "Show Automatic Sessions",
-          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"

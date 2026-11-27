@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// The centered card over the pane: connecting, waiting for consent, and
 /// the ended states (disconnected by a person, host stopped sharing,
-/// connection lost, stopped, not allowed). Liquid Glass with the opaque
+/// stopped, not allowed). A lost path asks nothing: the pane reconnects by
+/// itself (`RemoteDesktopPane.apply`), so its card has only Close. Liquid Glass with the opaque
 /// fallback under Reduce Transparency (`Glass.makeOverlayPanel`).
 final class RemoteStateCard: NSView {
     var onReconnect: (() -> Void)?
@@ -88,7 +89,7 @@ final class RemoteStateCard: NSView {
 
     private func press(_ kind: ButtonKind) {
         switch kind {
-        case .reconnect, .signIn: onReconnect?()
+        case .reconnect, .signIn: onReconnect?() // retry-prompt-ok: only the ends someone chose (see `spec`) and sign-in.
         case .cancel: onCancel?()
         case .close: onClose?()
         }
@@ -139,21 +140,29 @@ final class RemoteStateCard: NSView {
                         info: [RemoteViewStrings.consentDetail(host), RemoteViewStrings.developmentOnly].joined(separator: "\n"))
         case let .ended(.disconnectedBy(name)):
             return Spec(symbol: "person.crop.circle.badge.xmark", title: RemoteViewStrings.kickedTitle(name),
+                        // retry-prompt-ok: a person at the host ended this session on purpose; reconnecting overrides their choice.
                         detail: nil, buttons: [.reconnect, .close])
         case .ended(.hostStoppedSharing):
             return Spec(symbol: "rectangle.on.rectangle.slash", title: RemoteViewStrings.stoppedTitle,
+                        // retry-prompt-ok: the host turned sharing off on purpose; reconnecting asks it again.
                         detail: nil, buttons: [.reconnect, .close])
         case let .ended(.hostFailed(reason)):
             return Spec(symbol: "exclamationmark.triangle", symbolIsAttention: true, title: RemoteViewStrings.hostFailedTitle,
+                        // retry-prompt-ok: the host named a failure on that machine (capture, encoder, display); a retry
+                        // fails the same way until someone fixes it there, so the press says "fixed, try now".
                         detail: RemoteViewStrings.hostFailedDetail(host, reason), buttons: [.reconnect, .close])
         case .ended(.stoppedByViewer):
             return Spec(symbol: "stop.circle", title: RemoteViewStrings.viewerStoppedTitle,
+                        // retry-prompt-ok: the person pressed Stop; Reconnect is their choice to resume.
                         detail: nil, buttons: [.reconnect, .close])
         case .ended(.connectionLost):
+            // The pane turns a lost path into a reconnect before it renders (`RemoteDesktopPane.apply`),
+            // so no live pane shows this; it asks nothing anyway.
             return Spec(symbol: "wifi.exclamationmark", symbolIsAttention: true, title: RemoteViewStrings.lostTitle,
-                        detail: nil, buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.close])
         case .ended(.consentDenied):
             return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle, detail: nil,
+                        // retry-prompt-ok: the host declined or did not answer; reconnecting prompts the person there again.
                         buttons: [.reconnect, .close], info: RemoteViewStrings.deniedDetail(host))
         case let .ended(.signInRequired(rejected)):
             return Spec(symbol: "lock", symbolIsAttention: rejected, title: RemoteViewStrings.signInTitle(host),

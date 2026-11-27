@@ -49,6 +49,7 @@ use serde_json::{Value, json};
 
 use super::local::Source as Origin;
 use super::local::{self, LocalFile, Rules};
+use crate::link::seed::carry;
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -80,6 +81,21 @@ struct Listed {
     served: Vec<Option<Served>>,
     /// The symlinks kept as symlinks, as a push records them.
     links: BTreeMap<String, super::Linked>,
+}
+
+/// The depth-1 pack and its base that a projected machine may carry into its own git object
+/// store. These files are generated outside the folder, then exposed as read-only manifest
+/// entries so the projection can fetch them without asking the configured remote.
+struct CarryFiles {
+    base_path: PathBuf,
+    pack_path: PathBuf,
+    folder: PathBuf,
+}
+
+impl Drop for CarryFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
 }
 
 fn ok(answer: &Value) -> bool {
@@ -493,12 +509,12 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled()
-        && let Some(on) = projected_at(remote)
-        && on.local == local
-        && machine_id(socket).unwrap_or_default() == on.machine
-    {
-        stop_server(remote)?;
+    if enabled() {
+        if let Some(on) = projected_at(remote) {
+            if on.local == local && machine_id(socket).unwrap_or_default() == on.machine {
+                stop_server(remote)?;
+            }
+        }
     }
     start(socket, local, remote, chat)
 }
@@ -537,8 +553,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
             other => folder = Some(PathBuf::from(other)),
         }
     }
-    if store_handed && let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
-        eprintln!("cmux link project: no store for the listing: {error:#}");
+    if store_handed {
+        if let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
+            eprintln!("cmux link project: no store for the listing: {error:#}");
+        }
     }
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
@@ -549,7 +567,8 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every dial of this server names the folder, so the machine's mount says which it mirrors.
     let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
-    let listed = list(&folder)?;
+    let carry = projection_carry(&folder);
+    let listed = list_with_carry(&folder, carry.as_ref())?;
     let listed_ms = elapsed_ms(started);
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
@@ -846,10 +865,10 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket)
-        && let Ok(stream) = UnixStream::connect(&quiet)
-    {
-        return (ask(stream, name, at, encoded, revision), true);
+    if let Some(quiet) = quiet_socket(socket) {
+        if let Ok(stream) = UnixStream::connect(&quiet) {
+            return (ask(stream, name, at, encoded, revision), true);
+        }
     }
     (dial(socket, name, at, encoded, revision), false)
 }
@@ -940,10 +959,40 @@ fn ask(
 /// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
 /// its stat alone ([`super::project_kept`]), whose bytes are never served.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
+    list_with_carry(folder, None)
+}
+
+fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
     let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
-    let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
+    let mut files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
+    if set.git {
+        if let Some(carry) = carry {
+            // The names are reserved for this projection. If an old checkout already has either
+            // file, do not replace its bytes or create duplicate manifest entries.
+            if !files.iter().any(|(path, _)| path == ".git/cmux-carry.base")
+                && !files.iter().any(|(path, _)| path == ".git/cmux-carry.pack")
+            {
+                files.push((
+                    ".git/cmux-carry.base".into(),
+                    LocalFile {
+                        source: Origin::File(carry.base_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+                files.push((
+                    ".git/cmux-carry.pack".into(),
+                    LocalFile {
+                        source: Origin::File(carry.pack_path.clone()),
+                        permissions: 0o600,
+                        id: None,
+                    },
+                ));
+            }
+        }
+    }
     let stats = stat_all(&files);
     let mut items = Vec::with_capacity(files.len() + set.links.len());
     let mut kept = Vec::with_capacity(files.len());
@@ -1007,6 +1056,61 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
     Ok(Listed { manifest, served, links: set.links })
 }
 
+/// Builds the carry files for the default-on projection swap. The live git probes make carry
+/// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
+/// keeps its projected `.git` and continues normally.
+fn projection_carry(folder: &Path) -> Option<CarryFiles> {
+    if !cmux_projection::git_swap::enabled() {
+        return None;
+    }
+    // Keep carry eligibility identical to the projection listing. In particular, a bare
+    // repository can resolve `HEAD`, but it has no working-tree `.git` directory for the
+    // receiver's swap and is therefore listed as a plain folder.
+    local::GitDirs::of(folder).ok().flatten()?;
+    let output = |args: &[&str]| {
+        cmux_process::Command::new("git")
+            .current_dir(folder)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+    };
+    // The listing accepts repository roots (including worktrees and submodules),
+    // but refuses a subfolder. Do not pack the parent's history before that refusal.
+    if output(&["rev-parse", "--show-prefix"])?.stdout != b"\n" {
+        return None;
+    }
+    if output(&["config", "--get", "extensions.partialClone"]).is_some() {
+        return None;
+    }
+    let base = String::from_utf8(output(&["rev-parse", "--verify", "HEAD^{commit}"])?.stdout)
+        .ok()?
+        .trim()
+        .to_owned();
+    if !(base.len() == 40 || base.len() == 64) || !base.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let unique = format!("cmux-projection-carry-{}", std::process::id());
+    let folder_out = std::env::temp_dir().join(unique);
+    if std::fs::create_dir(&folder_out).is_err() {
+        return None;
+    }
+    let pack_path = folder_out.join("carry.pack");
+    if carry::pack_projection(folder, &base, &pack_path).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    let base_path = folder_out.join("carry.base");
+    if std::fs::write(&base_path, format!("{base}\n")).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    Some(CarryFiles { base_path, pack_path, folder: folder_out })
+}
+
 /// What a projected file's bytes are named by in Bring Back's base until a pull reads them: its
 /// size and modification time on this Mac when the folder was projected. Its bytes are this Mac's
 /// file's for as long as that file still has both ([`stand_in_matches`]); a pull hashes only the
@@ -1051,9 +1155,13 @@ fn base_of_listing(folder: &Path, listed: &Listed) -> anyhow::Result<super::Mani
         let Some(entry) = manifest.entry(index).filter(|entry| entry.kind == Kind::File) else {
             continue;
         };
+        let path = manifest.path_of(index);
+        if matches!(path.as_str(), ".git/cmux-carry.base" | ".git/cmux-carry.pack") {
+            continue;
+        }
         let mtime_ms = u64::try_from(entry.mtime_ns / 1_000_000).ok();
         files.insert(
-            manifest.path_of(index),
+            path,
             super::Pushed {
                 sha256: stand_in(entry.size, entry.mtime_ns),
                 permissions: entry.mode,

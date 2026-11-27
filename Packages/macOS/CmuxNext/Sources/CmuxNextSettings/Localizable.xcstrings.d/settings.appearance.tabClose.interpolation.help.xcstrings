@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.tabClose.interpolation.help" : {
+      "comment" : "Settings row help for the close button blend.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How the close button's color blends to its hover color."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "طريقة انتقال لون زر الإغلاق إلى لونه عند التمرير."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kako se boja dugmeta za zatvaranje stapa u boju pri prelasku pokazivačem."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvordan lukkeknappens farve går over i dens hover-farve."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie die Farbe der Schließtaste in ihre Hover-Farbe übergeht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo pasa el color del botón de cerrar a su color al pasar el puntero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La façon dont la couleur du bouton de fermeture passe à sa couleur de survol."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come il colore del pulsante di chiusura sfuma nel colore al passaggio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じるボタンの色がホバー色へ移り変わる方法です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របៀបដែលពណ៌ប៊ូតុងបិទលាយទៅជាពណ៌ពេលដាក់ទស្សន៍ទ្រនិចលើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "닫기 버튼 색상이 호버 색상으로 섞이는 방식입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvordan lukkeknappens farge går over i hover-fargen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak kolor przycisku zamykania przechodzi w kolor po najechaniu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Como a cor do botão de fechar se mistura com a cor ao passar o ponteiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как цвет кнопки закрытия переходит в цвет при наведении."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "วิธีที่สีของปุ่มปิดไล่ไปเป็นสีเมื่อชี้เมาส์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kapatma düğmesinin renginin üzerine gelme rengine nasıl geçtiği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Як колір кнопки закриття переходить у колір при наведенні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cách màu nút đóng chuyển dần sang màu khi rê chuột."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭按钮的颜色如何过渡到悬停颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉按鈕的顏色如何過渡到懸停顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -247,10 +247,11 @@ impl Surface {
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
+                reader_detached: AtomicBool::new(false),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term)),
+                term: TerminalMirror::new(Box::new(term), opts.scrollback),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -459,6 +460,18 @@ fn reap(surface: &Arc<Surface>, wait: Box<dyn FnOnce() -> TerminalEnd + Send>) {
     publish_local_exit_if_ready(surface);
 }
 
+/// A reader that parked ends its thread. Let go of that thread's handle if it
+/// is this one, so the ended thread's stack is freed now and not when the tab
+/// closes: every quiet holder terminal kept one 2 MiB stack mapped.
+#[cfg(unix)]
+pub(super) fn detach_own_reader_thread(pty: &PtyTerminalRuntime) {
+    let mut slot = pty.reader_thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if slot.as_ref().is_some_and(|reader| reader.thread().id() == std::thread::current().id()) {
+        pty.reader_detached.store(true, Ordering::Release);
+        drop(slot.take());
+    }
+}
+
 /// One local terminal's reader, on its thread or parked on its holder sink
 /// ([`HolderSink::park`](crate::holder_runtime::HolderSink::park)) while the
 /// terminal is quiet.
@@ -501,7 +514,10 @@ impl LocalReaderTask {
                 Some(sink) => {
                     if !self.reader.wait_readable_for(HOLDER_READER_PARK_AFTER) {
                         match sink.park(self, LocalReaderTask::resume) {
-                            Ok(()) => return,
+                            Ok(()) => {
+                                detach_own_reader_thread(pty);
+                                return;
+                            }
                             Err(task) => self = task,
                         }
                         continue;
