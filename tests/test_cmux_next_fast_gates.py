@@ -286,12 +286,6 @@ class WorkflowShape(unittest.TestCase):
                               f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
                               "scripts/ci/focused-tests-extra.json")
 
-    def test_checkout_holds_webviews_example_assets(self):
-        # Webviews' gallery and setup checks read JSON under examples/ at build time. Keep the whole directory in the
-        # sparse checkout so the fast-gates web bundle does not fail before its assertions run.
-        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
-        self.assertIn("/examples/", patterns)
-
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
         # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter

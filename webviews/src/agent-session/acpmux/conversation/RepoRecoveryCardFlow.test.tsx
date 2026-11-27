@@ -3,13 +3,15 @@
 // GitHub again on its own, a missing install link is asked for again on its own (no Try again or
 // Check again: autoRetry.ts), a failed attach offers Try again, and a verified attach ends in the
 // "GitHub connected" chip.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
-import { RepoRecoveryCard } from "./RepoRecoveryCard";
-import type { RepoRecovery } from "./repoRecoveryCardModel";
+import { RepoRecoveryCard, RepoRecoveryCardView } from "./RepoRecoveryCard";
+import type { RepoRecovery, RepoRecoveryView } from "./repoRecoveryCardModel";
+import { LiveUpdatesContext } from "../../../ui/liveUpdates";
+import { pageClocks } from "../../../ui/pageClock";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -41,6 +43,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  jest.useRealTimers();
   await settleReact();
   dom?.window.close();
   dom = undefined;
@@ -50,6 +53,46 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+});
+
+test("recovery countdown ticks without reconciling actions and releases its clock while retained hidden", async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(1_000);
+  const container = installDom();
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+  let reads = 0;
+  const view: RepoRecoveryView = {
+    tone: "quiet",
+    message: { literal: "Waiting for GitHub" },
+    until: 61_000,
+    get actions() {
+      reads++;
+      return [];
+    },
+  };
+  root = createRoot(container);
+  const draw = (active: boolean) =>
+    act(async () =>
+      root!.render(
+        <LiveUpdatesContext.Provider value={active}>
+          <RepoRecoveryCardView view={view} />
+        </LiveUpdatesContext.Provider>,
+      ),
+    );
+  await draw(true);
+  const initialReads = reads;
+  const initial = container.textContent;
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(container.textContent).not.toBe(initial);
+  expect(reads).toBe(initialReads);
+  await draw(false);
+  expect(pageClocks(document).subscribers).toBe(0);
+  const hidden = container.textContent;
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(container.textContent).toBe(hidden);
+  await draw(true);
+  expect(container.textContent).not.toBe(hidden);
+  expect(pageClocks(document).subscribers).toBe(1);
 });
 
 type Call = { method: string; params?: Record<string, unknown> };

@@ -29,8 +29,36 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
 import { LiveShimmer } from "./LiveShimmer";
-import { workingParts, WorkingCountsContext } from "./workingForModel";
+import { workingParts, useWorkingCounts } from "./workingForModel";
 import { clockSizerAcrossUnits } from "../../../ui/Typography";
+// Keep the clock at its text leaves. A named command, disclosure controls and preview counts
+// do not change each second, even while the elapsed label beside them advances.
+function useWorkingElapsed(row: AcpmuxRow, now: () => number) {
+  const held = !row.below && row.durationMs !== undefined;
+  const time = useTicking(!held, now);
+  return held ? row.durationMs! : Math.max(0, time - row.at);
+}
+function WorkingDuration({ row, now }: { row: AcpmuxRow; now: () => number }) {
+  return <span className="cv-worked__time">{formatDuration(useWorkingElapsed(row, now))}</span>;
+}
+function WorkingStatus({ row, now }: { row: AcpmuxRow; now: () => number }) {
+  return <StatusVerb elapsedMs={useWorkingElapsed(row, now)} verbKey={row.verbKey} />;
+}
+function WorkingLabel({ row, now, toggles }: { row: AcpmuxRow; now: () => number; toggles: boolean }) {
+  const t = useT();
+  const elapsed = useWorkingElapsed(row, now);
+  const held = !row.below && row.durationMs !== undefined;
+  return <TimedLabel text={(time) => t("turn.working", { time })} time={elapsed} ticking={!held && !toggles} />;
+}
+function WorkingSizer({ row, now }: { row: AcpmuxRow; now: () => number }) {
+  const t = useT();
+  const elapsed = useWorkingElapsed(row, now);
+  return elapsed >= 1000 ? (
+    <span className="cv-worked__label">
+      {t("turn.working", { time: clockSizerAcrossUnits(formatDuration(elapsed)) })}
+    </span>
+  ) : null;
+}
 /// Over the work (`row.below` false), `onToggle` opens and closes the running turn's work under the
 /// key its "Worked for" takes when it ends (turns.ts `shapeLiveRows`, #50987): the label is the toggle,
 /// with the chevron "Worked for" draws, and the counts stay buttons of their own beside it.
@@ -46,12 +74,9 @@ export function WorkingFor({
   onToggle?: () => void;
 }) {
   const t = useT();
-  const counts = useContext(WorkingCountsContext);
+  const counts = useWorkingCounts();
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
-  // No tick while the line waits on the person: it shows no time.
-  const time = useTicking(!held && waiting === undefined, now);
-  const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   // The Verbose transcript view opens every group, as ToolGroupRow reads it, and the group follows
   // its run's line as its own line does (TurnRows.tsx `groupNode`): a run line the reader closed
@@ -70,11 +95,6 @@ export function WorkingFor({
   const toggles = onToggle !== undefined && !row.below;
   // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
   // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
-  const ms = Math.max(0, until - row.at);
-  const sizer =
-    toggles && !held && !waiting && !doing && !row.thinkingNow && ms >= 1000
-      ? t("turn.working", { time: clockSizerAcrossUnits(formatDuration(ms)) })
-      : undefined;
   const label = (
     <>
       {!waiting && doing && row.doingCommand && !sending && (
@@ -95,24 +115,17 @@ export function WorkingFor({
           {/* A new call rolls the words through the line's faded edges (ui/motion/TextRoll.tsx). */}
           <TextRoll turn={doing ?? ""} className={doing ? "cv-worked__roll is-doing" : "cv-worked__roll"}>
             <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-              {doing ??
-                (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
+              {doing ?? (held ? t("thinking") : <WorkingStatus row={row} now={now} />)}
             </span>
           </TextRoll>
-          <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
+          <WorkingDuration row={row} now={now} />
         </>
       ) : (
         // "Working for 0s" from the first frame (turns.ts `turnSpan`), never a bare "Working" that
         // swaps to a time at its first second: the words keep one shape until "Worked for" (Leo,
         // 2026-11-25: "i think it was replacing the "worked for" as it went").
         <span className="cv-worked__label">
-          <TimedLabel
-            text={(time) => t("turn.working", { time })}
-            time={Math.max(0, until - row.at)}
-            // As the toggle, its chevron follows the time with no room between (#55615): the
-            // widest time's room goes after the chevron instead (`cv-worked__toggle-sizer`).
-            ticking={!held && !toggles}
-          />
+          <WorkingLabel row={row} now={now} toggles={toggles} />
         </span>
       )}
     </>
@@ -134,7 +147,7 @@ export function WorkingFor({
             <DisclosureChevron open={expanded} look="worked" />
           </span>
           <span className="cv-worked__toggle-sizer" aria-hidden="true">
-            {sizer && <span className="cv-worked__label">{sizer}</span>}
+            {!held && !waiting && !doing && !row.thinkingNow && <WorkingSizer row={row} now={now} />}
             <DisclosureChevron open={false} look="worked" reserved />
           </span>
         </button>

@@ -5,6 +5,7 @@ import path from "node:path";
 const files = [
   "src/agent-session/acpmux/clock.ts",
   "src/agent-session/acpmux/conversation/WorkingFor.tsx",
+  "src/agent-session/acpmux/conversation/RepoRecoveryCard.tsx",
   "src/agent-session/acpmux/subagents/SubagentGroup.tsx",
   "src/agent-session/acpmux/subagents/subagentGroupModel.ts",
   // Per-card second timers (plans/cmux-next/resource-efficiency-DESIGN.md section 9, row 6).

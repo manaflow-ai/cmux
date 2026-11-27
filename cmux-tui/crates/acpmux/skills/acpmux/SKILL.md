@@ -511,8 +511,6 @@ acpmux worktree list                           # this machine's worktrees and th
 acpmux ls --archived                           # archived chats, newest archive first, and who archived each
 acpmux archive NAME OTHER                      # take chats off the lists (--json says what changed)
 acpmux unarchive NAME                          # bring an archived chat back
-acpmux pr-wait 1234 --sha $(git rev-parse HEAD) --timeout 1800  # block until a PR's checks finish, one shared poller
-acpmux ci wait run 45363996714 --timeout 1800  # wait for a workflow run (or `ci wait pr N`) at no quota while nothing changes
 ```
 
 Add `--json` before the command for ids and paths to act on. The rest of the

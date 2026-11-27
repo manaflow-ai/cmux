@@ -5,21 +5,20 @@
 # tries a failed update three times. Run 45837430593 lost every before at
 # 8f9660c2 to one dropped ghostty-next clone.
 set -euo pipefail
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 MEDIA_SUBMODULE_RETRY_SECONDS=0
-source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../media_tree_submodules.sh"
 tmp="$(mktemp -d)"
-git_fixture_trap_exit 'rm -rf "$tmp"'
+trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 MEDIA_SUBMODULE_RETRY_SECONDS=0
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 for n in ghostty ghostty-next homebrew-cmux; do
-  git_fixture_init -b main "$tmp/src-$n"
+  git init -q -b main "$tmp/src-$n"
   git -C "$tmp/src-$n" commit -q --allow-empty -m one
 done
 sup="$tmp/sup"
-git_fixture_init -b main "$sup"
+git init -q -b main "$sup"
 for n in ghostty ghostty-next homebrew-cmux; do
   git -C "$sup" -c protocol.file.allow=always submodule add -q "$tmp/src-$n" "$n"
 done

@@ -55,7 +55,20 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
         ws_xpixel: request.px_w,
         ws_ypixel: request.px_h,
     };
-    open_pty(&mut master, &mut slave, &mut size)?;
+    // SAFETY: out-pointers to live locals; no name buffer, default termios.
+    let opened = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            // A raw pointer: macOS takes `*mut winsize`, Linux `*const`.
+            &raw mut size,
+        )
+    };
+    if opened != 0 {
+        return Err(io::Error::last_os_error());
+    }
     // SAFETY: openpty returned two fresh descriptors this function owns.
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
     set_cloexec(master.as_raw_fd());
@@ -99,94 +112,6 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
 }
 
 /// The child could not enter its directory.
-/// The errnos a PTY open gets back for a moment when many opens land at once
-/// (a restore of every kept terminal, a seed of 120 workspaces): ENXIO and
-/// EAGAIN, and -6, XNU's `EREDRIVEOPEN` ("drive this open again"), which
-/// reaches the caller (cmux-pty's `MASTER_OPEN_REFUSED_FOR_A_MOMENT`).
-const PTY_OPEN_REFUSED_FOR_A_MOMENT: [i32; 3] = [libc::ENXIO, libc::EAGAIN, -6];
-
-/// A refused open is tried again this many times, after 1, 2, 4, 8, 16, 32 ms
-/// and then 64 ms each: about 0.3 s in sum, as cmux-pty's master open.
-const PTY_OPEN_SECOND_TRIES: u32 = 10;
-
-/// `openpty` into `master` and `slave`, tried again on a refusal that passes
-/// ([`PTY_OPEN_REFUSED_FOR_A_MOMENT`]). A failure that stays names how many
-/// PTYs this Mac has open and its limit, so a full table reads as one: the
-/// nightly's launch-tti seed failed on a bare "Device not configured (os error
-/// 6)" (cmuxterm-hq runs 45942165287, 45951260807, 45993792324, 2026-11-27).
-fn open_pty(
-    master: &mut libc::c_int,
-    slave: &mut libc::c_int,
-    size: &mut libc::winsize,
-) -> io::Result<()> {
-    let mut second_tries: u32 = 0;
-    loop {
-        // SAFETY: out-pointers to live locals; no name buffer, default termios.
-        let opened = unsafe {
-            libc::openpty(
-                master,
-                slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                // A raw pointer: macOS takes `*mut winsize`, Linux `*const`.
-                std::ptr::from_mut(size),
-            )
-        };
-        if opened == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        let code = error.raw_os_error().unwrap_or(0);
-        if code == libc::EINTR {
-            continue;
-        }
-        if PTY_OPEN_REFUSED_FOR_A_MOMENT.contains(&code) && second_tries < PTY_OPEN_SECOND_TRIES {
-            std::thread::sleep(std::time::Duration::from_millis(1 << second_tries.min(6)));
-            second_tries += 1;
-            continue;
-        }
-        return Err(io::Error::new(
-            error.kind(),
-            format!("open a PTY: {error}, {} tries ({})", second_tries + 1, pty_table()),
-        ));
-    }
-}
-
-/// "N PTYs open of LIMIT": the `/dev/ttys*` nodes (macOS makes one per open
-/// PTY) and `kern.tty.ptmx_max`; a part that cannot be read says so.
-fn pty_table() -> String {
-    let open = std::fs::read_dir("/dev").map(|entries| {
-        entries
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().as_encoded_bytes().starts_with(b"ttys"))
-            .count()
-    });
-    let open = open.map_or_else(|error| format!("unknown ({error})"), |count| count.to_string());
-    format!("{open} PTYs open of {}", ptmx_max())
-}
-
-#[cfg(target_os = "macos")]
-fn ptmx_max() -> String {
-    let mut value: libc::c_int = 0;
-    let mut length = std::mem::size_of::<libc::c_int>();
-    // SAFETY: a NUL-terminated name and an out-buffer of the length passed.
-    let read = unsafe {
-        libc::sysctlbyname(
-            c"kern.tty.ptmx_max".as_ptr(),
-            std::ptr::from_mut(&mut value).cast(),
-            &mut length,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if read == 0 { value.to_string() } else { "an unread limit".to_string() }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ptmx_max() -> String {
-    "an unread limit".to_string()
-}
-
 const STAGE_CHDIR: u8 = b'C';
 /// The child could not `execve` its program.
 const STAGE_EXEC: u8 = b'E';

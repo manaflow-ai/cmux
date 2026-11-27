@@ -20,7 +20,6 @@
 // --backgrounds  none (default: an opaque window), all, or none|light|dark|busy: the stage over a
 //            synthetic picture behind the window's glass (src/gallery/frame/background.ts)
 // --limit    at most N cases (after the order above)
-// --skip-broken  leave out a gallery file that fails to load, named on stderr (whats-new-gallery.yml)
 // --experiments  instead of the matrix above: for each entry with an experiment, one measured case
 //            per arm (`measure=1`: the script at 1x, frame timings in the results) and a frame strip
 //            per arm and step (`freeze=<step>:<ms>` at STRIP_TIMES_MS). Theme, locale and width as above.
@@ -224,13 +223,11 @@ if (import.meta.main) {
       backgrounds: { type: "string" },
       limit: { type: "string" },
       experiments: { type: "boolean", default: false },
-      // A gallery file that fails to load is left out, named on stderr (entries.ts loadEntrySources).
-      "skip-broken": { type: "boolean", default: false },
       out: { type: "string" },
     },
   });
   const build = values.experiments ? experimentCases : manifestCases;
-  const loaded = await loadEntrySources({ skipBroken: values["skip-broken"] });
+  const loaded = await loadEntrySources();
   const cases = build(
     loaded.map(({ entry }) => entry),
     {

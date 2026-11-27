@@ -216,8 +216,6 @@ jobs:
       (inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     continue-on-error: true
-    outputs:
-      rendered: ${{ steps.shots.outputs.rendered }}
     timeout-minutes: 135  # a queue wait of at most 3600 s (FLEET_QUEUE_S), then a 3600 s run, then the artifact
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -229,7 +227,6 @@ jobs:
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: Take the shots on the fleet
-        id: shots
         env:
           REF: ${{ inputs.ref || github.sha }}
           GH_TOKEN: ${{ github.token }}
@@ -237,8 +234,6 @@ jobs:
           # On feat-cmux-next this render is filed as the golden for its key (file-goldens): rendered once, then every
           # later run of the same inputs skips the Mac, so it ranks as pr. A lane's render stays a plain agent step.
           FLEET_PRIORITY: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'pr' || 'agent' }}
-          # A seed render keys its step by the golden's name: a later dispatch of the same inputs re-attaches to it.
-          FLEET_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && format('screen-parity-{0}', needs.parity-key.outputs.name) || '' }}
         run: |
           set -euo pipefail
           if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then sha="$REF"
@@ -250,7 +245,6 @@ jobs:
           echo "OUT=$out" >> "$GITHUB_ENV"
           EFFECTS=full MODEL="iPhone 17 Pro" bash cmux-next-ios/verify/screen-parity/shots.sh fleet "$out/mac" "$sha"
           ls -la "$out/mac"
-          echo "rendered=true" >> "$GITHUB_OUTPUT"
       - name: Upload ios-sim-mac-shots
         if: ${{ !cancelled() && env.OUT != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -263,12 +257,11 @@ jobs:
   # A Mac render of a key not yet filed goes into the goldens cache, so the next run of the same inputs skips the Mac.
   # Writing needs next-cache-writer, whose deployment branches are feat-cmux-next only: a lane's render is used
   # by that run and not filed.
-  # shots-fleet is continue-on-error, so its result reads success even when it failed: gate on its rendered output.
   file-goldens:
     name: File the screen-parity goldens under their input key
     needs: [parity-key, shots-fleet]
     if: >-
-      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.shots-fleet.outputs.rendered == 'true' &&
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.shots-fleet.result == 'success' &&
       needs.parity-key.outputs.key != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     continue-on-error: true

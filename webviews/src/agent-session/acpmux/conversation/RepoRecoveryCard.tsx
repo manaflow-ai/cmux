@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePageNow } from "../../../ui/pageClock";
 import { useAutoRetry } from "../autoRetry";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
@@ -37,15 +38,14 @@ function say(t: Translate, text: RepoRecoveryText): string {
 }
 
 /** A ticking "m:ss" until `until`, so the wait shows its ETA. */
-function useWaitLeft(until: number | undefined): string | undefined {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (until === undefined) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [until]);
-  return until === undefined ? undefined : waitLeft(until, now);
+function RecoveryCountdown({ until }: { until: number }) {
+  const t = useT();
+  const now = usePageNow(true);
+  return (
+    <span className="cv-repo-recovery__eta" aria-hidden="true">
+      {t("cloudRepository.waitLeft", { time: waitLeft(until, now) })}
+    </span>
+  );
 }
 
 /** The card as drawn for one view: the message, its ETA when it waits, and its one-click steps. */
@@ -59,7 +59,6 @@ export function RepoRecoveryCardView({
   onAction?: (action: RepoRecoveryAction) => void;
 }) {
   const t = useT();
-  const left = useWaitLeft(view.until);
   const message = say(t, view.message);
   if (view.tone === "done")
     return (
@@ -79,11 +78,7 @@ export function RepoRecoveryCardView({
       aria-live={view.tone === "quiet" ? "polite" : undefined}
     >
       <span>{message}</span>
-      {left !== undefined && (
-        <span className="cv-repo-recovery__eta" aria-hidden="true">
-          {t("cloudRepository.waitLeft", { time: left })}
-        </span>
-      )}
+      {view.until !== undefined && <RecoveryCountdown key={view.until} until={view.until} />}
       {view.actions.map((action) => (
         <button
           key={`${action.id}:${action.repo ?? ""}`}

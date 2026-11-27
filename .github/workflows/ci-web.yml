@@ -831,15 +831,6 @@ jobs:
     name: Agent pane on real acpmux
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
-    env:
-      # A slow link to the cache store must lose to a cold install, not eat the job's 30 minutes. On the controller
-      # timing feed (2026-11-23 00:10-06:10Z, 369 jobs, 95 runner-h) the 1.1 GB Bun package cache restored at about
-      # 1-2 MB/s on fsr-* and the pool's hs/hx/hd runners: 600-955 s at the median, then "Failed to restore: Server
-      # failed to authenticate" at 10 minutes, where a cold `bun install` took 3-24 s. 70 of the 78 jobs with such a
-      # restore were cut at the 30-minute timeout (35 runner-h of the 95). actions/cache (and rust-cache, which uses
-      # it) gives up on a 128 MB segment that takes longer than this and restores nothing, so a restore under about
-      # 2 MB/s costs a minute; the fast pools restore the same entry in 26-43 s and are untouched.
-      SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
     steps:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
@@ -922,11 +913,6 @@ jobs:
 
       - name: Build acpmux
         working-directory: cmux-tui
-        env:
-          # The pane checks drive the daemon; nobody reads its full debuginfo here. Line tables keep a panic's
-          # backtrace readable and skip most of the debug codegen and link of the workspace crates (opt-level 1 in
-          # profile.dev), the bulk of this step's ~5 minutes on every run (dependencies already build without it).
-          CARGO_PROFILE_DEV_DEBUG: line-tables-only
         run: |
           cargo build --locked -p acpmux --bin acpmux
           # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.

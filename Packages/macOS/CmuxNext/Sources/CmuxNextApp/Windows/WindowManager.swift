@@ -240,9 +240,11 @@ final class WindowManager {
                                                       display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
         let store = services.daemon.store; DebugTimings.markLaunch("window.restore_wait_start") // the wait on the daemon's first tree
-        store.whenLoaded { [weak self] in // in the turn the tree applies, not a main-queue job later (DaemonStore.whenLoaded)
-            guard let self, !isTerminating else { return }; DebugTimings.markLaunch("window.restore_wait_end")
-            if #available(macOS 26, *) { loadObservation = Task.immediate { [weak self] in await self?.restore() } } else { loadObservation = Task { [weak self] in await self?.restore() } } // task-owner: one restore; cancelled at quit
+        loadObservation = Task { [weak self] in
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
+                DebugTimings.markLaunch("window.restore_wait_end"); await self?.restore()
+                return
+            }
         }
     }
 

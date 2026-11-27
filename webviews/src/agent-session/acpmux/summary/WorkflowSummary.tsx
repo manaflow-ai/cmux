@@ -1,16 +1,18 @@
 // Workflow data comes from the fold; names/actions are supplied by the harness.
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
+import { subscribePageDeadline } from "../../../ui/pageClock";
 import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
 import { Elapsed } from "../subagents/Elapsed";
-import { useSessionBoundary } from "../subagents/subagentGroupModel";
+import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
   workflowSignals,
-  WORKFLOW_SIGNAL_MS,
+  workflowSignalBoundaries,
   type WorkflowDetailRequest,
   type WorkflowCapacitySignal,
 } from "./foldWorkflows";
@@ -36,26 +38,13 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   daemonCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
-  const ticking = workflows.some((workflow) => workflow.state === "running");
-  const boundaries = useMemo(
-    () =>
-      [
-        ...workflows.flatMap((workflow) =>
-          workflow.agents.flatMap((agent) =>
-            agent.state === "running" && agent.lastProgressAt !== undefined
-              ? [agent.lastProgressAt + WORKFLOW_SIGNAL_MS]
-              : [],
-          ),
-        ),
-        ...(daemonCapacity?.errors.flatMap((error) => [error.at, error.at + WORKFLOW_SIGNAL_MS + 1]) ?? []),
-      ].sort((a, b) => a - b),
-    [workflows, daemonCapacity],
-  );
-  const now = useSessionBoundary(boundaries);
-  const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
+  const capacity = workflows.some((workflow) => workflow.state === "running") ? daemonCapacity : undefined;
+  const boundaries = useMemo(() => workflowSignalBoundaries(workflows, capacity), [workflows, capacity]);
+  const now = useWorkflowSignalTime(boundaries);
+  const signals = useMemo(() => workflowSignals(workflows, now, capacity), [workflows, now, capacity]);
   return (
     <>
-      {ticking && signals.capacity && (
+      {signals.capacity && (
         <p className="acpmux-workflow__warning">
           <output>{t("workflow.capacity")}</output>
         </p>
@@ -72,6 +61,33 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
     </>
   );
 });
+
+// Signal values are constant between boundaries. A boundary is on the session clock;
+// the page scheduler takes wall time.
+function useWorkflowSignalTime(boundaries: readonly number[]): number {
+  const offset = useContext(SubagentClockContext);
+  const active = useLiveUpdates();
+  const position = useCallback(() => {
+    const now = Date.now() - offset;
+    let lo = 0;
+    let hi = boundaries.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (boundaries[mid]! <= now) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }, [boundaries, offset]);
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const next = () => (boundaries[position()] ?? Infinity) + offset;
+      return active && Number.isFinite(next()) ? subscribePageDeadline(notify, next) : () => {};
+    },
+    [active, boundaries, offset, position],
+  );
+  const index = useSyncExternalStore(subscribe, position, position);
+  return boundaries[index - 1] ?? -Infinity;
+}
 
 const localizedState = (
   t: ReturnType<typeof useT>,
@@ -181,8 +197,8 @@ export function WorkflowSummaryRow({
             ` · ${formatDuration(elapsedMs)}`
           ) : liveElapsed && workflow.state === "running" && workflow.startedAt !== undefined ? (
             <>
-              {" "}
-              · <Elapsed since={workflow.startedAt} />
+              {" · "}
+              <Elapsed since={workflow.startedAt} />
             </>
           ) : null}
           {workflow.tokens !== undefined &&

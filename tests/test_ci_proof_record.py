@@ -112,8 +112,7 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                rc = pr.main(["gate", "--suite", "ios-flows"])
-            self.assertEqual(rc, pr.UNREAD)
+                pr.main(["gate", "--suite", "ios-flows"])
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})

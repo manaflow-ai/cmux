@@ -10,9 +10,9 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { running, useNow, SubagentHarnessContext } from "./subagentGroupModel";
-import type { Subagent } from "./subagentFold";
-import { subagentElapsedLabel } from "./Elapsed";
+import { running, subagentTime, ticking, useNow, SubagentHarnessContext } from "./subagentGroupModel";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
+import { Elapsed } from "./Elapsed";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentDisplayName } from "./subsessions";
@@ -38,7 +38,6 @@ export const AgentsPill = memo(function AgentsPill({
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
-  const sampledAt = useNow(false);
   if (live.length === 0) return null;
   const byStart = (a: Subagent, b: Subagent) => a.startedAt - b.startedAt || a.id.localeCompare(b.id);
   const sections = [
@@ -116,7 +115,9 @@ export const AgentsPill = memo(function AgentsPill({
                           <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
-                        <span className="acpmux-agents-list__time">{subagentElapsedLabel(agent, sampledAt)}</span>
+                        <span className="acpmux-agents-list__time">
+                          <AgentElapsed agent={agent} />
+                        </span>
                         <Icon name="disclosure.collapsed" size={12} />
                       </button>
                     </li>
@@ -130,3 +131,11 @@ export const AgentsPill = memo(function AgentsPill({
     </div>
   );
 });
+
+function AgentElapsed({ agent }: { agent: Subagent }) {
+  const now = useNow(false);
+  if (ticking(agent)) {
+    return <Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} />;
+  }
+  return subagentTime(agent, now);
+}

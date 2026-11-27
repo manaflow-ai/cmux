@@ -322,8 +322,6 @@ struct Func<'a> {
     /// Parameters that bind one name to a named type (`x: &T`): (name, `T`).
     typed: Vec<(String, String)>,
     returns_path: bool,
-    /// Its return can hold no path ([`holds_no_path`]): never tainted whatever its arguments.
-    returns_scalar: bool,
     body: &'a syn::Block,
 }
 
@@ -506,49 +504,6 @@ fn bound(pat: &syn::Pat) -> Vec<String> {
 }
 
 const PATHY: &[&str] = &["Path", "PathBuf", "OsStr", "OsString"];
-
-/// Type names a value that can hold no path is made of. A function returning only these (a
-/// count, a flag, `io::Result<usize>`, nothing) never taints its callers' values: methods
-/// resolve by name, so one `io::Read::read` reading a tainted file once made every `.read()` in
-/// the crate (each `RwLock`'s) the home's, and the rows that followed were all noise (#43562
-/// added `ColdFile::read`; 30 false writes).
-const SCALAR: &[&str] = &[
-    "bool",
-    "char",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "u128",
-    "usize",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "i128",
-    "isize",
-    "f32",
-    "f64",
-    "Result",
-    "Option",
-    "std",
-    "io",
-    "Error",
-    "anyhow",
-    "Ordering",
-    "Duration",
-    "Instant",
-    "SystemTime",
-    "time",
-    "cmp",
-    "fmt",
-];
-
-/// Whether a return of type `ty` can hold no path (see [`SCALAR`]); `()` never can.
-fn holds_no_path(ty: &syn::Type) -> bool {
-    matches!(ty, syn::Type::Tuple(t) if t.elems.is_empty())
-        || type_names(ty).iter().all(|n| SCALAR.contains(&n.as_str()))
-}
 
 /// The type `ty` names, through references: `T` for `T`, `&T`, `&mut T` (`Self` is `self_ty`).
 fn named_type(ty: &syn::Type, self_ty: Option<&str>) -> Option<String> {
@@ -774,10 +729,6 @@ impl<'a> Index<'a> {
             syn::ReturnType::Default => false,
             syn::ReturnType::Type(_, ty) => is_pathy(&type_names(ty), &generic_paths),
         };
-        let returns_scalar = match &sig.output {
-            syn::ReturnType::Default => true,
-            syn::ReturnType::Type(_, ty) => holds_no_path(ty),
-        };
         self.funcs.push(Func {
             rel: rel.to_owned(),
             module: module.to_vec(),
@@ -787,7 +738,6 @@ impl<'a> Index<'a> {
             params,
             typed,
             returns_path,
-            returns_scalar,
             body,
         });
         // Functions declared inside this one's body.
@@ -1566,7 +1516,7 @@ fn analyze(sources: &[Source]) -> Vec<Row> {
         let mut rows = BTreeSet::new();
         for at in 0..index.funcs.len() {
             // Its return with no tainted parameter: tainted whatever its arguments.
-            if !index.funcs[at].returns_scalar && read_func(&index, &state, at, false).returns {
+            if read_func(&index, &state, at, false).returns {
                 next.returns.insert(at);
             }
             let found = read_func(&index, &state, at, true);

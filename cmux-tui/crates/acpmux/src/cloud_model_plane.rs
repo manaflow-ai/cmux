@@ -224,37 +224,10 @@ fn lookup_now(host: &str) -> bool {
     if lookup.is_err() {
         return false;
     }
-    let now = Instant::now();
-    let answer = Answer::new(host, now, rx.recv_timeout(RESOLVE_WAIT).ok());
+    let answer = Answer::new(host, Instant::now(), rx.recv_timeout(RESOLVE_WAIT).ok());
     let ok = answer.resolves;
     *cache() = Some(answer);
-    let mut since = missing_since();
-    *since = missing_from(*since, ok, now);
     ok
-}
-
-/// When this process first found the route missing (a [`lookup_now`] "no" or no answer, or a turn
-/// that failed with no route), cleared once the route resolves. The young machine's
-/// [`ROUTE_WAIT`] runs from here: once per machine, not once per failed turn.
-static MISSING_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
-
-fn missing_since() -> std::sync::MutexGuard<'static, Option<Instant>> {
-    MISSING_SINCE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// The route's missing-since after an answer at `now`: the earliest "no" kept, a "yes" clears it.
-fn missing_from(since: Option<Instant>, resolves: bool, now: Instant) -> Option<Instant> {
-    if resolves { None } else { Some(since.unwrap_or(now)) }
-}
-
-/// What is left at `now` of a `wait` that began when the route was first found missing (`since`,
-/// or `now` when this is the first sign): the whole wait once, then less, then none. Production
-/// app-chat-production 2026-11-27 (runs 46003837951, vm_fbec1b5f122f8fb9017b): the moved chat's
-/// first prompt answered "has no model route" after 20.8 s (24.3 s at 12:44Z), the fresh 20 s
-/// wait again on a machine whose route had been missing since its first chat minutes before,
-/// while the same failure on the Mac answered in 2.5 s.
-pub fn wait_left(since: Option<Instant>, now: Instant, wait: Duration) -> Duration {
-    (since.unwrap_or(now) + wait).saturating_duration_since(now)
 }
 
 /// Whether `host` resolves here, from a short cache ([`Answer`]), else [`lookup_now`].
@@ -342,21 +315,12 @@ pub fn arrives_within(
 /// Whether the image's model route resolves now, waiting for it as [`route_wait_for`] says:
 /// fresh lookups ([`lookup_now`]), so a "no" the cache held since the spawn does not answer, and
 /// a "yes" is kept, so the agent's restart gets the route. Blocking: call off the runtime.
-///
-/// The wait is the machine's, not the turn's ([`wait_left`]): it runs from the first sign the route
-/// was missing, so a later failed turn waits only for what is left of it. Once it is spent, the
-/// round asks through the burst cache ([`plane_host_resolves`]): a hung resolver this turn's own
-/// spawn just asked is not asked again for [`NO_ANSWER_REUSE`].
 pub fn route_arrives() -> bool {
     let hosts = image_plane_hosts();
-    if hosts.is_empty() {
-        return false;
-    }
     let began = Instant::now();
-    let since = *missing_since().get_or_insert(began);
-    let wait = wait_left(Some(since), began, route_wait_for(machine_uptime()));
-    let resolves: fn(&str) -> bool = if wait.is_zero() { plane_host_resolves } else { lookup_now };
-    arrives_within(&hosts, wait, resolves, std::thread::sleep, || began.elapsed())
+    arrives_within(&hosts, route_wait_for(machine_uptime()), lookup_now, std::thread::sleep, || {
+        began.elapsed()
+    })
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.

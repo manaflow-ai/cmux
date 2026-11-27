@@ -1666,9 +1666,7 @@ fn every_tool_schema_fits_its_byte_budget() {
     for (server, list, budget) in [
         // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
         // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
-        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25. machine_request (#56624,
-        // 970 B) merged without that count: 32,836 B on 11-26, so its own text was cut to fit
-        // (32,745 B).
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
         ("acpmux", tools(), 32 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {

@@ -31,6 +31,7 @@ import {
   type RunOutput,
   type RunPlan,
 } from "./runElsewhereModel";
+import { LiveUpdatesContext } from "../../../ui/liveUpdates";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 
@@ -433,4 +434,34 @@ test("the panel's buttons are the design system's: no keycap, none disabled, no 
   const rules = css.split("}").filter((rule) => rule.includes("run-elsewhere"));
   expect(rules.length).toBeGreaterThan(0);
   for (const rule of rules) expect(rule).not.toContain("not-allowed");
+});
+
+test("a retained remote-output row stops reads and resumes from its byte cursor when revealed", async () => {
+  const { runs, calls } = harness([
+    { data: btoa("first"), nextByte: 5, state: "running" },
+    { data: btoa("second"), nextByte: 11, state: "running" },
+  ]);
+  runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
+  const container = installDom();
+  root = createRoot(container);
+  jest.useFakeTimers();
+  const item = call("in_progress", Date.now());
+  const show = (active: boolean) =>
+    root!.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <RunElsewhereContext.Provider value={runs}>
+          <CommandRow item={item} />
+        </RunElsewhereContext.Provider>
+      </LiveUpdatesContext.Provider>,
+    );
+  await act(async () => show(true));
+  await flush();
+  expect(calls.reads).toEqual([0]);
+  await act(async () => show(false));
+  await advance(30_000);
+  expect(calls.reads).toEqual([0]);
+  await act(async () => show(true));
+  await flush();
+  expect(calls.reads).toEqual([0, 5]);
+  expect(container.textContent).toContain("firstsecond");
 });

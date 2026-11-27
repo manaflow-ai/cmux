@@ -48,7 +48,6 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_EVENTS,
     method::MUX_EXPORT,
     method::MUX_FELT_SNAPSHOT,
-    method::MUX_WATCHDOG_HOLD,
     method::MUX_FILE_PUT,
     method::MUX_FILE_PUT_BEGIN,
     method::MUX_FILE_PUT_CANCEL,

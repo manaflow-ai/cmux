@@ -222,29 +222,3 @@ fn a_no_is_reused_for_a_burst_only_so_a_name_that_starts_resolving_routes_the_ne
     assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(9)), Some(false));
     assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(11)), None);
 }
-
-/// The young machine's route wait is spent once per machine: a turn that fails after it waits for
-/// what is left, then none (app-chat-production 2026-11-27: the moved chat's "has no model route"
-/// took 20.8 s, a fresh 20 s wait minutes after the machine's route was first found missing).
-#[test]
-fn the_route_wait_runs_once_per_machine_not_per_turn() {
-    let first = Instant::now();
-    assert_eq!(wait_left(None, first, ROUTE_WAIT), ROUTE_WAIT);
-    assert_eq!(wait_left(Some(first), first, ROUTE_WAIT), ROUTE_WAIT);
-    assert_eq!(
-        wait_left(Some(first), first + Duration::from_secs(15), ROUTE_WAIT),
-        Duration::from_secs(5)
-    );
-    assert_eq!(
-        wait_left(Some(first), first + Duration::from_secs(150), ROUTE_WAIT),
-        Duration::ZERO
-    );
-    assert_eq!(wait_left(Some(first), first, Duration::ZERO), Duration::ZERO);
-
-    // The earliest "no" is kept; a "yes" clears it, so a later outage gets a whole wait again.
-    let later = first + Duration::from_secs(30);
-    assert_eq!(missing_from(None, false, first), Some(first));
-    assert_eq!(missing_from(Some(first), false, later), Some(first));
-    assert_eq!(missing_from(Some(first), true, later), None);
-    assert_eq!(missing_from(None, false, later), Some(later));
-}

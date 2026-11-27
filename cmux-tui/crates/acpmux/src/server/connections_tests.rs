@@ -234,9 +234,7 @@ fn a_claude_token_is_added_as_a_reference_and_delivered_as_the_oauth_token() {
 #[test]
 fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
     let d = dirs();
-    // One line: a `file:` secret is a single line (`profile_env::file_secret` refuses a
-    // line break inside it); the spaces, tab and no-break space inside it are dropped here.
-    let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab  cd\t\u{a0}ef \r");
+    let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
     add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
     let (_, kind, _, secret) = credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
     let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());

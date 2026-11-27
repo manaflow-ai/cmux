@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The driver half of scripts/measure/meet-browser.sh: what a video-call page needs, per browser.
 
-    meet-browser.py --side SIDE_SH --name NAME --work DIR --out DIR --dmg URL --version V [--call S] [--only a,b] [--record]
+    meet-browser.py --side SIDE_SH --name NAME --work DIR --out DIR --dmg URL --version V [--call S] [--only a,b]
 
 Runs (each a fresh page on a local test page served here; 127.0.0.1 is a secure context):
   cmux-chromium       the side copy of the NIGHTLY, a Chromium tab, launched with no extra arguments
@@ -48,8 +48,6 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8><title>meet-measure</t
 <button id=b-pip onclick="__m.start('pip')">pip</button>
 <button id=b-gdm onclick="__m.start('gdm')">gdm</button>
 <button id=b-notif onclick="__m.start('notif')">notif</button>
-<button id=b-show onclick="__m.start('show')">join call (camera, mic, screen share)</button>
-<div id=tiles style="display:flex;gap:8px;flex-wrap:wrap"></div>
 <video id=v muted playsinline width=320></video>
 <script>
 const R = {}; const LABEL = new URLSearchParams(location.search).get('run') || 'x';
@@ -105,35 +103,6 @@ const steps = {
       e => put('pip', {ok: false, state: 'rejected', error: e.name, message: String(e.message).slice(0, 200), enabled: document.pictureInPictureEnabled})); },
   gdm() { if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return put('gdm', {ok: false, state: 'absent'});
     media('gdm', () => navigator.mediaDevices.getDisplayMedia({video: true})); },
-  // record=1: a call the recording can show, after the measured steps (it changes no number). One click gives
-  // the user gesture getDisplayMedia needs; camera and mic go through a loopback peer connection to a remote tile.
-  async show() {
-    put('show', {state: 'starting'});
-    const tiles = document.getElementById('tiles');
-    const tile = (name, stream) => { const box = document.createElement('figure'); box.style.margin = '0';
-      const v = document.createElement('video'); v.muted = v.autoplay = v.playsInline = true; v.width = 480; v.srcObject = stream;
-      const cap = document.createElement('figcaption'); cap.textContent = name; box.append(v, cap); tiles.append(box); v.play().catch(() => {}); return cap; };
-    const [screen, cam] = await Promise.all([navigator.mediaDevices.getDisplayMedia({video: true}),
-      navigator.mediaDevices.getUserMedia({video: true, audio: true})]);
-    tile('camera (local)', cam); tile('screen share', screen);
-    const sender = new RTCPeerConnection(), receiver = new RTCPeerConnection();
-    sender.onicecandidate = e => e.candidate && receiver.addIceCandidate(e.candidate);
-    receiver.onicecandidate = e => e.candidate && sender.addIceCandidate(e.candidate);
-    const remote = new MediaStream(); receiver.ontrack = e => remote.addTrack(e.track);
-    cam.getTracks().concat(screen.getVideoTracks()).forEach(track => sender.addTrack(track, cam));
-    await sender.setLocalDescription(await sender.createOffer()); await receiver.setRemoteDescription(sender.localDescription);
-    await receiver.setLocalDescription(await receiver.createAnswer()); await sender.setRemoteDescription(receiver.localDescription);
-    const remoteCap = tile('remote (camera over WebRTC)', remote);
-    const level = document.createElement('meter'); level.max = 1; level.style.width = '480px'; tiles.append(level);
-    const ac = new AudioContext(), an = ac.createAnalyser(); ac.createMediaStreamSource(cam).connect(an);
-    const buf = new Float32Array(an.fftSize);
-    R.showIv = setInterval(() => { an.getFloatTimeDomainData(buf); level.value = Math.min(1, Math.sqrt(buf.reduce((p, q) => p + q * q, 0) / buf.length) * 8);
-      remoteCap.textContent = 'remote (camera over WebRTC) ' + receiver.connectionState; }, 100);
-    R.showStop = () => { clearInterval(R.showIv); sender.close(); receiver.close(); ac.close();
-      cam.getTracks().concat(screen.getTracks()).forEach(track => track.stop()); };
-    put('show', {state: 'running', tracks: cam.getTracks().concat(screen.getTracks()).map(x => x.kind + ':' + x.label)});
-  },
-  showStop() { if (R.showStop) R.showStop(); put('show', {state: 'done'}); },
   async loop(secs) {
     put('loop', {state: 'starting'});
     const stream = canvasStream(1280, 720, 30);
@@ -740,48 +709,6 @@ class Driver:
         self.log(f"  {self.run} hidden: fewer than {count} {state} ticks in {seconds} s")
         return False
 
-    def record(self, seconds: int) -> dict:
-        """record=1: the fleet recorder films the page joining a call (camera, mic, screen share, a remote tile),
-        then the signed-out Meet page, after every measured step. Writes OUT/meet-call.mp4."""
-        folder = Path(OPTS.work) / "rec"
-        logf = Path(OPTS.out) / "rec.log"
-        with open(logf, "w") as sink:
-            rec = subprocess.Popen(["python3", str(ROOT / "scripts/measure/launch_reveal_record.py"), "record",
-                                    str(folder), str(seconds + 60)], stdout=sink, stderr=subprocess.STDOUT)
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline and rec.poll() is None and "READY" not in logf.read_text():
-            time.sleep(0.2)
-        if "READY" not in logf.read_text():
-            rec.kill()
-            out = {"ok": False, "error": "recorder did not start: " + logf.read_text()[-300:]}
-            self.log(f"  {self.run} record: {out['error']}")
-            return out
-        self.navigate(f"{BASE}/t?run={self.run}-show")
-        time.sleep(2)
-        self.click("b-show")
-        shown = wait_result(f"{self.run}-show", "show", 20, done=lambda v: v.get("state") != "starting")
-        self.log(f"  {self.run} record show: {json.dumps(shown)[:300]}")
-        time.sleep(max(10, seconds - 15))  # sleep-ok: the call on screen is what is recorded
-        self.js("__m.start('showStop')")
-        self.navigate(MEET)
-        time.sleep(15)  # sleep-ok: the signed-out Meet page on screen
-        rec.send_signal(signal.SIGTERM)
-        try:
-            rec.wait(60)
-        except subprocess.TimeoutExpired:
-            rec.kill()
-        text = logf.read_text()
-        video = next((line[6:].strip() for line in text.splitlines() if line.startswith("VIDEO ")), "")
-        out = {"ok": bool(shown.get("state") == "running" and video), "show": shown}
-        if video and os.path.isfile(video):
-            target = Path(OPTS.out) / ("meet-call" + (Path(video).suffix or ".mp4"))
-            subprocess.run(["cp", video, str(target)], check=False)
-            out["video"] = target.name
-        else:
-            out["error"] = "no video: " + text[-300:]
-        self.log(f"  {self.run} record: {json.dumps(out)[:300]}")
-        return out
-
     def meet(self):
         out = {}
         for phase in ("cold", "warm"):
@@ -840,8 +767,6 @@ def run_cmux(cmux: Cmux, run: str, engine: str, full: bool, meet: bool, log) -> 
     driver.media(out, full)
     if meet:
         out["meet"] = driver.meet()
-    if OPTS.record and run == "cmux-chromium-fake":
-        out["record"] = driver.record(OPTS.call)
     for t in covers + [tab]:
         cmux.close(t)
     return out
@@ -979,7 +904,6 @@ def main():
     parser.add_argument("--build-job", default="")
     parser.add_argument("--call", type=int, default=60)
     parser.add_argument("--only", default="")
-    parser.add_argument("--record", action="store_true")
     OPTS = parser.parse_args()
     out_dir, work = Path(OPTS.out), Path(OPTS.work)
     only = set(filter(None, OPTS.only.split(",")))
@@ -1006,7 +930,7 @@ def main():
         cmux.stop()
     if want("cmux-chromium-fake"):
         if cmux.launch(["--cmux-measure-fake-media"]):
-            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, True, log) | {
+            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, False, log) | {
                 "flags": ["--cmux-measure-fake-media (requests CEF fake device and UI)"]}
         else:
             runs["cmux-chromium-fake"] = {"browser": "cmux chromium", "error": "the side copy gave no control socket"}

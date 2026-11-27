@@ -387,11 +387,8 @@ def is_attribution(block):
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo. The "where
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
-# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
-# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
-    GUIDANCE_SOURCES = frozenset(json.load(_f))
-GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
+                 "<cmux-card-context>")
 
 
 def guidance_text(text):
@@ -408,7 +405,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in GUIDANCE_SOURCES:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
         return True
     return guidance_text(block.get("text", ""))
 

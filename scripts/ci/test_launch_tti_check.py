@@ -219,19 +219,5 @@ class RecoverApp(unittest.TestCase):
         self.assertIn("exec format error", why)
 
 
-class RoundFits(unittest.TestCase):
-    """The plan stops starting rounds before the workflow step's bound kills it with no TTI line (4 legs of
-    2026-11-27 ran 30m13s and printed none)."""
-
-    def test_a_round_starts_while_one_as_slow_as_the_slowest_ends_by_the_deadline(self):
-        self.assertTrue(M.round_fits(began=0.0, now=1000.0, slowest=60.0, deadline_s=1500.0))
-        self.assertTrue(M.round_fits(began=0.0, now=1440.0, slowest=60.0, deadline_s=1500.0))
-        self.assertFalse(M.round_fits(began=0.0, now=1441.0, slowest=60.0, deadline_s=1500.0))
-
-    def test_the_default_deadline_leaves_the_step_five_minutes(self):
-        self.assertEqual(M.DEADLINE_S, 1500.0)
-        self.assertEqual(M.main.__module__, M.__name__)
-
-
 if __name__ == "__main__":
     unittest.main()

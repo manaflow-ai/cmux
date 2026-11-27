@@ -787,12 +787,6 @@ impl Daemon {
 /// A run that panics does not leave its daemon writing into a scratch folder being removed.
 impl Drop for Daemon {
     fn drop(&mut self) {
-        // A daemon that went away by itself (a panic, an abort, the OOM killer's SIGKILL) says how before the kill.
-        if std::thread::panicking()
-            && let Ok(Some(status)) = self.child.try_wait()
-        {
-            eprintln!("daemon exited by itself: {status:?}");
-        }
         let _ = self.child.kill();
         let _ = self.child.wait_timeout(Duration::from_secs(5));
         if std::thread::panicking() {

@@ -7,7 +7,6 @@ python3 scripts/cmux-next/tests/test_cloud_dev_stack_helper.py
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import pathlib
 import subprocess
@@ -16,10 +15,6 @@ import textwrap
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
-git_fixture_env = importlib.util.module_from_spec(fixture_spec)
-fixture_spec.loader.exec_module(git_fixture_env)
-
 SCRIPT = ROOT / "scripts/cmux-next/cloud-dev-stack.sh"
 HELPER = ROOT / "scripts/cmux-next/cloud-dev-stack/vm_stack.py"
 ROUTER = ROOT / "scripts/cmux-next/cloud-dev-stack/router.mjs"
@@ -163,7 +158,7 @@ class EnsureHelper(unittest.TestCase):
         def git(*a: str) -> str:
             return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
         repo.mkdir()
-        git_fixture_env.init_repo(repo)
+        git("init", "-q")
         for f in files:
             (repo / f).parent.mkdir(parents=True, exist_ok=True)
             (repo / f).write_text("old\n")

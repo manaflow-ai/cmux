@@ -1,6 +1,7 @@
 // Page-owned repeating work: a hidden page owns no timer, and the last subscriber releases
 // both the timer and its visibility listener. Diagnostics count allocated timers, not callbacks.
 import { useEffect, useRef, useState } from "react";
+import { useLiveUpdates } from "./liveUpdates";
 
 type Clock = { name: string; running: boolean; subscribers: () => number; document?: Document };
 const clocks = new Set<Clock>();
@@ -160,34 +161,48 @@ export const subscribePageMinute = sharedClock("relative-time", 60_000, true);
  * never their rows. `fixed` pins the time (a gallery, a test) and holds no timer. The time is read
  * when the label mounts: key a label by the time it counts from, so a new one reads afresh. */
 export function useDeadlineNow(next: (now: number) => number, fixed?: number): number {
+  const active = useLiveUpdates();
   const [time, setTime] = useState(() => fixed ?? Date.now());
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    if (active && fixed === undefined) setTime(Date.now());
+  }
   useEffect(() => {
-    if (fixed !== undefined) return;
+    if (!active || fixed !== undefined) return;
     return subscribePageDeadline(
       () => setTime(Date.now()),
       () => next(Date.now()),
     );
-  }, [next, fixed]);
+  }, [next, fixed, active]);
   return fixed ?? time;
 }
 
 /** Keep injected/remote clocks at the label; share only their scheduling. Inactive labels retain
  * their last sample, and showing a live page catches up from wall time rather than tick counts. */
 export function usePageNow(running: boolean, now: () => number = Date.now): number {
+  const active = useLiveUpdates();
   // On the wall clock, a running label starts at the shared clock's sample, as its next ticks are.
   const wall = now === Date.now;
   const [time, setTime] = useState(() => (running && wall ? (subscribePageSecond.sample() ?? now()) : now()));
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    // Refresh during render so the reveal's first layout sees the current label. Existing wall
+    // clock listeners still share one sample; injected clocks retain their own time source.
+    if (active && running) setTime(wall ? (subscribePageSecond.sample() ?? now()) : now());
+  }
   // The sample it shows, so subscribing (which hands over the current sample at once) sets nothing when
   // the label already shows it: React can't always drop an equal set unasked, and then it renders and commits.
   const shown = useRef(time);
   useEffect(() => {
-    if (!running) return;
+    if (!running || !active) return;
     return subscribePageSecond((at) => {
       const sample = wall ? at : now();
       if (sample === shown.current) return;
       shown.current = sample;
       setTime(sample);
     });
-  }, [running, now, wall]);
+  }, [running, now, wall, active]);
   return time;
 }

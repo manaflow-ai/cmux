@@ -252,7 +252,7 @@ import Testing
 
     /// A picture beside the theme file travels with it: a relative path resolves against the themes
     /// folder, `~` against home, and an absolute one is kept.
-    @Test func aRelativePictureResolvesAgainstTheThemesFolder() throws {
+    @Test func aRelativePictureResolvesAgainstTheThemesFolder() {
         let folder = URL(fileURLWithPath: "/tmp/cmux-config/themes", isDirectory: true)
         func background(_ value: String, folder: URL? = folder) -> JSONValue? {
             ThemeFileOverlay(name: "harbor", source: .success(#"{ "appearance.background": "\#(value)" }"#), base: .object([:]), folder: folder)
@@ -261,11 +261,7 @@ import Testing
         #expect(background("file:harbor.jpg") == "file:/tmp/cmux-config/themes/harbor.jpg")
         #expect(background("folder:walls/") == "folder:/tmp/cmux-config/themes/walls")
         #expect(background("file:../shared/sea.png") == "file:/tmp/cmux-config/shared/sea.png")
-        // The Rust settings core expands ~ from HOME, including the fleet's isolated test home.
-        // Foundation's tilde expansion can instead return the macOS account's home directory.
-        let home = try #require(ProcessInfo.processInfo.environment["HOME"])
-        let picture = URL(fileURLWithPath: home, isDirectory: true).appendingPathComponent("Pictures/sea.png").standardized.path
-        #expect(background("file:~/Pictures/sea.png") == .string("file:" + picture))
+        #expect(background("file:~/Pictures/sea.png") == .string("file:" + NSString(string: "~/Pictures/sea.png").expandingTildeInPath))
         #expect(background("file:/Users/me/sea.png") == "file:/Users/me/sea.png")
         #expect(background("velde-small-ship-storm") == "velde-small-ship-storm")
         // With no folder a relative picture stays relative, which the schema refuses.
@@ -358,8 +354,7 @@ import Testing
         let terminal = try #require(SettingsSchema.descriptor(for: ["appearance", "theme"]))
         let app = try #require(SettingsSchema.descriptor(for: ["appearance", "appTheme"]))
         #expect(settings.applied.chromeTheme == "Rose Pine")
-        #expect(settings.preview([(terminal, JSONValue.string("Dracula")),
-                                  (app, JSONValue.string("followTerminal"))]))
+        #expect(settings.preview([(terminal, .string("Dracula")), (app, .string("followTerminal"))]))
         #expect(settings.applied.chromeTheme == nil)
         settings.endPreview()
         #expect(settings.applied.chromeTheme == "Rose Pine")

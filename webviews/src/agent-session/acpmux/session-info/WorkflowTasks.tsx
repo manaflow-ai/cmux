@@ -512,6 +512,7 @@ export function WorkflowAgentRow({
         <WorkflowAgentButton
           agent={agent}
           now={now}
+          running={isRunning(workflow)}
           className={className}
           label={[agent.name, modelLabel, message, state].filter(Boolean).join(", ")}
           onOpen={openable ? () => onOpenWorkflowAgent?.(agent) : undefined}
@@ -539,6 +540,7 @@ export function WorkflowAgentRow({
 function WorkflowAgentButton({
   agent,
   now,
+  running,
   className,
   label,
   onOpen,
@@ -546,13 +548,14 @@ function WorkflowAgentButton({
 }: {
   agent: WorkflowAgent;
   now?: number;
+  running: boolean;
   className: string;
   label: string;
   onOpen?: () => void;
   children: ReactNode;
 }) {
   const live = agent.state === "running" && agent.startedAt !== undefined && agent.elapsedMs === undefined;
-  const sample = useNow(live && now === undefined);
+  const sample = useNow(running && live && now === undefined);
   const ms = agent.elapsedMs ?? (live ? Math.max(0, (now ?? sample) - agent.startedAt!) : undefined);
   const time =
     agent.state === "waiting" || agent.state === "pending" || ms === undefined ? undefined : formatDuration(ms);

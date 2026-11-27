@@ -213,11 +213,6 @@ def read_error(error: Exception) -> str:
     return kind
 
 
-# Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post
-# the printed `error` for a build that passed, which no sanctioned path could refresh.
-UNREAD = 3
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -238,13 +233,13 @@ def main(argv: list[str] | None = None) -> int:
     tokens = read_tokens()
     if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
-        return UNREAD
+        return 0
     try:
         comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
         record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
         print(f"error\tproof record not read ({read_error(e)}): see job log")
-        return UNREAD
+        return 0
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
     return 0

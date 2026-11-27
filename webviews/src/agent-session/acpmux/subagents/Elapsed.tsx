@@ -9,8 +9,7 @@
 import { useState, type ReactNode } from "react";
 import { Clock } from "../../../ui/Typography";
 import { formatDuration } from "../conversation/turns";
-import { subagentTime, ticking, useNow } from "./subagentGroupModel";
-import { awaitsOwnWork, type Subagent } from "./subagentFold";
+import { useNow } from "./subagentGroupModel";
 
 /// How long something has run, as formatDuration writes it: from `since` to `until`, or to now while
 /// `until` is unset, then ticking each second on the page clock (subagentGroupModel.ts `useNow`, which
@@ -36,14 +35,4 @@ export function Elapsed({
   else if (!ended && stoppedAt !== undefined) setStoppedAt(undefined);
   const text = formatDuration(Math.max(0, (until ?? (ended ? (stoppedAt ?? now) : now)) - since));
   return clock === undefined ? text : <Clock className={clock} text={text} />;
-}
-
-/// A duration that may be missing on a recovered end. Keep static values as strings so callers can
-/// omit their separators and trailing columns. A live value updates independently of its row.
-export function subagentElapsedLabel(agent: Subagent, sampledAt: number, clock?: string): ReactNode {
-  if (ticking(agent)) {
-    return <Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} clock={clock} />;
-  }
-  const text = subagentTime(agent, sampledAt);
-  return text === undefined || clock === undefined ? text : <Clock className={clock} text={text} />;
 }

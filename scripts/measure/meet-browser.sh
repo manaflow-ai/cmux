@@ -15,23 +15,19 @@
 #              measure it: the engine and permission fixes on the ref, before any NIGHTLY carries them
 #   call=S    seconds of the loopback call (default 60)
 #   only=a,b  some runs only (cmux-chromium,cmux-chromium-fake,cmux-webkit,chrome-fake,chrome-plain)
-#   record=1  after cmux-chromium-fake's measured steps, film its tab joining a call (camera, mic level, screen
-#             share, a remote tile over WebRTC), then the signed-out Meet page, through the fleet's granted
-#             recorder (launch_reveal_record.py): meet-call.mp4 in report.tgz. Changes no measured number.
 # Prints MEET_BROWSER {json} and the table. report.tgz also includes Chrome startup logs.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/meet-browser"
 rm -rf "$out" && mkdir -p "$out"
-dmg="" build_job="" call=60 only="" record=""
+dmg="" build_job="" call=60 only=""
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build_job="${arg#build=}" ;;
     call=*) call="${arg#call=}" ;;
     only=*) only="${arg#only=}" ;;
-    record=1) record=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -114,7 +110,7 @@ version="" build=""
 [[ -f "$plist" ]] && version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
 [[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
 python3 scripts/measure/meet-browser.py --side "$side" --name "$name" --work "$work" --out "$out" \
-  --dmg "$dmg" --build-job "$build_job" --version "$version ($build)" --call "$call" ${only:+--only "$only"} ${record:+--record} 2>&1 | tee "$out/run.log"
+  --dmg "$dmg" --build-job "$build_job" --version "$version ($build)" --call "$call" ${only:+--only "$only"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 [[ -f "$out/table.md" ]] && cat "$out/table.md"

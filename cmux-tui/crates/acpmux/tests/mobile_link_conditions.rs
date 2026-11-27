@@ -167,16 +167,6 @@ fn emit_error(k: &Key, metric: &str, why: &str) {
     );
 }
 
-/// Legs a row does not run, and why: not a miss and not a failure, so no `NETCOND-ERROR` and no
-/// null value (the report reads a null as a send that did not show within its bound).
-fn emit_skip(k: &Key, metrics: &[&str], why: &str) {
-    println!(
-        "NETCOND-SKIP {}",
-        json!({"surface": "chat", "profile": k.profile, "phase": k.phase, "scale": k.scale,
-               "metrics": metrics, "seed": k.seed, "why": why})
-    );
-}
-
 fn ms(d: Duration) -> f64 {
     (d.as_secs_f64() * 10_000.0).round() / 10.0
 }
@@ -1975,10 +1965,8 @@ async fn chat_send_with(
                     if let Some(seq) = event_seq(&v) {
                         *last = (*last).max(seq);
                     }
-                    // A frame already queued is handed out even past the deadline (timeout_at polls
-                    // first): one that came after the bound is a miss, not a value over it.
                     if is_echo(&v, prompt_id) {
-                        return (Some(ms(at - tap)).filter(|_| at <= deadline), retries);
+                        return (Some(ms(at - tap)), retries);
                     }
                     continue;
                 }
@@ -2287,11 +2275,7 @@ async fn chat_attach_under_link_conditions() {
             Err(_) => None,
         };
         let tag = std::process::id();
-        // The bound guards each send (tap to its record showing), not the row: a row is `sends`
-        // of them back to back, so it may run for `sends` times the bound. A send past it is a
-        // miss (a NETCOND-ERROR); the row's line names the slowest and how many missed.
         let bound = attach_bound(bytes);
-        let (mut slowest, mut missed) = (0.0_f64, 0_u64);
         let row_started = Instant::now();
         let dropped_before = control.dropped_bytes();
         // The inline legs send the image as base64 in one WebSocket message; past the listener's
@@ -2309,16 +2293,15 @@ async fn chat_attach_under_link_conditions() {
                  base64), over the WebSocket message cap WS_MAX_MESSAGE_BYTES of \
                  {WS_MAX_MESSAGE_BYTES} bytes; only the upload leg runs"
             );
-            // One line for the row, not an error per leg: past the cap the phone sends by
-            // reference (AcpmuxHub `needsUpload`), so these legs have nothing to measure.
-            let legs = [
+            for metric in [
                 "attach_written_ms",
                 "attach_visible_ms",
                 "text_behind_attach_visible_ms",
                 "queue_attach_visible_ms",
                 "queue_text_beside_attach_visible_ms",
-            ];
-            emit_skip(&k, &legs, &why);
+            ] {
+                emit_error(&k, metric, &why);
+            }
         }
         for i in 0..sends {
             let k =
@@ -2355,8 +2338,6 @@ async fn chat_attach_under_link_conditions() {
                 upload_leg(&mut link, &session, &image_id, &text_id, &mut last, tap, bytes).await;
             emit(&k, "upload_attach_visible_ms", image);
             emit(&k, "upload_text_beside_attach_visible_ms", text);
-            slowest = slowest.max(image.unwrap_or(0.0)).max(text.unwrap_or(0.0));
-            missed += u64::from(image.is_none()) + u64::from(text.is_none());
             if image.is_none() {
                 emit_error(&k, "upload_attach_visible_ms", "the referenced image did not show");
             }
@@ -2367,9 +2348,8 @@ async fn chat_attach_under_link_conditions() {
             link.pending.clear();
         }
         eprintln!(
-            "netcond: attach row {row}: {sends} runs of {bytes} B in {:?} (no row limit); each upload send's bound {bound:?}, slowest {:.1}s, {missed} over it; the control connection read and dropped {} notification bytes",
+            "netcond: attach row {row}: {sends} runs of {bytes} B in {:?} (bound {bound:?}); the control connection read and dropped {} notification bytes",
             row_started.elapsed(),
-            slowest / 1000.0,
             control.dropped_bytes() - dropped_before
         );
     }
@@ -2430,9 +2410,6 @@ async fn inline_legs(
     )
     .await;
     emit(k, "text_behind_attach_visible_ms", text_visible);
-    if text_visible.is_none() {
-        emit_error(k, "text_behind_attach_visible_ms", "the text did not show");
-    }
     tokio::time::sleep(Duration::from_millis(400)).await;
     link.pending.clear();
 
@@ -2485,9 +2462,6 @@ async fn inline_legs(
     *last = (*last).max(upload_last);
     emit(k, "queue_attach_visible_ms", upload.0);
     emit(k, "queue_text_beside_attach_visible_ms", text.0);
-    if upload.0.is_none() {
-        emit_error(k, "queue_attach_visible_ms", "the image prompt's user_message did not show");
-    }
     if text.0.is_none() {
         emit_error(k, "queue_text_beside_attach_visible_ms", "the text did not show");
     }
@@ -2519,18 +2493,6 @@ fn attach_bound_and_inline_cap_by_size() {
 /// The phone's image bytes in one upload chunk (`file_uploads::CHUNK_BYTES`, AcpmuxHub's).
 const UPLOAD_CHUNK: usize = 512 << 10;
 
-/// `Link::post`, given up at `deadline`.
-async fn post_by(
-    link: &mut Link,
-    m: &str,
-    params: Value,
-    deadline: Instant,
-) -> Result<i64, String> {
-    tokio::time::timeout_at(deadline, link.post(m, params))
-        .await
-        .unwrap_or_else(|_| Err(format!("{m}: past the send's bound")))
-}
-
 /// One image sent by reference beside a text on the same link, as the phone does it: begin, the
 /// first chunk, the text (the outbox hands it out at once: it waits on no upload), the rest of
 /// the chunks one in flight, finish, then the prompt naming the upload. Returns the ms from the
@@ -2549,9 +2511,7 @@ async fn upload_leg(
     let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
     let name = "photo.png";
     let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
-    let Ok(begin) = post_by(link, method::MUX_FILE_PUT_BEGIN, begin, deadline).await else {
-        return (None, None);
-    };
+    let Ok(begin) = link.post(method::MUX_FILE_PUT_BEGIN, begin).await else { return (None, None) };
     let Ok((_, began)) = link.answer(begin, deadline).await else { return (None, None) };
     let (Some(upload), owner) = (
         began["uploadId"].as_str().map(str::to_owned),
@@ -2565,13 +2525,14 @@ async fn upload_leg(
         (end, json!({"sessionId": session, "uploadId": upload, "offset": offset, "data": data}))
     };
     let (mut sent_to, first) = chunk(0);
-    let Ok(mut waiting) = post_by(link, method::MUX_FILE_PUT_CHUNK, first, deadline).await else {
+    let Ok(mut waiting) = link.post(method::MUX_FILE_PUT_CHUNK, first).await else {
         return (None, None);
     };
-    // Every write waits at most until the bound too: a write the shaped link holds past it is a
-    // miss, not a send that shows later with a value over its bound.
-    let text = prompt_params(session, "after", text_id, false);
-    if post_by(link, method::SESSION_PROMPT, text, deadline).await.is_err() {
+    if link
+        .post(method::SESSION_PROMPT, prompt_params(session, "after", text_id, false))
+        .await
+        .is_err()
+    {
         return (None, None);
     }
     let (mut image, mut text) = (None, None);
@@ -2579,15 +2540,12 @@ async fn upload_leg(
     // Notifications that came while the begin's answer was read.
     let early: Vec<(Instant, Value)> = link.pending.drain(..).collect();
     for (at, v) in early {
-        if is_echo(&v, text_id) && at <= deadline {
+        if is_echo(&v, text_id) {
             text = Some(ms(at - tap));
         }
     }
     while image.is_none() || text.is_none() {
         let Next::Frame(at, v) = link.frame(deadline).await else { break };
-        if at > deadline {
-            break;
-        }
         if v.get("method").is_some() {
             if let Some(seq) = event_seq(&v) {
                 *last = (*last).max(seq);
@@ -2608,15 +2566,11 @@ async fn upload_leg(
             if sent_to < bytes {
                 let (end, next) = chunk(sent_to);
                 sent_to = end;
-                let Ok(posted) = post_by(link, method::MUX_FILE_PUT_CHUNK, next, deadline).await
-                else {
-                    break;
-                };
+                let Ok(posted) = link.post(method::MUX_FILE_PUT_CHUNK, next).await else { break };
                 waiting = posted;
             } else {
                 let params = json!({"sessionId": session, "uploadId": upload, "fileName": name, "size": bytes});
-                let Ok(posted) = post_by(link, method::MUX_FILE_PUT_FINISH, params, deadline).await
-                else {
+                let Ok(posted) = link.post(method::MUX_FILE_PUT_FINISH, params).await else {
                     break;
                 };
                 finish = Some(posted);
@@ -2633,9 +2587,7 @@ async fn upload_leg(
                 "prompt": [{"type": "text", "text": "photo"},
                            {"type": "image", "name": name, "_meta": {"acpmux": {"upload": reference}}}],
                 "_meta": {"acpmux": {"promptId": image_id, "steer": false, "resend": false}}});
-            let Ok(posted) = post_by(link, method::SESSION_PROMPT, params, deadline).await else {
-                break;
-            };
+            let Ok(posted) = link.post(method::SESSION_PROMPT, params).await else { break };
             finish = None;
             referenced = Some(posted);
             waiting = -1;

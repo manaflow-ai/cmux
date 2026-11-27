@@ -8,7 +8,7 @@ import { Icon } from "../icons/Icon";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { type Subagent } from "./subagentFold";
-import { agentTone, AgentTonesContext } from "./agentTones";
+import { agentTone, useAgentTones } from "./agentTones";
 import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
@@ -27,14 +27,13 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
-  groupElapsed,
   ticking,
-  useNow,
   STACK,
+  subagentTime,
+  useNow,
 } from "./subagentGroupModel";
-import { Elapsed, subagentElapsedLabel } from "./Elapsed";
 import { Clock } from "../../../ui/Typography";
-import { formatDuration } from "../conversation/turns";
+import { Elapsed } from "./Elapsed";
 import { intl } from "../../../ui/intl";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
@@ -103,11 +102,7 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      {agents.some(ticking) ? (
-        <Elapsed since={Math.min(...agents.map((agent) => agent.startedAt))} clock="cv-subagents__time" />
-      ) : (
-        <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, 0))} />
-      )}
+      <GroupElapsed agents={agents} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -125,10 +120,9 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const pane = useContext(SubagentPaneContext);
   const open = pane ?? nav;
   const stop = useContext(SubagentStopContext);
-  const tones = useContext(AgentTonesContext);
+  const tones = useAgentTones();
   const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
-  const sampledAt = useNow(false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
@@ -145,7 +139,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      {subagentElapsedLabel(agent, sampledAt, "cv-subagent__time")}
+      <SubagentElapsed agent={agent} />
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;
@@ -192,6 +186,19 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <StopButton agent={agent} stop={stop} />
     </div>
   );
+}
+
+function GroupElapsed({ agents }: { agents: readonly Subagent[] }) {
+  if (agents.length === 0) return <Elapsed since={0} until={0} clock="cv-subagents__time" />;
+  const live = agents.some(ticking);
+  const since = Math.min(...agents.map((agent) => agent.startedAt));
+  const until = live ? undefined : Math.max(...agents.map((agent) => agent.endedAt ?? agent.startedAt));
+  return <Elapsed since={since} until={until} clock="cv-subagents__time" />;
+}
+
+function SubagentElapsed({ agent }: { agent: Subagent }) {
+  const time = subagentTime(agent, useNow(ticking(agent)));
+  return time ? <Clock className="cv-subagent__time" text={time} /> : null;
 }
 
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude

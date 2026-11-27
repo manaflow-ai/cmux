@@ -204,18 +204,38 @@ export function createWorkflowAdapter() {
   };
 }
 
-export const WORKFLOW_SIGNAL_MS = 120_000;
+const WORKFLOW_SIGNAL_MS = 120_000;
+
+function isCapacityError(error: WorkflowCapacitySignal["errors"][number], daemonId: string): boolean {
+  return error.daemonId === daemonId && /(?:\b503\b|\b429\b|exhausted)/i.test(error.reason);
+}
+
+export function workflowSignalBoundaries(
+  workflows: readonly WorkflowSummary[],
+  daemon?: WorkflowCapacitySignal,
+): number[] {
+  const boundaries: number[] = [];
+  for (const workflow of workflows) {
+    for (const agent of workflow.agents) {
+      if (agent.state === "running" && agent.lastProgressAt !== undefined)
+        boundaries.push(agent.lastProgressAt + WORKFLOW_SIGNAL_MS);
+    }
+  }
+  if (daemon) {
+    for (const error of daemon.errors) {
+      // A capacity error still counts at exactly two minutes.
+      if (isCapacityError(error, daemon.daemonId)) boundaries.push(error.at, error.at + WORKFLOW_SIGNAL_MS + 1);
+    }
+  }
+  return boundaries.sort((a, b) => a - b);
+}
 
 export function workflowSignals(workflows: readonly WorkflowSummary[], now: number, daemon?: WorkflowCapacitySignal) {
   const idle = new Set<string>();
   const erroring = new Set(
     daemon?.errors
       .filter(
-        (error) =>
-          error.daemonId === daemon.daemonId &&
-          now >= error.at &&
-          now - error.at <= WORKFLOW_SIGNAL_MS &&
-          /(?:\b503\b|\b429\b|exhausted)/i.test(error.reason),
+        (error) => now >= error.at && now - error.at <= WORKFLOW_SIGNAL_MS && isCapacityError(error, daemon.daemonId),
       )
       .map((error) => error.agentId),
   );

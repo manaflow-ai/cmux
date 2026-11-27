@@ -31,29 +31,11 @@ export async function loadEntries(): Promise<GalleryEntry[]> {
     .sort((a, b) => a.area.localeCompare(b.area) || a.title.localeCompare(b.title));
 }
 
-/** Each entry file's default export and its path. `skipBroken`: a file that fails to load (a syntax error, a throw
- * at its top, no default export) is left out and named on stderr instead of failing every entry, as the browser's
- * registry does (entryStore.ts). whats-new-gallery.yml's render asks for it: on 2026-11-27 one duplicate `const` in an
- * unrelated ClaudeConnectRow.gallery.tsx failed 10 of its runs from 05:14Z to 08:18Z, so four Improved highlights
- * whose pictures were named shipped in nightly 4598742452601 with none. The tests keep the default and fail on it. */
-export async function loadEntrySources(
-  options: { skipBroken?: boolean; dir?: string } = {},
-): Promise<{ entry: GalleryEntry; path: string }[]> {
-  const dir = options.dir ?? SRC;
-  const files = galleryFiles(dir);
-  const loaded = await Promise.allSettled(
-    files.map(async (file) => {
-      const module = (await import(file)) as { default: GalleryEntry };
-      if (options.skipBroken && !module.default) throw new Error("no default export");
-      return module.default;
-    }),
-  );
-  const out: { entry: GalleryEntry; path: string }[] = [];
-  loaded.forEach((result, index) => {
-    const file = `src/${path.relative(dir, files[index]!).split(path.sep).join("/")}`;
-    if (result.status === "fulfilled") out.push({ entry: result.value, path: file });
-    else if (options.skipBroken) console.error(`gallery: skipped ${file}, which fails to load: ${String(result.reason).split("\n", 1)[0]}`);
-    else throw result.reason;
-  });
-  return out;
+export async function loadEntrySources(): Promise<{ entry: GalleryEntry; path: string }[]> {
+  const files = galleryFiles();
+  const modules = await Promise.all(files.map((file) => import(file) as Promise<{ default: GalleryEntry }>));
+  return modules.map((module, index) => ({
+    entry: module.default,
+    path: `src/${path.relative(SRC, files[index]!).split(path.sep).join("/")}`,
+  }));
 }

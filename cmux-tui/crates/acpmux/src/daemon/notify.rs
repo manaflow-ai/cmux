@@ -5,10 +5,9 @@ use crate::hub::Hub;
 use serde_json::Value;
 use std::sync::Arc;
 
-/// Run `notify_command` from the config on four transitions only: a
-/// permission request, one still unanswered past the sidecar stall bound (`hub/sidecars.rs`), a
-/// turn that ended while no client was attached, and an agent pair the runaway guard paused
-/// (`hub/agent_pairs.rs`).
+/// Run `notify_command` from the config on three transitions only: a
+/// permission request, a turn that ended while no client was attached, and an
+/// agent pair the runaway guard paused (`hub/agent_pairs.rs`).
 pub(super) async fn notify_loop(hub: Arc<Hub>) {
     let mut rx = hub.subscribe();
     loop {
@@ -18,10 +17,7 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
             Err(_) => break,
         };
         let kind = ev.record.kind.as_str();
-        if !matches!(
-            kind,
-            "permission_request" | "permission_stall" | "turn_result" | "agent_pair_paused"
-        ) {
+        if !matches!(kind, "permission_request" | "turn_result" | "agent_pair_paused") {
             continue;
         }
         let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
@@ -34,7 +30,6 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
         let text = match kind {
             "permission_request" => permission_text(&name, &ev.record.msg["request"]),
-            "permission_stall" => stall_text(&name, &ev.record.msg),
             "agent_pair_paused" => {
                 let peer = ev
                     .record
@@ -88,12 +83,6 @@ fn permission_text(name: &str, request: &Value) -> String {
     }
     let title = request.pointer("/toolCall/title").and_then(Value::as_str).unwrap_or("tool");
     format!("{name} needs a permission: {title}")
-}
-
-/// A reminder for an ask still unanswered: the ask's own text and how long it has waited.
-fn stall_text(name: &str, msg: &Value) -> String {
-    let minutes = msg.get("waitedS").and_then(Value::as_u64).unwrap_or(0) / 60;
-    format!("Still waiting {minutes} min: {}", permission_text(name, &msg["request"]))
 }
 
 #[cfg(test)]

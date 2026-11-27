@@ -8,9 +8,8 @@
 # - not a pool runner: no CARGO_TARGET_DIR at all;
 # - a Blacksmith runner with the job's sticky disk mounted: the same, on the disk.
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 
@@ -30,7 +29,7 @@ printf '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependenc
 echo 'pub fn value() -> u32 { 1 }' > "$repo/ws/core/src/lib.rs"
 echo 'pub fn side() -> u32 { 7 }' > "$repo/ws/side/src/lib.rs"
 echo 'fn main() { println!("{}", core::value()); }' > "$repo/ws/app/src/main.rs"
-git_fixture_init "$repo" && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 
 pool() {
   : > "$TMP/env"

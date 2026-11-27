@@ -77,7 +77,6 @@ impl Hub {
         // turn's end (goal sessions-2000-attached).
         msg.set("pendingPermissions", json!(session.pending_permission_count()));
         // Which harness-magic features ran this turn, for the scorecard's like-with-like split.
-        super::sidecars::stamp(&session.id, &mut msg);
         super::harness_magic::stamp(&mut msg);
         super::turn_checkpoint::count(&mut msg);
         self.cache_alarm(session, &mut msg);

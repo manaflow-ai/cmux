@@ -561,43 +561,6 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(verdict.own)
                 self.assertIn("crashed (signal 9)", verdict.reasons[0])
 
-    def test_a_kill_inside_a_unit_that_passed_is_not_a_crash(self):
-        # cmuxterm-hq#28312, run 45790420707, Skills tests / Fleet tests: one step runs every unit side by side
-        # (scripts/ci/run_parallel.py) and prints each unit's log under `ok   NAME (exit 0, N s)` or `FAIL NAME (exit N,
-        # N s)`. The terminate-app unit passed and its cleanup's kills printed `Killed`; the step was red for another
-        # unit (a tar race), and the job read as "the test process crashed (signal 9)".
-        killer = ["##[group]ok   reload-cloud ends only the tagged app, by exact PID, never by pattern (exit 0, 8 s)",
-                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 271592 Killed                  perl -e 'sleep 300'"
-                  " \"x/cmux DEV $tag.app/Contents/MacOS/cmux DEV\"",
-                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 271633 Killed                  \"$other_exe\" 300",
-                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 274088 Killed                  \"$stuck_exe\" -c"
-                  " 'trap \"\" TERM; while :; do sleep 0.1; done'",
-                  "##[endgroup]"]
-        red = ["##[group]FAIL The installed hq-tools launchers, refs, prune and freshness (exit 1, 26 s)",
-               "F.", "=" * 70, "FAIL: test_b (test_hq_installed_refs.RefsTest.test_b)", "-" * 70,
-               "Ran 2 tests in 0.1s", "", "FAILED (failures=1)", "##[endgroup]",
-               "##[error]The installed hq-tools launchers, refs, prune and freshness failed (exit 1); its log is in the"
-               " group above",
-               "run_parallel: 112 units, 1 failed, 178 s wall for 1305 s of units",
-               "##[error]Process completed with exit code 1."]
-        for job in (log(*step("python3 scripts/ci/run_parallel.py"), *killer, *red),
-                    log(*step("python3 scripts/ci/run_parallel.py"), *red[:-3], *killer, *red[-3:])):
-            with self.subTest(order=job[-120:]):
-                self.assertEqual(reds.read(job).crashes, [])
-                verdict = reds.classify(job, job, "Fleet tests")
-                self.assertFalse(verdict.own, verdict.reasons)
-                self.assertEqual(verdict.shared, ["test_b (test_hq_installed_refs.RefsTest.test_b)"])
-        # The unit that itself ended on the signal (its header names a non-zero exit), a kill outside any unit, or
-        # one after a passing unit's group closed, is a crash.
-        died = ["##[group]FAIL reload-cloud ends only the tagged app (exit 137, 8 s)", *killer[1:]]
-        for job in (log(*step("python3 scripts/ci/run_parallel.py"), *died, *red),
-                    log(*step("python3 scripts/ci/run_parallel.py"), *killer[1:-1], *red),
-                    log(*step("python3 scripts/ci/run_parallel.py"), *killer, killer[1], *red)):
-            with self.subTest(job=job[-200:]):
-                verdict = reds.classify(job, job, "Fleet tests")
-                self.assertTrue(verdict.own)
-                self.assertIn("crashed (signal 9)", verdict.reasons[0])
-
     def test_a_fault_inside_a_step_that_passed_is_still_a_crash(self):
         # Only a signal someone sent is the step's own business; a segfault or SwiftPM's signal line is a crash.
         red = ["FAIL: test_b (m.T.test_b)", "Ran 1 test in 0.1s", "FAILED (failures=1)",

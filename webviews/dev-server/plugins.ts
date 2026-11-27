@@ -82,7 +82,6 @@ import { perfLintOnSave } from "./perfLint";
 import { refreshNow } from "./refreshNow";
 import { deferDirRescan } from "./deferDirRescan";
 import { tailwindOnNewClasses } from "./tailwindOnNewClasses";
-import { hotSwapTiming } from "./hotSwapTiming";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
@@ -115,7 +114,6 @@ export function cmuxDevServer(): Plugin[] {
     refreshNow(),
     deferDirRescan(),
     perfLintOnSave(),
-    hotSwapTiming(),
   ];
 }
 
