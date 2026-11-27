@@ -373,15 +373,26 @@ pub(crate) fn full_access_mode(available: &[String]) -> Option<String> {
     FULL_ACCESS_MODES.iter().find(|m| available.iter().any(|a| a == *m)).map(|m| (*m).to_owned())
 }
 
-/// The mode that asks before each change among `available`: the family's
-/// asking default (`web_modes::ASKING_MODES`), else a mode named `ask`.
-pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
-    let row = crate::web_modes::ASKING_MODES
+/// Local harness modes that ask before changes. Remote eligibility remains in `web_modes`.
+fn local_asking_modes(family: &str) -> &'static [&'static str] {
+    // Gemini CLI, packages/cli/src/acp/acpUtils.ts buildAvailableModes:
+    // default prompts for approval, autoEdit approves edits, yolo approves everything.
+    // Do not infer remote eligibility from a local permission-mode mapping.
+    if family == "gemini" {
+        return &["default"];
+    }
+    crate::web_modes::ASKING_MODES
         .iter()
         .find(|(f, _)| *f == family)
         .map(|(_, modes)| *modes)
-        .unwrap_or(&[]);
-    row.iter()
+        .unwrap_or(&[])
+}
+
+/// The mode that asks before each change among `available`: the family's
+/// local asking default, else a mode named `ask`.
+pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
+    local_asking_modes(family)
+        .iter()
         .chain(std::iter::once(&"ask"))
         .find(|m| available.iter().any(|a| a == *m))
         .map(|m| (*m).to_owned())
@@ -404,7 +415,7 @@ fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<S
 }
 
 /// Whether a profile chooses its permission mode in its own argv (Claude
-/// Code `--permission-mode` or a skip flag, Codex `--sandbox`, `-s`,
+/// Code `--permission-mode`, Gemini `--approval-mode` or a skip flag, Codex `--sandbox`, `-s`,
 /// `--ask-for-approval`, `-a`, a full-auto or bypass flag, or `-c
 /// approval_policy=` / `sandbox_mode=`). Then no start mode is set over it.
 pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
@@ -413,8 +424,9 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
 
 /// `profile_sets_mode` of an argv (a session's recorded `harness_argv`).
 pub(super) fn argv_sets_mode(argv: &[String]) -> bool {
-    const FLAGS: [&str; 9] = [
+    const FLAGS: [&str; 10] = [
         "--permission-mode",
+        "--approval-mode",
         "--dangerously-skip-permissions",
         "--dangerously-bypass-approvals-and-sandbox",
         "--yolo",
@@ -447,10 +459,7 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     if FULL_ACCESS_MODES.contains(&mode) {
         return DefaultMode::FullAccess;
     }
-    let reviewed = crate::web_modes::ASKING_MODES
-        .iter()
-        .find(|(f, _)| *f == family)
-        .is_some_and(|(_, modes)| modes.contains(&mode));
+    let reviewed = local_asking_modes(family).contains(&mode);
     if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
         DefaultMode::Ask
     } else {
