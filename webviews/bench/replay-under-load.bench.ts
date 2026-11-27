@@ -61,6 +61,9 @@ const PROFILE = argv.includes("--profile");
 /// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
 const TRACE = flag("--trace");
 const PAINTER = flag("--painter") ?? "react";
+/// --experiment NAME[,NAME]: Experiments switches turned on in the pane, as the app's push would set them
+/// (`cmuxAcpmuxBridge.applyExperiments`), for a flag-off/flag-on A/B on one harness (slicedLayout).
+const EXPERIMENTS = (flag("--experiment") ?? "").split(",").filter(Boolean);
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -73,7 +76,7 @@ if (
   !["react", "dom-floor", "worker"].includes(PAINTER)
 ) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker] [--experiment NAME[,NAME]]",
   );
   process.exit(2);
 }
@@ -115,6 +118,7 @@ export function addTally(counts: Map<number, number>, params: unknown): number {
 type Reading = {
   schema: "replay-under-load/v1";
   scenario: string;
+  experiments: string[];
   log: string;
   log_records: number;
   rate: number;
@@ -286,6 +290,18 @@ async function run(): Promise<Reading> {
       await cdp.send("Profiler.start");
     }
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    if (EXPERIMENTS.length)
+      await page.addInitScript((names: string[]) => {
+        let bridge: { applyExperiments?: (value: unknown) => void } | undefined;
+        Object.defineProperty(window, "cmuxAcpmuxBridge", {
+          configurable: true,
+          get: () => bridge,
+          set: (value: typeof bridge) => {
+            bridge = value;
+            value?.applyExperiments?.(Object.fromEntries(names.map((name) => [name, true])));
+          },
+        });
+      }, EXPERIMENTS);
     if (PAINTER === "worker")
       await page.addInitScript(workerOverlay, {
         endpoint,
@@ -391,6 +407,7 @@ async function run(): Promise<Reading> {
     return {
       schema: "replay-under-load/v1",
       scenario: `replay ${log.name} at ${RATE} records/s, ${SECONDS} s window${PAINTER === "react" ? "" : `, painter ${PAINTER}`}`,
+      experiments: EXPERIMENTS,
       log: log.name,
       log_records: log.events.length,
       rate: RATE,

@@ -133,6 +133,7 @@ import {
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import { inputPending } from "./inputPending";
+import { experimentSwitchOn } from "../../experiments/switches";
 import { fillRef, runThen } from "./heldFlag";
 import { useCommittedEvent } from "./useCommittedEvent";
 import { useHeldPer } from "./useHeldPer";
@@ -309,6 +310,9 @@ import { JumpToLatest } from "./transcript/JumpButtons";
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
 const PROMPT_TOPS_QUIET_MS = 1000;
+/// Experiments `slicedLayout`: the main-thread time the resize observer's placement passes after the first
+/// may take in one frame (a scheduler's ~4-5 ms yield budget) before the rest waits for the next commit.
+const SLICED_LAYOUT_BUDGET_MS = 4;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
 const LIVE_FLOW_STEPS = 2;
 /// The thread's class while a live drag flows its rows (conversation.css): the rows sit in normal
@@ -3058,12 +3062,19 @@ function TranscriptView({
               };
               // A pass after the first reads the rows at the chunk it took in: a version alone moved
               // nothing, and placing it again was a third pass for no change.
+              // Experiments `slicedLayout` (default off): the passes after the first share one ~4 ms
+              // frame budget with everything else on the main thread, as a scheduler's yield would; a
+              // spent budget hands the rest to the next commit, as waiting input does. The first pass
+              // always runs, so a row in sight is still placed before paint (Leo, 2026-11-11, above).
+              const sliceUntil = experimentSwitchOn("slicedLayout")
+                ? performance.now() + SLICED_LAYOUT_BUDGET_MS
+                : Infinity;
               for (let pass = 0; pass <= 3; pass += 1) {
                 if (!(pass > 0 ? movesDrawn : changesDrawn)(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
                   break;
                 }
-                if (pass === 3 || (pass > 0 && inputPending())) {
+                if (pass === 3 || (pass > 0 && (inputPending() || performance.now() >= sliceUntil))) {
                   flushDrawn();
                   break;
                 }
