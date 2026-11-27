@@ -1833,6 +1833,14 @@
   --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
+/* A subagent's relay composer draws no + (Composer.tsx `useRelayProps`), so its text starts where +'s
+   glyph would: under the subagent's mark in the header over it, which is centred in +'s box. With
+   the plain lead gap the text stood on the box's edge. */
+.acpmux-composer[data-composer-relay] .acpmux-composer-box[data-composer-grid] {
+  --acpmux-composer-lead-gap: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-glyph)) / 2
+  );
+}
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
@@ -2079,6 +2087,16 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* The warning is the row's status, never the row: the machine's name keeps its room and a long
+   warning ("High load: 15/4 cores busy") shortens with an ellipsis instead of squeezing the name out. */
+.acpmux-env-row:has(> .acpmux-env-state[data-warning="true"]) > .acpmux-location-name { flex: 1 0 auto; max-width: 60%; }
+.acpmux-env-row .acpmux-env-state[data-warning="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
    list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
    while the group is open, as a Mac outline's disclosure does. */
@@ -2276,8 +2294,6 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
-/* Cloud's options, indented under it (Leo 2026-11-24: "Cloud's options are indented rows under Cloud"). */
-.acpmux-env-popover .acpmux-env-row[data-indent] > :first-child { margin-inline-start: 16px; }
 /* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
 .acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);

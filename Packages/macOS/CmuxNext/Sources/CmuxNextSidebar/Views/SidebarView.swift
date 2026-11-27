@@ -286,6 +286,15 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// Keeps the Search button's tooltip key (the Command Palette's, "⇧⌘P") current through a rebind.
+    private var searchShortcutObservation: Task<Void, Never>?
+    public func followSearchShortcut(_ shortcut: @escaping @MainActor () -> String?) {
+        searchShortcutObservation?.cancel()
+        // task-owner: the sidebar view (cancelled on the next call); event-driven (Observation)
+        searchShortcutObservation = Task { [weak self] in
+            for await key in ObservationStream({ shortcut() }) { self?.searchButton.themedToolTipShortcut = key }
+        }
+    }
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
@@ -495,7 +504,7 @@ public final class SidebarView: NSView {
         // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
-        let spacesChanged = bandsDirty
+        let spacesChanged = bandsDirty, widthChanged = bandsSize.map { $0.width != b.width } ?? false
         if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
@@ -506,12 +515,13 @@ public final class SidebarView: NSView {
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
-        let landsAtOnce = cardSlot.updatedLandsAtOnce
+        // A resized sidebar rewraps the card: its room follows the drag at once, never on a spring that stretches it.
+        let landsAtOnce = cardSlot.updatedLandsAtOnce || widthChanged
         // The Updated card dragged to the top takes its room there; the bottom slot's closes (Leo 2026-11-07).
         let atTop = cardSlot.updatedAtTop
         let updateHeight = cardSlotMotion.height(toward: atTop ? 0 : slotHeight, in: self, snaps: landsAtOnce)
         let topCardHeight = topCardMotion.height(toward: atTop ? slotHeight : 0, in: self, snaps: landsAtOnce)
-        if landsAtOnce { updatedCardView.landed() }
+        if cardSlot.updatedLandsAtOnce { updatedCardView.landed() }
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.

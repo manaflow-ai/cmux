@@ -46,6 +46,9 @@ No failure is exit 0: asked about no red run or check (or about a green ws-check
 red run or check it was named that shows no failed job is still refused (2026-11-05: land-judge asks it about
 every merge, and a green head read as exit 1).
 
+Exit 3 is "not judged, a retry" (a rate limit, a read that never happened); exit 4 is "not judged, a tool error": the
+lane-gh broker refused one of its queries for its shape, which no retry clears, and the words name the fix.
+
 Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
 infra, not a verdict. A --sha that is one character forty times (a test's "a" * 40, an all-zero sha) is refused at
 once, before any read, unless BASE_RED_EXCUSE_FIXTURE_SHA=1 says a test fixture answers for it. 2026-11-05: a
@@ -110,6 +113,9 @@ RateLimited = getattr(_evidence, "RateLimited", ())
 # A read that never happened (main_fix_evidence.Unread: a request past its deadline, an answer over the size cap, a
 # `gh` that failed): exit 3, "not judged, a retry", never a verdict on the red. A reader without it leaves ().
 Unread = getattr(_evidence, "Unread", ())
+# A read the lane-gh broker refuses for its shape (main_fix_evidence.BrokerRefused): exit 4, a tool error naming the
+# fix, never a retry (exit 3) and never a verdict on the red (exit 1). A reader without it leaves ().
+BrokerRefused = getattr(_evidence, "BrokerRefused", ())
 
 
 class RateLimitedRead(Exception):
@@ -130,6 +136,13 @@ class UnreadRead(Exception):
     rerun clears. leo-workspace#9276 and #9153 both sat unlandable on that line (2026-11-24). Not a Refused, so only
     main() catches it.
     """
+
+
+class BrokerRefusedRead(Exception):
+    """A read the lane-gh broker refused for its shape, as rate_limit_aware re-raises it so the comparison cannot
+    swallow it: UnreadRead's reason exactly. Before it, the refusal was an Unread, so main() exited 3 and land-judge
+    refused hq#30852 "quota: not judged, retry after 02:24Z (reset)" twice (2026-11-27) over a query the broker
+    refuses on every call. Not a Refused, so only main() catches it: exit 4, its words naming the fix."""
 
 
 class JobBudgetCut(Exception):
@@ -156,6 +169,11 @@ def unread_classes() -> tuple:
     rate_limited_classes: a reader without Unread leaves it the empty tuple, and `except ((), UnreadRead)` is a
     TypeError on every other refusal. Read at call time, so a caller that loads a reader with Unread is honoured."""
     return ((Unread,) if isinstance(Unread, type) else tuple(Unread)) + (UnreadRead,)
+
+
+def broker_refused_classes() -> tuple:
+    """What main() reports as a broker refusal (exit 4): rate_limited_classes' shape and reason."""
+    return ((BrokerRefused,) if isinstance(BrokerRefused, type) else tuple(BrokerRefused)) + (BrokerRefusedRead,)
 
 
 def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
@@ -199,7 +217,7 @@ def read_once(key: tuple, read: Callable[[], object]):
     if key not in memo:
         try:
             memo[key] = (True, read())
-        except (Refused, RateLimitedRead, UnreadRead) as why:
+        except (Refused, RateLimitedRead, UnreadRead, BrokerRefusedRead) as why:
             memo[key] = (False, why)
     ok, found = memo[key]
     if not ok:
@@ -293,6 +311,10 @@ def rate_limit_aware(github):
             def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
+                except broker_refused_classes() as error:
+                    # First: a Refused subclass on main's reader, and a query the broker always refuses is no read
+                    # that a retry clears (UnreadRead) nor one a quota refused.
+                    raise BrokerRefusedRead(str(error)) from None
                 except unread_classes() as error:
                     # Before RateLimited: both are Refused subclasses on main's reader, and a read that never
                     # happened must not be answered as one that a quota refused.
@@ -521,6 +543,50 @@ CONDITIONAL_ROUTE = re.compile(r"repos/[^/]+/[^/]+/(?:actions/runs(?:/\d+(?:/att
 HTTP_STATUS = re.compile(r"HTTP/[0-9.]+ ([0-9]{3})")
 CONDITIONAL_SECONDS = 90  # main_fix_evidence.GitHub.run's bound
 
+# A read that never happened is asked once more within this run before the judgement gives up on it (exit 3, which
+# land-judge parks as "quota: not judged" and then judges again from the start). Twice, the agent hosts' gh says when
+# to: a budget refusal names its reset ("retry after 84s, resets at 10:33:06Z", the lane-gh broker's words), and a
+# read that passed its 90 s deadline (main_fix_evidence.GitHub.run) is asked again at once, since the next try is as
+# likely to answer as a whole judgement started later. cmux#58620 at a4b7e501 (2026-11-27 08:00-10:00Z) was parked as
+# quota five times between red_not_excused verdicts, each a fresh judgement of about 190 reads that a read past its
+# deadline or a broker holding the shared login for a minute had stopped. Bounded so the judgement stays inside
+# land-judge's CLASSIFIER_S (600 s): a reset further off than READ_RETRY_MAX_WAIT_SECONDS is not waited for here, and
+# the waits of one run, a timed-out read counting its full deadline, add up to at most READ_RETRY_BUDGET_SECONDS. A
+# hint read (NO_READ_RETRY: the suite checks) is never asked again: its caller reads the same answer over REST.
+READ_RETRY_MAX_WAIT_SECONDS = 90
+READ_RETRY_BUDGET_SECONDS = 180
+READ_RETRY_SLACK_SECONDS = 2
+READ_RETRY_AFTER = re.compile(r"\bretry after (\d{1,5})s\b")
+READ_TIMED_OUT = "GitHub evidence request exceeded 90 seconds"
+READ_RETRY_SPENT: list[float] = [0.0]  # the waits of reads outside a judgement (a judgement keeps its own)
+NO_READ_RETRY: contextvars.ContextVar = contextvars.ContextVar("no_read_retry", default=False)
+sleep = time.sleep  # the wait before a read is asked again; tests replace it
+
+
+def read_retry_wait(refusal: str) -> tuple[float, float] | None:
+    """(seconds to wait, seconds charged to READ_RETRY_BUDGET_SECONDS) before a read that never happened, whose
+    refusal is REFUSAL, is asked once more; None when it is not asked again (no reset named, one too far off, or the
+    budget spent)."""
+    if NO_READ_RETRY.get():
+        return None
+    if refusal.startswith(READ_TIMED_OUT):
+        wait, cost = 0.0, float(CONDITIONAL_SECONDS)
+    else:
+        named = [int(seconds) for seconds in READ_RETRY_AFTER.findall(refusal)]
+        if not named or max(named) > READ_RETRY_MAX_WAIT_SECONDS:
+            return None
+        wait = float(max(named) + READ_RETRY_SLACK_SECONDS)
+        cost = wait
+    if read_retry_spent()[0] + cost > READ_RETRY_BUDGET_SECONDS:
+        return None
+    return wait, cost
+
+
+def read_retry_spent() -> list[float]:
+    """The waits charged so far: this judgement's (JUDGEMENT_READS), else this process's."""
+    memo = JUDGEMENT_READS.get()
+    return READ_RETRY_SPENT if memo is None else memo.setdefault(("read retry spent",), [0.0])
+
 
 def etags_root() -> Path | None:
     """The folder BASE_RED_EXCUSE_ETAGS names (absolute), or None: every read is plain."""
@@ -599,7 +665,23 @@ class GitHub(_evidence.GitHub):
         """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
         root = etags_root()
         said = conditional_read(args, root) if root is not None else None
-        return said if said is not None else _evidence.GitHub.run(self, args, repo=repo)
+        if said is not None:
+            return said
+        try:
+            return _evidence.GitHub.run(self, args, repo=repo)
+        except Refused as error:
+            # A read that never happened (Unread), not a shape the broker refuses: once more, at the reset its
+            # refusal names or at once after a timeout (read_retry_wait); a second failure is the judgement's.
+            if not isinstance(error, unread_classes()) or isinstance(error, broker_refused_classes()):
+                raise
+            planned = read_retry_wait(str(error))
+            if planned is None:
+                raise
+            wait, cost = planned
+            read_retry_spent()[0] += cost
+            if wait > 0:
+                sleep(wait)
+            return _evidence.GitHub.run(self, args, repo=repo)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -620,7 +702,12 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
         except Refused as error:
             said = str(error)
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
+            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
+            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
+            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
+                if hasattr(_evidence, "read_name") else REQUEST_FAILED
+            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
+            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -2867,7 +2954,9 @@ SETUP_ONLY_STEPS = {
             # cache, the archive seeder, and the release download helper behind them.
             "scripts/cmux-next/zig-fetch-all.sh", "scripts/ci/zig-packages.lock", "scripts/ci/zig-packages-r2.sh",
             "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/r2-cache.sh",
-            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py", *XCODE_PINS),
+            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py",
+            # install-zig-ci.sh reads the pinned Zig tarball from the CI cache bucket first (#55341).
+            "scripts/ci/zig-tarball-r2.sh", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
@@ -4889,12 +4978,32 @@ NODE_ID = re.compile(r"[A-Za-z0-9_=+/-]{1,200}")
 
 
 class SuiteChecks:
-    """The conclusions of each check suite's check runs of a name, every attempt, read in batches over GraphQL."""
+    """The conclusions of each check suite's check runs of a name, every attempt, read in batches over GraphQL.
+
+    A hint: a suite it cannot tell is None, and every caller then reads that run's job list over REST (may_hold), as
+    it did before suites were read at all. So a GraphQL read of it that never happened (a timeout, a spent or held
+    login) leaves its suites unknown and the judgement goes on, and no later batch of this judgement asks GraphQL
+    again (unread). On a lane VM every GraphQL read goes through the lane-gh broker on the shared login while the
+    REST job lists go on the read-pool App: on 2026-11-27 the broker answered "GitHub's secondary rate limit holds
+    login until 10:32Z ... retry after 84s" to the by-commit read for "cmux-next checks (god files, concurrency, crash
+    safety, l10n)", and the whole judgement of cmux#58620 exited 3 ("quota: not judged") while all 168 of its REST
+    reads had answered. Only a shape the broker refuses (BrokerRefusedRead, a tool error naming the fix) still stops
+    it, as before."""
 
     def __init__(self, github, repo: str = ""):
         self.github, self.repo = github, repo
         self.known: dict[tuple[str, str], frozenset[str] | None] = {}
         self.rooted = False  # `nodes` was refused: suites are read by commit (SUITE_COMMITS_QUERY)
+        self.unread: str | None = None  # why a read of this judgement never happened: none is asked again
+
+    def ask(self, args: list[str]):
+        """One GraphQL read of suites, parsed. Never asked again at a reset or after a timeout (NO_READ_RETRY): a
+        suite left unknown costs one REST job list on the App, not a minute's wait on the login."""
+        token = NO_READ_RETRY.set(True)
+        try:
+            return json.loads(self.github.run(args, repo=self.repo))
+        finally:
+            NO_READ_RETRY.reset(token)
 
     def conclusions(self, runs: list[dict], index: int, name: str) -> frozenset[str] | None:
         """The conclusions ('' for one not finished) of every check run named NAME in RUNS[INDEX]'s check suite, or
@@ -4915,22 +5024,28 @@ class SuiteChecks:
 
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
+        if self.unread is not None:
+            return  # a read of this judgement never happened: these are read over REST (the class docs)
         if not self.rooted:
             # Suite IDs name no repository: gh must use their repository even in a judge started from another
             # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
             query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
             try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
-                                                   repo=self.repo))
-            except (Refused, UnreadRead) as why:
+                found = self.ask(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"])
+            except (Refused, UnreadRead, RateLimitedRead, BrokerRefusedRead) as why:
                 # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
                 # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
                 # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
-                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead.
+                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead. A
+                # main_fix_evidence that names the broker's refusal raises BrokerRefused (BrokerRefusedRead here):
+                # for `nodes` the same fallback, never exit 4; any other refused shape is still exit 4, a tool error.
                 if NODES_REFUSED in str(why):
                     self.rooted = True
-                elif isinstance(why, UnreadRead):
-                    raise  # a timeout or another failed read: not judged, a retry (exit 3), as before
+                elif isinstance(why, BrokerRefusedRead):
+                    raise  # a refused shape: exit 4, a tool error naming the fix
+                elif isinstance(why, (UnreadRead, RateLimitedRead)):
+                    self.unread = str(why)
+                    return  # a read that never happened: these suites, and every later one, are read over REST
                 else:
                     return  # read over REST instead, as before
             except ValueError:
@@ -4951,8 +5066,13 @@ class SuiteChecks:
         query = SUITE_COMMITS_QUERY.format(commits=" ".join(SUITE_COMMIT.format(n=n, sha=json.dumps(sha))
                                                             for n, sha in enumerate(shas)))
         try:
-            found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                                                "-f", f"name={repo}", "-f", f"check={name}"]))
+            # Scoped to the repo twice: the owner and name variables (the broker's call repo, lane_gh_vm.graphql_repo)
+            # and GH_REPO, so a judge started from another checkout never reads another repo's suites (hq#22832).
+            found = self.ask(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
+                              "-f", f"name={repo}", "-f", f"check={name}"])
+        except (UnreadRead, RateLimitedRead) as why:
+            self.unread = str(why)
+            return  # a read that never happened: read over REST (the class docs), never the judgement's exit 3
         except (Refused, ValueError):
             return
         data = found.get("data") if isinstance(found, dict) and not found.get("errors") else None
@@ -6140,6 +6260,12 @@ GUARD_WORKFLOWS = {
         "tooling-tests-base-red": "decides whether tooling-tests skips while the base is red (base_red_skip.py); "
                                   "it checks nothing itself",
         "tooling-tests-fail-fast": _FAIL_FAST,
+        # #59643: on a full-ci or ready-to-land label, decides which tier the base merge reruns (head_tier.py).
+        "full-carry": "decides which tier a labelled base merge reruns (head_tier.py), continue-on-error; it "
+                      "checks nothing itself",
+        # #56527: actionlint over the merge commit, failing only a finding the change adds against its first parent.
+        "workflow-start-lint": "judges the workflow findings the change's own diff adds against the base "
+                               "(workflow_start_lint.py), not a declared tree read",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -6290,11 +6416,18 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-tailnet-join/", "cmux-tui/crates/cmux-tailnet/",
                   "cmux-tui/crates/cmux-terminal-sizing/", "cmux-tui/crates/ghostty-vt-sys/",
                   "cmux-tui/crates/ghostty-vt/",
+                  # cmux-remote reaches cmux-proxy (#53785); ghostty-vt-sys and cmux-tui-core reach
+                  # cmux-transport-rewrite (#56272)
+                  "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
                   "schemas/notice-timing/notice-timing.json", "schemas/settings/source/browser.json",
-                  "schemas/terminal-sizing/fixtures.json")
+                  "schemas/terminal-sizing/fixtures.json",
+                  # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
+                  # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
+                  "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
@@ -7857,8 +7990,18 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 # whose failure cannot be read is refused.
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
-WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
-WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
+# Both windows must hold every main merge that lands while one ws-check run is out. leo-workspace main takes up to
+# WS_CHECK_PEAK_MERGES merges in one run (55 min; 2026-11-21..23, the same figure as the leo-workspace timer's
+# tools/ws_check_timer.py MAIN_PEAK_MERGES, whose MAIN_HISTORY window of 80 is why main~N tips get their verdict at
+# all). At 30 and 20, 2026-11-27: main's newest finished verdict was 43 commits back (f5310494's, 09:55Z, while
+# 30 commits landed in 46 min), so lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check
+# verdict to compare with", and its own run, which tested main 25+ commits back, "tested another base or head" (the
+# 20-commit tree window). Every leo-workspace PR with a ws-check red was refused the same way, red_not_excused.
+# The commit list is one call either way (a page of up to 100); each commit past the first readable verdict costs
+# nothing, since the walk stops there.
+WS_CHECK_PEAK_MERGES = 66
+WS_CHECK_COMMITS = 100  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 70  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -10705,6 +10848,11 @@ def main(argv: list[str] | None = None) -> int:
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
+    except broker_refused_classes() as error:
+        # Not judged, and not a retry: the broker refuses this query on every call. Exit 4, which land-judge reads as
+        # a tool error (broker_refused) naming the fix in these words, never as a quota or a red.
+        print(f"not judged, tool error: {error}", file=sys.stderr)
+        return 4
     except unread_classes() as error:
         # Not "not excused": nothing was read, so nothing was judged. land-judge reads 3 as a retry
         # (classifier_rate_limited), never as the red_not_excused strike an exit 1 would record.

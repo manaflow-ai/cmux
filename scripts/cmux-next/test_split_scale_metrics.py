@@ -262,6 +262,19 @@ class SummaryTests(unittest.TestCase):
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
 
+    def test_a_timed_out_round_is_reported_apart_not_ranked_worst(self):
+        good = {"settled_ms": 50, "first_frame_ms": 8, "frame_p95_ms": 8, "blank_frames": 0, "retargets": 0}
+        slow = ssm.summarize([good, good])
+        out = ssm.summarize([{"error": "strip: debug.new_tab: timed out", "timed_out": True, "retried": True}] * 2)
+        self.assertEqual((out["failed_rounds"], out["timed_out_rounds"], out["retried_rounds"]), (0, 2, 2))
+        self.assertFalse(ssm.verdict(out, 8.33)["complete"])
+        head = ssm.headline({"s1-empty-w1": {"close_down": slow}, "s9-chat-w10": {"close_down": out}}, {})
+        self.assertEqual(head["cell"], "s1-empty-w1")
+        self.assertEqual(head["timed_out_cells"], ["s9-chat-w10 close_down"])
+        real = ssm.summarize([{"error": "the key made no pane"}])
+        head = ssm.headline({"a": {"close_down": slow}, "b": {"close_down": real}}, {})
+        self.assertIsNone(head["settled_ms"])
+
     def test_an_unsettled_round_is_the_worst_at_least_the_strip(self):
         # The 01fc64af3 nightly: s9-browser-w1 divider_drag was still painting when its 900 ms strip ended, and the
         # headline published settled None, so the goal check had no score at all.
