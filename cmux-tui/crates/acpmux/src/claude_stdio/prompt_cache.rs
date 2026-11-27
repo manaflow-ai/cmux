@@ -262,6 +262,10 @@ impl Translator {
                 acpmux.set("cacheExpiresAt", json!(at));
             }
             self.cache.stamp(&mut acpmux);
+            // When the call went out and came back (`model_calls.rs`).
+            if let Some(timing) = self.model_clock.ended(now_ms()) {
+                acpmux.set("timing", timing);
+            }
         }
         let size = self.context_window.load(Ordering::SeqCst);
         // One model call's own usage, marked so a client can add a turn's calls up (the pane's
