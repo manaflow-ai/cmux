@@ -731,6 +731,18 @@ and answer. Now it asks for the ticket at once:
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
   dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
   kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Offer before the gather** (RFD 0142 R1, disco over the relay): a
+  `first` dialer with plain UDP on sends `wg-init` at once, before its STUN
+  and TURN gather (timeline `wg_init_before_gather`). That `wg-init` carries
+  host endpoints, the relay offer and `ticketEarly`, and no
+  `relayed`/`relayedTls`. The gather runs beside the Mac's answer and both
+  joins. When the tunnel is up, the gathered endpoints (reflexive, mapped,
+  TURN-relayed) follow as the roam announcement: `wg-endpoints` through
+  signaling, and the sealed in-tunnel announcement, which rides the relay
+  when nothing else carries the tunnel (timeline `endpoints_trickled`).
+  Every build already takes both, so nothing new is negotiated. A dialer
+  without relay first, or with plain UDP off, gathers before its offer as
+  before.
 - **Join:** the dialer starts its relay join when `wg-ticket` arrives
   (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
   watch's first join takes that carrier instead of starting its own. A plan
@@ -1711,6 +1723,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `phone-page-v1` | hostd `version` | (2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089). |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |

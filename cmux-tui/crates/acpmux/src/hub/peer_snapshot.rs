@@ -1616,10 +1616,11 @@ impl Store {
         let covered = self.copies.get(key).and_then(|c| c.head.generation);
         self.remove(key);
         let Some(covered) = covered else { return };
-        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
-            if let Some(old) = self.evicted.keys().next().cloned() {
-                self.evicted.remove(&old);
-            }
+        if self.evicted.len() >= EVICTED_KEYS
+            && !self.evicted.contains_key(key)
+            && let Some(old) = self.evicted.keys().next().cloned()
+        {
+            self.evicted.remove(&old);
         }
         self.evicted.insert(key.clone(), covered);
     }
