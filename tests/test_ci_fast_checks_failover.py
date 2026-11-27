@@ -69,12 +69,13 @@ class FastChecksFailoverTests(unittest.TestCase):
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
         selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
         self.assertEqual(runner_label_errors(selector), [])
+        # Swapping the 8 vCPU arm for POOL (`inputs.runner == POOL && POOL || ...`) is a well-formed literal the label
+        # check accepts; the exact-expression pin below refuses it.
         for unsafe in (
-            selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
             selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'self-hosted'"),
             selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'ubuntu-24.04'"),
-            selector.replace("contains(", "startsWith("),
-            selector.replace("&& inputs.runner", "&& inputs.other_runner"),
+            selector.replace("&& 'blacksmith-8vcpu-ubuntu-2404'", "&& inputs.runner"),
+            selector.replace("&& 'blacksmith-8vcpu-ubuntu-2404'", "&& inputs.other_runner"),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])

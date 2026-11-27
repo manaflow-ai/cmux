@@ -25,14 +25,14 @@ def guard_script() -> str:
 
 
 class PublicationGuardTests(unittest.TestCase):
-    def run_guard(self, behaviour: str, timeout: int = 240):
+    def run_guard(self, behaviour: str, timeout: int = 3900):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(f"#!/bin/sh\n{behaviour}\n")
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             counter = Path(tmp, "n")
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "COUNTER": str(counter)}
-            script = guard_script().replace("time.sleep(10 * (attempt + 1))", "pass").replace("timeout=240", f"timeout={timeout}")
+            script = guard_script().replace("time.sleep(10 * (attempt + 1))", "pass").replace("timeout=3900", f"timeout={timeout}")
             result = subprocess.run([sys.executable, "-I", "-c", script, "o/r", "nightly", SHA, "5"],
                                     capture_output=True, text=True, env=env)
             self.runs = int(counter.read_text()) if counter.exists() else 0
