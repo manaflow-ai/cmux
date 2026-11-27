@@ -16,8 +16,6 @@ public struct UpdateSettings: Sendable {
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
-    /// cmux's marker that the automatic-install migration already ran.
-    public static let automaticInstallMigrationKey = "cmux.sparkle.automaticallyUpdateMigration.v1"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
     /// cmux's marker that the v4 stale-interval migration already ran.
@@ -54,7 +52,6 @@ public struct UpdateSettings: Sendable {
             Self.sendProfileInfoKey: false,
         ])
 
-        migrateAutomaticInstall(in: defaults)
         migrateStaleInterval(in: defaults)
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
@@ -77,15 +74,6 @@ public struct UpdateSettings: Sendable {
         }
 
         defaults.set(true, forKey: Self.migrationKey)
-    }
-
-    /// Earlier releases persisted false for every install, so a legacy value cannot distinguish a
-    /// default from an explicit opt-out. Reset that value once so every existing install joins the
-    /// automatic update path. The marker makes a later user choice persistent across launches.
-    private func migrateAutomaticInstall(in defaults: UserDefaults) {
-        guard !defaults.bool(forKey: Self.automaticInstallMigrationKey) else { return }
-        defaults.set(true, forKey: Self.automaticallyUpdateKey)
-        defaults.set(true, forKey: Self.automaticInstallMigrationKey)
     }
 
     /// v4: installs whose earlier migrations already ran can still hold the legacy 24h or 1h

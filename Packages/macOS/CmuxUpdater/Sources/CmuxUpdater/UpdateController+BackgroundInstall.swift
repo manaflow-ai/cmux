@@ -2,8 +2,8 @@
 
 /// Opt-in background installs for hosts that never prompt (cmux-next): found updates download
 /// silently, and the ready update waits for ``installStagedUpdate()``. Off by default, which
-/// keeps the prompt-driven flow and its defaults unchanged. Hosts that share Sparkle's defaults
-/// domain can leave its silent-install preference intact because the driver intercepts that path.
+/// keeps the prompt-driven flow and its defaults unchanged. NEXT disables Sparkle's automatic
+/// download driver in its host bundle so this app-owned path is always selected.
 extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
@@ -15,8 +15,6 @@ extension UpdateController {
                 if disableSparkleSilentStagingIfNeeded() {
                     log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
                 }
-            } else if disableSparkleAutomaticDownloadsForThisUpdater() {
-                log.append("background install: disabled Sparkle automatic downloads on this updater; using the app-owned policy")
             }
         }
     }
@@ -52,9 +50,9 @@ extension UpdateController {
         driver.stagedItem
     }
 
-    /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
-    /// through Sparkle's own silent driver, not this app's driver (the update harness's
-    /// `background` run, and what a scheduled check does).
+    /// Requests a scheduled background check. NEXT's `SUAllowsAutomaticUpdates=false` bundle
+    /// policy keeps the download in this app-owned driver even when the shared
+    /// `SUAutomaticallyUpdate` preference is enabled for classic cmux.
     public func checkInBackground() {
         guard !updater.sessionInProgress else {
             // Sparkle ignores a check while a session runs (the launch probe): run it after.
@@ -66,13 +64,10 @@ extension UpdateController {
         updater.checkForUpdatesInBackground()
     }
 
-    /// Installs the staged update and relaunches. The update is staged either by this app's driver
-    /// (its held ready reply) or by Sparkle's own silent driver: with `SUAutomaticallyUpdate` on
-    /// (a preference the shipped NIGHTLY app shares with this one), a scheduled check never reaches
-    /// this app's driver; it downloads, then hands over Sparkle's immediate-install handler through
-    /// `willInstallUpdateOnQuit`. Both look the same ("Update ready"), so both must install. If the
-    /// app is still running ``InstallWatchdog/defaultTimeout`` after the click, or nothing can install,
-    /// the click ends in a visible error that offers a manual download, never a dead button.
+    /// Installs the staged update and relaunches. The update is staged by this app's driver, which
+    /// owns download and install policy for NEXT. If the app is still running
+    /// ``InstallWatchdog/defaultTimeout`` after the click, or nothing can install, the click ends
+    /// in a visible error that offers a manual download.
     public func installStagedUpdate() {
         if driver.quitInstallCommitted, driver.quitInstall != nil {
             log.append("background install: click while the app quits for the install; it reopens updated")

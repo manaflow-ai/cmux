@@ -55,6 +55,7 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist_get "$next_app" CFBundleIdentifier)" == "$NEXT_ID" ]] || { echo "input is not cmux NEXT" >&2; exit 1; }
 [[ "$(plist_get "$next_app" CFBundleVersion)" == "$BUILD" ]] || { echo "input is not build $BUILD" >&2; exit 1; }
 [[ "$(plist_get "$next_app" SUPublicEDKey)" == "$EXPECTED_SPARKLE_PUBLIC_KEY" ]] || { echo "input SUPublicEDKey is not the track key" >&2; exit 1; }
+[[ "$(plist_get "$next_app" SUAllowsAutomaticUpdates)" == false ]] || { echo "input allows Sparkle automatic downloads" >&2; exit 1; }
 codesign --verify --deep --strict "$next_app"
 
 mkdir -p "$OUT_DIR"
@@ -78,6 +79,7 @@ pb "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 $LEGACY_SCHEME"
 # drop cmux NEXT's override.
 pb "Delete :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" >/dev/null 2>&1 || true
 pb "Set :SUFeedURL $LEGACY_FEED_URL"
+pb "Set :SUAllowsAutomaticUpdates false"
 
 # A stapled ticket names the old CDHash; the notarization below staples a new one.
 rm -f "$app/Contents/CodeResources"
@@ -106,5 +108,6 @@ codesign -d --entitlements :- "$app" 2>/dev/null > "$signed"
   || { echo "signed app has the wrong keychain access group" >&2; exit 1; }
 rm -f "$signed"
 codesign --verify --deep --strict --verbose=2 "$app"
+[[ "$(plist_get "$app" SUAllowsAutomaticUpdates)" == false ]] || { echo "signed app allows Sparkle automatic downloads" >&2; exit 1; }
 "$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh" "$app" nightly
 echo "cmux NIGHTLY-identity build $BUILD: $app"

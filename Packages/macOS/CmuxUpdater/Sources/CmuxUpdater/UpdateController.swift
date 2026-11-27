@@ -44,24 +44,6 @@ public final class UpdateController {
         return true
     }
 
-    /// NEXT keeps the shared `SUAutomaticallyUpdate` value enabled for the classic app, but its
-    /// own updater must not let Sparkle's scheduled driver download before the app-owned policy
-    /// has checked network, build, preparation, and live-session conditions. Sparkle's setter
-    /// persists to that shared defaults domain, so restore the value immediately after changing
-    /// this updater instance.
-    @discardableResult
-    func disableSparkleAutomaticDownloadsForThisUpdater() -> Bool {
-        guard updater.automaticallyDownloadsUpdates else { return false }
-        let sharedValue = defaults.object(forKey: UpdateSettings.automaticallyUpdateKey)
-        updater.automaticallyDownloadsUpdates = false
-        if let sharedValue {
-            defaults.set(sharedValue, forKey: UpdateSettings.automaticallyUpdateKey)
-        } else {
-            defaults.removeObject(forKey: UpdateSettings.automaticallyUpdateKey)
-        }
-        return true
-    }
-
     /// When Sparkle last checked the feed (by itself or for the person); nil before the first check.
     public var lastUpdateCheckDate: Date? { updater.lastUpdateCheckDate }
     /// The scheduled check's interval in seconds, nil while automatic checks are off.
@@ -329,7 +311,6 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
             defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
-            defaults.removeObject(forKey: UpdateSettings.automaticInstallMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
