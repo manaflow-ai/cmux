@@ -58,6 +58,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { hiddenSessionInfoSections, type PickableSessionInfoSection } from "./session-info/shownSections";
 import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
@@ -621,6 +622,9 @@ let autoCloudOn = false;
 let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The Session Info sections the person turned off (session-info/shownSections.ts), none by default.
+const NO_HIDDEN_SECTIONS: readonly PickableSessionInfoSection[] = [];
+let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTIONS;
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
@@ -717,6 +721,8 @@ export function setChatDisplay(value: unknown): void {
   const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const hiddenSections = hiddenSessionInfoSections(raw);
+  const sameHiddenSections = hiddenSections.join(",") === sessionInfoHidden.join(",");
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
@@ -764,9 +770,11 @@ export function setChatDisplay(value: unknown): void {
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
-    pickerStyle === modelPickerStyle
+    pickerStyle === modelPickerStyle &&
+    sameHiddenSections
   )
     return;
+  if (!sameHiddenSections) sessionInfoHidden = hiddenSections.length === 0 ? NO_HIDDEN_SECTIONS : hiddenSections;
   picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
@@ -944,6 +952,11 @@ export const usePromptCoachOn = (): boolean =>
 const renderPipelineSnapshot = () => renderPipelineOn;
 export const useChatRenderPipeline = (): boolean =>
   useSyncExternalStore(subscribe, renderPipelineSnapshot, renderPipelineSnapshot);
+const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
+/// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
+/// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.
+export const useSessionInfoHiddenSections = (): readonly PickableSessionInfoSection[] =>
+  useSyncExternalStore(subscribe, sessionInfoHiddenSnapshot, sessionInfoHiddenSnapshot);
 const environmentCardSnapshot = () => environmentCardOn;
 /// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
 export const useEnvironmentCardOn = (): boolean =>
