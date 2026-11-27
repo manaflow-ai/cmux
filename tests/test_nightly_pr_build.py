@@ -141,7 +141,13 @@ class Workflow(unittest.TestCase):
         self.assertTrue(gateway)
         for job in gateway:
             self.assertTrue(job.endswith("-fleet"), job)
-        self.assertIn("69|75|124)", text)
+        self.assertIn("69|124)", text)
+        self.assertIn("75)", text)
+        # A queued fleet step must not hold the gateway runner for an hour (2026-11-27: 72 of 224 jobs
+        # waited 60 min for no verdict); the wait is bounded and the step keeps its place by --key.
+        self.assertIn('--queue-timeout "$QUEUE_WAIT_S"', text)
+        self.assertIn("vars.CI_NIGHTLY_PR_BUILD_QUEUE_WAIT_S || '900'", text)
+        self.assertIn('--key "$KEY"', text)
         for name in re.findall(r"^    name: (.*)$", text, re.M):
             self.assertIn("(advisory)", name)
 
