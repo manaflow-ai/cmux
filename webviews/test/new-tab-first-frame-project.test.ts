@@ -95,7 +95,12 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
                 claude: {
                   name: "Claude Code",
                   kind: "acp",
-                  start: { model: "claude-opus-5-5", effort: "medium", modelSource: "saved", effortSource: "saved" },
+                  start: {
+                    model: "claude-opus-5-5",
+                    effort: "medium",
+                    modelSource: "saved",
+                    effortSource: "saved",
+                  },
                 },
               },
               defaultHarness: "claude",
@@ -106,7 +111,11 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
                 {
                   harness: "claude",
                   models: [
-                    { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+                    {
+                      id: "claude-opus-5-5",
+                      name: "Opus 5.5",
+                      efforts: ["low", "medium", "high", "xhigh", "max"],
+                    },
                   ],
                 },
               ],
@@ -143,6 +152,25 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   async function newTab(context: BrowserContext, { cwd, handshakeDelay, raster }: Host, settle: string) {
     const rasterStart = performance.now();
     const page = await context.newPage();
+    const observed: string[] = [];
+    page.on("pageerror", (error) => observed.push(`pageerror: ${error.message}`));
+    page.on("websocket", (socket) => {
+      socket.on("framesent", (frame) => observed.push(`sent: ${String(frame.payload).slice(0, 200)}`));
+      socket.on("framereceived", (frame) => observed.push(`received: ${String(frame.payload).slice(0, 200)}`));
+    });
+    const stage = async <T>(name: string, work: Promise<T>): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          work,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${name} timed out: ${observed.join("\n")}`)), 30_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     await installPaintedFrames(page);
     if (raster) await page.clock.setFixedTime(new Date(now));
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -285,10 +313,13 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     await page.locator(".nt-location").getByText(settle).waitFor();
     // Past the handshake, the daemon's list and the projects list (the second one goes out before
     // the daemon is asked for its chats), and a painted frame after them.
-    await listed;
-    if (raster) await catalogDelivered;
+    await stage("session list", listed);
+    await stage("model catalog", catalogDelivered);
     await page.waitForFunction(() => (window as unknown as { __hostPending: number }).__hostPending === 0);
-    await page.evaluate(() => window.cmuxPaintFrame());
+    await stage(
+      "settled paint",
+      page.evaluate(() => window.cmuxPaintFrame()),
+    );
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     if (raster && firstPixels) {
       const settledPixels = await page.screenshot({ caret: "hide" });
