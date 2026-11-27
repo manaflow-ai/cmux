@@ -8,6 +8,7 @@ fn held(id: &str, thread: &str, class: &str, text: &str) -> Held {
         from: format!("host/{thread}"),
         class: class.into(),
         text: text.into(),
+        program: false,
     }
 }
 
@@ -235,6 +236,123 @@ fn digest_is_bounded() {
 }
 
 #[test]
+fn a_sender_with_no_session_is_a_program() {
+    let base = json!({"promptId":"p","threadId":"t","from":"glaeda-land","class":"result",
+        "text":"merged #12","surgeHeld":true,"sender":{"session":null,"relay":null}});
+    assert!(program_notice(&base));
+    assert!(held_from_inbox(&base).unwrap().program);
+    let mut machine_only = base.clone();
+    machine_only["sender"]["relay"] = json!({"machine":"gcp-agent-lane-4"});
+    assert!(program_notice(&machine_only), "a lane VM tool relays only its machine");
+    let mut relayed = machine_only.clone();
+    relayed["text"] = json!(
+        "\n[message 7461 from gcp-agent-lane-10/router-x (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 7461]\"]\n\nState: blocked"
+    );
+    assert!(!program_notice(&relayed), "the broker relays agents with no session too");
+    // The listing's needYou reads items held before the rule: a program's ask is no ask.
+    let mut ask = base.clone();
+    ask["text"] = json!("blocked: need permission from leo to merge #12");
+    assert!(needs_person("block", ask["text"].as_str().unwrap(), "leo"));
+    assert!(program_fyi(&ask));
+    ask["text"] =
+        json!("[notice from runner-vars \u{b7} FIRE] target down; leo, approve a restart");
+    assert!(!program_fyi(&ask), "a FIRE still wakes");
+    assert!(!program_fyi(&relayed));
+    relayed["text"] = json!(
+        "\n[message 31f6 from gcp-agent-lane-2 (a program with no session, not Leo; answer ...), relayed by the lane-gh broker]\n\n[asks-router] Continue"
+    );
+    assert!(program_notice(&relayed));
+    for agent in [
+        json!({"fromSession":"s1"}),
+        json!({"sender":{"session":"s1"}}),
+        json!({"sender":{"relay":{"machine":"m","session":"lane-x"}}}),
+    ] {
+        let mut msg = base.clone();
+        for (k, v) in agent.as_object().unwrap() {
+            msg[k] = v.clone();
+        }
+        assert!(!program_notice(&msg), "{msg}");
+    }
+}
+
+#[test]
+fn only_a_fire_keeps_a_programs_notice_out_of_fyi() {
+    assert!(fire_text("FIRE lane-cap-watch: hosts above budget"));
+    assert!(fire_text("[fire] base red"));
+    assert!(fire_text("x\nseverity: fire"));
+    assert!(!fire_text("fire up the runner"), "the word in lower case is no FIRE");
+    assert!(!fire_text("FIREWALL changed"));
+    assert!(fire_text("\n[notice from now on cmux-cp-1 \u{b7} FIRE] RUNNER LABEL STALLED"));
+    assert!(fire_text(
+        "\n[message 8a49 from gcp-agent-lane-2 (a program with no session, not Leo), relayed by the lane-gh broker]\n\n[asks-router] FIRE 2 fix(es) Leo named have not merged"
+    ));
+    assert!(
+        !fire_text(
+            "[lane-gh broker digest 1b20: 4 reports from a/b since 06:18Z, none a FIRE, a blocker or an ask]"
+        ),
+        "a digest saying it holds no FIRE is none"
+    );
+    assert!(
+        !fire_text(
+            "[notice from glaeda-land on cmux-cp-1] glaeda land: #19519 merged\n{\"level\": \"fire\", \"text\": \"FIRE land queue\"}"
+        ),
+        "a FIRE quoted past the head line is not the notice's own"
+    );
+    assert!(
+        !fire_text("[notice from now on cmux-cp-1] URGENT SLO BUDGET BURNING"),
+        "URGENT is no FIRE"
+    );
+}
+
+#[test]
+fn a_programs_notice_is_fyi_by_rule_whatever_the_model_or_its_class_says() {
+    let mut program = held("p1", "landed", "result", "merged #12");
+    program.program = true;
+    let mut asks = held("p2", "watch", "question", "hang-watch: stuck turn?");
+    asks.program = true;
+    let mut fire = held("p3", "now", "result", "FIRE runner label stalled");
+    fire.program = true;
+    let agent = held("p4", "review", "result", "pick a base for #9");
+    let (rule, model) = split_urgent(&[program.clone(), asks.clone(), fire.clone(), agent.clone()]);
+    assert_eq!(rule.iter().map(|h| h.prompt_id.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+    assert_eq!(model.iter().map(|h| h.prompt_id.as_str()).collect::<Vec<_>>(), ["p3", "p4"]);
+    let b = batch_of(vec![program, asks, fire, agent]);
+    let d = known(&b, Some("1 this\n2 this\n3 this\n4 this"), &Owners::default());
+    let cats: Vec<(Category, DecidedBy)> = d.iter().map(|d| (d.category, d.decided_by)).collect();
+    assert_eq!(
+        cats,
+        [
+            (Category::Fyi, DecidedBy::Rule),
+            (Category::Fyi, DecidedBy::Rule),
+            (Category::NeedsThisSession, DecidedBy::Model),
+            (Category::NeedsThisSession, DecidedBy::Model),
+        ]
+    );
+    assert_eq!(actionable_topics(&lines_of(&b, &d)), 2, "the FIRE and the agent's ask");
+}
+
+/// claude-sr2-coord, 2026-11-23 07:45Z: glaeda-land sent ten `[blocker]` "forward_no_outcome"
+/// notices, one per PR, for lands handed off days before (two already merged); none needed a
+/// person. A program's block is fyi by rule too, one per PR or ten.
+#[test]
+fn a_programs_blocker_notices_are_fyi_however_many() {
+    let msg = |n: u32| {
+        json!({"surgeHeld": true, "promptId": format!("f{n}"), "threadId": "declared:a session on cmux-cp-1",
+            "from": "a session on cmux-cp-1", "class": "block",
+            "sender": {"session": null, "relay": {"machine": "cmux-cp-1", "session": null}},
+            "text": format!("\n[notice from glaeda-land on cmux-cp-1 \u{b7} WARN] glaeda land: https://github.com/manaflow-ai/cmux/pull/5{n:04} stopped: forward_no_outcome: handed off 5.7 d ago, no outcome recorded")})
+    };
+    let held: Vec<Held> = (0..10).map(|n| held_from_inbox(&msg(n)).expect("held")).collect();
+    assert!(held.iter().all(|h| h.program && h.fyi_by_rule() && !h.must_reach_this_session()));
+    let (rule, model) = split_urgent(&held);
+    assert_eq!((rule.len(), model.len()), (10, 0));
+    let b = batch_of(held);
+    let d = known(&b, None, &Owners::default());
+    assert!(d.iter().all(|d| (d.category, d.decided_by) == (Category::Fyi, DecidedBy::Rule)));
+    assert_eq!(actionable_topics(&lines_of(&b, &d)), 0);
+}
+
+#[test]
 fn only_a_permission_or_a_question_to_the_person_needs_the_person() {
     // Status, results and FYIs never need the person, whatever they say.
     assert!(!needs_person("fyi", "leo: CI is green, permission granted", "leo"));
@@ -252,4 +370,45 @@ fn only_a_permission_or_a_question_to_the_person_needs_the_person() {
     assert!(needs_person("question", "approve the $40 spend?", "cmux"));
     // The owner's name inside another word is not the person.
     assert!(!needs_person("question", "is cleopatra.rs yours?", "leo"));
+}
+
+/// RFD 0158 §16: a message is decided only when most votes agree on its category and owner.
+#[test]
+fn consensus_keeps_only_what_most_votes_agree_on() {
+    let b = batch_of(vec![
+        held("p1", "t1", "fyi", "build green"),
+        held("p2", "t2", "fyi", "lint passed"),
+        held("p3", "t3", "fyi", "done with x"),
+        held("p4", "t4", "fyi", "maybe"),
+    ]);
+    let o = owners(&[("t3", "lane-x")]);
+    let votes: Vec<Vec<Option<Decision>>> = [
+        "1 noise\n2 handled\n3 owner\n4 this",
+        "1 noise\n2 this\n3 owner\n4 noise",
+        "1 this\n2 noise\n3 owner",
+    ]
+    .iter()
+    .map(|a| decide(&b, Some(a), &o))
+    .collect();
+    let kept = majority(&votes);
+    let cats: Vec<Option<Category>> = kept.iter().map(|d| d.as_ref().map(|d| d.category)).collect();
+    assert_eq!(cats, vec![Some(Category::Noise), None, Some(Category::NeedsItsOwner), None]);
+    assert_eq!(kept[2].as_ref().unwrap().owner.as_deref(), Some("lane-x"));
+    assert_eq!(split_count(&votes, &kept), 2);
+    // One vote is the plain single call; no votes decide nothing.
+    assert_eq!(majority(&votes[..1]), votes[0]);
+    assert!(majority(&[]).is_empty());
+}
+
+#[test]
+fn consensus_passes_rule_decisions_and_holds_on_a_failed_majority() {
+    let b = batch_of(vec![
+        held("p1", "t1", "block", "blocked on review"),
+        held("p2", "t2", "fyi", "ok"),
+    ]);
+    let o = Owners::default();
+    let votes = vec![decide(&b, None, &o), decide(&b, None, &o), decide(&b, Some("2 noise"), &o)];
+    let kept = majority(&votes);
+    assert_eq!(kept[0], votes[0][0], "a rule's decision is the same in every vote");
+    assert_eq!(kept[1], None, "one answer of three decides nothing");
 }

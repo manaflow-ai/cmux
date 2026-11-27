@@ -221,7 +221,7 @@ struct MacScreenHubCardTests {
                                "too many requests; wait a minute"))
         #expect(said.contains("too many requests; wait a minute"))
         #expect(MacScreenCardView.refusedBody(.other(reason: nil), host: "Studio")
-            == L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again."))
+            == L.t("macScreen.hub.otherBody", "The device hub could not start the session."))
         // A known code keeps its own step.
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
@@ -523,6 +523,21 @@ struct MacScreenHubViewerTests {
     @Test func notFoundOffersNoRetry() {
         #expect(!MacScreenHubRefusal.notFound.canRetry)
         #expect(MacScreenHubRefusal.hostOffline.canRetry && MacScreenHubRefusal.notShared.canRetry)
+    }
+
+    /// The pane asks again on its own only after a failure, a drop or an outage, never after a person's own end, and
+    /// only while the host's permission grants the scope with no one asked (an Ask would prompt the host's person).
+    @Test func retriesOnItsOwnOnlyWhatNobodyMustAnswer() {
+        for reason: MacScreenEndReason in [.failed, .peerOffline, .signedOut, .approveFailed, .other] {
+            #expect(reason.retriesOnItsOwn, "\(reason)")
+        }
+        for reason: MacScreenEndReason in [.viewerDisconnected, .hostStopped, .sharingOff, .moved, .expired, .consentRequired,
+                                           .permissionRevoked, .accessChanged, .hostRemoved, .viewerRemoved, .deviceRemoved] {
+            #expect(!reason.retriesOnItsOwn, "\(reason)")
+        }
+        #expect(MacScreenPaneModel.grants(.full, .full) && MacScreenPaneModel.grants(.full, .view))
+        #expect(MacScreenPaneModel.grants(.view, .view) && !MacScreenPaneModel.grants(.view, .full))
+        #expect(!MacScreenPaneModel.grants(.ask, .view) && !MacScreenPaneModel.grants(.none, .view) && !MacScreenPaneModel.grants(nil, .view))
     }
 
     /// The host's reason wins over a stream that dropped a moment before it arrived (View scope too).
@@ -1498,6 +1513,46 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
         #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}
+
+/// The `remoteDesktop.*` defaults seed a new session's toolbar picks, and its offer carries them:
+/// the quality's wish, the frame rate limit as a cap on `a=cmux-rd-max-fps`, the bitrate limit as `a=cmux-rd-max-kbps`.
+struct MacScreenRemoteDesktopDefaultsTests {
+    @Test func autoDefaultsAreTodaysPicks() {
+        #expect(MacScreenPages.preferences(RemoteDesktopDefaults()) == ScreenPreferences())
+    }
+
+    @Test func eachQualityMapsToTheToolbarsPreset() {
+        var defaults = RemoteDesktopDefaults()
+        let presets: [(RemoteDesktopQuality, ScreenQuality)] = [(.auto, .auto), (.sharpText, .high), (.smoothMotion, .smooth), (.lowBandwidth, .low)]
+        for (quality, preset) in presets {
+            defaults.quality = quality
+            #expect(MacScreenPages.preferences(defaults).quality == preset)
+        }
+    }
+
+    @Test func theLimitsReachTheOffer() throws {
+        var defaults = RemoteDesktopDefaults()
+        defaults.quality = .smoothMotion
+        defaults.maxFps = 30
+        defaults.maxBitrateMbps = 4
+        let preferences = MacScreenPages.preferences(defaults)
+        let wish = MacScreenRdDocument.wish(preferences.quality, refresh: 120, paneWidth: 1000, maxFps: defaults.maxFps)
+        #expect(wish == (1920, 30))
+        var offer = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        offer.maxWidth = wish.maxWidth
+        offer.maxFps = wish.maxFps
+        offer.customize(preferences)
+        #expect(offer.text.contains("a=cmux-rd-max-fps:30\r\n"))
+        #expect(offer.text.contains("a=cmux-rd-max-kbps:4000\r\n"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)) == offer)
+    }
+
+    @Test func theFrameRateLimitOnlyLowers() {
+        #expect(MacScreenRdDocument.wish(.low, refresh: 120, maxFps: 90).maxFps == 60, "a cap over the preset's rate raised it")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120, maxFps: 15).maxFps == 15, "the cap is not floored at 30")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120).maxFps == 120, "no cap changed the rate")
     }
 }
 

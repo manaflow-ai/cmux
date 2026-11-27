@@ -24,6 +24,9 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var method: String
         /// The chat a reply in place named (``AgentPaneAgentReply``).
         var subject: String?
+        /// Put on the daemon's socket (``written(_:)``): a frame still held by a host check (a
+        /// path check, a confirmation sheet) is not one the daemon could have read.
+        var written = false
     }
 
     private nonisolated struct State {
@@ -32,7 +35,19 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var inFlight: Set<String> = []
         /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
         var answered: [Int: @Sendable (Bool) -> Void] = [:]
+        /// Told the daemon's whole answer to a host request (``whenReply(_:_:)``).
+        var replies: [Int: @Sendable (Reply) -> Void] = [:]
+        /// Each `_acpmux/request_state` question on the wire: the relay ids written before it,
+        /// which the daemon read before the question (``snapshotWritten(for:)``).
+        var stateQueries: [Int: [Int]] = [:]
     }
+
+    /// The page asks which of its requests the daemon still runs (acpmux `server/in_flight.rs`
+    /// `states`; webviews `direct.ts` `checkRequests`). The daemon answers in relay ids; the page
+    /// gets its own ids, and `relayed`: its requests this relay wrote to the daemon before the
+    /// question, the only ones the answer speaks for. A request the host answers itself
+    /// (`_acpmux/status`) or still holds is never in it, so it is never judged lost.
+    static let requestStateMethod = "_acpmux/request_state"
 
     private let state = Mutex(State())
     /// Told the promptId of each `_acpmux/prompt_accepted` the daemon sends (``AgentPanePromptJournal``).
@@ -46,6 +61,39 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     /// or an error; never when the request is cancelled.
     func whenAnswered(_ id: Int, _ handler: @escaping @Sendable () -> Void) {
         state.withLock { $0.answered[id] = { _ in handler() } }
+    }
+
+    /// The daemon's answer to a host request: a result, or a refusal with its code, reason and words.
+    nonisolated struct Reply: Sendable, Equatable {
+        var ok: Bool
+        var code: String?
+        var reason: String?
+        var origin: String?
+        var message: String?
+
+        init(ok: Bool, code: String? = nil, reason: String? = nil, origin: String? = nil, message: String? = nil) {
+            self.ok = ok
+            self.code = code
+            self.reason = reason
+            self.origin = origin
+            self.message = message
+        }
+
+        init(_ object: [String: Any]) {
+            let error = object["error"] as? [String: Any]
+            let data = error?["data"] as? [String: Any]
+            self.init(ok: error == nil && object["result"] != nil,
+                      code: data?["code"] as? String ?? (error?["code"]).map { "\($0)" },
+                      reason: data?["reason"] as? String,
+                      origin: data?["origin"] as? String,
+                      message: error?["message"] as? String)
+        }
+    }
+
+    /// Calls `handler` with the daemon's whole answer to host request `id` (the prompt journal's
+    /// resend tells a refusal it may send again from one it must give up); never when cancelled.
+    func whenReply(_ id: Int, _ handler: @escaping @Sendable (Reply) -> Void) {
+        state.withLock { $0.replies[id] = handler }
     }
 
     /// A host-owned request's acknowledgement, distinguishing a result from a refusal.
@@ -81,7 +129,49 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         state.withLock { state in
             if let entry = state.entries.removeValue(forKey: id) { state.inFlight.remove(entry.pageID) }
             state.answered[id] = nil
+            state.replies[id] = nil
+            state.stateQueries[id] = nil
         }
+    }
+
+    /// Request `id` is on the daemon's socket, after every frame written before it.
+    func written(_ id: Int) {
+        state.withLock { $0.entries[id]?.written = true }
+    }
+
+    /// Just before `_acpmux/request_state` question `id` is written: the requests written before
+    /// it, which the daemon reads before the question. One written later is left out (no verdict).
+    func snapshotWritten(for id: Int) {
+        state.withLock { state in
+            guard state.entries[id]?.method == Self.requestStateMethod else { return }
+            state.stateQueries[id] = state.entries.compactMap { relayID, entry in
+                entry.written && entry.method != Self.requestStateMethod ? relayID : nil
+            }
+        }
+    }
+
+    /// The daemon's answer to question `relayID` in the page's ids: `running` and `answered` as
+    /// the daemon said, and `relayed` (``requestStateMethod``). A relay id whose reply already went
+    /// to the page is left out of all three: the page has its answer. An error goes as it came.
+    private func requestState(_ object: [String: Any], relayID: Int) -> [String: Any] {
+        var object = object
+        let snapshot = state.withLock { $0.stateQueries.removeValue(forKey: relayID) } ?? []
+        guard let result = object["result"] as? [String: Any] else { return object }
+        let pages = state.withLock { state -> [Int: String] in
+            state.entries.compactMapValues { $0.method == Self.requestStateMethod ? nil : $0.pageID }
+        }
+        func pageIDs(_ value: Any?) -> [Any] {
+            ((value as? [Any]) ?? []).compactMap { raw -> Any? in
+                guard let relay = (raw as? NSNumber)?.intValue ?? (raw as? Int), let page = pages[relay] else { return nil }
+                return Self.value(page)
+            }
+        }
+        object["result"] = [
+            "running": pageIDs(result["running"]),
+            "answered": pageIDs(result["answered"]),
+            "relayed": pageIDs(snapshot),
+        ]
+        return object
     }
 
     /// Cancels a host-owned request and wakes its waiter (used when a socket closes before a reply).
@@ -167,19 +257,26 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // already read it as one JSON text, as for a notification). Anything else is parsed.
         if replyObject == nil, let span = methodScan.id, let relayID = Self.integer(text, span) {
             state.withLock { $0.answered.removeValue(forKey: relayID) }?(!methodScan.error && methodScan.result)
+            if let replied = state.withLock({ $0.replies.removeValue(forKey: relayID) }) {
+                replied(((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]).map(Reply.init)
+                    ?? Reply(ok: !methodScan.error && methodScan.result))
+            }
             guard let entry = take(relayID), let id = Self.value(entry.pageID) else { return .drop }
             if Self.passesThrough(entry.method, text) {
                 return .reply(Self.splice(text, span, entry.pageID), replyTo: entry.method)
             }
             guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
             object["id"] = id
+            if entry.method == Self.requestStateMethod { return reply(requestState(object, relayID: relayID), entry: entry, text: nil) }
             return reply(object, entry: entry, text: AcpmuxPaneMethods.replyShapes[entry.method] == nil ? Self.splice(text, span, entry.pageID) : nil)
         }
         guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
+        state.withLock { $0.replies.removeValue(forKey: relayID) }?(Reply(object))
         guard let entry = take(relayID), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
+        if entry.method == Self.requestStateMethod { return reply(requestState(object, relayID: relayID), entry: entry, text: nil) }
         return reply(object, entry: entry, text: nil)
     }
 

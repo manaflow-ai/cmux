@@ -4,17 +4,31 @@ import Foundation
 
 /// A Mac terminal pane as the phone's sizing sees it, for the projection
 /// harness (`TerminalProjectionResizeHarnessTests`, the terminal demo's
-/// `projection` phase): a shell at the Mac pane's own grid (120x40) under
-/// the Mac's default policy, "Fit the smallest viewer". While this phone
-/// claims a grid smaller than the pane's, the PTY takes the phone's grid;
-/// otherwise the pane's. Each PTY grid change is one SIGWINCH for the program
-/// and one reset and replay for the phone (`resized`), as the daemon does.
+/// `projection` and `altproj` phases): a shell at the Mac pane's own grid
+/// (120x40) under the Mac's default policy, "Fit the smallest viewer". While
+/// this phone claims a grid smaller than the pane's, the PTY takes the
+/// phone's grid; otherwise the pane's. Each PTY grid change is one SIGWINCH
+/// for the program and one reset and replay for the phone (`resized`), as the
+/// daemon does.
+///
+/// `claude` runs an inline TUI on the primary screen (Claude Code: its
+/// cursor hidden, a rule as wide as the PTY over and under its prompt,
+/// redrawn at the PTY's grid on each SIGWINCH).
+///
+/// `htop` runs a full-screen app on the alternate screen (its screen redrawn
+/// at the PTY's grid on each SIGWINCH, `q` quits). `latency` delays the
+/// Mac's answer to a claim (a `resized` and its replay) by a round trip, as a
+/// phone on LTE sees it. `keepsSize`: a Mac that keeps its grid (Prefer
+/// this Mac): a claim never resizes the PTY and no `resized` comes back.
 ///
 /// It counts what reached the Mac: ``ptyResizes`` (grid changes of the PTY)
-/// and ``claimChanges`` (claims and releases the phone sent).
+/// and ``claimChanges`` (claims and releases the phone sent), and what came
+/// back: ``replayBytes`` (bytes of every reset's replay, the attach's too).
 @MainActor
 public final class MacPaneMockSession: TerminalSession {
     public let paneGrid: (columns: Int, rows: Int)
+    /// The Mac keeps its grid whatever the phone claims (Prefer this Mac).
+    public let keepsSize: Bool
     /// The PTY's grid now.
     public private(set) var ptyGrid: (columns: Int, rows: Int)
     /// PTY resizes since the pane opened (SIGWINCHes the program got).
@@ -23,21 +37,43 @@ public final class MacPaneMockSession: TerminalSession {
     public private(set) var claimChanges = 0
     /// Each PTY resize, in order ("54x38").
     public private(set) var resizeLog: [String] = []
+    /// Bytes of the replays the phone got (the attach's and each resize's).
+    public private(set) var replayBytes = 0
+    /// A resize the Mac made whose `resized` and replay have not reached the phone.
+    public private(set) var resizeInFlight = false
     public private(set) var programName = "zsh"
     public private(set) var isAlternateScreen = false
+    /// Claude Code is drawing inline on the primary screen.
+    public private(set) var inlineTUI = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     private var claims = true
     private var asked: (columns: Int, rows: Int)?
     private var line = ""
     private var transcript: [String]
+    private let latency: Duration
+    /// The answer to the last resize still on its way (a newer one replaces it).
+    private var answer: Task<Void, Never>?
 
     /// `transcript`: the pane's history (lines, oldest first); a short shell
     /// session by default.
-    public init(columns: Int = 120, rows: Int = 40, transcript: [String]? = nil) {
+    public init(columns: Int = 120, rows: Int = 40, transcript: [String]? = nil, program: String? = nil,
+                latency: Duration = .zero, keepsSize: Bool = false) {
         paneGrid = (columns, rows)
+        self.keepsSize = keepsSize
         ptyGrid = paneGrid
         self.transcript = transcript ?? Self.session
+        self.latency = latency
+        if program == "claude" {
+            self.transcript.append(Self.prompt + "claude")
+            programName = "claude"
+            inlineTUI = true
+        }
+        if program == "htop" {
+            self.transcript.append(Self.prompt + "htop")
+            programName = "htop"
+            isAlternateScreen = true
+        }
     }
 
     public var remoteRows: Int? { ptyGrid.rows }
@@ -52,16 +88,28 @@ public final class MacPaneMockSession: TerminalSession {
         if grid != ptyGrid { resizePTY(to: grid) }
         handler(.hostGrid(columns: ptyGrid.columns, rows: ptyGrid.rows))
         handler(.output(TerminalReclaimHold.reset))
-        handler(.output(replay()))
+        let replay = replay()
+        replayBytes += replay.count
+        handler(.output(replay))
     }
 
     public func send(_ bytes: Data) {
+        if isAlternateScreen {
+            // htop: `q` (or F10, Ctrl-C) quits; other keys are its own.
+            if bytes.contains(0x71) || bytes.contains(0x03) || bytes == Data("\u{1B}[21~".utf8) { exitHtop() }
+            return
+        }
         for byte in bytes {
             switch byte {
             case 0x0D:
                 transcript.append(Self.prompt + line)
                 let command = line
                 line = ""
+                if command == "htop" {
+                    handler?(.output(Data("\r\n".utf8)))
+                    enterHtop()
+                    continue
+                }
                 var out = "\r\n"
                 if !command.isEmpty {
                     let reply = "\(command): the Mac's shell ran it at \(ptyGrid.columns) columns; this line is long enough to wrap on a phone"
@@ -97,11 +145,15 @@ public final class MacPaneMockSession: TerminalSession {
         apply()
     }
 
-    public func stop() { handler = nil }
+    public func stop() {
+        handler = nil
+        answer?.cancel()
+    }
 
-    /// "Fit the smallest viewer": the claiming phone's grid where it is smaller.
+    /// "Fit the smallest viewer": the claiming phone's grid where it is
+    /// smaller (never, for a Mac that keeps its size).
     private var wantedGrid: (columns: Int, rows: Int) {
-        guard claims, let asked else { return paneGrid }
+        guard claims, !keepsSize, let asked else { return paneGrid }
         return (min(asked.columns, paneGrid.columns), min(asked.rows, paneGrid.rows))
     }
 
@@ -109,10 +161,25 @@ public final class MacPaneMockSession: TerminalSession {
         let grid = wantedGrid
         guard grid != ptyGrid else { return }
         resizePTY(to: grid)
-        // `resized`: the Mac's grid, then a reset and the replay at it.
-        handler?(.hostGrid(columns: grid.columns, rows: grid.rows))
+        // `resized`: the Mac's grid, then a reset and the replay at it, a
+        // round trip after the claim left the phone.
+        answer?.cancel()
+        guard latency > .zero else { return answerResize() }
+        resizeInFlight = true
+        answer = Task { @MainActor [weak self, latency] in
+            try? await ContinuousClock().sleep(for: latency)
+            guard let self, !Task.isCancelled else { return }
+            self.answerResize()
+        }
+    }
+
+    private func answerResize() {
+        resizeInFlight = false
+        handler?(.hostGrid(columns: ptyGrid.columns, rows: ptyGrid.rows))
         handler?(.output(TerminalReclaimHold.reset))
-        handler?(.output(replay()))
+        let replay = replay()
+        replayBytes += replay.count
+        handler?(.output(replay))
     }
 
     private func resizePTY(to grid: (columns: Int, rows: Int)) {
@@ -121,15 +188,40 @@ public final class MacPaneMockSession: TerminalSession {
         resizeLog.append("\(grid.columns)x\(grid.rows)")
     }
 
+    private func enterHtop() {
+        programName = "htop"
+        isAlternateScreen = true
+        handler?(.output(Data(("\u{1B}]2;htop\u{7}\u{1B}[?1049h\u{1B}[?25l" + MockHtop.render(columns: ptyGrid.columns, rows: ptyGrid.rows, tick: 0)).utf8)))
+    }
+
+    private func exitHtop() {
+        programName = "zsh"
+        isAlternateScreen = false
+        handler?(.output(Data(("\u{1B}[?25h\u{1B}[?1049l\u{1B}]2;zsh\u{7}" + Self.prompt).utf8)))
+    }
+
     /// The pane's history and prompt, as the Mac's replay draws them: long
-    /// lines soft-wrap at the PTY's columns.
+    /// lines soft-wrap at the PTY's columns. With htop up, its screen at the
+    /// PTY's grid follows on the alternate screen (`vt-state` replays both).
     private func replay() -> Data {
         var out = ""
         for line in transcript { out += line + "\r\n" }
-        out += Self.prompt + line
+        if isAlternateScreen {
+            out += "\u{1B}]2;htop\u{7}\u{1B}[?1049h\u{1B}[?25l" + MockHtop.render(columns: ptyGrid.columns, rows: ptyGrid.rows, tick: 0)
+        } else if inlineTUI {
+            out += Self.claudeRegion(columns: ptyGrid.columns)
+        } else {
+            out += Self.prompt + line
+        }
         return Data(out.utf8)
     }
-
+    /// Claude Code's live region at `columns`: its title, the cursor hidden, and the prompt box
+    /// between two rules as wide as the PTY (colored as Claude Code draws them).
+    static func claudeRegion(columns: Int) -> String {
+        let rule = "\u{1B}[38;2;136;136;136m" + String(repeating: "\u{2500}", count: max(1, columns)) + "\u{1B}[0m"
+        return "\u{1B}]2;claude\u{7}\u{1B}[?25l" + rule + "\r\n\u{1B}[1m\u{276F}\u{1B}[0m \r\n" + rule + "\r\n"
+            + "  \u{1B}[38;2;215;119;87m\u{23F5}\u{23F5} bypass permissions on\u{1B}[0m"
+    }
     private static let prompt = "\u{1B}[32m~/src/cmux\u{1B}[0m $ "
 
     private static let session: [String] = {

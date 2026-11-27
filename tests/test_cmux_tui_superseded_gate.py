@@ -12,7 +12,7 @@ tree-preflight's stale step finds only once it has that runner.
    the same command and environment as tree-preflight's stale step) on the one-minute
    control pool (RUNNER_POOLS.linux_2), holding no secret, and never fails the run.
 2. It runs only for lane-branch pushes: trunk and integration refs, which the check
-   never supersedes, skip it.
+   never supersedes, skip it; feat-cmux-next-* heads take it for the branch-inputs step.
 3. tree-preflight needs push-gate, still runs when the gate is skipped or failed
    (!cancelled()), and stops only on the gate's stale=true. Every other job hangs off
    tree-preflight, so a superseded push takes no Blacksmith runner at all.
@@ -33,9 +33,12 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SCRIPT = "scripts/ci/cmux_tui_superseded_push.py"
 # Refs the superseded check never supersedes: they skip the gate.
 TRUNK = ("refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next",
-         "refs/heads/release-next", "refs/heads/feat-cmux-next-cloud-dev-stack",
+         "refs/heads/release-next",
          "refs/heads/next-batch/42", "refs/heads/rc/0.70", "refs/heads/cmux-tui-pin-abc")
-LANES = ("refs/heads/lane/fix-thing", "refs/heads/scratch/probe", "refs/heads/perf/x", "refs/heads/leo/y")
+# feat-cmux-next-* takes the gate for its branch-inputs step (the superseded check still never supersedes it):
+# most such heads are pull request branches that change no tree-key input (2026-11-27).
+LANES = ("refs/heads/lane/fix-thing", "refs/heads/scratch/probe", "refs/heads/perf/x", "refs/heads/leo/y",
+         "refs/heads/feat-cmux-next-cloud-dev-stack")
 
 
 def jobs() -> dict:
@@ -74,15 +77,24 @@ class SupersededGateTest(unittest.TestCase):
         # The one Linux label (scripts/ci/one_linux_label.py), never GitHub-hosted for an own-branch push (its
         # queue waited hours on 2026-11-18).
         self.assertEqual(gate["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && "
+                         "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
+                         "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}")
+                         "'ubuntu-24.04' || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
         self.assertIn(SCRIPT, mine["run"])
-        self.assertEqual(mine["run"], theirs["run"])
-        self.assertEqual(mine["env"], theirs["env"])
+        # tree-preflight's step adds the coalescing-window arguments (#51879); the gate asks the same question.
+        self.assertTrue(theirs["run"].startswith(mine["run"]), (mine["run"], theirs["run"]))
+        # Same inputs, but tree-preflight's REST reads go out on a CI pool token first (the gate holds no secret).
+        token_keys = {"GH_TOKEN", "GH_TOKEN_SPARES"}
+        self.assertEqual({k: v for k, v in theirs["env"].items() if k in mine["env"] and k not in token_keys},
+                         {k: v for k, v in mine["env"].items() if k not in token_keys})
+        self.assertEqual(mine["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(theirs["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
+        self.assertTrue(theirs["env"]["GH_TOKEN_SPARES"].endswith("${{ github.token }}"))
         self.assertTrue(all("secrets." not in str(v) for v in mine["env"].values()))
         checkout = gate["steps"][0]["with"]
         self.assertIn(SCRIPT, checkout["sparse-checkout"])

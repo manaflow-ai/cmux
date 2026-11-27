@@ -1,8 +1,9 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, pausable,
-    resolve, restore_machine, table,
+    Resolved, Short, app_list, cloud_words, confirmed, given_target, misuse, not_listed,
+    not_loaded, parse, pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine,
+    table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -30,6 +31,7 @@ fn a_short_verb_takes_a_name_by_position() {
             tail: vec![],
             api_verb: true,
             command: vec![],
+            stdin: super::super::vm_exec_input::StdinMode::Auto,
         }
     );
     let resize = parse(&words(&["vm", "resize", "--size", "large", "dev"])).unwrap();
@@ -208,6 +210,25 @@ fn exec_ssh_and_move_name_the_vm_by_position() {
     // A command's own flags after `--` are the command's.
     let flags = parse(&words(&["vm", "exec", "dev", "--", "ls", "--help"])).unwrap();
     assert_eq!(flags.command, words(&["ls", "--help"]));
+    // Several words keep their argv: each is shell-quoted (`sh -c 'cat > f'`, not `sh -c cat > f`);
+    // one word is a shell line as typed.
+    let quoted = parse(&words(&["vm", "exec", "dev", "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(cloud_words(&quoted, Some("vm_a1"))[3], "sh -c 'cat > f'");
+    let line = parse(&words(&["vm", "exec", "dev", "--", "ls | wc -l"])).unwrap();
+    assert_eq!(cloud_words(&line, Some("vm_a1"))[3], "ls | wc -l");
+    // `--stdin` / `--no-stdin` before the command are exec's; after `--` they are the command's.
+    use super::super::vm_exec_input::StdinMode;
+    let on = parse(&words(&["vm", "exec", "dev", "--stdin", "--", "cat"])).unwrap();
+    assert_eq!((on.stdin, on.tail.is_empty()), (StdinMode::On, true));
+    let off = parse(&words(&["vm", "exec", "--no-stdin", "dev", "cat"])).unwrap();
+    assert_eq!((off.stdin, off.named.as_deref()), (StdinMode::Off, Some("dev")));
+    let theirs = parse(&words(&["vm", "exec", "dev", "--", "tool", "--stdin"])).unwrap();
+    assert_eq!((theirs.stdin, theirs.command), (StdinMode::Auto, words(&["tool", "--stdin"])));
+    assert_eq!(
+        given_target(&words(&["--target", "machine:vm_a1"])).as_deref(),
+        Some("machine:vm_a1")
+    );
+    assert_eq!(given_target(&words(&["--target=machine:vm_b2"])).as_deref(), Some("machine:vm_b2"));
 
     let ssh = parse(&words(&["vm", "ssh", "dev"])).unwrap();
     assert_eq!(cloud_words(&ssh, Some("vm_a1")), words(&["--target", "machine:vm_a1"]));
@@ -247,7 +268,10 @@ fn rm_says_yes_with_yes() {
 fn ls_prints_a_table() {
     let listed = json!({"machines": [
         {"machine_id": "vm_a1", "title": "dev", "status": "running",
-         "created_at": "2026-11-05T06:20:17Z"},
+         "created_at": "2026-11-05T06:20:17Z",
+         "disk": {"label": "13.2 / 20 GB", "segments": [
+             {"kind": "system", "gb": 5.3}, {"kind": "project", "gb": 6.2},
+             {"kind": "caches", "gb": 1.7}, {"kind": "free", "gb": 6.8}]}},
         {"machine_id": "vm_b2", "title": "", "status": "paused", "created_at": "2026-11-09T01:02:03Z"},
         {"machine_id": "vm_c3", "title": "evil\u{1b}]52;c;aGk=\u{7}", "status": "running",
          "created_at": "2026-11-09T01:02:03Z"},
@@ -256,18 +280,36 @@ fn ls_prints_a_table() {
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
         lines[0].split_whitespace().collect::<Vec<_>>(),
-        ["NAME", "ID", "STATUS", "CREATED"]
+        ["NAME", "ID", "STATUS", "CREATED", "DISK"]
     );
     assert_eq!(
         lines[1].split_whitespace().collect::<Vec<_>>(),
-        ["dev", "vm:vm_a1", "running", "2026-11-05"]
+        [
+            "dev",
+            "vm:vm_a1",
+            "running",
+            "2026-11-05",
+            "13.2",
+            "/",
+            "20",
+            "GB",
+            "system",
+            "5.3",
+            "project",
+            "6.2",
+            "caches",
+            "1.7"
+        ]
     );
     assert_eq!(
         lines[2].split_whitespace().collect::<Vec<_>>(),
-        ["-", "vm:vm_b2", "paused", "2026-11-09"]
+        ["-", "vm:vm_b2", "paused", "2026-11-09", "-"]
     );
     assert!(!lines[3].contains('\u{1b}') && !lines[3].contains('\u{7}'), "{:?}", lines[3]);
-    assert_eq!(lines[4].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
+    assert_eq!(
+        lines[4].split_whitespace().collect::<Vec<_>>(),
+        ["new-one", "-", "creating", "-", "-"]
+    );
     assert!(table(&json!({"machines": []})).contains("cmux vm new"));
     // Still loading is not "no VMs".
     let loading = table(&json!({"loaded": false, "machines": []}));
@@ -324,4 +366,39 @@ fn pause_all_picks_the_running_vms() {
     let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
     assert_eq!(short.cloud_verb, "pause-machine");
     assert!(short.named.is_none() && short.tail == words(&["--all"]));
+}
+
+/// Greptile P1 on #52473: an app that has not loaded its VMs lists none; `vm pause --all` must
+/// refuse with a retry, never print "No running Cloud VMs to pause." and exit 0.
+#[test]
+fn pause_all_on_an_unloaded_list_is_a_retry_not_a_success() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let error = not_loaded(&unloaded).expect("an unloaded list is refused");
+    assert_eq!(error.get("code"), Some(&json!("cloud.not_loaded")));
+    assert!(not_loaded(&json!({"loaded": true, "machines": []})).is_none());
+    assert!(not_loaded(&json!({"machines": []})).is_none());
+}
+
+/// Review F1 on #52664: with no app, `pause --all` must not fall through to the VM API, which
+/// has no `--all`; `run_if_requested` refuses it when `pause_all_requested` holds.
+#[test]
+fn pause_all_is_recognised_for_pause_and_shutdown_only() {
+    for verb in ["pause", "shutdown"] {
+        let short = parse(&words(&["vm", verb, "--all"])).expect("parses");
+        assert!(pause_all_requested(&short), "{verb}");
+        assert!(short.api_verb, "{verb} would otherwise go to the VM API");
+    }
+    let one = parse(&words(&["vm", "pause", "dev"])).expect("parses");
+    assert!(!pause_all_requested(&one));
+}
+
+/// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.
+#[test]
+fn pause_all_refuses_other_words() {
+    let check = |typed: &[&str]| pause_all_misuse(&parse(&words(typed)).unwrap());
+    assert_eq!(check(&["vm", "pause", "--all"]), None);
+    assert_eq!(check(&["vm", "shutdown", "--all"]), None);
+    let refused = check(&["vm", "pause", "--all", "--minutes", "15"]).expect("refused");
+    assert!(refused.contains("--minutes"), "{refused}");
+    assert_eq!(check(&["vm", "pause", "box"]), None);
 }

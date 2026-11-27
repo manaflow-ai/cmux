@@ -10,17 +10,7 @@
 // the files changed (wide enough for an inline diff), then the conversation in time order. The
 // rail is what a person checks: checks with reds and running first and greens folded, reviewers,
 // linked issues. A narrow pane is one column in that order.
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type CSSProperties,
-  type ReactNode,
-  useId,
-} from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties, type ReactNode, useId } from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 // Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
@@ -37,8 +27,10 @@ import {
 } from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import { ReviewBox, ThreadActions } from "./ReviewBox";
 import type { Blocker } from "./readiness";
-import type { GitHubSnapshot, GitHubStore } from "./store";
+import type { GitHubStore } from "./store";
+import { useGitHubSlice } from "./useGitHubSlice";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
 
 /** The empty page's button: the person's open pull requests on GitHub, in a cmux tab. */
@@ -133,10 +125,15 @@ export function GitHubPage({
   readinessLayout = "list",
   readinessShown,
   conversationFilter = "all",
+  reviewDraft,
+  replyOpen,
+  onIssues,
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
+  /** Opens the repository's issues in this page (its Issues button); no button without it. */
+  onIssues?: (repo: string) => void;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
@@ -145,10 +142,19 @@ export function GitHubPage({
   /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
   readinessShown?: Blocker["kind"];
   conversationFilter?: ConversationFilter;
+  /** The review box's starting words, and the thread whose reply box starts open (gallery states). */
+  reviewDraft?: string;
+  replyOpen?: string;
 }) {
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  // Each part reads its own slice (useGitHubSlice.ts): a patch, a write or a merge step draws only its part.
+  const target = useGitHubSlice(store, (s) => s.target);
+  const pr = useGitHubSlice(store, (s) => s.pullRequest);
+  const details = useGitHubSlice(store, (s) => s.details);
+  const answered = useGitHubSlice(store, (s) => s.answered);
+  const reading = useGitHubSlice(store, (s) => s.reading);
+  const dashboard = useGitHubSlice(store, (s) => s.checks);
+  const rerun = useGitHubSlice(store, (s) => s.rerun);
   const { t } = strings;
-  const { target, pullRequest: pr, details } = snapshot;
   const hasContent = pr !== undefined;
   // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
   const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
@@ -174,12 +180,16 @@ export function GitHubPage({
       </main>
     );
   }
-  const waitingFirst = !pr && (!snapshot.answered || snapshot.reading);
+  const waitingFirst = !pr && (!answered || reading);
   const description = pr && <Description details={details} strings={strings} open={open} />;
-  const files = pr && <Files pr={pr} snapshot={snapshot} store={store} strings={strings} />;
+  const files = pr && <Files pr={pr} store={store} strings={strings} />;
   const conversation = pr && (
     <Conversation
       details={details}
+      prState={pr.state}
+      store={store}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
       strings={strings}
       now={now}
       open={open}
@@ -190,10 +200,10 @@ export function GitHubPage({
   // The dashboard once the host has the jobs; until then the cache's rollup, in the same place.
   const checks =
     pr &&
-    (snapshot.checks ? (
+    (dashboard ? (
       <ChecksDashboard
-        checks={withRollup(snapshot.checks, pr.checkList ?? [])}
-        rerun={snapshot.rerun}
+        checks={withRollup(dashboard, pr.checkList ?? [])}
+        rerun={rerun}
         store={store}
         strings={strings}
         now={now}
@@ -206,12 +216,21 @@ export function GitHubPage({
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
     <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
-      <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      <Header
+        target={target}
+        pr={pr}
+        details={details}
+        store={store}
+        strings={strings}
+        now={now}
+        waitingFirst={waitingFirst}
+        onIssues={onIssues}
+      />
       {pr && (
         <ReadinessBlock
           pr={pr}
           details={details}
-          checks={snapshot.checks ? withRollup(snapshot.checks, pr.checkList ?? []) : null}
+          checks={dashboard ? withRollup(dashboard, pr.checkList ?? []) : null}
           strings={strings}
           open={open}
           layout={readinessLayout}
@@ -239,20 +258,26 @@ export function GitHubPage({
 }
 
 function Header({
-  snapshot,
+  target,
+  pr,
+  details,
   store,
   strings,
   now,
   waitingFirst,
+  onIssues,
 }: {
-  snapshot: GitHubSnapshot;
+  target: { url: string; repo: string; number: number };
+  pr?: LinkedPullRequest;
+  details?: PullRequestDetails;
   store: GitHubStore;
   strings: Strings;
   now: () => number;
   waitingFirst: boolean;
+  onIssues?: (repo: string) => void;
 }) {
   const { t } = strings;
-  const { target, pullRequest: pr, details } = snapshot;
+  const failure = useGitHubSlice(store, (s) => s.failure);
   const updatedAt = pr?.updatedAt ? Date.parse(pr.updatedAt) : Number.NaN;
   const labels: { name: string; color: string }[] =
     details?.labels ?? (pr?.labels ?? []).map((name) => ({ name, color: "" }));
@@ -268,10 +293,15 @@ function Header({
       <div className="gh-head-row">
         <h1 className="gh-title">{pr?.title || (waitingFirst ? t("github.loading") : t("github.unavailable"))}</h1>
         <div className="gh-actions">
-          {pr && <MergeButton snapshot={snapshot} store={store} strings={strings} />}
+          {pr && <MergeButton pr={pr} details={details} store={store} strings={strings} />}
           <button type="button" className="gh-button" disabled={!pr} onClick={() => void store.openDiff()}>
             {t("github.viewAllChanges")}
           </button>
+          {onIssues && (
+            <button type="button" className="gh-button" onClick={() => onIssues(target!.repo)}>
+              {t("github.issues")}
+            </button>
+          )}
           <button type="button" className="gh-button" onClick={() => store.openOnGitHub()}>
             {t("github.openOnGitHub")}
           </button>
@@ -326,9 +356,9 @@ function Header({
           ))}
         </div>
       )}
-      {snapshot.failure && (
+      {failure && (
         <p className="gh-failure" role="alert">
-          {snapshot.failure}
+          {failure}
         </p>
       )}
     </header>
@@ -336,10 +366,20 @@ function Header({
 }
 
 /** Merge through GitHub's normal path: a first click names the method, the second merges the shown head. */
-function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; store: GitHubStore; strings: Strings }) {
+function MergeButton({
+  pr,
+  details,
+  store,
+  strings,
+}: {
+  pr?: LinkedPullRequest;
+  details?: PullRequestDetails;
+  store: GitHubStore;
+  strings: Strings;
+}) {
   const { t } = strings;
   const why = useId();
-  const { pullRequest: pr, details, merge } = snapshot;
+  const merge = useGitHubSlice(store, (s) => s.merge);
   if (!pr || pr.state !== "open") return null;
   if (merge.phase === "merged") {
     return (
@@ -451,6 +491,10 @@ function Description({
 
 function Conversation({
   details,
+  prState,
+  store,
+  reviewDraft,
+  replyOpen,
   strings,
   now,
   open,
@@ -458,6 +502,10 @@ function Conversation({
   initialFilter,
 }: {
   details?: PullRequestDetails;
+  prState: string;
+  store: GitHubStore;
+  reviewDraft?: string;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -518,21 +566,37 @@ function Conversation({
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
-            <Entry key={entry.url ?? index} entry={entry} strings={strings} now={now} open={open} />
+            <Entry
+              key={entry.url ?? index}
+              entry={entry}
+              prState={prState}
+              store={store}
+              replyOpen={replyOpen}
+              strings={strings}
+              now={now}
+              open={open}
+            />
           ))}
         </ol>
       )}
+      <ReviewBox prState={prState} store={store} strings={strings} initialBody={reviewDraft} />
     </Section>
   );
 }
 
 function Entry({
   entry,
+  prState,
+  store,
+  replyOpen,
   strings,
   now,
   open,
 }: {
   entry: ConversationEntry;
+  prState: string;
+  store: GitHubStore;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -563,6 +627,15 @@ function Entry({
                 {comment.line != null && `:${comment.line}`}
               </span>
               <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
+              {comment.thread && prState === "open" && (
+                <ThreadActions
+                  thread={comment.thread}
+                  resolved={comment.resolved === true}
+                  store={store}
+                  strings={strings}
+                  initialReplying={replyOpen === comment.thread}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -655,17 +728,8 @@ function CheckGroup({
   );
 }
 
-function Files({
-  pr,
-  snapshot,
-  store,
-  strings,
-}: {
-  pr: LinkedPullRequest;
-  snapshot: GitHubSnapshot;
-  store: GitHubStore;
-  strings: Strings;
-}) {
+function Files({ pr, store, strings }: { pr: LinkedPullRequest; store: GitHubStore; strings: Strings }) {
+  const patches = useGitHubSlice(store, (s) => s.patches);
   const files = pr.files ?? [];
   const total = Math.max(pr.changedFiles ?? 0, files.length);
   // One column width for every row's counts, so the +/− line up down the list.
@@ -682,7 +746,7 @@ function Files({
     >
       <ul className="gh-files" style={{ "--gh-digits": `${digits + 1}ch` } as CSSProperties}>
         {files.map((file) => {
-          const patch = snapshot.patches[file.path];
+          const patch = patches[file.path];
           return (
             <li key={file.path} className="gh-file" data-open={patch ? true : undefined}>
               <button

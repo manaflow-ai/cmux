@@ -792,6 +792,58 @@ async fn a_claude_wrapper_profile_reads_claude_codes_configs() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A start whose config read missed its budget (a busy machine) keeps what the read needs, and
+/// the idle pass's retry reads the servers then, so the harness can hibernate. Before, `Unknown`
+/// kept it up for good (cmux NIGHTLY, 2026-11-25: 244 sessions "are not known").
+#[tokio::test]
+async fn a_launch_read_that_missed_its_budget_is_read_again() {
+    let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+    let (home, cwd) = (root.join("home"), root.join("work"));
+    for d in [&home, &cwd] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let user =
+        json!({"mcpServers": {"yab": {"command": "/Applications/yab.app/yab", "args": ["mcp"]}}});
+    std::fs::write(home.join(".claude.json"), user.to_string()).unwrap();
+    let launch = crate::agent::Launch {
+        args: vec!["/Users/me/.local/bin/claude-sr2".into()],
+        env: [("HOME".to_string(), home.to_string_lossy().into_owned())].into_iter().collect(),
+        cwd: cwd.clone(),
+    };
+    // What `read` keeps when its budget passes.
+    let read = |running: bool| LaunchRead {
+        launch: launch.clone(),
+        family: "claude-sr2".into(),
+        kind: crate::config::HarnessKind::ClaudeStdio,
+        running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(running)),
+    };
+    // While the start's read still runs (a hung mount), no second read starts.
+    assert!(LaunchServers::Unknown(Box::new(read(true))).retry().await.is_none());
+    let missed = LaunchServers::Unknown(Box::new(read(false)));
+    let exit = crate::agent_host::OrphanExit {
+        idle_ms: 1,
+        servers: Vec::new(),
+        path: String::new(),
+        cwd: std::path::PathBuf::new(),
+    };
+    assert!(missed.orphan_exit(Some(exit)).is_none(), "unknown servers give no orphan exit");
+    let Some(LaunchServers::Known { servers, cwd: read_cwd, .. }) = missed.retry().await else {
+        panic!("the retry did not read the configs")
+    };
+    assert_eq!(read_cwd, cwd);
+    assert_eq!(
+        servers.iter().map(|s| s.command.as_str()).collect::<Vec<_>>(),
+        ["/Applications/yab.app/yab"]
+    );
+    // Servers already known are not read again.
+    let known = LaunchServers::Known { servers, path: String::new(), cwd };
+    assert!(known.retry().await.is_none());
+    // The retry's own read marked itself running, and cleared it when it ended.
+    let LaunchServers::Unknown(kept) = &missed else { unreachable!() };
+    assert!(!kept.running.load(std::sync::atomic::Ordering::Acquire));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// What the census knew of a hosted harness's servers is kept in its session's meta and comes
 /// back unchanged after a restart, so the daemon that adopts the host judges the same servers
 /// (cmux NIGHTLY, 2026-10-30: about 150 adopted agents never hibernated after a crash).

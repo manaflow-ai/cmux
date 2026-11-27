@@ -46,6 +46,15 @@ struct Wire {
     /// With `head_first`: the folder below the repository's root the chat opens in.
     #[serde(default)]
     subpath: Option<String>,
+    /// `git-seed-carry-v1`: the uploaded pack of `base` at depth 1 ([`StartParams::carry`]).
+    #[serde(default)]
+    carry: Option<String>,
+    /// A warm mirror of the repository on this machine ([`StartParams::mirror`]).
+    #[serde(default)]
+    mirror: Option<String>,
+    /// Where missing objects come from, in order ([`StartParams::promisors`]).
+    #[serde(default)]
+    promisors: Vec<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -72,6 +81,24 @@ pub struct StartParams {
     /// The checkout opens at its head first: only for a whole seed (no `since`) without
     /// the Mac's sparse patterns, and only when the subpath can be written as a pattern.
     pub head_first: Option<HeadFirst>,
+    /// `git-seed-carry-v1`: the path (under the roots, like `bundle`) of a pack the sender made
+    /// from its own objects with `base`, its tree and every blob of it, and nothing older. A fresh
+    /// folder becomes a shallow repository at `base` from it instead of a clone (no GitHub, no
+    /// credential); a folder with a repository already, or a pack that does not index, clones as
+    /// before. Only for a whole seed (no `since`).
+    pub carry: Option<String>,
+    /// A warm mirror of the same repository on this machine (an absolute path: a bare
+    /// repository or a checkout, such as `wt`'s blobless mirror). A fresh folder borrows its
+    /// objects through `objects/info/alternates` instead of a carry or a clone when the mirror's
+    /// `origin` is this repository and the base with its whole tree is in it (`run/borrow.rs`);
+    /// otherwise the seed carries or clones as before. A clone-only start borrows it and fetches
+    /// the rest from `origin` (`Seed::borrow_clone`). Only for a whole seed (no `since`).
+    pub mirror: Option<String>,
+    /// Where a borrowed or carried folder lazily fetches what it lacks (history, old blobs), in
+    /// the order git tries them: each `url` itself (the forge) or an absolute path on this machine
+    /// to a repository of the same repository (a peer). Empty: a borrowed folder fetches from
+    /// `origin`, a carried one stays shallow as before. Only for a whole seed (no `since`).
+    pub promisors: Vec<String>,
 }
 
 /// A seed that marks its head (`cmux_git::sync_barrier::Sync::head_ready`) before it fills
@@ -171,6 +198,18 @@ impl StartParams {
         {
             return Err(SeedRefusal::bad_request("invalid sparse patterns"));
         }
+        if wire.carry.is_some() && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request("carry is for a whole seed, not a delta"));
+        }
+        if (wire.mirror.is_some() || !wire.promisors.is_empty()) && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request(
+                "mirror and promisors are for a whole seed, not a delta",
+            ));
+        }
+        if let Some(mirror) = &wire.mirror {
+            check_local_path("mirror", mirror)?;
+        }
+        check_promisors(&wire.promisors, &wire.url)?;
         let head_first = (wire.head_first && wire.since.is_none() && wire.sparse.is_none())
             .then(|| HeadFirst::of(wire.subpath.as_deref()))
             .flatten();
@@ -189,6 +228,9 @@ impl StartParams {
             since: wire.since,
             clone_only: None,
             head_first,
+            carry: wire.carry,
+            mirror: wire.mirror,
+            promisors: wire.promisors,
         })
     }
 
@@ -198,6 +240,15 @@ impl StartParams {
         }
         if wire.sparse.is_some() {
             return Err(SeedRefusal::bad_request("sparse needs a seed bundle"));
+        }
+        if wire.carry.is_some() {
+            return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
+        }
+        if !wire.promisors.is_empty() {
+            return Err(SeedRefusal::bad_request("promisors need a seed bundle"));
+        }
+        if let Some(mirror) = &wire.mirror {
+            check_local_path("mirror", mirror)?;
         }
         Ok(Self {
             folder: wire.folder,
@@ -214,8 +265,46 @@ impl StartParams {
             since: None,
             clone_only: Some(wire.git_ref),
             head_first: None,
+            carry: None,
+            mirror: wire.mirror,
+            promisors: Vec::new(),
         })
     }
+}
+
+/// Most promisor sources a start names.
+const MAX_PROMISORS: usize = 8;
+/// Longest local path (`PATH_MAX`).
+const MAX_PATH: usize = 4096;
+
+/// An absolute path git reads as one line (`objects/info/alternates`, a remote's URL): no
+/// control character, no `..` part.
+pub(super) fn check_local_path(name: &str, path: &str) -> Result<(), SeedRefusal> {
+    let fine = path.starts_with('/')
+        && path.len() <= MAX_PATH
+        && !path.chars().any(char::is_control)
+        && !path.split('/').any(|part| part == "..");
+    if fine {
+        Ok(())
+    } else {
+        Err(SeedRefusal::bad_request(format!("{name} must be an absolute path")))
+    }
+}
+
+/// Each promisor is `url` itself or a local path, and none twice.
+fn check_promisors(promisors: &[String], url: &str) -> Result<(), SeedRefusal> {
+    if promisors.len() > MAX_PROMISORS {
+        return Err(SeedRefusal::bad_request(format!("at most {MAX_PROMISORS} promisors")));
+    }
+    for (at, promisor) in promisors.iter().enumerate() {
+        if promisor != url {
+            check_local_path("a promisor other than url", promisor)?;
+        }
+        if promisors[..at].contains(promisor) {
+            return Err(SeedRefusal::bad_request("a promisor is named twice"));
+        }
+    }
+    Ok(())
 }
 
 /// A clone's `ref`: a full object name, or a branch or tag name in
@@ -243,7 +332,7 @@ fn check_clone_ref(git_ref: &str) -> Result<(), SeedRefusal> {
 
 /// `url` is exactly `https://github.com/<owner>/<name>.git` and `repo` is
 /// `<owner>/<name>`.
-fn check_url(url: &str, repo: &str) -> Result<(), SeedRefusal> {
+pub(super) fn check_url(url: &str, repo: &str) -> Result<(), SeedRefusal> {
     let refused = || SeedRefusal::bad_request("url must be https://github.com/OWNER/NAME.git");
     let rest = url.strip_prefix("https://github.com/").ok_or_else(refused)?;
     let rest = rest.strip_suffix(".git").ok_or_else(refused)?;

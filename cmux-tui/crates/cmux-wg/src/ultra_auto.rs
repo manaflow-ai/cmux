@@ -41,6 +41,11 @@
 //! each group's repair bytes stay within its data bytes ([`METERED_OVERHEAD`]),
 //! and the hello asks the peer to keep to that too, since the phone pays for
 //! what it receives. "Always" ([`UltraChoice::Always`]) is never capped.
+//!
+//! Loss that comes on a schedule (a satellite reconfiguring every 15 s) is
+//! learned ([`crate::ultra_period`]), and Auto turns repair on just before
+//! each predicted burst, so a period longer than [`HOLD`] no longer loses the
+//! first datagrams of every burst.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,6 +56,7 @@ use tokio::time::Instant;
 use crate::udp;
 use crate::ultra::{ENV, UltraMode};
 use crate::ultra_hello::HELLO_PORT;
+use crate::ultra_period::LossPeriod;
 
 /// How long a link must be clean before Auto turns the repair data off.
 pub(crate) const HOLD: Duration = Duration::from_secs(30);
@@ -354,6 +360,12 @@ pub(crate) struct AutoUltra {
     clean: u64,
     /// What [`AutoUltra::observe`] last reported wanting.
     told: (UltraMode, bool),
+    /// When the link's loss comes on a schedule.
+    period: LossPeriod,
+    /// Inside a predicted burst's window.
+    predicted: bool,
+    /// The last onset was only gaps so far: reordering may yet explain it.
+    onset_unconfirmed: bool,
 }
 
 impl AutoUltra {
@@ -366,18 +378,27 @@ impl AutoUltra {
             last_loss: None,
             clean: 0,
             told: (UltraMode::Off, false),
+            period: LossPeriod::default(),
+            predicted: false,
+            onset_unconfirmed: false,
         }
     }
 
     /// The mode this side asks for now, and whether its network is metered.
     pub(crate) fn wanted(&self) -> (UltraMode, bool) {
-        let mode = if self.on { UltraMode::SETTING } else { UltraMode::Off };
+        let mode = if self.is_on() { UltraMode::SETTING } else { UltraMode::Off };
         (mode, self.metered.is_some_and(|metered| metered.load(Ordering::Relaxed)))
     }
 
     /// Whether repair data is on.
     pub(crate) fn is_on(&self) -> bool {
-        self.on
+        self.on || self.predicted
+    }
+
+    /// The learned period of the link's loss, if it has one.
+    #[cfg(test)]
+    pub(crate) fn loss_period(&self) -> Option<Duration> {
+        self.period.period()
     }
 
     /// Take what the meter saw and the segments the stack sent again.
@@ -386,6 +407,9 @@ impl AutoUltra {
     pub(crate) fn observe(&mut self, now: Instant, sample: LossSample, resent: u64) -> bool {
         let loss = sample.gaps > 0 || sample.lost > 0 || resent > 0;
         if loss {
+            if self.period.loss(now) {
+                self.onset_unconfirmed = true;
+            }
             self.last_loss = Some(now);
             self.clean = 0;
             if !self.on {
@@ -402,10 +426,17 @@ impl AutoUltra {
             let reordered = !self.confirmed && self.suspect == 0;
             let quiet = self.last_loss.is_none_or(|at| now.duration_since(at) >= HOLD)
                 && self.clean >= CLEAN_DATAGRAMS;
+            if self.confirmed {
+                self.onset_unconfirmed = false;
+            }
+            if reordered && std::mem::take(&mut self.onset_unconfirmed) {
+                self.period.retract();
+            }
             if reordered || quiet {
                 self.on = false;
             }
         }
+        self.predicted = self.period.armed(now);
         let wanted = self.wanted();
         std::mem::replace(&mut self.told, wanted) != wanted
     }

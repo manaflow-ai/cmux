@@ -6,7 +6,7 @@
 //! - When the last turn failed, it is sent again now as the next attempt of its prompt
 //!   (`P~resume-n` after the failed `P` or `P~resume-(n-1)`, the id an automatic retry uses): the
 //!   same prompt (its text and the images acpmux kept) when the turn produced nothing, and the
-//!   continuation an automatic retry sends (`continue_text`) when the model had started on it, a
+//!   continuation an automatic retry sends (`continue_text_for`) when the model had started on it, a
 //!   message was steered into it, it was a turn of agent messages, it carried hidden context, or
 //!   it cannot be rebuilt (a document, an image not kept). A retry that waits (the session row's
 //!   `retry`, `auto_resume.rs`) is taken over: it is this attempt, sent now, and its timer records
@@ -30,7 +30,7 @@
 //! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
 //!   chat: `hub/subsession_resume.rs`.
 
-use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
+use super::{Mark, SUFFIX, continue_text_for, split_attempt, still_cut};
 use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
@@ -89,10 +89,7 @@ fn stopped() -> RpcError {
 }
 
 fn nothing_failed() -> RpcError {
-    refused(
-        "retry.nothing_failed",
-        "the chat's last turn did not fail, so there is nothing to retry",
-    )
+    refused("retry.nothing_failed", "the chat's last turn did not fail, so nothing was sent again")
 }
 
 fn not_resendable() -> RpcError {
@@ -138,7 +135,10 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
             text.into_iter().map(Some).chain(images).collect()
         }
     };
-    blocks.filter(|b| !b.is_empty())
+    // The tools note its words make, which the log leaves out (`tool_mentions.rs`).
+    let mut blocks = blocks.filter(|b| !b.is_empty())?;
+    crate::tool_mentions::add_note(&mut blocks);
+    Some(blocks)
 }
 
 impl Hub {
@@ -215,7 +215,8 @@ impl Hub {
         {
             return Ok(answered);
         }
-        let (cut_turn, failed, error) = self.claim_failed_turn(session, auto, allow_stopped)?;
+        let (cut_turn, failed, error, fired_gen) =
+            self.claim_failed_turn(session, auto, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
         let prompt_id = format!("{root}{SUFFIX}{attempt}");
@@ -242,7 +243,7 @@ impl Hub {
             Some(blocks) => blocks,
             // The agent never saw a first send it refused: a continuation would make no sense.
             None if auto.is_some() => {
-                self.clear_fired(session, &cut_turn);
+                self.clear_fired(session, &cut_turn, fired_gen);
                 return Err(not_resendable());
             }
             None => {
@@ -250,7 +251,7 @@ impl Hub {
                 let reason = crate::hub::turn_errors::resume_cause(&error, &error)
                     .filter(|r| *r != "context")
                     .unwrap_or("error");
-                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+                vec![json!({"type": "text", "text": continue_text_for(session, &error, reason)})]
             }
         };
         let held = self.held_by(session, &root, &cut_turn);
@@ -277,6 +278,7 @@ impl Hub {
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
+            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
@@ -287,7 +289,7 @@ impl Hub {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
             // What is left of the claim when the prompt never started its turn, once the
             // prompt is out of the ledger: a retry after this one is never joined to it.
-            hub.clear_fired(&s, &cut_turn);
+            hub.clear_fired(&s, &cut_turn, fired_gen);
             if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
             {
                 hub.resume_held(&s, &held);
@@ -408,12 +410,12 @@ impl Hub {
     /// `auto`: an automatic retry's cut turn, claimed only from that retry's own wait (`Waiting`
     /// for it), so a Stop, a close or a turn that took the chat since refuses it.
     /// `allow_stopped`: a Stop that came while the failed turn ran does not refuse it.
-    fn claim_failed_turn(
+    pub(super) fn claim_failed_turn(
         &self,
         session: &Session,
         auto: Option<&str>,
         allow_stopped: bool,
-    ) -> Result<(String, String, String), RpcError> {
+    ) -> Result<(String, String, String, u64), RpcError> {
         let mut pending = session.auto_resume.lock();
         if let Some(cut) = auto {
             let waits = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut);
@@ -440,7 +442,9 @@ impl Hub {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
             // One under way, or one Stop overtook whose task has not ended: never two at once.
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_) | Mark::Stopping(_)) => {
+            Some(
+                Mark::Waiting { .. } | Mark::Firing(..) | Mark::Ending(_) | Mark::Stopping { .. },
+            ) => {
                 return Err(busy());
             }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
@@ -453,8 +457,9 @@ impl Hub {
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
-        pending.replace(Mark::Firing(cut_turn.clone()));
-        Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
+        let fired_gen = session.auto_resume.next_generation();
+        pending.replace(Mark::Firing(cut_turn.clone(), fired_gen));
+        Ok((cut_turn, failed, field("errorText").unwrap_or_default(), fired_gen))
     }
 
     /// The failed turn `cut_turn`'s prompt `prompt_id`, to send again as it was: when the model
@@ -517,50 +522,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn kept(id: &str) -> Option<Value> {
-        (id == "img1").then(|| json!({"type": "image", "mimeType": "image/png", "data": "AQID"}))
-    }
-
-    #[test]
-    fn a_prompt_is_rebuilt_from_its_record_in_order() {
-        let msg = json!({"text": "look\nhere", "inlineParts": [
-            {"kind": "text", "text": "look", "pasted": true},
-            {"kind": "image", "id": "img1", "mimeType": "image/png"},
-            {"kind": "pasted", "name": "Pasted text", "text": "here"},
-        ]});
-        assert_eq!(
-            prompt_blocks(&msg, kept),
-            Some(vec![
-                json!({"type": "text", "text": "look", "_meta": {"cmux": {"pasted": true}}}),
-                json!({"type": "image", "mimeType": "image/png", "data": "AQID"}),
-                json!({"type": "text", "text": "here", "_meta": {"cmux": {"pasted": true}}}),
-            ])
-        );
-        // Without its parts: its text, then its images.
-        let msg = json!({"text": "hi", "images": [{"id": "img1"}]});
-        assert_eq!(prompt_blocks(&msg, kept).map(|b| b.len()), Some(2));
-    }
-
-    #[test]
-    fn a_prompt_that_cannot_be_rebuilt_is_not_resent() {
-        for parts in [
-            json!([{"kind": "text", "text": "a"}, {"kind": "image", "id": "gone"}]),
-            json!([{"kind": "document", "name": "brief.pdf"}]),
-            json!([{"kind": "file", "name": "notes.txt", "uri": "attachment://notes.txt"}]),
-            json!([]),
-        ] {
-            let msg = json!({"text": "a", "inlineParts": parts});
-            assert_eq!(prompt_blocks(&msg, kept), None, "{parts}");
-        }
-        assert_eq!(prompt_blocks(&json!({"text": ""}), kept), None);
-    }
-
-    #[test]
-    fn a_continuation_names_the_error_it_continues_after() {
-        assert!(continue_text("x", "transport").contains("a connection error (x)"));
-        assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
-    }
-}
+#[path = "retry_turn_tests.rs"]
+mod tests;

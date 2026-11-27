@@ -26,7 +26,8 @@
       "paths": [
         "webviews/src/ui/Tooltip.tsx",
         "webviews/src/ui/titleTooltips.ts",
-        "webviews/src/ui/tooltipTokens.ts"
+        "webviews/src/ui/tooltipTokens.ts",
+        "webviews/scripts/check-key-hints.ts"
       ]
     },
     "onboarding": {

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.chromeGroups.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تحصل المجموعات على شريط ملوّن بطرف مستدير، مثل مجموعات علامات التبويب في Chrome."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupe dobijaju obojenu šinu sa zaobljenim krajem, kao grupe kartica u Chromeu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper får en farvet skinne med en afrundet ende, som Chromes fanegrupper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruppen erhalten eine farbige Leiste mit abgerundetem Ende, wie die Tab-Gruppen in Chrome."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Groups get a colored rail with a rounded end, like Chrome's tab groups."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los grupos tienen un riel de color con un extremo redondeado, como los grupos de pestañas de Chrome."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les groupes ont un rail coloré au bout arrondi, comme les groupes d’onglets de Chrome."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I gruppi hanno una barra colorata con un’estremità arrotondata, come i gruppi di schede di Chrome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chromeのタブグループのように、グループに端の丸い色付きのレールが付きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក្រុមទទួលបានផ្លូវរថភ្លើងពណ៌ដែលមានចុងរាងមូល ដូចក្រុមផ្ទាំងរបស់ Chrome។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome의 탭 그룹처럼 그룹에 끝이 둥근 색상 레일이 붙습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper får en farget skinne med avrundet ende, som fanegruppene i Chrome."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupy dostają kolorową szynę z zaokrąglonym zakończeniem, jak grupy kart w Chrome."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os grupos ganham um trilho colorido com ponta arredondada, como os grupos de abas do Chrome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Группы получают цветную направляющую со скруглённым краем, как группы вкладок в Chrome."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กลุ่มจะมีแถบสีที่ปลายมน เหมือนกลุ่มแท็บของ Chrome"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruplar, Chrome’un sekme grupları gibi yuvarlak uçlu renkli bir ray alır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Групи отримують кольорову напрямну із заокругленим краєм, як групи вкладок Chrome."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhóm có một thanh màu với đầu bo tròn, giống nhóm thẻ của Chrome."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分组带有末端为圆角的彩色导轨，就像 Chrome 的标签页分组。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "群組會有末端為圓角的彩色導軌，就像 Chrome 的標籤頁群組。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

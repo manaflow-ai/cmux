@@ -116,8 +116,14 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   );
   const direct = client as any;
   // As the host calls it: the document's receiver, which the client installed before its first open.
+  // Each batch under its own number, as AcpmuxChatRowsHost numbers them: since #47334 a batch under the
+  // number of the one last applied is the host's repeat of it, taken again and not applied.
+  let batch = 0;
   const feed = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: (batch += 1),
+      changes,
+    });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
     // The switch is asked, then the v1 attach is the hold: no page, no log read.
@@ -131,6 +137,7 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
 
     // The store's window is the snapshot's rows.
@@ -316,6 +323,7 @@ test("with the list still out, a host that opens: the hold's reply gives the row
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
       batch: 1,

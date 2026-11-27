@@ -14,6 +14,10 @@
 //! - a live session holds the dead one's work: nothing starts;
 //! - it came back: one resume prompt;
 //! - it was moved: finish the move once it reads alive there;
+//! - its host is down past the grace, or its row is gone, and this machine keeps a copy of its
+//!   chat (`hub/peer_snapshot.rs`): move it from the copy (`session move --from-snapshot`) to the
+//!   first admitted host, its transcript and name with it, before anything starts it from briefs
+//!   (class 4: "let a move start from the copy");
 //! - no row to restart (gone, and its host is not down within the grace), or a network death:
 //!   start it again on a healthy host, else hand off (a network death goes on to failover);
 //! - its host is down within the grace: ask its host to start (a GCP VM), else wait;
@@ -26,6 +30,8 @@
 //! - else hand off.
 
 use serde::{Deserialize, Serialize};
+
+pub mod observe;
 
 /// What a watcher knows about one dead session. Every field defaults, so a caller sends only
 /// what it read; a missing count reads 0 and a missing flag false.
@@ -68,6 +74,9 @@ pub struct Facts {
     pub pass_seconds_left: Option<f64>,
     /// The least a failover needs of the pass to finish.
     pub failover_min_seconds: f64,
+    /// Records of its chat this machine's copy holds (`_acpmux/peer_snapshot`, as
+    /// `session move --from-snapshot --dry-run --json` counts them); 0 for none or unread.
+    pub snapshot_records: u64,
     pub max_restarts: u32,
     pub max_failovers: u32,
     pub hosts: Hosts,
@@ -120,6 +129,8 @@ pub struct Tried {
     pub respawn_failed: String,
     /// Its host was asked to start.
     pub start_asked: bool,
+    /// A move from this machine's copy failed (why).
+    pub snapshot_failed: String,
     pub restarts: u32,
     pub failovers: u32,
 }
@@ -142,6 +153,9 @@ pub enum Route {
     StartHost,
     /// `acpmux session move` to `to`; on failure, `otherwise` says what the next pass does.
     Move { to: String, otherwise: String },
+    /// `acpmux session move --from-snapshot` to `to`: its host answers nothing, so it starts
+    /// there from this machine's copy of its chat (a new chat of its name).
+    MoveFromCopy { to: String },
     /// `acpmux session restart` in place (restart number `number`).
     Restart { number: u32 },
     /// Start a successor (failover number `number`), on `to` when set.
@@ -188,6 +202,33 @@ pub fn route(f: &Facts) -> Route {
     }
     let in_grace = f.host_down && f.dead_seconds < f.host_grace_seconds;
     let network = f.network && !f.host_down && f.has_row && !f.capacity;
+    if (f.host_down || !f.has_row)
+        && !in_grace
+        && f.snapshot_records > 0
+        && t.snapshot_failed.is_empty()
+        && !t.respawn_tried
+    {
+        let to = if h.room_known {
+            healthy(f).into_iter().find(|c| *c != f.host)
+        } else {
+            h.move_to
+                .iter()
+                .find(|c| {
+                    **c != f.host
+                        && listed(&h.answering, c)
+                        && !listed(&h.personal, c)
+                        && !listed(&h.last_resort, c)
+                        && !listed(&h.avoid, c)
+                })
+                .cloned()
+        };
+        if let Some(to) = to {
+            if !f.placement_cap.is_empty() {
+                return Route::Wait { why: f.placement_cap.clone() };
+            }
+            return Route::MoveFromCopy { to };
+        }
+    }
     if (!f.has_row && !in_grace) || (network && !t.respawn_tried) {
         let mut target = h
             .move_to
@@ -238,19 +279,18 @@ pub fn route(f: &Facts) -> Route {
     if in_grace {
         return if f.host_startable && !t.start_asked { Route::StartHost } else { Route::None };
     }
-    if let Some(reset) = f.reset_in_seconds {
-        if !f.host_down && reset > 0.0 {
-            let when = if f.reset_at.is_empty() {
-                format!("in {} min", (reset / 60.0).ceil() as u64)
-            } else {
-                format!("at {}", f.reset_at)
-            };
-            return Route::Wait {
-                why: format!(
-                    "waits for its Codex usage limit to reset {when}, then restarts in place"
-                ),
-            };
-        }
+    if let Some(reset) = f.reset_in_seconds
+        && !f.host_down
+        && reset > 0.0
+    {
+        let when = if f.reset_at.is_empty() {
+            format!("in {} min", (reset / 60.0).ceil() as u64)
+        } else {
+            format!("at {}", f.reset_at)
+        };
+        return Route::Wait {
+            why: format!("waits for its Codex usage limit to reset {when}, then restarts in place"),
+        };
     }
     let capacity = f.capacity && !f.host_down;
     if !capacity && !f.paused && !network {
@@ -259,20 +299,24 @@ pub fn route(f: &Facts) -> Route {
             .iter()
             .find(|c| **c != f.host && listed(&h.answering, c) && !listed(&h.refused, c))
             .cloned();
-        if let Some(to) = persistent {
-            if !f.host_down && f.host_on_demand && t.move_failed.is_empty() && f.has_row {
-                return Route::Move { to, otherwise: "restarting in place instead".into() };
-            }
+        if let Some(to) = persistent
+            && !f.host_down
+            && f.host_on_demand
+            && t.move_failed.is_empty()
+            && f.has_row
+        {
+            return Route::Move { to, otherwise: "restarting in place instead".into() };
         }
         let full = if f.host_down { "" } else { h.own_full.as_str() };
         if !full.is_empty() && t.restarts < f.max_restarts {
-            if let Some(to) = h.admitted.first() {
-                if t.move_failed.is_empty() && f.has_row {
-                    return Route::Move {
-                        to: to.clone(),
-                        otherwise: "its work goes to a live owner instead".into(),
-                    };
-                }
+            if let Some(to) = h.admitted.first()
+                && t.move_failed.is_empty()
+                && f.has_row
+            {
+                return Route::Move {
+                    to: to.clone(),
+                    otherwise: "its work goes to a live owner instead".into(),
+                };
             }
             let why = if !t.move_failed.is_empty() {
                 format!(
@@ -298,15 +342,15 @@ pub fn route(f: &Facts) -> Route {
         if !f.placement_cap.is_empty() {
             return Route::Wait { why: format!("failover waits: {}", f.placement_cap) };
         }
-        if let Some(left) = f.pass_seconds_left {
-            if left < f.failover_min_seconds {
-                return Route::Wait {
-                    why: format!(
-                        "failover waits: under {} s of this pass left; the next pass starts it",
-                        f.failover_min_seconds
-                    ),
-                };
-            }
+        if let Some(left) = f.pass_seconds_left
+            && left < f.failover_min_seconds
+        {
+            return Route::Wait {
+                why: format!(
+                    "failover waits: under {} s of this pass left; the next pass starts it",
+                    f.failover_min_seconds
+                ),
+            };
         }
         let to = if network { healthy.first().cloned().unwrap_or_default() } else { String::new() };
         return Route::Successor { to, number: t.failovers + 1 };

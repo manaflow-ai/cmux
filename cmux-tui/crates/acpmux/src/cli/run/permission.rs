@@ -5,15 +5,39 @@ use super::*;
 use crate::cli::errors::AppError;
 use crate::question_answer;
 
+/// How `answer_permission` answers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Answer {
+    Allow,
+    /// An allow signed with this machine's standing grant (`cli/standing_grant.rs`).
+    StandingGrant,
+    Deny,
+}
+
 pub(crate) async fn answer_permission(
     session: &str,
     option: Option<String>,
-    allow: bool,
+    how: Answer,
     json_out: bool,
 ) -> Result<()> {
+    let allow = how != Answer::Deny;
+    // Load the grant before anything is sent: no grant, no request.
+    let grant = match how {
+        Answer::StandingGrant => {
+            Some(crate::cli::standing_grant::load(&crate::cli::standing_grant::key_path())?)
+        }
+        _ => None,
+    };
     let client = connect(true).await?;
     let id = resolve_id(&client, session).await?;
     let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+    if grant.is_some() && info.get("peer").is_some() {
+        // The peer checks a signature against its own run and its own enrolled keys.
+        return Err(anyhow!(
+            "{session} runs on a peer: a standing grant counts only on the machine that runs the \
+             chat (run `acpmux allow {session} --standing-grant` there)"
+        ));
+    }
     let pending = info.get("pending").and_then(Value::as_array).cloned().unwrap_or_default();
     let Some(first) = pending.first() else {
         return Err(anyhow!("no pending permission"));
@@ -40,11 +64,21 @@ pub(crate) async fn answer_permission(
             .find(|o| o.get("optionId").and_then(Value::as_str) == Some(id))
             .and_then(|o| o.get("kind").and_then(Value::as_str))
     });
+    let mut params = json!({"sessionId": id, "permissionId": pid, "optionId": option_id.clone()});
+    if let (Some(key), Some(option), Some(fields)) =
+        (&grant, option_id.as_deref(), params.as_object_mut())
+    {
+        let meta = crate::cli::standing_grant::signed_meta(
+            key,
+            &id,
+            first,
+            option,
+            crate::hub::approvers::unix_now(),
+        )?;
+        fields.insert("_meta".to_owned(), json!({"acpmux": meta}));
+    }
     client
-        .request(
-            method::MUX_PERMISSION_RESPOND,
-            json!({"sessionId": id, "permissionId": pid, "optionId": option_id.clone()}),
-        )
+        .request(method::MUX_PERMISSION_RESPOND, params)
         .await
         .map_err(|e| explain_person_required(e, session))?;
     if json_out {
@@ -72,7 +106,7 @@ fn explain_person_required(e: anyhow::Error, session: &str) -> anyhow::Error {
         crate::cli::errors::Code::Runtime,
         "person_required",
         format!(
-            "the CLI cannot allow a permission: only the cmux app may. Approve this in cmux NEXT on the machine whose app shows the chat; `{deny}` still denies it. The prompt is still pending. A session gets its policy when it starts, on the machine that runs it. Only `acpmux new --policy approve-all ...` (for a peer: `ssh HOST 'acpmux new --policy approve-all ... -d'`) runs every tool call without asking, shell commands included; approve-reads and approve-edits still ask before each shell command, and Codex reads files with shell commands, so under them each of those needs an approval in the cmux app."
+            "the CLI cannot allow a permission: only the cmux app may, or a one-time allow signed with this machine's standing grant (`acpmux machine approvals grant`, then `acpmux allow {session} --standing-grant`; a plain tool ask only). Approve this in cmux NEXT on the machine whose app shows the chat; `{deny}` still denies it. The prompt is still pending. A session gets its policy when it starts, on the machine that runs it. Only `acpmux new --policy approve-all ...` (for a peer: `ssh HOST 'acpmux new --policy approve-all ... -d'`) runs every tool call without asking, shell commands included; approve-reads and approve-edits still ask before each shell command, and Codex reads files with shell commands, so under them each of those needs an approval in the cmux app."
         ),
     );
     app.data = Some(json!({"reason": crate::hub::person::REASON, "try": deny}));
@@ -137,29 +171,5 @@ pub(crate) async fn answer_question(session: &str, args: &[String], json_out: bo
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn refusal(session: &str) -> String {
-        let refused = crate::client::DaemonError(crate::hub::person::person_required(
-            "allowing a permission",
-        ));
-        format!("{:#}", explain_person_required(refused.into(), session))
-    }
-
-    /// The refusal of a CLI allow names a policy only when that policy covers
-    /// what the agent asks next. Codex sends every command, its reads too, as
-    /// `execute`, which approve-reads and approve-edits still ask about, so the
-    /// tool prompt after the next start waited again (ergo-walk2, 2026-10-25).
-    #[test]
-    fn the_allow_refusal_names_no_policy_that_still_asks_for_shell_commands() {
-        let text = refusal("my-linux/api-work");
-        assert!(!text.contains("--policy approve-edits"), "{text}");
-        assert!(!text.contains("--policy approve-reads"), "{text}");
-        assert!(text.contains("--policy approve-all"), "{text}");
-        assert!(text.contains("shell command"), "{text}");
-        assert!(text.contains("in the cmux app"), "{text}");
-        assert!(text.contains("`acpmux deny my-linux/api-work`"), "{text}");
-        assert!(!text.contains("acpmux session allow"), "{text}");
-    }
-}
+#[path = "permission_tests.rs"]
+mod tests;
