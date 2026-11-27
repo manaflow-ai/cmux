@@ -126,7 +126,7 @@ jobs:
     # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
     # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
     # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('{"labels":["cmux-mac","xcode-27.0"]}').labels }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON(needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || '["cmux-mac","xcode-27.0"]') }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -308,6 +308,10 @@ jobs:
 
       - name: Archive
         working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
+        # 6-8 min on Blacksmith (runs 45871646299, 45866160671); fleet Macs sat 66-70+ min here and held every
+        # later dispatch. testflight-build.sh bounds its xcframework build at 20 min; this bounds the rest
+        # (20 + Swift package backoff 9 + archive ~3, plus headroom). Live only after rc/cnx-ios-builder moves.
+        timeout-minutes: 40
         env:
           CMUX_INTERNAL_SPARSE_ARCHIVE: '1'
           MARKETING: ${{ steps.stamp.outputs.marketing }}

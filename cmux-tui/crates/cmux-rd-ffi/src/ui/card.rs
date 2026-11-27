@@ -13,7 +13,7 @@
 //! A [`Button`] is `{title: key, run, scope?, primary, returnKey, id?}`, `run` one of `closeTab openHome
 //! disconnect cancelRequest connect request`.
 //!
-//! - `card.content` `{card, quiet, hasFailedDetail, showsStart, platform?}` → `{spinner, title, line?: {text,
+//! - `card.content` `{card, quiet, hasFailedDetail, showsStart, platform?, retriesOnItsOwn}` → `{spinner, title, line?: {text,
 //!   printed}, start, rows: [[Button]], signIn}` (`content`, `hubContent`, `refusedContent`).
 //! - `card.refusedTitle` `{refusal}` / `card.refusedBody` `{refusal, otherReason?, platform?}` → Text.
 //! - `card.failedDetailSource` `{card}` → `"failed"|"hub"|null` (`failedDetail`: the model's, the hub's, none).
@@ -267,6 +267,9 @@ pub(crate) struct ContentArgs {
     /// The offline card's Start cmux shows (`MacScreenDeviceSetupRow.showsStart`).
     pub shows_start: bool,
     pub platform: Option<String>,
+    /// The pane retries this card's failure on its own (`MacScreenPaneModel.retriesOnItsOwn`), so the card offers no
+    /// Try Again or Reconnect (#50358); Close Tab stays.
+    pub retries_on_its_own: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -327,11 +330,11 @@ pub(crate) fn content(c: &ContentArgs) -> Content {
         "failed" => {
             out.title = key("macScreen.card.failedTitle");
             out.line = reason(c.has_failed_detail, None);
-            out.buttons = vec![close_tab(false), retry_connect()];
+            out.buttons = again_row(c, retry_connect());
         }
         "ended" => {
             out.title = key("macScreen.card.endedTitle");
-            out.buttons = vec![close_tab(false), reconnect()];
+            out.buttons = again_row(c, reconnect());
         }
         "hubConnect" => {
             out.title = keyed("macScreen.hub.connectTitle", &["$name"]);
@@ -365,12 +368,11 @@ pub(crate) fn content(c: &ContentArgs) -> Content {
             };
             out.line = reason(c.has_failed_detail, Some(token("$endText")));
             out.buttons = vec![close_tab(false)];
-            if card.end.can_reconnect {
-                out.buttons.push(if card.kind == "hubRevoked" {
-                    connect_again()
-                } else {
-                    reconnect()
-                });
+            if card.end.can_reconnect && card.kind == "hubRevoked" {
+                // The host revoked or changed this Mac's access; a new session is the person's choice.
+                out.buttons.push(connect_again());
+            } else if card.end.can_reconnect {
+                out.buttons = again_row(c, reconnect());
             }
         }
         "hubAccessLowered" => {
@@ -381,6 +383,11 @@ pub(crate) fn content(c: &ContentArgs) -> Content {
         _ => {}
     }
     out
+}
+
+/// Close Tab, and `again` only when the pane does not retry the card on its own (`retryRow`).
+fn again_row(c: &ContentArgs, again: Button) -> Vec<Button> {
+    if c.retries_on_its_own { vec![close_tab(false)] } else { vec![close_tab(false), again] }
 }
 
 fn refused_content(c: &ContentArgs, out: &mut Content) {
@@ -410,11 +417,12 @@ fn refused_content(c: &ContentArgs, out: &mut Content) {
             out.start = offline_start;
             out.buttons = vec![close_tab(false)];
             if refusal == "notSignedIn" {
-                out.buttons.push(retry_request(card.requested(), false));
+                // Sign In only: the pane asks again on its own once it is signed in.
                 out.sign_in = true;
-            } else if card.can_retry() && offline_start {
+            } else if card.can_retry() && !c.retries_on_its_own && offline_start {
+                // The host's permission is Ask, so asking again prompts the person at that Mac.
                 out.buttons.push(retry_request(card.requested(), false));
-            } else if card.can_retry() {
+            } else if card.can_retry() && !c.retries_on_its_own {
                 out.buttons.push(retry_request(card.requested(), true));
             }
         }
