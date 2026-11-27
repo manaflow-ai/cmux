@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// A terminal that was showing a Claude Code background session through
@@ -119,6 +123,11 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
     /// The process start time in whole seconds since 1970, or `nil` when no such process exists.
     public static func processStartSeconds(_ processID: Int) -> Int? {
         guard processID > 0, processID <= Int(Int32.max) else { return nil }
+        #if !canImport(Darwin)
+        // Linux: boot time plus /proc/<pid>/stat's start ticks.
+        if let snapshot = LinuxProcFS.snapshot(Int32(processID)), snapshot.isZombie { return nil }
+        return LinuxProcFS.startSeconds(Int32(processID))
+        #else
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(processID)]
@@ -128,6 +137,7 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
             return nil
         }
         return Int(info.kp_proc.p_un.__p_starttime.tv_sec)
+        #endif
     }
 
     /// Reads and writes `procStart` with single spaces (`Sat Oct 3 18:52:39 2026`).
@@ -166,6 +176,11 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
 
     private static func processLooksLikeClaude(_ processID: Int) -> Bool {
         guard processID > 0, processID <= Int(Int32.max) else { return false }
+        #if !canImport(Darwin)
+        // Linux: /proc/<pid>/exe and argv[0] from /proc/<pid>/cmdline.
+        let executablePath = LinuxProcFS.executablePath(Int32(processID)) ?? ""
+        let argv0 = LinuxProcFS.arguments(Int32(processID))?.first ?? ""
+        #else
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(processID)]
         var size = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
@@ -184,6 +199,7 @@ public struct ClaudeBackgroundSessionRegistry: Sendable {
         }
         let executablePath = nextString() ?? ""
         let argv0 = nextString() ?? ""
+        #endif
         return URL(fileURLWithPath: argv0).lastPathComponent == "claude"
             || URL(fileURLWithPath: executablePath).lastPathComponent == "claude"
             || executablePath.contains("/claude/versions/")

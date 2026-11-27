@@ -1,6 +1,11 @@
 import CmuxTerminalSizing
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// Who this Mac is when it joins a shared terminal.
 ///
