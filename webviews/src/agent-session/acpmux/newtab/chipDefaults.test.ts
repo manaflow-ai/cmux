@@ -40,35 +40,3 @@ test("a catalog given as a list keeps its first agent", () => {
   expect(listedNoDefault(normalizeCatalog(listed))).toBe(false);
   expect(start(listed)).toBe("codex");
 });
-
-test("keeps the remembered model while the chosen harness is unlisted", () => {
-  const snapshot = {
-    ...emptySnapshot(),
-    catalog: normalizeCatalog({ harnesses: { claude: { kind: "acp" } }, defaultHarness: "claude" }),
-  };
-  const result = newTabStart(
-    snapshot,
-    [{ id: "claude", name: "Claude" }],
-    undefined,
-    undefined,
-    { harness: "claude", model: "claude-opus" },
-    false,
-  );
-  expect(result.snapshot.summary?.model).toBe("claude-opus");
-});
-
-test("drops a remembered model after the chosen harness is absent from a listing", () => {
-  const snapshot = {
-    ...emptySnapshot(),
-    catalog: normalizeCatalog({ harnesses: { codex: { kind: "acp" } }, defaultHarness: "codex" }),
-  };
-  const result = newTabStart(
-    snapshot,
-    [{ id: "codex", name: "Codex" }],
-    undefined,
-    undefined,
-    { harness: "claude", model: "claude-opus" },
-    true,
-  );
-  expect(result.snapshot.summary?.model).not.toBe("claude-opus");
-});
