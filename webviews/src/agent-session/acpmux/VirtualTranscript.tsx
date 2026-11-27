@@ -7126,6 +7126,8 @@ function TranscriptView({
   /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
   const olderAsking = useRef(false);
   const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The session whose rows have painted once, after which it reads older history ahead (`checkOlder`).
+  const olderPaintedFor = useRef<string | undefined>(undefined);
   /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
   /// chat switched away from) cannot cancel the recheck of the ask that followed it.
   const olderAsk = useRef(0);
@@ -7166,6 +7168,11 @@ function TranscriptView({
       olderLoadRequested.current = undefined;
       return;
     }
+    // A chat's open reads ahead only after its newest rows have painted (`olderPaintedFor`): the older page's fold is
+    // one long commit (about 150 ms on a god chat), and asked from the open's first commit it landed before the newest
+    // message's frame in 4 of 7 opens (goal chat-attach-p95: god p50 352 ms against the small chat's 222). Rows that
+    // do not reach the view's top still ask at once, so the band above them is not left blank.
+    if (olderPaintedFor.current !== sessionKey && node.scrollHeight - (layout.origin ?? 0) > node.clientHeight) return;
     // Measured from the loaded rows' top, under the room held for the history above them.
     const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
     // A chat that shed older records while the view follows declines the read (direct.ts `loadOlder`); a chat opened
@@ -7222,6 +7229,21 @@ function TranscriptView({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useEffect(() => {
+    if (!hasRows || olderPaintedFor.current === sessionKey) return;
+    // A frame callback runs before the frame paints; a task queued from it runs after.
+    let task: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      task = setTimeout(() => {
+        olderPaintedFor.current = sessionKey;
+        checkOlderNow.current();
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(task);
+    };
+  }, [hasRows, sessionKey]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
   // Newer history a reader scrolled far up let go of (canLoadNewer) pages back in as the view nears the rows' end,
   // as older history does at their top: within OLDER_AHEAD_VIEWPORTS of it, once per page (`newerLoadKey`), and
