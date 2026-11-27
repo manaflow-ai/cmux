@@ -62,7 +62,7 @@ extension AppOnboardingServices {
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
-            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: \.setupOffer, dialog: { await self.confirmClassicImport($0, atLaunch: true) },
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: { $0.setupOffer }, dialog: { await self.confirmClassicImport($0, atLaunch: true) },
                                                                  imported: { !$0.opened.isEmpty }) { try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0) }
             guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             let registry = services.registry
