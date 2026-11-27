@@ -240,12 +240,14 @@ jobs:
           # 141 MB and 31-34 s of fetch per plan, 7 days 20 MB and 6 s, and 5 open PRs planned the same JSON with
           # either (2026-11-23). A nightly older than the window fetches the 45 days below.
           since="$(date -u -d '7 days ago' +%Y-%m-%d)"
-          # A fetch from github.com that stalls fails in 30 s, not git's own 60 s, and is tried three times: one stall
-          # failed this step and the head waited 32 min for a rerun by hand (run 45787715231, 2026-11-26).
+          # A fetch from github.com that stalls is tried three times: one stall failed this step and the head waited
+          # 32 min for a rerun by hand (run 45787715231, 2026-11-26). The abort is 1 B/s for 60 s, not 1000 B/s: GitHub
+          # sends only keepalives while it builds a pack, so 1000 B/s for 30 s killed healthy fetches on every try
+          # (handbook network-transfer-stalls-the-whole-job).
           fetch_retry() {
             local bound="$1" try; shift
             for try in 1 2 3; do
-              timeout "$bound" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch "$@" && return 0
+              timeout "$bound" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch "$@" && return 0
               echo "hot verify plan: fetch attempt $try failed" >&2; [[ $try == 3 ]] || sleep $((try * 5))
             done
             return 1
@@ -866,8 +868,14 @@ jobs:
           git config gc.auto 0
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
+          # 1 B/s for 60 s, a 240 s bound, 3 tries (handbook network-transfer-stalls-the-whole-job); the mirror holds the
+          # objects, so a retry into this repository is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
