@@ -4459,6 +4459,13 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == FAST_GATES_STATUS and state == "success" and base:
+        # 2026-11-27, cmux#62419: the caller's list of reds came from a rollup read before a coordinator dispatched
+        # the gates again (a new status does not move the PR's updatedAt, so that read looked current). The newest
+        # status, read here, is green at this exact head: no red is left to excuse. The dispatched run's head_sha is
+        # the feat-cmux-next tip, never the PR head, so the linked-run comparison below would refuse it wrongly.
+        return (f"excused '{name}': its newest status on {sha} is success "
+                f"({status.get('description') or 'no description'}, {status.get('target_url') or 'no run'})")
     if name == FAST_GATES_STATUS and state in ("failure", "error"):
         description = status.get("description") or ""
         tested = re.search(r"\bbase ([0-9a-f]{40})\b", description)
