@@ -45,6 +45,7 @@ const SCRIPTS: &[Script] = &[
             include_str!("shell_integration/agent-shims.zsh"),
             include_str!("shell_integration/shell-state.zsh"),
             include_str!("shell_integration/incognito-history.zsh"),
+            include_str!("shell_integration/omz-update.zsh"),
         ),
     },
     Script {
