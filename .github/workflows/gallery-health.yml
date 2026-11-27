@@ -65,7 +65,9 @@ permissions:
 concurrency:
   # The nightly dispatch and a post-merge batch run (or bisect probe) of the same commit must not cancel
   # each other: under the batch caller github.sha is the caller's tip, so the batch keys on inputs.sha.
-  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', inputs.sha && format('batch-{0}', inputs.only) || github.event_name, inputs.sha || github.sha) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', inputs.sha && format('batch-{0}', inputs.only) || github.event_name, inputs.sha || github.sha) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

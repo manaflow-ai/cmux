@@ -3337,7 +3337,9 @@ jobs:
   report-nightly-shelf-red:
     name: report the nightly App Store shelf
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-app-store-shelf]
-    if: "!cancelled() && needs.check-nightly-app-store-shelf.result == 'failure'"
+    # A cancelled (timed-out) shelf check is a red too: report it.
+    if: "!cancelled() && (needs.check-nightly-app-store-shelf.result == 'failure' || needs.check-nightly-app-store-shelf.result == 'cancelled')"
+    # issues: write, so the nightly-only route every nightly report job takes, never the PR-shared cmux-linux pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
