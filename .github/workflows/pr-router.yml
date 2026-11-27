@@ -63,6 +63,8 @@ jobs:
     permissions:
       # head_tier.py reads the previous head's Actions runs (the green-head base merge rule).
       actions: read
+      # head_tier.py reads the head's check runs (the same-head land carry rule).
+      checks: read
       contents: read
       # The land tier's `cmux/land-tier` commit status (below).
       statuses: write
@@ -176,6 +178,9 @@ jobs:
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # ready-to-land added again to a head whose land tier and every check already passed there runs nothing
+          # and keeps cmux/land-tier success (head_tier.py's same-head land carry rule); 0 turns that off.
+          CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.
