@@ -62,7 +62,10 @@ struct Side {
 
 impl Side {
     fn make(at: &Path) -> Self {
-        let side = Self { home: at.join("home"), state: at.join("state") };
+        // The state folder under HOME, where cmux-tui keeps it by default (`~/.local/state`): the
+        // machine's fs-v1 is rooted at HOME, and a git swap links `.git` into this folder.
+        let home = at.join("home");
+        let side = Self { state: home.join(".local/state/cmux-tui"), home };
         fs::create_dir_all(side.home.join("work")).unwrap();
         fs::create_dir_all(&side.state).unwrap();
         side
