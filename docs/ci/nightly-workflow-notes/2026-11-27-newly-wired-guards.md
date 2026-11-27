@@ -48,3 +48,30 @@ not exemptions. The router detector is
 `tests/test_ci_path_route_skips_on_failure.py`: only the exact documented
 `remote-web-wasm` condition may run after its router fails. Its mutation tests
 reject broader exceptions and operand-valued fallback mistakes.
+
+The base update exposed checkout drift in fleet job
+`bd4cfdb684b37ad08631b805` at `7fb2dfcf0abd1a0f0343d6c34d527dd978f0b834`.
+`test_ci_router_checkout_mirror.py` detected the new UI-proof status checkout
+bypassing the mirror; it now uses the same conditional filter as the router.
+`test_ci_hot_verify_mirror_seed.py` and
+`test_ci_light_jobs_pool_mirror_checkout.py` recognize Git configuration options
+before `fetch`, preserving assertions about the unfiltered fetch and its depth.
+The hot-verify retry assertion retains the intended 1 B/s, 60-second stall bound,
+which permits GitHub keepalives while a pack is constructed.
+
+`test_ci_affected_jobs.py` also exposed five MDM files consumed by routed Rust
+jobs but missing from workflow triggers. The generated trigger repair covers
+SDK push and pull requests, TUI spec push, Windows pull requests, and the SDK
+post-merge batch. The focused suite passes all 59 tests after this repair.
+
+Static attribution at `7fb2dfcf0abd1a0f0343d6c34d527dd978f0b834` executed
+the following commands on clean base `cf894f6816d761f2b3bf2d211d1048713caf5d32`.
+Each exits 1 on both trees with the same complete output after replacing only
+the absolute base checkout path with the head checkout path. Checker hashes
+also match. These failures are separate from the newly wired guard execution.
+
+| Command | Matching output SHA256 |
+| --- | --- |
+| `python3 scripts/lint-xcstrings.py` | `157a390d41e2422f3799c7a44c9dba8fe1d68115ec7463af2062476f127af6d7` |
+| `python3 scripts/localization_catalog.py check` | `e6053a04e0943c64a18bcf7d19a949ec8059a167f331d26e963eb8a7eb31150d` |
+| `python3 scripts/check-workspace-package-groups.py --check` | `77fd2770afa07d3b30ba81bc265f02c06b8c0fb5ee07690b3e41f84f54f890ea` |

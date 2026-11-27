@@ -594,9 +594,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The merge commit and the base tip: the gate reads the paths the head adds (new visible UI); an added
-          # Swift file's text comes with `git show` (the blob filter fetches it alone).
+          # Swift file's text comes with `git show`; same-repo PRs borrow whole blobs from the runner mirror.
           fetch-depth: 2
-          filter: blob:none
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
