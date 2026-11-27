@@ -1506,6 +1506,12 @@ PYTHON
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    # The live-code overlay is signed on the same trusted signer as nightly-next-one. It has no picker
+    # dependency of its own because nightly-next-one already owns the build handoff, so its literal is intentional.
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" &&
+          "$content" == *"github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}"* ]]; then
+      continue
+    fi
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi

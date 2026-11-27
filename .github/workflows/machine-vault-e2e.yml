@@ -64,7 +64,7 @@ jobs:
     # pools) and never a runner variable that could name one. The AWS Macs have no GitHub runners
     # except the trusted promote runner, which this job must not take. A literal label, since the macos_26 pool
     # can name an owned mini, where its sudo calls fail (tests/test_ci_owned_mac_jobs_no_sudo.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: adds a macOS user as root
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: adds an OS user as root
     timeout-minutes: 60
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev

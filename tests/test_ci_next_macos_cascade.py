@@ -2637,6 +2637,9 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
         "stable-next.yml sign: runs-on[0]",
+        # Launch-TTI is a hosted before/after timing measurement. An owned pool would change the queue and startup
+        # samples, so its paid Blacksmith route intentionally ignores the general off switch.
+        "ios-launch-tti-hosted.yml measure: runs-on[0]",
         # Its one Blacksmith branch is a rescued run's (inputs.rescue == 'blacksmith', dispatched only while the
         # switch allows it, scripts/ci/app_ffi_rescue.py), and it reads only the slot its placement found live
         # (blacksmith_12_jobs / blacksmith_6_jobs; none for a dead or stalled label), which this resolver cannot see.
