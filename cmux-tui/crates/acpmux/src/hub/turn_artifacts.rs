@@ -91,7 +91,7 @@ fn all() -> MutexGuard<'static, HashMap<String, Gathering>> {
     GATHERING.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-static TEST_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
+static TEST_COMMAND: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"(?x)\b(
             cargo\s+(\+\S+\s+)?(test|nextest)
@@ -103,36 +103,34 @@ static TEST_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
           | make\s+test | bazel\s+test | ctest
         )\b",
     )
-    .expect("test command pattern")
+    .ok()
 });
-static PR_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\bpr[\s_-]+create\b|\bpr_create\b").expect("pr command pattern")
+static PR_COMMAND: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?i)\bpr[\s_-]+create\b|\bpr_create\b").ok());
+static PR_URL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+").ok()
 });
-static PR_URL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+").expect("pr url")
-});
-static CARGO_RESULT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"test result: \w+\. (\d+) passed; (\d+) failed").expect("cargo result")
-});
-static NEXTEST_RESULT: LazyLock<Regex> = LazyLock::new(|| {
+static CARGO_RESULT: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"test result: \w+\. (\d+) passed; (\d+) failed").ok());
+static NEXTEST_RESULT: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(r"Summary \[[^\]]*\]\s+\d+ tests? run: (\d+) passed(?:[^,\n]*)?(?:, (\d+) failed)?")
-        .expect("nextest result")
+        .ok()
 });
-static PASSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d+) passed\b").expect("passed"));
-static FAILED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d+) failed\b").expect("failed"));
-static EXIT_LINE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^Exit code (\d+)\s*$").expect("exit line"));
+static PASSED: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b(\d+) passed\b").ok());
+static FAILED: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b(\d+) failed\b").ok());
+static EXIT_LINE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?m)^Exit code (\d+)\s*$").ok());
 
 /// Whether `command` runs tests.
 fn is_test_command(command: &str) -> bool {
-    TEST_COMMAND.is_match(command)
+    TEST_COMMAND.as_ref().is_some_and(|re| re.is_match(command))
 }
 
 /// The pass and fail counts a test command printed: cargo's per-binary results summed, else
 /// nextest's summary, else the last `N passed` and `N failed` (pytest, jest, vitest).
 fn counts(output: &str) -> (Option<u64>, Option<u64>) {
     let mut cargo = (0u64, 0u64, false);
-    for c in CARGO_RESULT.captures_iter(output) {
+    for c in CARGO_RESULT.iter().flat_map(|re| re.captures_iter(output)) {
         cargo.0 += c[1].parse::<u64>().unwrap_or(0);
         cargo.1 += c[2].parse::<u64>().unwrap_or(0);
         cargo.2 = true;
@@ -140,14 +138,16 @@ fn counts(output: &str) -> (Option<u64>, Option<u64>) {
     if cargo.2 {
         return (Some(cargo.0), Some(cargo.1));
     }
-    if let Some(c) = NEXTEST_RESULT.captures_iter(output).last() {
+    if let Some(c) = NEXTEST_RESULT.iter().flat_map(|re| re.captures_iter(output)).last() {
         let passed = c[1].parse().ok();
         let failed = c.get(2).and_then(|m| m.as_str().parse().ok()).or(Some(0));
         return (passed, failed);
     }
-    let last = |re: &Regex| re.captures_iter(output).last().and_then(|c| c[1].parse().ok());
-    let passed = last(&PASSED);
-    let failed = last(&FAILED);
+    let last = |re: &Option<Regex>| {
+        re.iter().flat_map(|re| re.captures_iter(output)).last().and_then(|c| c[1].parse().ok())
+    };
+    let passed = last(&*PASSED);
+    let failed = last(&*FAILED);
     match (passed, failed) {
         (None, None) => (None, None),
         (p, f) => (p.or(Some(0)), f.or(Some(0))),
@@ -222,7 +222,7 @@ fn exit_code(update: &Map<String, Value>, output: &str) -> Option<i64> {
     let raw = update.get("rawOutput").and_then(Value::as_object);
     raw.and_then(|o| o.get("exit_code").or_else(|| o.get("exitCode")))
         .and_then(Value::as_i64)
-        .or_else(|| EXIT_LINE.captures(output).and_then(|c| c[1].parse().ok()))
+        .or_else(|| EXIT_LINE.as_ref()?.captures(output).and_then(|c| c[1].parse().ok()))
 }
 
 /// The command a call runs: its `rawInput.command` (a string, or Codex's argv list).
@@ -306,7 +306,8 @@ fn gather(session: &str, msg: &Value) {
     let title = update.get("title").and_then(Value::as_str).unwrap_or_default();
     let command = g.commands.get(&id).cloned().unwrap_or_default();
     let tested = is_test_command(&command);
-    let opened_pr = PR_COMMAND.is_match(&command) || PR_COMMAND.is_match(title);
+    let opened_pr =
+        PR_COMMAND.as_ref().is_some_and(|re| re.is_match(&command) || re.is_match(title));
     if !tested && !opened_pr {
         return;
     }
@@ -315,7 +316,8 @@ fn gather(session: &str, msg: &Value) {
         g.settled.insert(id);
     }
     if opened_pr {
-        g.prs.extend(PR_URL.find_iter(&output).map(|m| m.as_str().to_owned()));
+        let urls = PR_URL.iter().flat_map(|re| re.find_iter(&output));
+        g.prs.extend(urls.map(|m| m.as_str().to_owned()));
     }
     if tested {
         let exit = exit_code(update, &output);

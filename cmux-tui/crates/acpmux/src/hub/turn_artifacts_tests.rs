@@ -171,3 +171,20 @@ fn gathering_a_long_turn_stays_cheap() {
     assert_eq!(msg["artifacts"]["tests"].as_array().map(Vec::len), Some(MAX_ITEMS));
     assert!(per_record < std::time::Duration::from_millis(5), "{per_record:?} a record");
 }
+
+/// The patterns are built without a panic, so a typo would read nothing: each must compile.
+#[test]
+fn every_pattern_compiles() {
+    for re in [
+        &*TEST_COMMAND,
+        &*PR_COMMAND,
+        &*PR_URL,
+        &*CARGO_RESULT,
+        &*NEXTEST_RESULT,
+        &*PASSED,
+        &*FAILED,
+        &*EXIT_LINE,
+    ] {
+        assert!(re.is_some());
+    }
+}
