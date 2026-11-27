@@ -416,14 +416,37 @@ function chevronInk(element: Element): Rect | null {
   return { left, right, top, bottom, width: right - left, height: bottom - top };
 }
 
+/** `rect` less what an overflow-clipping ancestor (up to `scope`) hides: an ellipsised label draws less than its text runs. */
+function clipped(rect: Rect, from: Element | null, scope: Element): Rect | null {
+  let { left, right } = rect;
+  for (let node = from; node && node !== scope.parentElement; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowX;
+    if (overflow === "visible") continue;
+    const box = node.getBoundingClientRect();
+    left = Math.max(left, box.left);
+    right = Math.min(right, box.right);
+  }
+  return right > left ? { ...rect, left, right, width: right - left } : null;
+}
+
 /** Text a chevron sits against: the control's own labels, or its parent's when the chevron stands outside it. */
 function neighbours(chevron: Element): Rect[] {
   const control = chevron.closest(CONTROL);
   const scope = control ?? chevron.parentElement;
   if (!scope) return [];
-  const rects = textRects(scope);
-  // A chevron beside, not inside, its label: the parent's text, less anything inside another control.
-  return rects.filter((rect) => rect.width > 0);
+  const found: Rect[] = [];
+  const walker = scope.ownerDocument.createTreeWalker(scope, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (!node.textContent?.trim() || !parent || parent.closest("[aria-hidden='true'], .sr-only")) continue;
+    const range = scope.ownerDocument.createRange();
+    range.selectNodeContents(node);
+    for (const rect of range.getClientRects()) {
+      const shown = visible(rect) ? clipped(rect, parent, scope) : null;
+      if (shown) found.push(shown);
+    }
+  }
+  return found;
 }
 
 function chevronViolations(doc: Document): Violation[] {
