@@ -461,6 +461,24 @@ class WiringTest(unittest.TestCase):
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
+    def test_the_table_suites_reach_every_input_of_their_job(self) -> None:
+        # A suite that runs `ci/run run --job J` must start for any path a step of J reads, or a merge that
+        # changes only that path never runs the step after the merge.
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
+        steps = ci_steps.load().steps.values()
+        for key, job in (("pr-pipeline-mac", "mac"), ("pr-pipeline-ios", "ios")):
+            with self.subTest(suite=key):
+                suite = self.suites[key]
+                self.assertEqual(set(suite.jobs), {job})
+                want = set(ci_steps.PIPELINE_PATHS) | {f".github/workflows/{suite.workflow}"}
+                want |= {p for s in steps if s.job == job for p in s.inputs}
+                self.assertLessEqual(want, set(suite.paths), sorted(want - set(suite.paths)))
+                text = (WORKFLOW.parent / suite.workflow).read_text()
+                self.assertIn(f"ci/run run --job {job}", text)
+                self.assertIn("inputs.base", text)
+
     def test_each_callee_takes_sha_and_only_and_gates_its_jobs(self) -> None:
         for key, suite in self.suites.items():
             callee = yaml.safe_load((WORKFLOW.parent / suite.workflow).read_text())
