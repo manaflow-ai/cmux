@@ -132,7 +132,7 @@ ALLOWED: dict[str, str] = {
         "the scan reads every loop of a script the step runs; the step reads pin-cmux-tui.sh runs-state once per same-key candidate and active-publisher once, no polling; github_get sleeps only through a rate-limit refusal",
     'nightly.yml: Resolve cmux-tui client commit':
         "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
-    'actions-artifact-prune.yml: Prune':
+    'storage-maintenance.yml: Prune Actions artifacts':
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
@@ -164,6 +164,8 @@ ALLOWED: dict[str, str] = {
         'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
     'app-ffi-repin.yml: Start the re-pin workflow when this re-pin failed':
         'bounded retry: starts the re-pin workflow only while the failed run is current, with a finite retry budget',
+    'app-ffi-release.yml: Start the re-pin workflow when this re-pin failed':
+        'bounded retry: one workflow dispatch, retried after a failure on a 0/60/120/180/180 s backoff (5 tries), as app-ffi-repin.yml',
     'auto-resume-nightly-notarization.yml: Reject stale continuation before publication':
         'bounded retry: checks the continuation once per guarded attempt and stops before publication when stale',
     'cloud-vm-dogfood.yml: Verify the public-installed cmux-tui binary':
