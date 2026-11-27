@@ -135,6 +135,13 @@ public final class AcpmuxHub {
     /// Whether an `initialize` from this Mac has answered since launch: until then
     /// `capabilities` is unknown, not empty (``pipelineAttaches``).
     @ObservationIgnored private var capabilitiesKnown = false
+    var supportsPromptUploads: Bool {
+        features.contains("promptUploads") && features.contains("filePutChunks")
+    }
+    /// The features the Mac's acpmux lists (`initialize` `_meta.acpmux.features`, acpmux
+    /// `initialize.rs`): `promptUploads` and `filePutChunks` let a photo go by reference
+    /// (``AcpmuxSessionSource``'s upload path); empty until this connection initializes.
+    @ObservationIgnored private(set) var features: Set<String> = []
     /// This connection's compact chunks and row patches, read back into whole records and rows
     /// (``AcpmuxDeltas``); a new one per connection, as the Mac keeps its side per connection.
     @ObservationIgnored var deltas = AcpmuxDeltas()
@@ -191,8 +198,13 @@ public final class AcpmuxHub {
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
     /// A chat with an expired replay cache may still have an open reader. Keep routing
     /// to it while a new reader loads its own complete snapshot from the Mac.
-    private var liveSources: [AcpmuxSessionSource] {
+    var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
+    }
+
+    /// The open sources of one chat (`AcpmuxHub+CatchUp.swift`).
+    func liveSources(of sessionID: String) -> [AcpmuxSessionSource] {
+        (sources[sessionID] ?? []).compactMap(\.source)
     }
 
     public init() {}
@@ -272,6 +284,7 @@ public final class AcpmuxHub {
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
             capabilitiesKnown = true
+            features = Set((initialized["_meta"]?["acpmux"]?["features"]?.arrayValue ?? []).compactMap(\.stringValue))
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
@@ -682,6 +695,9 @@ public final class AcpmuxHub {
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
+            let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
+            for entry in sources[session.id] ?? [] { entry.source?.footerFactsChanged(facts) }
         }
         if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
         if params["kind"]?.stringValue == "purged" {
@@ -980,6 +996,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let hub else { return }
         let session = JSONValue.string(sessionID)
         if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
+            #if canImport(CmuxMobileLinkFFI)
+            // Text, and photos the Mac takes by reference, go to the outbox at the tap: nothing
+            // waits behind a photo's bytes (``sendAtTap``).
+            if sendsAtTap(attachments, hub: hub) {
+                sendAtTap(text: text, attachments: attachments, steer: steer, promptID: promptID, resend: resend, hub: hub)
+                return
+            }
+            #endif
             // Messages reach the Mac in the order they were sent: each waits for the one before
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
@@ -988,7 +1012,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
-            let prestaged = prestager.claim(attachments)
+            let directory = baseDirectory
+            let prestaged = prestager.claim(attachments, directory: directory)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
@@ -998,14 +1023,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try Task.checkCancellation()
                     blocks = try await PhoneTrace.$traceID.withValue(traceID) {
                         try await PhoneTrace.action("send-attachments", args: ["count": "\(attachments.count)"]) {
-                            try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
+                            try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub, directory: directory,
                                                         prestaged: prestaged)
                         }
                     }
                     try Task.checkCancellation()
                 } catch {
                     // Stopped or failed before every early upload was linked: none of them is wanted now.
-                    for entry in prestaged.values { entry.task.cancel() }
+                    for entry in prestaged.values { entry.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
@@ -1142,6 +1167,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var sendTasks: [String: Task<Void, Never>] = [:]
     /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
     private let prestager = AttachmentPrestager()
+    /// The current composer contents, retained while the Mac link is down so the next link can
+    /// resume optimistic transfers without requiring another attachment change in the UI.
+    private var composerAttachments: [AgentAttachment] = []
 
     #if canImport(CmuxMobileLinkFFI)
     /// The chat's prompts until the Mac answers them (Rust, `cmux_composer_send::chat`): one
@@ -1169,6 +1197,94 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: [], resend: prompt.resend,
                               tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
         pumpPrompts()
+    }
+
+    /// Whether a prompt goes to the outbox at the tap: text alone, or photos alone when the
+    /// Mac's acpmux takes prompt uploads in chunks. Files, PDFs and videos (and any photo for
+    /// an older Mac) take the ordered path, uploading before the outbox has them.
+    private func sendsAtTap(_ attachments: [AgentAttachment], hub: AcpmuxHub) -> Bool {
+        if attachments.isEmpty { return true }
+        guard hub.supportsPromptUploads else { return false }
+        return attachments.allSatisfy { $0.imageMIMEType != nil && $0.data != nil }
+    }
+
+    /// The outbox has the prompt at once; each photo uploads beside it (`_acpmux/file_put_*`,
+    /// acpmux docs/prompt-uploads.md) and goes as a reference, so the photo's bytes never sit in
+    /// front of a later message on the link: the outbox writes a later prompt while this one's
+    /// uploads are on their way (Rust `cmux_composer_send::chat`), and this one once they are
+    /// done. Stop cancels the upload; a failed one gives the draft back with why.
+    private func sendAtTap(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String,
+                           resend: Bool, hub: AcpmuxHub) {
+        let sentAt = now()
+        let keys = attachments.map { "\(promptID)#\($0.id)" }
+        promptPayloads[promptID] = HeldPrompt(text: text, attachments: attachments, promptID: promptID, steer: steer,
+                                              resend: resend, blocks: Self.promptBlocks(text: text, attachments: []),
+                                              at: sentAt)
+        _ = promptOutbox.push(promptId: promptID, text: text, uploadIds: keys, resend: resend,
+                              tappedMs: ChatPromptClock.milliseconds(sentAt), nowMs: ChatPromptClock.milliseconds(now()))
+        pumpPrompts()
+        guard !attachments.isEmpty else { return }
+        let prestaged = prestager.claim(attachments, directory: baseDirectory)
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.sendTasks[promptID] = nil }
+            var references: [JSONValue] = []
+            for (attachment, key) in zip(attachments, keys) {
+                do {
+                    let reference = try await self.uploadByReference(attachment, early: prestaged[attachment.id],
+                                                                     key: key, promptID: promptID, hub: hub)
+                    references.append(reference)
+                } catch {
+                    for entry in prestaged.values { entry.cancel() }
+                    // Stopped or given back while it went: the outbox already has nothing of it.
+                    guard let held = self.promptPayloads[promptID] else { return }
+                    let reason = error is CancellationError ? "Not sent: you stopped it." : Self.message(error)
+                    _ = self.promptOutbox.uploadFailed(uploadId: key, reason: reason)
+                    self.promptPayloads[promptID] = nil
+                    self.emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: promptID, reason: reason))
+                    self.pumpPrompts()
+                    return
+                }
+                if key == keys.last, var held = self.promptPayloads[promptID] {
+                    // What is written once the outbox hands it out: the text, then each photo's reference.
+                    held.blocks = (text.isEmpty ? [] : Self.promptBlocks(text: text, attachments: [])) + references
+                    self.promptPayloads[promptID] = held
+                }
+                self.promptOutbox.uploaded(uploadId: key, macPath: "", nowMs: ChatPromptClock.milliseconds(self.now()))
+            }
+            self.pumpPrompts()
+        }
+        sendTasks[promptID] = task
+    }
+
+    private func uploadByReference(_ attachment: AgentAttachment, early: AttachmentPrestager.Entry?,
+                                   key: String, promptID: String, hub: AcpmuxHub) async throws -> JSONValue {
+        let report: AttachmentPrestager.Report = { [weak self] step in
+            guard let self, self.promptPayloads[promptID] != nil else { return }
+            self.emit(.promptUploading(promptID: promptID, step))
+            self.promptOutbox.uploadProgressed(uploadId: key, nowMs: ChatPromptClock.milliseconds(self.now()))
+        }
+        try Task.checkCancellation()
+        if let early {
+            early.progress.observe(report)
+            if let result = await Self.prestagedResult(early, attachment: attachment, progress: nil),
+               case .prompt(let id, let name, let owner) = result {
+                try Task.checkCancellation()
+                return Self.promptReference(attachment, id: id, name: name, owner: owner)
+            }
+        }
+        try Task.checkCancellation()
+        guard promptPayloads[promptID] != nil else { throw CancellationError() }
+        guard let data = attachment.data else {
+            throw AgentFeatureUnavailable("The photo has no contents to send. Attach it again.")
+        }
+        let connection = try await hub.liveConnection()
+        let result = try await Self.uploadPrompt(.data(data), name: attachment.name, sessionID: sessionID,
+                                                 over: connection, report: report)
+        guard case .prompt(let id, let name, let owner) = result else {
+            throw AgentFeatureUnavailable("The Mac did not finish the photo upload.")
+        }
+        return Self.promptReference(attachment, id: id, name: name, owner: owner)
     }
 
     /// Does what the outbox says is due: gives back prompts past the hold, writes the next one,
@@ -1325,6 +1441,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in done {
             guard let held = promptPayloads.removeValue(forKey: prompt.promptId) else { continue }
+            sendTasks[prompt.promptId]?.cancel()
             emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
         }
     }
@@ -1429,15 +1546,30 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        composerAttachments = attachments
         let cwd = baseDirectory
         let macName = summary.macName
-        var upload: AttachmentPrestager.Upload?
-        if let link: any MacLink = hub?.macLink {
-            upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
-                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+        guard let hub, hub.isReady else {
+            prestager.cancelAll()
+            return
+        }
+        let connection = hub.supportsPromptUploads ? hub.connection : nil
+        let session = sessionID
+        let link = hub.macLink
+        let upload: AttachmentPrestager.Upload = { payload, attachment, report in
+            if attachment.kind == .image, let connection {
+                return try await Self.uploadPrompt(payload, name: attachment.name, sessionID: session,
+                                                   over: connection, report: report)
+            }
+            guard let link else { throw LinkError(code: "offline", message: "The Mac link closed.") }
+            return .path(try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName))
+        }
+        let eligible = link == nil ? attachments.filter { $0.kind == .image && connection != nil } : attachments
+        prestager.sync(eligible, directory: cwd, upload: upload, promptUploads: connection != nil) { result in
+            if case .prompt(let id, _, let owner) = result, let connection, let owner {
+                await Self.cancelPromptUpload(id, owner: owner, session: session, connection: connection)
             }
         }
-        prestager.sync(attachments, upload: upload)
     }
 
     /// ACP prompt content: the text, then per attachment
@@ -1450,26 +1582,38 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
-    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
+    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub, directory: String?,
                       prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
-        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress, prestaged: prestaged)
+
+        var promptUpload: (@Sendable (LinkUpload.Payload, String) async throws -> AttachmentPrestager.Result)?
+        if hub.supportsPromptUploads, let connection = hub.connection {
+            let session = sessionID
+            promptUpload = { payload, name in
+                try await Self.uploadPrompt(payload, name: name, sessionID: session, over: connection,
+                                            report: { progress($0) })
+            }
+        }
+        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: directory,
+                                           macName: summary.macName, progress: progress, prestaged: prestaged,
+                                           promptUpload: promptUpload)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
                              macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
-                             prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
+                             prestaged: [String: AttachmentPrestager.Entry] = [:],
+                             promptUpload: (@Sendable (LinkUpload.Payload, String) async throws -> AttachmentPrestager.Result)? = nil) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
         let attachments = await Self.inlinePDFs(attachments)
         let inline = Self.inlineDocuments(attachments)
-        for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
+        var promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:]
+        for attachment in attachments where Self.needsUpload(attachment, inline: inline, promptUpload: promptUpload != nil) {
             let payload: LinkUpload.Payload
             if attachment.data == nil, attachment.fileURL == nil, let path = attachment.macPath {
                 // A recorded video (Retry of an earlier prompt) is on the Mac already: its link goes again.
@@ -1483,39 +1627,52 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
-            if let early = prestaged[attachment.id], let path = await Self.prestagedPath(early, attachment: attachment, progress: progress) {
-                uploaded[attachment.id] = path
+            if let early = prestaged[attachment.id], let result = await Self.prestagedResult(early, attachment: attachment, progress: progress) {
+                switch result {
+                case .path(let path): uploaded[attachment.id] = path
+                case .prompt(let uploadID, let fileName, let ownerToken): promptRefs[attachment.id] = (uploadID, fileName, ownerToken)
+                }
                 continue
             }
             try Task.checkCancellation()
-            guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+            if promptUpload == nil, link == nil {
+                throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).")
+            }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            if attachment.kind == .image, let promptUpload {
+                switch try await promptUpload(payload, attachment.name) {
+                case .path(let path): uploaded[attachment.id] = path
+                case .prompt(let uploadID, let fileName, let ownerToken): promptRefs[attachment.id] = (uploadID, fileName, ownerToken)
+                }
+            } else {
+                guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+                uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            }
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
-            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
+            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, promptRefs: promptRefs, inlineDocuments: inline)
         }.value
     }
 
     /// The Mac path of a file that began uploading when it was picked, once that upload ends; nil
     /// when it failed (Send uploads the file afresh). Stopping the send stops the upload. Logs how
     /// long Send waited and the file's pick-to-available time (`upload` category).
-    static func prestagedPath(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
-                              progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> String? {
+    static func prestagedResult(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
+                                progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> AttachmentPrestager.Result? {
         let waitStart = ContinuousClock.now
         progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                       phase: .opening, attempt: 1))
         let task = early.task
-        let path = await withTaskCancellationHandler {
+        let result = await withTaskCancellationHandler {
             try? await task.value
         } onCancel: {
             task.cancel()
         }
         let end = ContinuousClock.now
-        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(path != nil)")
-        return path
+        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(result != nil)")
+        return result
     }
 
     /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
@@ -1547,6 +1704,97 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
+    /// Reads and encodes a chunk at a time. The same transfer can start in the composer or at Send.
+    private nonisolated static let uploadChunkBytes = 512 << 10
+
+    nonisolated static func uploadPrompt(_ payload: LinkUpload.Payload, name: String, sessionID: String,
+                                         over connection: AcpmuxConnection,
+                                         report: @escaping AttachmentPrestager.Report) async throws -> AttachmentPrestager.Result {
+        let size: Int
+        let nextChunk: (Int) throws -> Data
+        let close: () -> Void
+        switch payload {
+        case .data(let data):
+            size = data.count
+            nextChunk = { offset in
+                let end = min(data.count, offset + uploadChunkBytes)
+                return data.subdata(in: (data.startIndex + offset)..<(data.startIndex + end))
+            }
+            close = {}
+        case .file(let url):
+            let access = ScopedFile(url).open()
+            let handle: FileHandle
+            do {
+                handle = try FileHandle(forReadingFrom: url)
+                size = Int(try handle.seekToEnd())
+                try handle.seek(toOffset: 0)
+            } catch {
+                access.close()
+                throw LinkUpload.Failure(code: "unreadable", message: "Couldn't read \(name) on this iPhone.")
+            }
+            nextChunk = { offset in
+                try handle.seek(toOffset: UInt64(offset))
+                return try handle.read(upToCount: uploadChunkBytes) ?? Data()
+            }
+            close = { try? handle.close(); access.close() }
+        }
+        defer { close() }
+        let safeName = Self.uploadFileName(name, mime: Self.mimeType(name: name))
+        try Task.checkCancellation()
+        await report(AgentUploadProgress(name: name, sent: 0, total: size, phase: .opening))
+        let begin = try await connection.request("_acpmux/file_put_begin", .object([
+            "sessionId": .string(sessionID), "fileName": .string(safeName), "size": .number(Double(size)),
+            "forPrompt": .bool(true), "source": .string("cmux-ios"),
+        ]))
+        guard let id = begin["uploadId"]?.stringValue, let owner = begin["ownerToken"]?.stringValue else {
+            throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not open the upload.")
+        }
+        let fileName = begin["fileName"]?.stringValue ?? safeName
+        do {
+            var offset = 0
+            while offset < size {
+                try Task.checkCancellation()
+                let chunk = try nextChunk(offset)
+                guard !chunk.isEmpty else {
+                    throw LinkUpload.Failure(code: "unreadable", message: "The picked file ended before the upload finished.")
+                }
+                let reply = try await connection.request("_acpmux/file_put_chunk", .object([
+                    "sessionId": .string(sessionID), "uploadId": .string(id), "offset": .number(Double(offset)),
+                    "ownerToken": .string(owner), "data": .string(chunk.base64EncodedString()),
+                ]))
+                let end = offset + chunk.count
+                guard reply["offset"]?.numberValue == Double(end) else {
+                    throw LinkUpload.Failure(code: "upload.offset", message: "The Mac did not confirm the uploaded bytes.")
+                }
+                offset = end
+                await report(AgentUploadProgress(name: name, sent: offset, total: size, phase: .sending))
+            }
+            try Task.checkCancellation()
+            await report(AgentUploadProgress(name: name, sent: size, total: size, phase: .saving))
+            let finished = try await connection.request("_acpmux/file_put_finish", .object([
+                "sessionId": .string(sessionID), "uploadId": .string(id), "fileName": .string(fileName),
+                "size": .number(Double(size)), "ownerToken": .string(owner),
+            ]))
+            guard finished["uploadId"]?.stringValue == id, finished["size"]?.numberValue == Double(size),
+                  let path = finished["path"]?.stringValue, !path.isEmpty else {
+                throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not confirm the saved attachment.")
+            }
+            try Task.checkCancellation()
+            return .prompt(uploadID: id, fileName: fileName, ownerToken: owner)
+        } catch {
+            await Self.cancelPromptUpload(id, owner: owner, session: sessionID, connection: connection)
+            throw error
+        }
+    }
+
+    nonisolated static func cancelPromptUpload(_ id: String, owner: String, session: String, connection: AcpmuxConnection) async {
+        await Task {
+            _ = try? await connection.request("_acpmux/file_put_cancel", .object([
+                "sessionId": .string(session), "uploadId": .string(id), "ownerToken": .string(owner),
+            ]))
+        }.value
+    }
+
     /// Each PDF up to `AgentAttachment.maxDocumentBytes` that the composer kept by its URL, with
     /// its bytes read (off the main actor, inside its security scope); the rest as they were.
     nonisolated static func inlinePDFs(_ attachments: [AgentAttachment]) async -> [AgentAttachment] {
@@ -1574,12 +1822,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The blocks for `text` and `attachments`, with each file's path on the Mac. A video's
     /// link is followed by its frames note and each frame (label, then image), as the Mac sends it.
     nonisolated static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:],
+                                         promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:],
                                          inlineDocuments: Set<String>? = nil) -> [JSONValue] {
         let inline = inlineDocuments ?? Self.inlineDocuments(attachments)
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
-            if let mime = attachment.imageMIMEType, let data = attachment.data {
+            if let ref = promptRefs[attachment.id] {
+                blocks.append(Self.promptReference(attachment, id: ref.uploadID, name: ref.fileName, owner: ref.ownerToken))
+                continue
+            }
+            if uploaded[attachment.id] == nil, let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
             } else if inline.contains(attachment.id), let data = documentData(attachment) {
                 blocks.append(.object(["type": .string("document"), "mimeType": .string("application/pdf"),
@@ -1611,6 +1864,50 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    nonisolated static func promptReference(_ attachment: AgentAttachment, id: String, name: String, owner: String?) -> JSONValue {
+        var upload: [String: JSONValue] = ["uploadId": .string(id), "fileName": .string(name)]
+        if let owner { upload["owned"] = .string(owner) }
+        let metadata: JSONValue = .object(["acpmux": .object(["upload": .object(upload)])])
+        if attachment.kind == .image {
+            var block: [String: JSONValue] = ["type": .string("image"), "name": .string(name), "_meta": metadata]
+            if let mime = attachment.imageMIMEType { block["mimeType"] = .string(mime) }
+            return .object(block)
+        }
+        return .object(["type": .string("resource_link"), "uri": .string("acpmux-upload:\(id)"),
+                        "name": .string(name), "_meta": metadata])
+    }
+
+    /// A name acpmux takes for an upload (`file_put_begin`): one plain component, no leading
+    /// dot, no control or direction characters; a photo with none left is `photo.<ext>`.
+    nonisolated static func uploadFileName(_ name: String, mime: String) -> String {
+        let base = (name as NSString).lastPathComponent
+        var scalars = String.UnicodeScalarView()
+        for scalar in base.unicodeScalars {
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned:
+                continue
+            default:
+                scalars.append(scalar == "/" || scalar == "\\" ? "_" : scalar)
+            }
+        }
+        var plain = String(scalars).trimmingCharacters(in: .whitespaces)
+        while plain.hasPrefix(".") { plain.removeFirst() }
+        if plain.isEmpty {
+            let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? "png"
+            plain = "photo.\(ext)"
+        }
+        return plain
+    }
+
+    nonisolated static func needsUpload(_ attachment: AgentAttachment, inline: Set<String>, promptUpload: Bool) -> Bool {
+        if attachment.kind == .image {
+            if promptUpload { return true }
+            guard let data = attachment.data, attachment.imageMIMEType != nil else { return true }
+            return data.count > AttachmentPrestager.inlineImageBytes
+        }
+        return !inline.contains(attachment.id)
     }
 
     nonisolated static func mimeType(name: String) -> String {
@@ -1992,6 +2289,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     func linkDown() {
+        prestager.cancelAll()
         // An attach still waiting on the old connection ends without touching this chat.
         generation += 1
         dropPipelined()
@@ -2052,6 +2350,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushHeldPrompts()
         // Kept records still being read: the attach starts once they are in (`restoreKept`).
         guard !attaching, !restoring, let hub, hub.isReady else { return }
+        prestageAttachments(composerAttachments)
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()
@@ -2482,6 +2781,67 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return false
     }
 
+    // MARK: One-request catch-up page (`catch-up` link service)
+
+    /// The last record applied, for a `catch-up` request (``AcpmuxHub/catchUpChats()``).
+    var heldSeq: Int { lastSeq }
+
+    /// Applies a page the `catch-up` link service read for this chat (its `_acpmux/attach`
+    /// result, newest screenful first) as an attach applies its reply, through `readRest` and
+    /// `caughtUp`: a page that starts past the records held opens the gap that fills behind it
+    /// (`tailStart`), or, wider than ``bridgeMaxSeqs``, opens the chat on the page with older
+    /// records read on scroll (`holeTooWide`); with nothing held the page opens the chat as a
+    /// first attach does, older records from ``loadEarlierHistory()``. Only a chat neither
+    /// attached nor attaching takes it: an attached chat's stream is newer than the page, and
+    /// an attach in flight reads the same records. After it the chat is still not attached, so
+    /// the hub's next `linkUp` attaches from the page's last record and the connection's event
+    /// stream reaches it. A page that needed a read the hub could not make applies nothing: the
+    /// next attach reads it. True when the page was applied.
+    func applyCatchUpPage(_ result: JSONValue) async -> Bool {
+        guard !attached, !attaching, !restoring, pipelined == nil, let hub,
+              result["events"]?.arrayValue != nil else { return false }
+        retryTask?.cancel()
+        retryTask = nil
+        attaching = true
+        refillPending = false
+        generation += 1
+        let generation = generation
+        var read = CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                               fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+        // Twice at most: a kept copy found too old (`keptTooOld`) is dropped, and the same page
+        // then opens the chat as a first attach's would.
+        for _ in 0..<2 {
+            var pages = CatchUpPages()
+            pages.result = result
+            do {
+                try await Self.readRest(hub, read, &pages) { [weak self] method, params in
+                    guard self?.generation == generation, !Task.isCancelled else { throw CancellationError() }
+                    return try await hub.request(method, .object(params), timeout: Self.pageTimeout)
+                }
+            } catch {
+                pages.failure = error
+            }
+            // The link dropped or an attach started meanwhile: that one owns the chat now.
+            guard generation == self.generation else { return false }
+            guard pages.failure == nil else { break }
+            let again = caughtUp(pages, read, generation)
+            if !again, attached {
+                // Shown, but this connection's event stream does not reach the chat yet.
+                attached = false
+                linkUp()
+                return true
+            }
+            guard again, !refillPending, lastSeq == 0 else { break }
+            read = CatchUpRead(sessionID: sessionID, after: 0, timeBreakdownVersion: timeBreakdownVersion)
+        }
+        guard generation == self.generation else { return false }
+        attaching = false
+        attachTask = nil
+        held = []
+        linkUp()
+        return false
+    }
+
     // MARK: Reconnect gap (tail-first)
 
     /// What of a tail-first reattach's gap is still on the Mac: the records after `cursor`
@@ -2699,7 +3059,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let id = entry["permissionId"]?.stringValue, !laterAsks.contains(id), let request = entry["request"],
                let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
         }
+        // Always, unlike a row's: the attach's catch-up is what a new reader starts from.
+        if let detail = result["session"] {
+            let facts = AgentFooterFacts(composerStatus: detail["composerStatus"])
+            lastFooterFacts = facts
+            emit(.footerFacts(facts))
+        }
         emit(.status(summary.status))
+    }
+
+    /// The footer facts last sent to the chat: a row that repeats them (each turn event's
+    /// `session_changed`) adds nothing to the replay.
+    private var lastFooterFacts: AgentFooterFacts?
+
+    /// The session's footer facts from its row (`composerStatus.facts`, RFD 0130), sent to the chat
+    /// when they changed.
+    func footerFactsChanged(_ facts: AgentFooterFacts) {
+        guard facts != lastFooterFacts else { return }
+        lastFooterFacts = facts
+        emit(.footerFacts(facts))
     }
 
     /// The session's models (from attach), for the menu after a pick.
@@ -3134,21 +3512,4 @@ struct AcpmuxEarlierPage: Sendable {
     var records = 0
     /// A read failed: nothing shows, and the next ask reads the same page again.
     var failed = false
-}
-
-// MARK: - One-request catch-up (`catch-up` link service)
-
-extension AcpmuxHub {
-    /// The open chats and the last event each holds, for a `catch-up` request (each once).
-    func catchUpChats() -> [(sessionID: String, lastSeq: Int)] {
-        var seen = Set<String>()
-        return liveSources.compactMap { source in
-            seen.insert(source.sessionID).inserted ? (source.sessionID, source.heldSeq) : nil
-        }
-    }
-}
-
-extension AcpmuxSessionSource {
-    /// The last record applied (`lastSeq`).
-    var heldSeq: Int { lastSeq }
 }

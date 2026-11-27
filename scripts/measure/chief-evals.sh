@@ -72,7 +72,9 @@ build_side() {
   local side="$1" sha="$2" src="$work/src-$1"
   local depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha"
+  # A fleet step's source is a bundle with no origin remote: fetch the public repo by URL then.
+  local remote; remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha"
   git worktree add --quiet --detach "$src" "$sha"
   (cd "$src/Native/OptChat/optchat-chief" && cargo build --release --locked --example chief_eval)
   cp "$CARGO_TARGET_DIR/release/examples/chief_eval" "$work/chief_eval-$side"
