@@ -236,3 +236,22 @@ async fn history_names_a_restart_cut_turn_outcome_unknown() {
     assert_eq!(turn["status"], "failed", "{turn}");
     assert_eq!(turn["detail"], "outcome_unknown", "{turn}");
 }
+
+/// Leo, 2026-11-27: "this isn't leaving the tab icon even after you're not erroring anymore". A
+/// chat whose last turn failed shows `failed` only until a newer turn runs to its end: the
+/// person's next turn, or a trigger turn (which otherwise leaves the person's last turn alone).
+#[tokio::test]
+async fn a_turn_after_a_failed_one_clears_the_failed_badge() {
+    let failed = || json!({"turnId": "t0", "status": "failed", "errorText": "429", "endedAt": 1});
+    for trigger in [false, true] {
+        let (hub, session) = fixture().await;
+        session.meta.lock().unwrap().last_turn = Some(failed());
+        hub.prompt_with(&session, blocks("after the reset"), "test", false, options(trigger))
+            .await
+            .unwrap();
+        let last = session.meta().last_turn.expect("a last turn");
+        assert_eq!(last["status"], "completed", "trigger={trigger}: {last}");
+        let summary = json!({"status": "ready", "lastTurn": last});
+        assert_eq!(super::views::status_indicator(&summary), Some("done"), "trigger={trigger}");
+    }
+}
