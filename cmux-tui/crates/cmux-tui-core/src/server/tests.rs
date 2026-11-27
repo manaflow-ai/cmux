@@ -558,6 +558,7 @@ mod incognito_remote;
 mod input_lane;
 mod journal_follower_at_rest;
 mod layout_receipts_shutdown;
+mod list_notifications_delta;
 #[cfg(unix)]
 mod list_request_counts;
 mod list_workspaces_cost;

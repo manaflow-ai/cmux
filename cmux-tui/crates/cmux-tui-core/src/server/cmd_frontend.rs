@@ -181,58 +181,71 @@ pub(super) fn report_agent(
     }))
 }
 
+/// `list-notifications`. The whole ledger (no `limit` under 256) shown to a
+/// client that sees all of it carries its `version`; with `since` it holds
+/// only the rows changed since that version (`notification-ledger-delta-v1`).
 pub(super) fn list_notifications(
     mux: &Arc<Mux>,
     limit: Option<usize>,
+    since: Option<String>,
+    whole_view: bool,
     stats: bool,
 ) -> anyhow::Result<Value> {
-    let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-    let mut listed = json!({
-        "notifications": rows
-            .iter()
-            .map(|(row, acknowledged)| {
-                let post = mux.notification_post(&row.id);
-                let poster = post.as_ref().and_then(|post| post.poster.as_ref());
-                // What the row's agent said, while this daemon keeps it (memory only).
-                let texts = mux.agent_feed_texts(row.id.as_str());
-                json!({
-                    "id": row.id,
-                    "notification": post.as_ref().map(|post| post.notification),
-                    "reply": row.reply,
-                    "poster_pid": poster.map(|poster| poster.pid),
-                    "poster_executable": poster.map(|poster| poster.executable.as_str()),
-                    "title": row.title,
-                    "subtitle": row.subtitle,
-                    "body": row.body,
-                    "level": row.level.as_str(),
-                    "terminal_id": row.terminal_id,
-                    "surface": row.surface,
-                    "created_at_ms": row.created_at_ms,
-                    "source": row.source.as_str(),
-                    "acknowledged": acknowledged,
-                    // The question the row's agent still waits on (memory only).
-                    "question": row
-                        .terminal_id
-                        .as_ref()
-                        .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
-                        .as_deref(),
-                    // The approval the row's agent still waits on (memory only).
-                    "approval": row
-                        .terminal_id
-                        .as_ref()
-                        .and_then(|terminal| mux.pending_agent_approval(terminal, row.id.as_str()))
-                        .as_deref(),
-                    "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
-                    "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
-                    "detail": texts.as_ref().map(|texts| &*texts.detail),
-                })
-            })
-            .collect::<Vec<_>>(),
-    });
+    let mut listed = match limit.filter(|limit| *limit < 256) {
+        None if whole_view => {
+            mux.notification_list_answer(since.as_deref(), || notification_rows_json(mux, 256))?
+        }
+        limit => json!({ "notifications": notification_rows_json(mux, limit.unwrap_or(256))? }),
+    };
     if stats && let Some(fields) = listed.as_object_mut() {
         fields.insert("agent_notice_stats".to_owned(), mux.agent_notice_stats()?);
     }
     Ok(listed)
+}
+
+/// The first `limit` ledger rows, newest first.
+fn notification_rows_json(mux: &Arc<Mux>, limit: usize) -> anyhow::Result<Vec<Value>> {
+    let rows = mux.notification_rows(limit)?;
+    Ok(rows
+        .iter()
+        .map(|(row, acknowledged)| {
+            let post = mux.notification_post(&row.id);
+            let poster = post.as_ref().and_then(|post| post.poster.as_ref());
+            // What the row's agent said, while this daemon keeps it (memory only).
+            let texts = mux.agent_feed_texts(row.id.as_str());
+            json!({
+                "id": row.id,
+                "notification": post.as_ref().map(|post| post.notification),
+                "reply": row.reply,
+                "poster_pid": poster.map(|poster| poster.pid),
+                "poster_executable": poster.map(|poster| poster.executable.as_str()),
+                "title": row.title,
+                "subtitle": row.subtitle,
+                "body": row.body,
+                "level": row.level.as_str(),
+                "terminal_id": row.terminal_id,
+                "surface": row.surface,
+                "created_at_ms": row.created_at_ms,
+                "source": row.source.as_str(),
+                "acknowledged": acknowledged,
+                // The question the row's agent still waits on (memory only).
+                "question": row
+                    .terminal_id
+                    .as_ref()
+                    .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
+                    .as_deref(),
+                // The approval the row's agent still waits on (memory only).
+                "approval": row
+                    .terminal_id
+                    .as_ref()
+                    .and_then(|terminal| mux.pending_agent_approval(terminal, row.id.as_str()))
+                    .as_deref(),
+                "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
+                "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
+                "detail": texts.as_ref().map(|texts| &*texts.detail),
+            })
+        })
+        .collect())
 }
 
 /// One `list-agents` row. `state` is the roster state (`done` there is an

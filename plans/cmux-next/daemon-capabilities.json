@@ -118,6 +118,7 @@
     "loopback-forward-v1",
     "machine-identity-v1",
     "notification-ack-v1",
+    "notification-ledger-delta-v1",
     "notification-mark-unread-v1",
     "notification-source-v1",
     "origin-claim-v1",

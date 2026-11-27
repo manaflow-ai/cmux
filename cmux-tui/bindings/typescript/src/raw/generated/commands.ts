@@ -1536,6 +1536,7 @@ export type ListClientsResult = Array<T.ClientInfo>;
 export interface ListNotificationsRequest extends CmuxRequestBase {
   cmd: "list-notifications";
   "limit"?: (bigint) | null;
+  "since"?: (string) | null;
   /** true: the reply also carries agent_notice_stats. */
   "stats"?: boolean;
 }

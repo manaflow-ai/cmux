@@ -397,6 +397,7 @@ impl Mux {
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
             notification_posts: Mutex::new(HashMap::new()),
+            notification_list_log: Default::default(),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Arc::default(),

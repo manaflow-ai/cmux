@@ -153,7 +153,7 @@ public final class Commands {
     public static final CommandMetadata LIST_AGENTS = new CommandMetadata("list-agents", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_BOOKMARKS = new CommandMetadata("list-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_CLIENTS = new CommandMetadata("list-clients", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata LIST_NOTIFICATIONS = new CommandMetadata("list-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LIST_NOTIFICATIONS = new CommandMetadata("list-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.ofEntries(Map.entry("since", 12L)), Map.ofEntries(Map.entry("since", "notification-ledger-delta-v1")));
     public static final CommandMetadata LIST_PERSONAL = new CommandMetadata("list-personal", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_SAVED_SCREEN_GROUPS = new CommandMetadata("list-saved-screen-groups", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_SAVED_TAB_GROUPS = new CommandMetadata("list-saved-tab-groups", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());

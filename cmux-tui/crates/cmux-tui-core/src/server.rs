@@ -2022,6 +2022,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// `notification-ledger-delta-v1`: the `version` of the reply the client holds;
+        /// the reply then holds only the rows changed since it.
+        #[serde(default)]
+        since: Option<String>,
         /// true: the reply also carries `agent_notice_stats`, how often agent
         /// notices were read and how fast (`mux/agent_notice_stats.rs`).
         #[serde(default)]

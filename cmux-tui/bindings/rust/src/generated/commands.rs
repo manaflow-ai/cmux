@@ -2214,6 +2214,8 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<String>,
     /// true: the reply also carries agent_notice_stats.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub stats: Option<bool>,
@@ -5319,6 +5321,10 @@ impl CmuxClient {
     }
 
     pub fn list_notifications(&mut self, request: ListNotificationsRequest) -> Result<ListNotificationsResult> {
+        if !request.since.is_missing() {
+            self.require_protocol_field("list-notifications", 12)?;
+            self.require_capability_field("list-notifications", "notification-ledger-delta-v1")?;
+        }
         self.execute(&LIST_NOTIFICATIONS_METADATA, &request)
     }
 

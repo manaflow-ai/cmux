@@ -16505,6 +16505,7 @@ type ListClientsResult = []ClientInfo
 // ListNotificationsRequest is the exact list-notifications wire payload.
 type ListNotificationsRequest struct {
 	Limit Presence[uint64] `json:"-"`
+	Since Presence[string] `json:"-"`
 	// true: the reply also carries agent_notice_stats.
 	Stats *bool `json:"stats,omitempty"`
 }
@@ -16531,6 +16532,18 @@ func (value ListNotificationsRequest) MarshalJSON() ([]byte, error) {
 		}
 		object["limit"] = encodedField
 	}
+	if value.Since.IsAbsent() {
+		delete(object, "since")
+	} else if value.Since.IsNull() {
+		object["since"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Since.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListNotificationsRequest.Since: %w", err)
+		}
+		object["since"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -16540,6 +16553,7 @@ func (value *ListNotificationsRequest) UnmarshalJSON(data []byte) error {
 	}
 	var fields struct {
 		Limit Presence[uint64]          `json:"limit"`
+		Since Presence[string]          `json:"since"`
 		Stats optionalNonNullJSON[bool] `json:"stats"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -16548,6 +16562,7 @@ func (value *ListNotificationsRequest) UnmarshalJSON(data []byte) error {
 	type wire ListNotificationsRequest
 	var decoded wire
 	decoded.Limit = fields.Limit
+	decoded.Since = fields.Since
 	if fields.Stats.null {
 		return fmt.Errorf("decode ListNotificationsRequest: non-nullable field stats is null")
 	}
@@ -16562,6 +16577,7 @@ type ListNotificationsResult = JSONValue
 
 type ListNotificationsOptions struct {
 	Limit Presence[uint64] `json:"-"`
+	Since Presence[string] `json:"-"`
 	// true: the reply also carries agent_notice_stats.
 	Stats *bool `json:"stats,omitempty"`
 }
@@ -16588,6 +16604,18 @@ func (value ListNotificationsOptions) MarshalJSON() ([]byte, error) {
 		}
 		object["limit"] = encodedField
 	}
+	if value.Since.IsAbsent() {
+		delete(object, "since")
+	} else if value.Since.IsNull() {
+		object["since"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Since.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListNotificationsOptions.Since: %w", err)
+		}
+		object["since"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -16597,6 +16625,7 @@ func (value *ListNotificationsOptions) UnmarshalJSON(data []byte) error {
 	}
 	var fields struct {
 		Limit Presence[uint64]          `json:"limit"`
+		Since Presence[string]          `json:"since"`
 		Stats optionalNonNullJSON[bool] `json:"stats"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -16605,6 +16634,7 @@ func (value *ListNotificationsOptions) UnmarshalJSON(data []byte) error {
 	type wire ListNotificationsOptions
 	var decoded wire
 	decoded.Limit = fields.Limit
+	decoded.Since = fields.Since
 	if fields.Stats.null {
 		return fmt.Errorf("decode ListNotificationsOptions: non-nullable field stats is null")
 	}

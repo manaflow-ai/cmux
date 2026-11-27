@@ -82,10 +82,24 @@ public struct ListNotificationsRequest: DaemonRequest {
         }
     }
     public struct Response: Decodable, Sendable, Equatable {
+        /// The whole ledger, or with `delta` only the rows new or changed since `since`.
         public var notifications: [Entry]
+        /// The ledger's version (`notification-ledger-delta-v1`): send it back as `since`. Nil on older daemons,
+        /// and on a reply that is not the whole ledger.
+        public var version: String?
+        /// True when `notifications` and `removed` are the changes since the request's `since`.
+        public var delta: Bool?
+        /// With `delta`: ids of rows that left (cleared or evicted).
+        public var removed: [String]?
+
+        public init(notifications: [Entry], version: String? = nil, delta: Bool? = nil, removed: [String]? = nil) {
+            (self.notifications, self.version, self.delta, self.removed) = (notifications, version, delta, removed)
+        }
     }
     public static let command = "list-notifications"
     public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var limit: Int?
-    public init(limit: Int? = nil) { self.limit = limit }
+    /// The `version` of the reply the client holds (`notification-ledger-delta-v1`).
+    public var since: String?
+    public init(limit: Int? = nil, since: String? = nil) { (self.limit, self.since) = (limit, since) }
 }

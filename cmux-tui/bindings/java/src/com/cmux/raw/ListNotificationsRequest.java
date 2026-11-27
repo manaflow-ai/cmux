@@ -13,17 +13,20 @@ import java.util.Objects;
 /** Immutable list-notifications request. Protocol v12; authority: control. */
 public final class ListNotificationsRequest implements WireValue {
     private final Field<UInt64> limit;
+    private final Field<String> since;
     /** true: the reply also carries agent_notice_stats. */
     private final Field<Boolean> stats;
 
     private ListNotificationsRequest(Builder builder) {
         this.limit = builder.limit;
+        this.since = builder.since;
         this.stats = builder.stats;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public Field<UInt64> limit() { return limit; }
+    public Field<String> since() { return since; }
     public Field<Boolean> stats() { return stats; }
 
     public static ListNotificationsRequest fromWire(Object value) {
@@ -32,6 +35,10 @@ public final class ListNotificationsRequest implements WireValue {
         Object rawLimit = Wire.optional(object, "limit");
         if (!Wire.isMissing(rawLimit)) {
             builder.limit(rawLimit == null ? null : Wire.uint64(rawLimit, "ListNotificationsRequest.limit"));
+        }
+        Object rawSince = Wire.optional(object, "since");
+        if (!Wire.isMissing(rawSince)) {
+            builder.since(rawSince == null ? null : Wire.string(rawSince, "ListNotificationsRequest.since"));
         }
         Object rawStats = Wire.optional(object, "stats");
         if (!Wire.isMissing(rawStats)) {
@@ -44,6 +51,7 @@ public final class ListNotificationsRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "limit", limit);
+        Wire.put(object, "since", since);
         Wire.put(object, "stats", stats);
         return Collections.unmodifiableMap(object);
     }
@@ -51,21 +59,26 @@ public final class ListNotificationsRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ListNotificationsRequest that)) return false;
-        return Objects.equals(limit, that.limit) && Objects.equals(stats, that.stats);
+        return Objects.equals(limit, that.limit) && Objects.equals(since, that.since) && Objects.equals(stats, that.stats);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(limit, stats); }
+    public int hashCode() { return Objects.hash(limit, since, stats); }
 
     @Override
     public String toString() { return "ListNotificationsRequest" + toWire(); }
 
     public static final class Builder {
         private Field<UInt64> limit = Field.omitted();
+        private Field<String> since = Field.omitted();
         private Field<Boolean> stats = Field.omitted();
 
         public Builder limit(UInt64 value) {
             this.limit = Field.ofNullable(value);
+            return this;
+        }
+        public Builder since(String value) {
+            this.since = Field.ofNullable(value);
             return this;
         }
         public Builder stats(Boolean value) {

@@ -192,7 +192,7 @@ pub(super) fn is_remote_device(mux: &Mux, client: u64) -> bool {
 
 /// What `client` must not see, or None when it may see everything (it is
 /// not a remote device, or no workspace is incognito).
-fn for_client(mux: &Mux, client: u64) -> Option<Hidden> {
+pub(super) fn for_client(mux: &Mux, client: u64) -> Option<Hidden> {
     if !is_remote_device(mux, client) {
         return None;
     }

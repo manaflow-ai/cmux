@@ -274,8 +274,10 @@ mod layout_undo_commit;
 pub use events::{
     DeltaMutation, GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind,
 };
+mod notification_list_log;
 mod notification_types;
 mod notifications;
+pub use notification_list_log::NOTIFICATION_LEDGER_DELTA_CAPABILITY;
 pub use notification_types::{
     NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
     NotificationPost, NotificationPoster, NotificationSource, ResourceNotification,
@@ -786,6 +788,9 @@ pub struct Mux {
     /// The event number and poster of each ledger row this run posted
     /// (`notification_post`), dropped with the row.
     notification_posts: Mutex<HashMap<NotificationPublicId, NotificationPost>>,
+    /// The last `list-notifications` answer and its recent changes (`notification-ledger-delta-v1`).
+    /// Lock order: this, then the ledger and everything a row reads; nothing else takes it.
+    notification_list_log: Mutex<notification_list_log::NotificationListLog>,
     /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
     /// `workspace_registry`, then `state`; never take it while holding either.
     feed_local: Mutex<cmux_feed_core::Feed>,

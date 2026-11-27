@@ -221,6 +221,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
     /// (plans/cmux-next/notifications.md).
     case notificationSource = "notification-source-v1"
+    /// `since` on `list-notifications`: the rows changed since a reply's
+    /// `version`, not the whole ledger (`NotificationsPanelController`).
+    case notificationLedgerDelta = "notification-ledger-delta-v1"
     /// `shell_args` on the terminal-creating commands, so bash and nushell
     /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
     case terminalShellArgs = "terminal-shell-args-v1"
@@ -676,7 +679,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .terminalTailPin, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
-             .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
+             .browserRuntime, .notificationSource, .notificationLedgerDelta, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .launchSnapshotFlush, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,

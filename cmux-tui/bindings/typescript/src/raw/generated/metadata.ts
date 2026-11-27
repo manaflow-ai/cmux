@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b" as const;
+export const SDK_IR_SHA256 = "c1bff5074a6907b4243343e68d035e09886691a5e3ec67484a15ccba71c5ba4a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1736,7 +1736,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "notification-ack-v1",
-    "fields": {},
+    "fields": {
+      "since": {
+        "since": 12,
+        "capability": "notification-ledger-delta-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -24051,6 +24056,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "notification-ledger-delta-v1",
+          "constraints": [
+            "The version of the whole-ledger reply the client holds; the reply then holds only the rows changed since it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "stats": {

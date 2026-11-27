@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b"
+	SDKIRSHA256        = "c1bff5074a6907b4243343e68d035e09886691a5e3ec67484a15ccba71c5ba4a"
 )
 
 type Authority string
@@ -205,7 +205,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"list-agents":                        {Name: "list-agents", GoMethod: "ListAgents", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-bookmarks":                     {Name: "list-bookmarks", GoMethod: "ListBookmarks", Authority: AuthorityControl, Since: 12, Capability: "bookmarks-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-clients":                       {Name: "list-clients", GoMethod: "ListClients", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
-	"list-notifications":                 {Name: "list-notifications", GoMethod: "ListNotifications", Authority: AuthorityControl, Since: 12, Capability: "notification-ack-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"list-notifications":                 {Name: "list-notifications", GoMethod: "ListNotifications", Authority: AuthorityControl, Since: 12, Capability: "notification-ack-v1", Stream: "", FieldSince: map[string]uint32{"since": 12}, FieldCapabilities: map[string]string{"since": "notification-ledger-delta-v1"}},
 	"list-personal":                      {Name: "list-personal", GoMethod: "ListPersonal", Authority: AuthorityControl, Since: 12, Capability: "profiles-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-saved-screen-groups":           {Name: "list-saved-screen-groups", GoMethod: "ListSavedScreenGroups", Authority: AuthorityControl, Since: 12, Capability: "screen-groups-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-saved-tab-groups":              {Name: "list-saved-tab-groups", GoMethod: "ListSavedTabGroups", Authority: AuthorityControl, Since: 12, Capability: "saved-tab-groups-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},

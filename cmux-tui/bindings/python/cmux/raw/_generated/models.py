@@ -4161,6 +4161,7 @@ class ListClientsRequest:
 class ListNotificationsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-notifications/request'
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    since: Union[str, None, MissingType] = field(default=MISSING)
     stats: Union[bool, MissingType] = field(default=MISSING)
 
 

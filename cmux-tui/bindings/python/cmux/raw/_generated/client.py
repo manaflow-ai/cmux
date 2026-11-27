@@ -441,8 +441,8 @@ class GeneratedClientMixin:
     def list_clients(self) -> List[ClientInfo]:
         return self._invoke_command('list-clients', ListClientsRequest())
 
-    def list_notifications(self, *, limit: Union[int, None, MissingType] = MISSING, stats: Union[bool, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('list-notifications', ListNotificationsRequest(limit=limit, stats=stats))
+    def list_notifications(self, *, limit: Union[int, None, MissingType] = MISSING, since: Union[str, None, MissingType] = MISSING, stats: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('list-notifications', ListNotificationsRequest(limit=limit, since=since, stats=stats))
 
     def list_personal(self) -> JsonValue:
         return self._invoke_command('list-personal', ListPersonalRequest())

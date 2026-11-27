@@ -10230,6 +10230,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/since": {
+        "ty": "string",
+        "nullable": true
+      },
       "/stats": {
         "ty": "boolean"
       }

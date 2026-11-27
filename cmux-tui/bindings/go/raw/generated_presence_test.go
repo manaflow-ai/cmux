@@ -23619,6 +23619,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "limit", true, "1")
 	})
+	t.Run("ListNotificationsRequest.Since", func(t *testing.T) {
+		var missing ListNotificationsRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Since.IsAbsent() {
+			t.Fatal("Since did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "since", false, "")
+		var nullValue ListNotificationsRequest
+		if err := json.Unmarshal([]byte("{\"since\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Since.IsNull() {
+			t.Fatal("Since did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "since", true, "null")
+		var presentValue ListNotificationsRequest
+		if err := json.Unmarshal([]byte("{\"since\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Since.Get(); !ok {
+			t.Fatal("Since did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "since", true, "\"value\"")
+	})
 	t.Run("ListNotificationsRequest.Stats", func(t *testing.T) {
 		var missing ListNotificationsRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -23666,6 +23692,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Limit did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "limit", true, "1")
+	})
+	t.Run("ListNotificationsOptions.Since", func(t *testing.T) {
+		var missing ListNotificationsOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Since.IsAbsent() {
+			t.Fatal("Since did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "since", false, "")
+		var nullValue ListNotificationsOptions
+		if err := json.Unmarshal([]byte("{\"since\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Since.IsNull() {
+			t.Fatal("Since did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "since", true, "null")
+		var presentValue ListNotificationsOptions
+		if err := json.Unmarshal([]byte("{\"since\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Since.Get(); !ok {
+			t.Fatal("Since did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "since", true, "\"value\"")
 	})
 	t.Run("ListNotificationsOptions.Stats", func(t *testing.T) {
 		var missing ListNotificationsOptions
@@ -68265,8 +68317,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1914
-	generatedOptionalNullableFieldCount    = 1334
+	generatedFieldShapeCount               = 1916
+	generatedOptionalNullableFieldCount    = 1336
 	generatedRequiredNullableFieldCount    = 176
 	generatedOptionalNonnullableFieldCount = 404
 	generatedRequiredFieldCount            = 1634

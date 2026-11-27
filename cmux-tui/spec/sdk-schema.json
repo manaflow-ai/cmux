@@ -22168,6 +22168,20 @@
       "nullable": true,
       "default": null
      },
+     "since": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "notification-ledger-delta-v1",
+      "constraints": [
+       "The version of the whole-ledger reply the client holds; the reply then holds only the rows changed since it."
+      ]
+     },
      "stats": {
       "type": {
        "kind": "scalar",
