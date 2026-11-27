@@ -111,27 +111,31 @@ impl Ask {
 
     fn row(&self) -> Value {
         let mut row = match self.events.first() {
-            Some((_, _, Kind::Captured { row })) => row.clone(),
-            _ => json!({}),
+            Some((_, _, Kind::Captured { row: Value::Object(row) })) => row.clone(),
+            _ => serde_json::Map::new(),
         };
         let created = self.events.first().map(|(ts, ..)| *ts).unwrap_or_default();
-        row["status"] = json!(self.status());
+        row.insert("status".into(), json!(self.status()));
         if let Some((owner, at)) = self.owner() {
-            row["owner"] = json!(owner);
-            row["ownedAfterMs"] = json!(at.saturating_sub(created));
+            row.insert("owner".into(), json!(owner));
+            row.insert("ownedAfterMs".into(), json!(at.saturating_sub(created)));
         }
-        row["events"] = self
+        let events = self
             .events
             .iter()
             .skip(1)
             .map(|(ts, by, kind)| {
-                let mut event = serde_json::to_value(kind).unwrap_or_default();
-                event["ts"] = json!(ts);
-                event["by"] = json!(by);
-                event
+                let mut event = match serde_json::to_value(kind) {
+                    Ok(Value::Object(event)) => event,
+                    _ => serde_json::Map::new(),
+                };
+                event.insert("ts".into(), json!(ts));
+                event.insert("by".into(), json!(by));
+                Value::Object(event)
             })
             .collect();
-        row
+        row.insert("events".into(), events);
+        Value::Object(row)
     }
 }
 
