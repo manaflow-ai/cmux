@@ -86,7 +86,7 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       return frames;
     });
 
-  test("opening the tray at the latest row draws the rows up only for the live line, and folding it moves none", async () => {
+  test("opening the tray at the latest row draws the rows up only for the live line, and folding it brings them back to rest", async () => {
     const port = (server.httpServer!.address() as { port: number }).port;
     const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
     try {
@@ -116,9 +116,15 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       const rose = -opened.at(-1)!.moved;
       expect(rose).toBeLessThan(-Math.min(...opened.map((frame) => frame.tray)) - 20);
 
+      // Folding gives back the room the open drew the rows up by: they come down on the fold's own
+      // frames, never back up, and rest where they did before it opened, with no blank room left
+      // under the last row (Leo, ask-31a1e4b192, 2026-11-27: "this isn't great").
       const folded = await toggle(page);
       expect(await head.getAttribute("aria-expanded")).toBe("false");
-      for (const frame of folded) expect(Math.abs(frame.moved)).toBeLessThanOrEqual(0.5);
+      for (const frame of folded) expect(frame.moved).toBeGreaterThanOrEqual(-0.5);
+      for (let index = 1; index < folded.length; index++)
+        expect(folded[index]!.moved).toBeGreaterThanOrEqual(folded[index - 1]!.moved - 0.5);
+      expect(Math.abs(folded.at(-1)!.moved - rose)).toBeLessThanOrEqual(1);
     } finally {
       await page.close();
     }
