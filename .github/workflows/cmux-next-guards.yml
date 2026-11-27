@@ -977,6 +977,11 @@ jobs:
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_check_first_party_licenses.py
+          python3 scripts/cmux-next/notices/test_compose_notices.py
+          python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
+          python3 scripts/cmux-next/notices/test_ios_notices.py
+          python3 scripts/cmux-next/notices/test_ios_source_archive.py
 
       - name: Every runtime-added app capability is skipped by the static check
         if: ${{ !cancelled() }}

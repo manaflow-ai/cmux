@@ -360,7 +360,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-dev-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-fast-gates.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,

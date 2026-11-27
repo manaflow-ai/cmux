@@ -87,7 +87,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-guards.yml": 0,
     "cmux-next-media.yml": 0,
     "cmux-next-motion-golden.yml": 0,
-    "cmux-next-notices.yml": 0,
     "cmux-next-perf-budgets.yml": 0,
     "cmux-next-remote-daemon.yml": 0,
     "cmux-next-shell-integration.yml": 0,

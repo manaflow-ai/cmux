@@ -30,7 +30,7 @@ REGISTERED = frozenset({
     "cloud-composer-journey.yml", "cloud-rd-link-readback.yml", "cloud-vm-dogfood.yml", "cloud-vm-image-bake.yml",
     "cloud-vm-image-promote.yml", "cloud-vm-migrate.yml", "cmux-actions.yml",
     "cmux-api-prod-logs.yml", "cmux-next-daemon-macos-shadow.yml", "cmux-next-dev-daily.yml",
-    "cmux-next-fast-gates.yml", "cmux-next-frame-pacing.yml", "cmux-next-notices.yml", "cmux-next-perf-bench.yml",
+    "cmux-next-fast-gates.yml", "cmux-next-frame-pacing.yml", "cmux-next-perf-bench.yml",
     "cmux-next-perf-budgets.yml", "cmux-next-tip-test-compile.yml", "cmux-next-web-bundles.yml",
     "cmux-next-web-pieces.yml", "cmux-next-web.yml", "cmux-platform-prod-logs.yml", "cmux-tui-release-cut.yml",
     "cmux-tui-testbox-warmup.yml", "cmux-tui.yml", "fast-checks.yml",

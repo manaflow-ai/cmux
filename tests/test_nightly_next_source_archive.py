@@ -161,8 +161,6 @@ def test_the_link_graph_blocks() -> None:
     block = block[: block.index("\n      - name:", 1)]
     assert "--link-graph scripts/cmux-next/notices/vt-link-graph.json" in block
     assert "continue-on-error" not in dry_run, "no dry-run notices step may be soft"
-    notices = (ROOT / ".github" / "workflows" / "cmux-next-notices.yml").read_text(encoding="utf-8")
-    assert "--check-link-graph scripts/cmux-next/notices/vt-link-graph.json" in notices
 
 
 def test_no_other_step_reads_the_soft_outcome() -> None:
