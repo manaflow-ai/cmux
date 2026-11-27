@@ -510,8 +510,8 @@ async fn authored_presence_over_a_dashboard_token_link_is_refused() {
             json!({"sessionId": "b/web-shared", "visible": true, "_meta": {"acpmux": {"author": author}}}),
         ),
     ] {
-        let refused = ca.call(m, params).await.unwrap_err();
-        assert!(refused.contains("author.origin_refused"), "{m}: {refused}");
+        let refused = ca.raw(m, params).await;
+        assert_eq!(refused["error"]["data"]["reason"], "author.origin_refused", "{m}: {refused}");
     }
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
