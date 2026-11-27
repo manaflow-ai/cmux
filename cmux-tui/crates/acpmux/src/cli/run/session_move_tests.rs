@@ -1222,11 +1222,11 @@ fn from_a_hub_machine_names_its_chats_on_that_machine() {
         cwd: None,
         dry_run: false,
         resume_there: false,
-        from: Some("gcp-agent-lane-19".into()),
+        from: Some("vm-b".into()),
         from_snapshot: false,
         as_harness: None,
     };
-    from_hub_machine(&mut args, "gcp-agent-lane-19");
-    assert_eq!(args.sessions, vec!["gcp-agent-lane-19/01a21a8f", "other-host/abc"]);
+    from_hub_machine(&mut args, "vm-b");
+    assert_eq!(args.sessions, vec!["vm-b/01a21a8f", "other-host/abc"]);
     assert_eq!(args.from, None);
 }
