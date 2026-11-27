@@ -2,11 +2,12 @@
 """DaemonWireTypesPlugin's pickPython finds a 3.10+ Python the way a plugin run sees the host.
 
 Xcode and SwiftPM run the plugin's `/bin/sh -c pickPython` with PATH=/usr/bin:/bin. A Homebrew python installed as
-another formula's dependency links only bin/python3.13, never bin/python3, so the old script, which looked only at the
-unversioned names and then PATH, failed every build on aws-m4pro-1..3 (2026-11-27). This runs the script text from
-plugin.swift under /bin/sh with an empty PATH and its absolute prefixes (/opt/homebrew, /usr/local,
-/Library/Frameworks) moved under a temporary root, so no host's own Python can answer: each case plants fake
-interpreters there and checks which one the script runs. No Swift build, no Python 3.10; runs on macOS and Linux.
+another formula's dependency links only bin/python3.13, never bin/python3, so the script before 7b1ef3fb, which
+looked only at the unversioned names in its fixed folders and then PATH, failed every build on aws-m4pro-1..3
+(2026-11-27). This runs the script text from plugin.swift under /bin/sh with an empty PATH and its absolute prefixes
+(/opt/homebrew, /usr/local, /Library/Frameworks) moved under a temporary root, so no host's own Python can answer:
+each case plants fake interpreters there and checks which one the script runs. No Swift build, no Python 3.10; runs
+on macOS and Linux.
 
     python3 scripts/cmux-next/tests/test_daemon_wire_types_pick_python.py
 """
@@ -94,12 +95,12 @@ class PickPython(unittest.TestCase):
         self.plant("/opt/homebrew/bin/python3.13", "brew-3.13")
         self.assert_ran(self.run_script(), "brew-3.13")
 
-    def test_usr_local_keg_with_no_linked_name(self):
-        self.plant("/usr/local/opt/python@3.12/libexec/bin/python3", "keg-3.12")
-        self.assert_ran(self.run_script(), "keg-3.12")
+    def test_usr_local_python_linked_only_by_its_versioned_name(self):
+        self.plant("/usr/local/bin/python3.12", "local-3.12")
+        self.assert_ran(self.run_script(), "local-3.12")
 
-    def test_python_org_version_without_current(self):
-        self.plant("/Library/Frameworks/Python.framework/Versions/3.11/bin/python3", "org-3.11")
+    def test_python_org_current_with_only_a_versioned_name(self):
+        self.plant("/Library/Frameworks/Python.framework/Versions/Current/bin/python3.11", "org-3.11")
         self.assert_ran(self.run_script(), "org-3.11")
 
     def test_an_old_python3_is_passed_over_for_a_versioned_one(self):
