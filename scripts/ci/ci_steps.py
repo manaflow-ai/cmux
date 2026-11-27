@@ -658,6 +658,8 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("route")
     r.add_argument("--paths-file")
     r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
+    r.add_argument("--tier", choices=("pr", "full"), default="full",
+                   help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")

@@ -411,7 +411,6 @@ SKIPPED = {"web lint": "no web path changed",
            "crash-class rules": "the pull request tier leaves it to the push tier (cmux-next-crash-class.yml); "
                                 "the full-ci label or vars.CI_FAST_GATES_PR_TIER=full runs it here",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
-           "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
                               "for a webviews/ change on this merge"}
 

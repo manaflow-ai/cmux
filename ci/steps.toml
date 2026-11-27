@@ -1863,6 +1863,7 @@ CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 # full-ci, a whole-shard pick, the audit sample and CI_REACT_APPS_FLEET=0 keep the matrix, and this step exits 0.
 [step.react-apps-check]
 job = "web-browser"
+tier = "push"
 timeout = 1800
 # Its verdict follows the head's labels, sha and base, not only its tree.
 reuse = false
@@ -2414,6 +2415,7 @@ exit "$status"
 # The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
 [step.cmux-vm-cloud]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "cmux VM cloud API"
 about = "the backend API typechecks, the protocol catalog and generated clients match, the Team VM and server pairing tests pass, and backend sources stay under the size limit"
@@ -2453,6 +2455,7 @@ exit "$status"
 # the workflow's push and dispatch runs; here the musl release build only has to succeed.
 [step.cmux-cloud-cli]
 job = "linux"
+tier = "push"
 timeout = 900
 alone = true
 title = "cmux cloud CLI"
@@ -2486,6 +2489,7 @@ exit "$status"
 # cmux-tui test compile). The build env the job set: the ghostty-next gitlink's sources, Zig from PATH.
 [step.app-store-shelf]
 job = "linux"
+tier = "push"
 timeout = 2700
 alone = true
 title = "App Store shelf"
@@ -2519,6 +2523,7 @@ bash scripts/ci/app-store-shelf-check.sh
 # 2026-11-19): CI_WARNINGS is soft on a pull request, deny in the post-merge batch.
 [step.cmux-vm-clients-rust]
 job = "linux"
+tier = "push"
 timeout = 1800
 alone = true
 title = "cmux VM Rust clients"
@@ -3140,6 +3145,7 @@ esac
 # `needs: test` runs the job first). Its inputs are the workflow's own paths.
 [step.fleet-artifact-cdn-test]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Fleet artifact edge tests"
 about = "the fleet artifact edge Worker (workers/fleet-artifacts) passes its edge authentication and read-only deployment check tests (node --test)"
