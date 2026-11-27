@@ -40,6 +40,39 @@ fn failed_exec_restores_explicit_descriptor_flags() {
     assert_eq!(flags(without_cloexec.as_raw_fd()).unwrap(), libc::FD_CLOEXEC);
 }
 
+#[test]
+fn descriptor_fallback_seals_fds_above_a_lowered_soft_limit() {
+    const CHILD: &str = "CMUX_TEST_EXEC_LOWERED_LIMIT";
+    const TEST: &str = "exec::tests::descriptor_fallback_seals_fds_above_a_lowered_soft_limit";
+    if std::env::var_os(CHILD).is_none() {
+        // The lowered process-wide limit must not affect other tests in this harness.
+        let status = crate::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "lowered descriptor limit fixture exited {status}");
+        return;
+    }
+    let file = File::open("/dev/null").unwrap();
+    // SAFETY: this duplicates a live descriptor, which the OwnedFd below takes ownership of.
+    let raw = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 200) };
+    assert!(raw >= 200, "create a descriptor above the later soft limit");
+    // SAFETY: successful F_DUPFD_CLOEXEC returned a new descriptor owned by this test.
+    let high = unsafe { OwnedFd::from_raw_fd(raw) };
+    set_flags(high.as_raw_fd(), 0).unwrap();
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: limit is writable storage of the correct type.
+    assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) }, 0);
+    limit.rlim_cur = 64;
+    // SAFETY: only this isolated child process's soft descriptor limit is reduced.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
+    assert_eq!(flags(high.as_raw_fd()).unwrap(), 0, "lowering the limit leaves high fds open");
+    // Exercise enumeration even on Linux kernels that normally use close_range instead.
+    mark_open_descriptors().unwrap();
+    assert_ne!(flags(high.as_raw_fd()).unwrap() & libc::FD_CLOEXEC, 0);
+}
+
 /// Runs twice in one child PID, across a real exec. A held flock and a connect queued
 /// before exec must survive continuously, while an unrelated non-CLOEXEC fd must close.
 #[test]

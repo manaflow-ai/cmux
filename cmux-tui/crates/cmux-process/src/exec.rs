@@ -156,11 +156,21 @@ fn mark_other_descriptors() -> io::Result<()> {
             return Err(error);
         }
     }
-    // Platforms without close_range: the descriptor table's limit, without truncating at
-    // 65536 (a live high-numbered listener must not cause an unrelated descriptor to leak).
-    // SAFETY: getdtablesize reads this process's descriptor table limit.
-    let limit = unsafe { libc::getdtablesize() }.max(3);
-    for fd in 3..limit {
+    mark_open_descriptors()
+}
+
+fn mark_open_descriptors() -> io::Result<()> {
+    // Enumerate actual descriptors, not RLIMIT_NOFILE: lowering the soft limit leaves
+    // existing higher-numbered descriptors open. If the table cannot be read, refuse exec.
+    let directory = if cfg!(target_os = "linux") { "/proc/self/fd" } else { "/dev/fd" };
+    for entry in std::fs::read_dir(directory)? {
+        let name = entry?.file_name();
+        let fd: RawFd = name.to_str().and_then(|name| name.parse().ok()).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "invalid descriptor table entry")
+        })?;
+        if fd <= 2 {
+            continue;
+        }
         match flags(fd) {
             Ok(flags) if flags & libc::FD_CLOEXEC == 0 => {
                 set_flags(fd, flags | libc::FD_CLOEXEC)?;
