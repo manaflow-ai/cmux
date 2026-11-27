@@ -34,6 +34,12 @@ on:
     branches:
       - nightly-next
 
+# A new push to the PR cancels the stale measurement (two macOS-class benches per head otherwise).
+# Label events get a group of their own so they never cancel the head's run.
+concurrency:
+  group: chat-open-perf-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
