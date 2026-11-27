@@ -183,6 +183,52 @@ async fn work_outside_an_acpmux_turn_is_refused_as_busy() {
     assert!(closed(&s));
 }
 
+/// A chat flagged unstored whose conversation Claude did store after all stops: the conditional
+/// stop confirms the store itself. Red on the base: only the idle pass cleared the flags, and only
+/// for a session with a live child, so an unloaded chat refused every `--if-idle` stop as
+/// `unstored` (the session closer could not close it). One never stored still refuses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unstored_chat_claude_stored_after_all_stops() {
+    use crate::config::{Config, StoreMode};
+    const CHAT: &str = "0199a1b2-0000-7000-8000-00000000c1a2";
+    let if_idle = StopCondition { if_idle: true, expect_revision: None };
+    let root = std::env::temp_dir().join(format!("acpmux-stop-stored-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let cwd = root.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake], "env": {"CLAUDE_CONFIG_DIR": root}}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(cwd.clone()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    {
+        let mut m = s.meta.lock().unwrap();
+        m.agent_session_id = Some(CHAT.into());
+        m.claude_unstored = true;
+        m.claude_unstored_work = true;
+        m.turn_count = 1;
+    }
+    let e =
+        hub.stop(&s, false, if_idle).await.expect_err("a conversation never stored was stopped");
+    assert_eq!(reason(&e).1, json!("unstored"));
+    assert!(!closed(&s));
+
+    let dir = root.join("projects").join(crate::adopt::project_dir_name(&cwd));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{CHAT}.jsonl")), "{\"type\":\"user\"}\n").unwrap();
+    hub.stop(&s, false, if_idle).await.expect("a stored conversation was refused");
+    assert!(closed(&s));
+    assert!(!s.meta().claude_unstored, "the store has it");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// An agent-side failure no automatic continuation picks up (a 503 would be continued first,
 /// `auto_resume.rs`; once that gives up, its turn ends the same way).
 const ERR: &str = "the agent failed this prompt";

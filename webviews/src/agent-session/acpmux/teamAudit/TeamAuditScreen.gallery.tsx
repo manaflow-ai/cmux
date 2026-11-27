@@ -216,7 +216,7 @@ export default componentEntry<Props>({
       props: { ...base, load: async () => ({ status: "signedOut" }) },
     },
     error: {
-      note: "The read failed: the status says so and offers Try again.",
+      note: "The read keeps failing: the page asks again on its own, and past the deadline one quiet line says it is still trying, with no button.",
       props: { ...base, load: async () => ({ status: "failed", message: "cmux-platform refused (503)" }) },
     },
     older: {

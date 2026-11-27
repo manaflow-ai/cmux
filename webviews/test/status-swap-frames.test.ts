@@ -81,7 +81,8 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,
     });
-    await page.locator(".acpmux-running-tray__latest").waitFor({ timeout: 30_000 });
+    if (!variant.startsWith("rapid-send"))
+      await page.locator(".acpmux-running-tray__latest").waitFor({ timeout: 30_000 });
     await page.locator('[data-status-swap="line"] .cv-thinking').waitFor({ timeout: 30_000 });
     return page;
   }
@@ -240,7 +241,8 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
       test(`${name}${lagging ? ", lagging" : ""}: every frame of a status change shows one line of words`, async () => {
         const page = await open(name);
         if (lagging) await lag(page, 40, 70);
-        const report: Report = await run(page, 8, 260);
+        // Steps further apart than the line's dwell (Thinking.tsx `LINE_DWELL_MS`), so each one rolls at once.
+        const report: Report = await run(page, 8, 400);
         console.log(`STATUS_SWAP_REPORT ${JSON.stringify({ engine: name, lagging, ...report })}`);
         await page.close();
         for (const which of ["hat", "line"] as const) {
@@ -337,4 +339,59 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
       expect(report.labels).toEqual(["Thinking", "Sending a message", "Thinking"]);
       expect({ pops: report.pops, examples: report.examples }).toEqual({ pops: 0, examples: [] });
     });
+
+  // Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your tool
+  // call/thinking glimmer text rapidly flickering up with very bad/nonexistent fade-in fade-out". The
+  // stage's burst flips the line through nine words 60 ms apart. Every painted frame is read: the words
+  // the line shows, and how often it rolled. With the dwell (Thinking.tsx `LINE_DWELL_MS`) the line rolls
+  // at most three times and every words it shows stay up a dwell; before it (`rapid-send-before`), each
+  // step rolled. STATUS_SWAP_FRAMES_DIR keeps a still of each painted frame, for the PR's media.
+  for (const [name] of engines)
+    for (const variant of ["rapid-send", "rapid-send-before"] as const)
+      test(`${name}: a burst of sends ${variant === "rapid-send" ? "rolls at most three times" : "rolled every step before the dwell"}`, async () => {
+        const page = await open(name, variant);
+        const dir = process.env.STATUS_SWAP_FRAMES_DIR;
+        const report = await page.evaluate(async () => {
+          const line = () => document.querySelector<HTMLElement>('[data-status-swap="line"] .cv-thinking');
+          const shown: { text: string; at: number }[] = [];
+          let rolls = 0;
+          let frames = 0;
+          let last = line()?.getAttribute("data-roll") ?? null;
+          const read = () => {
+            const node = line();
+            if (!node) return;
+            frames += 1;
+            const roll = node.getAttribute("data-roll");
+            if (roll !== last) rolls += 1;
+            last = roll;
+            const text = (node.textContent ?? "").replace(/\s*\d+s.*$/, "").trim();
+            if (shown.at(-1)?.text !== text) shown.push({ text, at: performance.now() });
+          };
+          read();
+          const stop = window.cmuxAfterPaint(read);
+          const started = performance.now();
+          document.querySelector<HTMLElement>('[data-stage="burst"]')!.click();
+          while (performance.now() - started < 1_400) await window.cmuxPaintFrame();
+          stop();
+          const held = shown.slice(1, -1).map((words, index) => Math.round(shown[index + 2]!.at - words.at));
+          return { frames, rolls, words: shown.map((words) => words.text), held };
+        });
+        if (dir) {
+          await page.evaluate(() => document.documentElement.removeAttribute("data-burst-rolls"));
+          await page.click('[data-stage="burst"]');
+          for (let shot = 0; shot < 18; shot++)
+            await page
+              .locator('[data-status-swap="line"]')
+              .screenshot({ path: path.join(dir, `${name}-${variant}-${String(shot).padStart(2, "0")}.png`) });
+        }
+        console.log(`STATUS_BURST_REPORT ${JSON.stringify({ engine: name, variant, ...report })}`);
+        await page.close();
+        expect(report.frames).toBeGreaterThan(20);
+        expect(report.words.at(-1)).toContain("Thinking");
+        if (variant === "rapid-send") {
+          expect(report.rolls, `words: ${report.words.join(" | ")}`).toBeLessThanOrEqual(3);
+          // Each words the burst showed stayed up a dwell less a frame's slack.
+          for (const ms of report.held) expect(ms, `held ${report.held.join(", ")}`).toBeGreaterThanOrEqual(300);
+        } else expect(report.rolls, `words: ${report.words.join(" | ")}`).toBeGreaterThanOrEqual(6);
+      });
 });
