@@ -88,6 +88,9 @@ struct BrowserActionDispatcher {
         case .hideFind:
             panel.hideFind()
             return true
+        case .useSelectionForFind:
+            panel.useSelectionForFindOrBeep()
+            return true
         }
     }
 

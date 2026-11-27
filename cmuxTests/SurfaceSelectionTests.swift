@@ -554,7 +554,10 @@ struct SurfaceSelectionTests {
         try await loader.load(
             """
             <!doctype html>
-            <html><body><p id="passage">before needle words after</p></body></html>
+            <html><body>
+              <p id="passage">before needle words after</p>
+              <p id="other">before second phrase after</p>
+            </body></html>
             """,
             baseURL: URL(fileURLWithPath: "/tmp/cmux-use-selection-for-find/document.html"),
             in: panel.webView
@@ -564,14 +567,34 @@ struct SurfaceSelectionTests {
         #expect(await panel.useSelectionForFind() == false)
         #expect(panel.searchState == nil)
 
-        let prepared = try await panel.webView.callAsyncJavaScript(
+        let firstSelection = try await selectText("needle words", inElement: "passage", of: panel.webView)
+        #expect(firstSelection == "needle words")
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "needle words")
+
+        // With the bar already open, a new selection replaces the needle.
+        // Find wraps its matches in <mark> elements, which replaces the text
+        // node that held the first selection, so select in a paragraph the
+        // first search leaves alone.
+        let secondSelection = try await selectText("second phrase", inElement: "other", of: panel.webView)
+        #expect(secondSelection == "second phrase")
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "second phrase")
+    }
+
+    private func selectText(
+        _ text: String,
+        inElement elementID: String,
+        of webView: WKWebView
+    ) async throws -> String? {
+        try await webView.callAsyncJavaScript(
             """
             return await new Promise((resolve) => {
-              const node = document.getElementById('passage').firstChild;
-              const start = node.textContent.indexOf('needle words');
+              const node = document.getElementById(elementID).firstChild;
+              const start = node.textContent.indexOf(text);
               const range = document.createRange();
               range.setStart(node, start);
-              range.setEnd(node, start + 'needle words'.length);
+              range.setEnd(node, start + text.length);
               const selection = window.getSelection();
               selection.removeAllRanges();
               document.addEventListener(
@@ -582,19 +605,10 @@ struct SurfaceSelectionTests {
               selection.addRange(range);
             });
             """,
-            arguments: [:],
+            arguments: ["elementID": elementID, "text": text],
             in: nil,
             contentWorld: .page
-        )
-        #expect(prepared as? String == "needle words")
-
-        #expect(await panel.useSelectionForFind())
-        #expect(panel.searchState?.needle == "needle words")
-
-        // With the bar already open, a new selection replaces the needle.
-        panel.searchState?.needle = "typed"
-        #expect(await panel.useSelectionForFind())
-        #expect(panel.searchState?.needle == "needle words")
+        ) as? String
     }
 
     private func snapshot(

@@ -1064,8 +1064,10 @@ struct cmuxApp: App {
                     Divider()
 
                     splitCommandButton(title: String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find"), shortcut: menuShortcut(for: .useSelectionForFind)) {
-                        restoreFindTargetFocus()
-                        activeTabManager.searchSelection()
+                        if !performFocusedBrowserAction(.useSelectionForFind) {
+                            restoreFindTargetFocus()
+                            activeTabManager.searchSelection()
+                        }
                     }
                     .disabled(!(activeTabManager.canUseSelectionForFind))
 

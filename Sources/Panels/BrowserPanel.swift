@@ -7766,6 +7766,16 @@ extension BrowserPanel {
         return true
     }
 
+    /// Shortcut, menu and Dock entry point for Use Selection for Find. The
+    /// page selection is read asynchronously, so a miss is reported with a
+    /// beep rather than a return value.
+    func useSelectionForFindOrBeep() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !(await self.useSelectionForFind()) { NSSound.beep() }
+        }
+    }
+
     func findNext() {
         performDiffViewerFindActionOrFallback(.next) { [weak self] in
             self?.performNativeFindNext()

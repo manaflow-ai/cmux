@@ -1018,9 +1018,7 @@ class TabManager: ObservableObject {
             return
         }
         if let browserPanel = focusedBrowserPanel {
-            Task { @MainActor in
-                if !(await browserPanel.useSelectionForFind()) { NSSound.beep() }
-            }
+            browserPanel.useSelectionForFindOrBeep()
             return
         }
         focusedTextFilePreviewPanel?.useSelectionForFind()
