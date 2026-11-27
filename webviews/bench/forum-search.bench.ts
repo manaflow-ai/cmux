@@ -83,7 +83,7 @@ for (let round = 0; round < ROUNDS; round++) {
   await page.close();
 }
 await browser.close();
-void statics.stop();
+await statics.stop();
 fs.rmSync(out, { recursive: true, force: true });
 
 for (const key of ["inp", "settled"] as const) {
