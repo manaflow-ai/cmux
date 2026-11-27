@@ -16,7 +16,9 @@ name: cmux-next base autofix
 # webviews formatting (vp fmt in the read-only webviews-fmt job), cargo clippy --fix
 # (machine-applicable lints, on the crates the changed cmux-tui Rust can affect:
 # scripts/cmux-next/autofix-clippy.sh --affected), cargo fmt
-# in cmux-tui and the OptChat crates, and every tracked Cargo.lock that no longer
+# in cmux-tui and the OptChat crates, the acpmux protocol IR and ABI surface (acpmux's
+# protocol tests with ACPMUX_PROTOCOL_BLESS=1, which bless the surface only when every
+# ABI break has a compat rule), and every tracked Cargo.lock that no longer
 # matches its workspace's manifests (scripts/cmux-next/cargo-locks.py fix: a
 # manifest change in one workspace can leave another's lock stale, as
 # eb4f3eb1d94's direct push did to cmux-app-ffi). Each
@@ -1217,6 +1219,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          ACPMUXIR: ${{ steps.areas.outputs.acpmuxir }}
           IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
@@ -1338,6 +1341,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          ACPMUXIR: ${{ steps.areas.outputs.acpmuxir }}
           IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}

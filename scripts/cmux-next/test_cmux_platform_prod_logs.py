@@ -218,6 +218,32 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_window_keeps_a_vm_create_lines_phases_and_drops_its_ids(self):
+        # cmux-vm handlers/vms.ts vmCreateLine via lib/timing.ts logTimedEvent: a JSON line keyed `event`, not `msg`.
+        slow = event({"event": "vm_create", "vmId": VM, "ok": False, "recovered": False, "enteredAt": 1795721451000,
+                      "preMs": 3, "recoverMs": None, "createMs": 120004, "recoverAfterMs": 1532, "resizeMs": None,
+                      "meshAtCreate": True, "meshId": "mesh_hunter2", "meshJoined": False, "memberMs": None,
+                      "providerTotalMs": 121536, "providerTimingsMs": {"create": 120004, "hunter2 " + VM: 5},
+                      "imageVariant": None, "totalMs": 121540})
+        other = event({"event": "vm_other", "vmId": VM})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [slow, other]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        self.assertEqual(header["logs_dropped_unlisted"], 1)
+        (row,) = rows
+        self.assertEqual(row["log"], {"event": "vm_create", "ok": False, "recovered": False, "meshAtCreate": True,
+                                      "meshJoined": False, "preMs": 3, "createMs": 120004, "recoverAfterMs": 1532,
+                                      "providerTotalMs": 121536, "totalMs": 121540,
+                                      "providerTimingsMs": {"create": 120004}})
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
+            self.assertNotIn(leak, text)
+
     def test_cmux_vm_refuses_an_id_scoped_read(self):
         path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
         try:
