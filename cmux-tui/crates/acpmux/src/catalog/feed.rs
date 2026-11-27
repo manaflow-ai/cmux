@@ -58,6 +58,12 @@ pub struct FeedSnapshot {
 }
 
 impl FeedSnapshot {
+    /// The display name this read kept for `provider`, kept or not.
+    #[cfg(test)]
+    pub fn name_of(&self, provider: &str) -> Option<&str> {
+        self.names.get(provider).map(String::as_str)
+    }
+
     /// Whether this read kept `provider`'s models (a rule named it when it was parsed).
     pub fn has_models_of(&self, provider: &str) -> bool {
         self.models.contains_key(provider)
@@ -88,14 +94,32 @@ struct RawProvider {
     models: Value,
 }
 
+/// A provider the rules do not name: its name only, its models skipped unread.
+#[derive(Deserialize)]
+struct RawProviderName {
+    #[serde(default)]
+    name: Value,
+}
+
 /// Reads one feed body (models.dev's `{provider: {name, models: {id: model}}}`), keeping the
 /// models of `keep`. A malformed model is skipped; only a body that is not that object fails.
+/// Each provider is first borrowed as its raw bytes, and only a kept one's models are built as
+/// values: the whole body read as one value tree held about 50 MB at once for a 5 MB feed, at
+/// every daemon start and hourly refresh, the largest transient of a restart (goal
+/// infinite-chats, `god_daemon` `chat_size_sweep` `/restartPeakRss`).
 pub fn parse(body: &[u8], keep: &BTreeSet<String>) -> Result<FeedSnapshot, String> {
-    let raw: BTreeMap<String, Value> = serde_json::from_slice(body)
+    let raw: BTreeMap<String, &serde_json::value::RawValue> = serde_json::from_slice(body)
         .map_err(|e| format!("the model feed is not an object: {e}"))?;
     let mut snapshot = FeedSnapshot::default();
     for (id, value) in raw {
-        let Ok(provider) = RawProvider::deserialize(value) else { continue };
+        let provider = if keep.contains(&id) {
+            serde_json::from_str::<RawProvider>(value.get()).ok()
+        } else {
+            serde_json::from_str::<RawProviderName>(value.get())
+                .ok()
+                .map(|p| RawProvider { name: p.name, models: Value::Null })
+        };
+        let Some(provider) = provider else { continue };
         snapshot.names.insert(id.clone(), text(&provider.name).unwrap_or_else(|| id.clone()));
         if !keep.contains(&id) {
             continue;
