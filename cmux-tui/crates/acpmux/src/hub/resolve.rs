@@ -346,6 +346,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         icon: None,
         name_given: false,
         former_names: Vec::new(),
+        succeeds: Vec::new(),
+        roles: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -408,7 +410,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
-        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -424,6 +425,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         wait_start: false,
         throwaway: false,
         create_key: None,
+        placed_by: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
         close: None,
@@ -444,6 +446,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        pinned: false,
         preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
@@ -471,6 +474,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cold: None,
         auto_session: None,
         fork_of_subagent: None,
+        // A new chat starts on Auto; a pick is the chat's own and never a default.
+        place_mode: None,
     }
 }
 

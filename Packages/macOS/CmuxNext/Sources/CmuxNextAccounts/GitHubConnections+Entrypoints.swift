@@ -13,7 +13,7 @@ extension GitHubConnections {
     /// Without a repository (the palette, Settings, `cmux accounts github-connect`) the App opens
     /// Settings > Accounts first, as before.
     public func connectResult(_ invocation: ActionInvocation? = nil) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
-        await connect(repo: invocation?["repo"]?.stringValue, returnTo: invocation?["returnTo"]?.stringValue)
+        await connect(repo: invocation?["repo"]?.stringValue, org: invocation?["org"]?.stringValue, returnTo: invocation?["returnTo"]?.stringValue)
         let state = pageState
         let detail = state["detail"]?.stringValue ?? ""
         if error { return .failure(ActionWorkFailure(detail)) }

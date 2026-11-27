@@ -233,6 +233,11 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// The composer's text view: the stack's reported height leaves out how
+    /// far its attachment strip reaches above the field (`ComposerFieldRef`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
+    /// The bottom stack as drawn, its attachment strip included (`ComposerProof`).
+    @ObservationIgnored var drawnStackFrame: CGRect = .zero
     /// A workspace tab's composer stack at rest (the keyboard down), as its transcript placed it
     /// last. The tab's grid card and its page both place the newest turn from this one value
     /// (`restingTranscriptBottomInset`), so a card opens into its page without a jump.
@@ -562,7 +567,7 @@ public struct AgentChatTranscript: View {
 
     public var body: some View {
         // The chat in the light or dark style of the Mac's theme while it follows the Mac.
-        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+        transcript.cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
     }
 
     private var transcript: some View {
@@ -789,9 +794,9 @@ struct AgentChatJumpButton: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: metrics.smallCircle, height: metrics.smallCircle)
-                        .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
-                        // A tinted glass disc, so transcript text under it never reads through the arrow.
-                        .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
+                        // Floating glass with the theme's veil, so transcript text under it never reads
+                        // through the arrow (an opaque stock disc was a black dot on the Mac's picture).
+                        .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                         // The 36 pt disc in a 44 pt target.
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
@@ -799,7 +804,7 @@ struct AgentChatJumpButton: View {
                                 CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
-                                    .background(Color.cmuxMobileBackground, in: .circle)
+                                    .cmuxMobileFloatingGlass(in: .circle)
                                     .allowsHitTesting(false)
                                     .accessibilityHidden(true)
                             }
@@ -826,8 +831,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    /// The composer's top in the stack: what the stack shows over it (an error, plan
-    /// progress, queued prompts) and their spacing.
+    /// The composer's top in the stack: what the stack shows over it (an error,
+    /// queued prompts) and their spacing.
     @State private var composerOffset: CGFloat = 0
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
@@ -865,14 +870,9 @@ public struct AgentChatBottomStack: View {
                             .padding(.vertical, 9)
                     }
                     .buttonStyle(.cmuxPressFillCapsule)
-                    .glassEffect(.regular, in: .capsule)
+                    .cmuxMobileFloatingGlass(in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
-                }
-                // Pinned plan progress while a turn runs (ACP web UI parity).
-                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
-                    PlanProgressBar(progress: progress, entries: entries)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if !store.outgoing.isEmpty {
                     OutgoingMessagesView(store: store)
@@ -890,7 +890,7 @@ public struct AgentChatBottomStack: View {
                     // A new card is a new view: a password typed for one command never stays for the next.
                     .id(ask.id)
                     .padding(16)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
@@ -901,7 +901,7 @@ public struct AgentChatBottomStack: View {
 
                     }
                     .padding(12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
@@ -914,10 +914,15 @@ public struct AgentChatBottomStack: View {
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
-                                 })
+                                 },
+                                 fieldRef: surface.composerField)
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // The layout-shift count: the drawn composer must not move or resize in
+                        // its dock on its own (the offline-send stall flipped it between one and
+                        // two rows every frame). Before the entrance, which is render only.
+                        .layoutShiftTracked(inHost: "composer")
                         // The space between the composer and a raised keyboard is darkened from the
                         // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
                         // 2026-11-23: "they properly darken the ... space between the ios composer
@@ -938,7 +943,14 @@ public struct AgentChatBottomStack: View {
             // button is not in this stack: counting it moved the margin,
             // which moved the distance, which toggled the button (a layout
             // loop that flickered and could hang after a tab zoom).
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { drawn in
+                // The attachment strip draws over the transcript's last rows:
+                // adding or removing one moves no row (Leo, 2026-11-23: "no
+                // shift, nothing."; `ComposerHeightCapUITests`).
+                surface.drawnStackFrame = drawn
+                let overlap = surface.composerField.stripOverlap
+                let frame = CGRect(x: drawn.minX, y: drawn.minY + overlap, width: drawn.width,
+                                   height: max(0, drawn.height - overlap))
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
                 if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
@@ -982,7 +994,8 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
+                if surface.composerFocused, !ChatComposerTextView.isScrollingDraft,
+                   t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)
@@ -1450,7 +1463,7 @@ struct RetryModelChoice {
     }
 
     /// The Mac's title (`turn.retryWith`).
-    static let title = "Retry with another model"
+    static let title = "Retry with another model" // retry-prompt-ok: a choice of model, and a re-run turn spends tokens
     static let systemImage = "arrow.triangle.2.circlepath"
 
     /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
@@ -1508,7 +1521,7 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+            .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
             if still {
@@ -1521,7 +1534,7 @@ struct AnswerActionRow: View {
                 .accessibilityLabel("Share")
             }
             if isLast {
-                IconAction("arrow.clockwise", label: "Retry", action: retry)
+                IconAction("arrow.clockwise", label: "Retry", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
             }
             if still {
                 IconActionLabel("ellipsis")
@@ -1547,7 +1560,7 @@ struct AnswerActionRow: View {
         Menu {
             Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                 Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                Button("Retry", systemImage: "arrow.clockwise", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
                 retryWith?.menu
                 polish
             }

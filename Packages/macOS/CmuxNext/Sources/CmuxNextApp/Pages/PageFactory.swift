@@ -104,31 +104,6 @@ struct PageFactory {
         }
     }
 
-    /// The React CodeRouter page (cmux.coderouter). Its namespace goes to the CodeRouter app's
-    /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
-    /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
-    func coderouterWebPage() -> PageWebView? {
-        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
-            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
-                throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
-            }
-            return try await router.appControl(method, params)
-        }, pageShapes: true)
-        let registry = services.registry
-        let provider = CodeRouterPageProvider(ops: ops, connect: { id in
-            registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
-        })
-        let confirming = ConfirmingPageProvider(inner: provider, presenter: DialogPageConfirmationPresenter()) { op, params in
-            CodeRouterPageConfirmations.confirmation(op: op, params: params)
-        }
-        let native = AppPageNativeProvider(services: services, page: .coderouter)
-        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
-        confirming.anchor = { [weak page] in page }
-        native.anchor = { [weak page] in page }
-        return page
-    }
-
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
     /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
     /// sign-in and sign-out run the app's own account flow after the native sheet.
@@ -154,7 +129,7 @@ struct PageFactory {
                           signOut: { [weak account] in await account?.signOut() },
                           account: { [weak account] in
                               CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
-                                                             team: account?.auth.teamID)
+                                                             team: account?.auth.teamID, signInBackend: account?.configuration.signInBackendLine)
                           })
     }
 
@@ -167,8 +142,8 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
+            ["themes": services?.themes.catalog.names ?? [], "font_families": TerminalFontSetting.installedFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": services?.notifications.soundGate.soundNames ?? [], "recent_fonts": services?.settings?.recentFonts.families ?? []]
+        }, hostSections: services.settingsWindow.pageHostSections(), wideningGate: services.wideningGate)
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         provider.setJoinConsent = { [weak services] surface, on in
@@ -176,6 +151,7 @@ struct PageFactory {
             return await services.joinConsent.set(surface, on: on)
         }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
+        provider.sounds = NotificationSoundImport(host: services, gate: services.notifications.soundGate) // AppServices lives as long as the app
         // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
@@ -194,7 +170,7 @@ struct PageFactory {
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
             unsupported: { AgentHarnessStrings.unsupported },
-            openSignInPage: { [weak services, weak native] url in services?.linkOpener.openSignInPage(url, beside: native?.anchor()) })
+            openSignInPage: { [weak services, weak native] url, hosts in services?.linkOpener.openSignInPage(url, beside: native?.anchor(), stillOn: hosts) })
         (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -225,7 +201,7 @@ struct PageFactory {
                     CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
                                            in: services?.windows.active?.window) { continuation.resume(returning: $0) }
                 }
-            })
+            }, defaultImage: { [weak services] in services?.settings.map { CloudNewWorkspaceSetting().defaultImage(in: $0.snapshot.root) } }) // rebuilt when stale
         provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
         provider.environmentsRun = { params in
             guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
@@ -253,8 +229,8 @@ struct PageFactory {
         provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
-        let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), archived = SettingsArchivedWorkspaces(host: .host(services), personOnly: RefusalStrings.personOnlyFromPage), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) }), agentMcp = SettingsAgentMcpServers(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }, pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first }), agentHooks = SettingsAgentHooks(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }), hub = integrationsHub, autocloud = SettingsAutomationsCloud(cli: cli), connections = SettingsConnections(cli: cli, linkScheme: { [weak services] in services?.linkScheme ?? "cmux" }, openInBrowser: { url in LinkRouter.shared.open(url, in: .system) }), agentSkills = SettingsAgentSkills(cli: cli, enabled: { [weak services] in services?.settings?.snapshot.agentCustomization == true }, workingFolder: { [weak services] in services.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) } } }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })
-        provider.parts = [SettingsArchivedWorkspaces.listOp: archived, SettingsArchivedWorkspaces.runOp: archived, SettingsIntegrationsHub.stateOp: hub, SettingsIntegrationsHub.runOp: hub, SettingsConnections.stateOp: connections, SettingsConnections.runOp: connections, SettingsAutomationsCloud.stateOp: autocloud, SettingsAutomationsCloud.runOp: autocloud, "cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, SettingsAgentMcpServers.stateOp: agentMcp, SettingsAgentMcpServers.runOp: agentMcp, SettingsAgentHooks.stateOp: agentHooks, SettingsAgentHooks.runOp: agentHooks, SettingsAgentSkills.stateOp: agentSkills, SettingsAgentSkills.runOp: agentSkills, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsCustomizeLibrary.checklistOp: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsAgentConfig.op: SettingsAgentConfig(cli: cli, enabled: { settings.snapshot.agentCustomization }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })]
+        let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), archived = SettingsArchivedWorkspaces(host: .host(services), personOnly: RefusalStrings.personOnlyFromPage), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) }), agentMcp = SettingsAgentMcpServers(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }, pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first }), agentHooks = SettingsAgentHooks(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }), hub = integrationsHub, autocloud = SettingsAutomationsCloud(cli: cli), connections = SettingsConnections(cli: cli, linkScheme: { [weak services] in services?.linkScheme ?? "cmux" }, openInBrowser: { [weak services] url in if services?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } }), agentSkills = SettingsAgentSkills(cli: cli, enabled: { [weak services] in services?.settings?.snapshot.agentCustomization == true }, workingFolder: { [weak services] in services.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) } } }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })
+        provider.parts = [SettingsArchivedWorkspaces.listOp: archived, SettingsArchivedWorkspaces.runOp: archived, SettingsIntegrationsHub.stateOp: hub, SettingsIntegrationsHub.runOp: hub, SettingsConnections.stateOp: connections, SettingsConnections.runOp: connections, SettingsAutomationsCloud.stateOp: autocloud, SettingsAutomationsCloud.runOp: autocloud, "cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, SettingsAgentMcpServers.stateOp: agentMcp, SettingsAgentMcpServers.runOp: agentMcp, SettingsAgentHooks.stateOp: agentHooks, SettingsAgentHooks.runOp: agentHooks, SettingsAgentSkills.stateOp: agentSkills, SettingsAgentSkills.runOp: agentSkills, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsCustomizeLibrary.checklistOp: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsAgentConfig.op: SettingsAgentConfig(cli: cli, enabled: { settings.snapshot.agentCustomization }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) }), SettingsLooks.op: SettingsLooks(cli: cli, settingsFile: { settings.file.url })]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -312,12 +288,12 @@ struct PageFactory {
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native, backs: provider.personBacksGesture, refusal: JoinConsentStrings.personOnly)),
+        let routes = [PageRoute(prefix: "cmux.settings.slack.", provider: SlackPageProvider.live(configuration: services.cloud.configuration, auth: services.cloud.auth, identity: services.cloud.installIdentity, chief: { [weak services] in services?.home.cloudChiefs.slackChief?.id })), PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native, backs: provider.personBacksGesture, refusal: JoinConsentStrings.personOnly)),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: WorktreeSetupPageRoute.prefix, provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
-                      PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute { [weak services] in services?.machines.local.connection }),
+                      PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute(apps: services.apps.client) { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
                                 provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in

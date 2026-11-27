@@ -13,8 +13,56 @@ import type { ComposerAttachment } from "./attachments";
 /// "Not sent") for a prompt that then ran anyway (Leo, 2026-11-24: after an update, chats said
 /// "Not sent: no answer from cmux" and wanted a Retry by hand).
 export const LOST_PROMPT_CONNECT_MS = Number.POSITIVE_INFINITY;
-/// How long the next connection waits for the prompt the host sent again to show.
-export const LOST_PROMPT_SHOW_MS = 10_000;
+/// How long the next connection waits with no word at all of the prompt the host sends again: a
+/// quiet window, opened again by each word of the host's outbox (`PromptResendNotice`), never a
+/// deadline on a send that progresses (Leo, 2026-11-24: "10s timeout for messages being sendsble
+/// is a shame. if it's making good progress, it shiukd be allowed to keep going?").
+export const LOST_PROMPT_SHOW_MS = 30_000;
+
+/// What the host's prompt outbox (Swift `AgentPanePromptRelay`, `_cmux/prompt_resend`) says of a
+/// prompt it sends again: `sent` on the wire, `accepted` acpmux took it, `retrying` acpmux said
+/// "not now" (just restarted, busy) and it goes again in `retryInMs`, `refused` for good.
+export type PromptResendNotice = {
+  sessionId: string;
+  promptId: string;
+  state: "sent" | "accepted" | "retrying" | "refused";
+  attempt: number;
+  retryInMs?: number;
+  code?: string;
+  reason?: string;
+  message?: string;
+};
+
+export function promptResendNotice(params: unknown): PromptResendNotice | undefined {
+  const p = params as Record<string, unknown> | null;
+  if (!p || typeof p.sessionId !== "string" || typeof p.promptId !== "string") return undefined;
+  const state = p.state;
+  if (state !== "sent" && state !== "accepted" && state !== "retrying" && state !== "refused") return undefined;
+  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  const retryInMs =
+    typeof p.retryInMs === "number" && Number.isFinite(p.retryInMs) ? Math.max(0, p.retryInMs) : undefined;
+  const code = text(p.code);
+  const reason = text(p.reason);
+  const message = text(p.message);
+  return {
+    sessionId: p.sessionId,
+    promptId: p.promptId,
+    state,
+    attempt: typeof p.attempt === "number" ? p.attempt : 0,
+    ...(retryInMs !== undefined ? { retryInMs } : {}),
+    ...(code ? { code } : {}),
+    ...(reason ? { reason } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
+/// acpmux's refusal of a resent prompt as the error its "Not sent" row shows.
+export function resendRefusalError(notice: PromptResendNotice): Error & { code?: string; reason?: string } {
+  return Object.assign(new Error(notice.message ?? "acpmux refused this message."), {
+    ...(notice.code ? { code: notice.code } : {}),
+    ...(notice.reason ? { reason: notice.reason } : {}),
+  });
+}
 
 /// What `AcpmuxDirectClient.send` adds to the error of a prompt it lost with its connection.
 export type LostPrompt = { sessionId: string; promptId: string };

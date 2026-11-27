@@ -72,7 +72,7 @@ enum DebugPopups {
                 "shown": .bool(panel.isToolbarShown),
             ]),
             "window": parent.map { .string($0.state.id) } ?? .null,
-            "prompts": .array(page.pendingPrompts.map { .object(["kind": .string(String(describing: $0.kind))]) }),
+            "prompts": .array(page.pendingPrompts.map { .object(["kind": .string(String(describing: $0.kind))]) }), "prompt_shown": .bool(panel.showsPrompts),
             "opener_tab": services.popups.openerKey(of: page).map { .string($0) } ?? .null,
             "child_windows": .array((panel.childWindows ?? []).map { child in
                 .object(["frame": rect(child.frame), "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])

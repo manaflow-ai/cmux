@@ -33,6 +33,22 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+
+/// `cmux ssh --repo` (`remote_cli.rs`): seed `local` into `remote` over the link
+/// `socket` serves, as `cmux link seed push --since-last` and then a full push when
+/// there is no previous push. The answer is `link seed push`'s JSON line.
+pub(crate) fn seed_repo(socket: &Path, local: &Path, remote: &str) -> serde_json::Value {
+    let pushed = match seed_cli::push_since_last(socket, local, remote) {
+        Err(error) if seed_cli::failure_code(&error) == "seed.no_previous" => {
+            seed_cli::push(socket, local, remote, None)
+        }
+        other => other,
+    };
+    match pushed {
+        Ok(pushed) => pushed.json(),
+        Err(error) => seed_cli::failure(&error),
+    }
+}
 mod spans;
 mod start_chat_cli;
 mod state;
@@ -159,6 +175,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
+        if args.get(1).map(String::as_str) == Some("workspace-remote") {
+            return seed::workspace_remote::run(args.get(2..).unwrap_or_default());
+        }
         return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.
@@ -173,6 +192,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
             return machine_pin::run(args.get(2..).unwrap_or_default());
         }
         return machine_update::run(&args[1..]);
+    }
+    // `open` and `mint`: runnable links (cli/runnable_link.rs, hq#23807), off by default.
+    if matches!(args.first().map(String::as_str), Some("open" | "mint")) {
+        return crate::cli::runnable_link::run(args, json);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
         return start_chat_cli::run(args.get(1..).unwrap_or_default());
@@ -606,15 +629,38 @@ fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 }
 
 /// The `server.json` a link reads its owner session from: `--server-config
-/// PATH`, else the user-mode `~/.config/cmux/server.json`; none without HOME.
+/// PATH`, else the user-mode `~/.config/cmux/server.json` (on macOS
+/// `~/.config/cmux-next/server.json`, unless an older install keeps
+/// `~/.config/cmux`: cmux_server_core::layout::macos_user_dir, the layout's own answer);
+/// none without HOME.
 pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
-    match flags.get("--server-config") {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    server_config_path_in(
+        flags.get("--server-config").map(String::as_str),
+        home.as_deref(),
+        cfg!(target_os = "macos"),
+    )
+}
+
+/// [`server_config_path`] for a given `--server-config`, `home` and platform (tests).
+pub(super) fn server_config_path_in(
+    flag: Option<&str>,
+    home: Option<&Path>,
+    macos: bool,
+) -> Option<PathBuf> {
+    match flag {
         Some(path) => Some(PathBuf::from(path)),
         // Shortcut: duplicates the user-mode layout of cmux-server-core; use
         // its layout code when the next Cargo WINDOW allows the dependency
         // (bead cx-uu3).
-        None => std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join(".config/cmux/server.json")),
+        None => home.map(|home| {
+            let dir = if macos {
+                cmux_server_core::layout::macos_user_dir(home, false)
+            } else {
+                cmux_server_core::layout::MACOS_USER_LEGACY_DIR
+            };
+            home.join(".config").join(dir).join("server.json")
+        }),
     }
 }
 
@@ -629,7 +675,7 @@ pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<V
 }
 
 /// The owner session block of `server.json` (`--server-config PATH`, else
-/// the user-mode `~/.config/cmux/server.json`) from its `bytes`; none when
+/// the user-mode one, [`server_config_path`]) from its `bytes`; none when
 /// absent. An invalid block stops the link instead of serving with a guess.
 fn owner_session(
     path: Option<&Path>,

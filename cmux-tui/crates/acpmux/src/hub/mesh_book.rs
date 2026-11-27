@@ -257,8 +257,7 @@ impl Hub {
         own_user: &str,
         own_daemon: Option<&str>,
     ) {
-        let ssh: std::collections::HashSet<String> =
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let ssh: std::collections::HashSet<String> = self.peers.load().keys().cloned().collect();
         let skip = |host: &str| ssh.contains(host);
         // Every one of this person's other machines keeps its carrier route, an ssh peer's too
         // (no skip): the carrier is how `remote.pipe` (`tools/carrier-pipe`, ssh's ProxyCommand)
@@ -297,8 +296,7 @@ impl Hub {
     /// listed by its ssh row, not twice.
     #[cfg(feature = "hub-carrier")]
     pub(crate) fn mesh_book_route_machines(&self) -> Vec<(String, String)> {
-        let ssh: std::collections::HashSet<String> =
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let ssh: std::collections::HashSet<String> = self.peers.load().keys().cloned().collect();
         let mut machines = self.mesh_book_machines();
         machines.retain(|(_, host)| !ssh.contains(host));
         machines
@@ -382,7 +380,7 @@ impl Hub {
         // because it is an ssh peer now keeps its one origin, which the peer's link states.
         if !came.is_empty() || !left.is_empty() {
             let ssh: std::collections::HashSet<String> =
-                self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+                self.peers.load().keys().cloned().collect();
             for host in left.iter().filter(|host| !ssh.contains(*host)) {
                 self.events.origin_tee(host, OriginState::Removed, now);
             }
@@ -478,6 +476,20 @@ impl Hub {
         rows
     }
 
+    /// A session the hub lists on machine `host`, the one a machine read goes through: the hub
+    /// takes a read only when it names one session (cmux-platform `Core.ts`, `mesh.invalid: a read
+    /// names one session by sessionId or name`), and the far daemon answers a health read before
+    /// it looks the session up (`mesh_read.rs` `HOST_HEALTH`). None when it lists none there.
+    pub(crate) fn mesh_book_session_on(&self, host: &str) -> Option<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let prefix = format!("{host}/");
+        book.rows
+            .range(prefix.clone()..)
+            .take_while(|(key, _)| key.starts_with(&prefix))
+            .map(|(_, (_, r))| r.receipt.mux_session_id.clone())
+            .find(|id| !id.is_empty())
+    }
+
     /// The session id of the one hub row `key` names: its bare id, `HOST/ID` or `HOST/name`.
     pub(crate) fn mesh_book_resolve(&self, key: &str) -> Option<String> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
@@ -503,7 +515,11 @@ impl Hub {
             .map(|(_, r)| r)
             .filter(|r| names_by_handle(r, key))
             .map(|r| (r.peer.clone(), r.receipt.mux_session_id.clone()));
-        let row = found.next()?;
+        let Some(row) = found.next() else {
+            drop(book);
+            // Created through the hub seconds ago: the book lists it at the next heartbeat.
+            return self.recent_create(key).filter(|(host, _)| self.peer(host).is_none());
+        };
         found.next().is_none().then_some(row)
     }
 

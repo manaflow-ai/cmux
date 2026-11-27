@@ -1,6 +1,9 @@
 public import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The cmux team API (`<apiBaseURL>/api/teams`): the signed-in user's teams
 /// with roles, one team's detail, create, rename and delete, email invitations, and the

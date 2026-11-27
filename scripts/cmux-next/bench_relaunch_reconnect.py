@@ -178,7 +178,7 @@ RENAME_SWAP = 0x2  # <stdio.h>: renamex_np swaps the two paths
 
 def quit_app(sock: str, bundle: str, updater: bool = False):
     """The Quit action, as a person's Cmd-Q, or with `updater` what Restart to Update runs (`debug.updater relaunch`:
-    the updater's relaunch hook, which takes the windows off screen behind the afterimage, then terminate); SIGTERM
+    the updater's relaunch hook, which saves the windows, then terminate); SIGTERM
     (also a normal quit) when the app is still up after 20 s.
 
     The update modes quit through the updater: with Cmd-Q they measured a quit no update runs. Leo, 2026-11-24, on

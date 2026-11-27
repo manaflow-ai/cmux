@@ -219,8 +219,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
-    // session's start is over.
+    // Never at background class or this host's utility disk tier (`cpu_class.rs`): the daemon
+    // lowers a `background` session's harness once its start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = crate::home_fs::remove_file(&spec.socket);

@@ -226,6 +226,20 @@ open class ComposerReturnTextView: UITextView {
                             maxLines: returnPolicy.maxLines)
     }
 
+    /// Shares the card with `reserved` points above the field (the attachment strip): the
+    /// field grows to `baseMaxLines` less the lines the strip takes
+    /// (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``). True when that changed the
+    /// field's limit; its size is asked again then.
+    @discardableResult
+    public func shareCard(reserved: CGFloat, baseMaxLines: Int) -> Bool {
+        let lineHeight = Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body))
+        let lines = ComposerFieldHeight.maxLines(baseMaxLines, sharing: reserved, lineHeight: lineHeight)
+        guard lines != returnPolicy.maxLines else { return false }
+        returnPolicy = ComposerReturnPolicy(style: returnPolicy.style, maxLines: lines)
+        invalidateIntrinsicContentSize()
+        return true
+    }
+
     /// One line's height as a text view lays it out in `font`. It is taller
     /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
     /// maximum computed from the font cut the sixth line in half and
@@ -345,10 +359,11 @@ open class ComposerReturnTextView: UITextView {
     /// as tall as `fieldHeight` says for the text at the field's own width.
     ///
     /// The height is settled after each edit (`settleAfterEdit()`) and on a width change, and
-    /// answered here as stored, whatever width is proposed: SwiftUI's HStack asks several
-    /// widths per pass, and passes repeat, so measuring here measured tens of times per key
-    /// (seconds of lag in a 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests).
-    /// Before the view has a width it measures at the proposed one.
+    /// answered as stored for the field's own width (or no width): SwiftUI asks again in each
+    /// pass, so measuring here measured tens of times per key (seconds of lag in a
+    /// 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests). Another finite width
+    /// is measured at that width (cached per width in `measure`). Before the view has a width
+    /// it measures at the proposed one.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
         #if DEBUG
@@ -356,12 +371,26 @@ open class ComposerReturnTextView: UITextView {
         #endif
         #if DEBUG
         if Self.measuresWholeDraft {
-            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
         #endif
-        if let settled { return CGSize(width: width, height: settled.height) }
+        if let settled {
+            // Another width than the field's own is a real question (ComposerRowLayout asks the
+            // draft's height at the inline width to choose one row or two). Answering it with the
+            // field's own height hung the app: a draft that wraps inline but fits the full width
+            // was placed on two rows, settled at one line there, was put back inline, settled at
+            // two lines, and so on forever, the main thread never idle (PlaceholderBoundUITests
+            // offline-send: a returned draft, "main thread busy for 30.0s"). `measure` keeps one
+            // answer per width, so the second width costs one layout per edit, not one per pass.
+            guard let proposedWidth, proposedWidth.isFinite, proposedWidth > 0,
+                  abs(proposedWidth - settled.width) > 0.5 else {
+                return CGSize(width: width, height: settled.height)
+            }
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: proposedWidth),
+                                                                   reserve: stripReserve))
+        }
         guard bounds.width > 0 else {
-            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
         return CGSize(width: width, height: settle(width: bounds.width).height)
     }
@@ -397,6 +426,23 @@ open class ComposerReturnTextView: UITextView {
         let old = settled?.height
         if settle(width: bounds.width).height != old { invalidateIntrinsicContentSize() }
     }
+
+    /// The attachment strip's height above this field inside the composer
+    /// (0: none): the field gives that much of its cap to the strip
+    /// (`ComposerFieldHeight.height(contentHeight:reserve:)`).
+    public var stripReserve: CGFloat = 0 {
+        didSet { if oldValue != stripReserve { resettle() } }
+    }
+
+    /// How far the strip reaches above the field's height without it; the
+    /// page's content inset leaves it out (`ComposerFieldHeight.stripOverlap`).
+    /// Reads the settled text height; measures only before the field has settled.
+    public var stripOverlap: CGFloat {
+        guard stripReserve > 0 else { return 0 }
+        let content = settledContentHeight ?? contentHeight(width: bounds.width > 0 ? bounds.width : 240)
+        return fieldHeight.stripOverlap(contentHeight: content, reserve: stripReserve)
+    }
+
     /// Set while a typed text goes in at a caret with nothing selected or marked.
     private var insertingOnly = false
 
@@ -405,7 +451,10 @@ open class ComposerReturnTextView: UITextView {
         let rule = fieldHeight
         let content = contentHeight(width: width)
         settledContentHeight = content
-        let result = (width: width, height: rule.height(contentHeight: content), scrolls: rule.scrolls(contentHeight: content))
+        let height = rule.height(contentHeight: content, reserve: stripReserve)
+        // A strip's reserve caps the field below `maxLines`: past that cap it scrolls too.
+        let scrolls = rule.scrolls(contentHeight: content) || height < rule.height(contentHeight: content)
+        let result = (width: width, height: height, scrolls: scrolls)
         settled = result
         return result
     }
@@ -422,6 +471,18 @@ open class ComposerReturnTextView: UITextView {
     public var lineCountChangePending: Bool {
         guard bounds.width > 0, bounds.height > 0 else { return false }
         return abs(fittingSize(proposedWidth: bounds.width).height - bounds.height) > 0.5
+    }
+
+    /// Whether the caret's line shows in the field's visible rect: at least three quarters
+    /// of the caret is inside. A field with no inset (chat) sizes to the line box, which
+    /// the caret overhangs by a point or two, so "wholly inside" read "out" on a fitting
+    /// one-line draft; a line hidden under the edge shows a quarter or less.
+    public var caretInView: Bool {
+        guard let end = selectedTextRange?.end else { return true }
+        let caret = caretRect(for: end)
+        guard caret.height > 0, !caret.isNull, !caret.isInfinite else { return true }
+        let shown = min(caret.maxY, bounds.maxY) - max(caret.minY, bounds.minY)
+        return shown >= caret.height * 0.75
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
@@ -495,6 +556,7 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         trace.typed()
+        trace.beginKey("\(id)_key_frame")
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls
@@ -514,6 +576,10 @@ open class ComposerReturnTextView: UITextView {
     }
     #endif
 
+    /// The height the last layout pass saw: a change (an attachment strip
+    /// taking or giving back its share of the cap) keeps the caret in view.
+    private var laidOutHeight: CGFloat = 0
+
     override open func layoutSubviews() {
         super.layoutSubviews()
         // A new width (rotation, the send button showing): the height for it.
@@ -521,7 +587,14 @@ open class ComposerReturnTextView: UITextView {
            settle(width: bounds.width).height != old.height {
             invalidateIntrinsicContentSize()
         }
-        if !textOverflows { pinToTop() }
+        if !textOverflows {
+            pinToTop()
+        } else if abs(bounds.height - laidOutHeight) > 0.5, laidOutHeight > 0 {
+            // The field shrank under a strip: without this the text stays
+            // at its old offset and the caret line sits below the field.
+            followCaret()
+        }
+        laidOutHeight = bounds.height
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         placeholderLabel.frame = CGRect(x: textContainerInset.left + textContainer.lineFragmentPadding, y: textContainerInset.top,
@@ -692,5 +765,14 @@ open class ComposerReturnTextView: UITextView {
         }
         builder.insertChild(UIMenu(options: .displayInline, children: [newLine]), atStartOfMenu: .standardEdit)
     }
+}
+
+/// The composer's live text view, for the screen that lays out the page
+/// under it: it reads `stripOverlap` in the same layout pass.
+@MainActor public final class ComposerFieldRef {
+    public weak var view: ComposerReturnTextView?
+    public init() {}
+    /// How far the attachment strip reaches above the field's own height (0 with no strip).
+    public var stripOverlap: CGFloat { view?.stripOverlap ?? 0 }
 }
 #endif

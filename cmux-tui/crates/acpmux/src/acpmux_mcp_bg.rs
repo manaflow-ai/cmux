@@ -65,7 +65,7 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop another caller's task: only when its owner asked or is gone, never as cleanup."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait in the background for a GitHub Actions run or a PR's checks (one shared poller per machine; needs gh) and get one message when done: passed, or failed naming the jobs. Returns at once with a task id. Use it instead of polling CI. With id (bg-...) and timeoutSeconds instead, blocks until that task ends or the timeout (max 1800 s), then answers as bg_output.",
+        json!({"name": "run_wait", "description": "Wait in the background for a GitHub Actions run or a PR's checks (one shared poller; needs gh) and get one message when done: passed, or failed naming the jobs. Returns a task id at once. With id (bg-...) and timeoutSeconds instead, blocks until that task ends (max 1800 s) and answers as bg_output.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
                 "id": {"type": "string", "description": "Instead of repo: a task id (bg-...)."},
@@ -361,7 +361,7 @@ fn trim_echo(name: &str, structured: &mut Value) {
     }
     // An end that has not happened, no spool error, the lead as starter, no output yet: null and
     // default fields cost every answer bytes and say nothing (`bg_list::is_default`).
-    o.retain(|k, v| !super::bg_list::is_default(k, v) && !(k == "tail" && v == &json!("")));
+    o.retain(|k, v| !(super::bg_list::is_default(k, v) || (k == "tail" && v == &json!(""))));
     if let Some(command) = o.get("command").and_then(Value::as_str)
         && command.chars().count() > CMD_KEPT
     {

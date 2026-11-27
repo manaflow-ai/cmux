@@ -34,6 +34,10 @@ public final class LiveCoordinator {
     public internal(set) var banner: ConnectionBannerState?
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
+    /// When the presence socket last went down, until its next hello (``presenceReturned``).
+    private var presenceLostAt: ContinuousClock.Instant?
+    /// When the last network path change redialed the links.
+    private var lastPathNudge: ContinuousClock.Instant?
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
     /// user the first time; Allow then signs with the approval key.
@@ -107,6 +111,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -139,6 +145,8 @@ public final class LiveCoordinator {
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    /// Pre-wakes the focused Mac's link as the keyboard comes up (``followKeyboard()``).
+    @ObservationIgnored private var keyboardObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -485,6 +493,7 @@ public final class LiveCoordinator {
             log.info("network changed: \(path, privacy: .public)")
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
+            lastPathNudge = instants.now()
             presence?.kick()
             discovery.wake()
             guard let teamID = registeredTeamID else { return }
@@ -496,6 +505,26 @@ public final class LiveCoordinator {
             }
         }
     }
+
+    /// The presence socket's hello after an outage proves the cmux service is reachable
+    /// again: every waiting or dialing link dials now, not at the end of its backoff step
+    /// or a dial still hanging on the dead path. This is the Wi-Fi-back signal when iOS
+    /// reports no path change (the radio stayed "satisfied" through an elevator). A kick's
+    /// own reconnect (down a moment) and a path change just handled do not count.
+    private func presenceReturned() {
+        guard let lostAt = presenceLostAt else { return }
+        presenceLostAt = nil
+        let now = instants.now()
+        guard now - lostAt >= Self.presenceOutageMin else { return }
+        if let nudged = lastPathNudge, now - nudged < Self.presenceOutageMin { return }
+        log.info("presence back after an outage: links redial")
+        ConnectTimeline.shared.mark("presence_back")
+        if store.isOffline { store.isOffline = false }
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
+
+    /// Presence down at least this long before its return redials the links.
+    static let presenceOutageMin: Duration = .seconds(3)
 
     // MARK: Warm start
 
@@ -523,6 +552,9 @@ public final class LiveCoordinator {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
             workspaces += saved.workspaces
             total += saved.total
+            // Rows already in the Feed at launch whose tab closed before the app last saw the Mac
+            // go before it answers (the Mac's own tree then judges every row).
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: saved.workspaces, complete: false), macID: mac.id)
             store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: mac.id)
         }
         store.workspaces = workspaces
@@ -583,6 +615,7 @@ public final class LiveCoordinator {
             snapshot?.workspaces[macID] = list
             guard store.macData[macID]?.source == .cache(savedAt: list.savedAt) else { continue }
             store.replaceWorkspaces(macID: macID, with: list.workspaces)
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: list.workspaces, complete: false), macID: macID)
             if list.total != current.total { store.handleMacData(.restored(count: list.total, savedAt: list.savedAt), macID: macID) }
             added += list.workspaces.count - current.workspaces.count
         }
@@ -755,6 +788,22 @@ public final class LiveCoordinator {
     /// `warm`: the link is already dialing in this team from the snapshot,
     /// so nothing on screen is reset while this runs.
     private func startTeam(_ teamID: String, warm: Bool = false) async {
+        // A loop, not a recursion (each retry awaited the next inside its own frame), with a last
+        // try (`RetryBounds.teamStartDelay`): then the list's Retry.
+        var failures = 0
+        while await !startTeamOnce(teamID, warm: warm) {
+            failures += 1
+            guard let delay = RetryBounds.teamStartDelay(afterFailures: failures) else {
+                log.error("team start failed \(failures, privacy: .public) times: waiting for Retry")
+                return
+            }
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
+        }
+    }
+
+    /// One try at starting the team. False: it failed and may be tried again.
+    private func startTeamOnce(_ teamID: String, warm: Bool) async -> Bool {
         do {
             // One round trip: both registrations, this team's Macs and the account's Macs.
             let asked = removedMacs.mark
@@ -762,7 +811,7 @@ public final class LiveCoordinator {
                 (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
             ]) {
                 ConnectTimeline.shared.mark("registered", detail: "bootstrap")
-                guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+                guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
                 if !warm { idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
                 registeredTeamID = teamID
                 push.attach(api: api, deviceID: identity.link)
@@ -772,7 +821,7 @@ public final class LiveCoordinator {
                 store.teamDataState = .loaded
                 if let mine = boot.myMacs { applyDiscovered(mine, askedAt: asked) }
                 startPresence(teamID)
-                return
+                return true
             }
             // A service before 0.8.0: the separate calls, both registrations at once.
             async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
@@ -784,29 +833,28 @@ public final class LiveCoordinator {
             }
             try await presenceDevice
             ConnectTimeline.shared.mark("registered")
-            guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+            guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
             registeredTeamID = teamID
             push.attach(api: api, deviceID: identity.link)
             checkRelay()
             let askedForMacs = removedMacs.mark
             let macs = try await api.macs(teamID: teamID)
-            guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+            guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
             ConnectTimeline.shared.mark("macs_loaded", detail: "\(macs.count)")
             applyMacs(macs, teamID: teamID, askedAt: askedForMacs)
             store.teamDataState = .loaded
             log.info("team \(teamID, privacy: .private) registered, \(macs.count, privacy: .public) Macs")
             startPresence(teamID)
+            return true
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
             // Failed either way: a warm start's cached rows stay on screen
             // (WorkspacesLaunchState keeps them, with no connection text);
             // the retry below catches up.
             store.teamDataState = .failed
-            // Try again on its own (the list's Retry also works).
-            do { try await clock.sleep(for: .seconds(5)) } catch { return }
-            guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
-            await startTeam(teamID, warm: warm)
+            // Tried again on its own, bounded (`startTeam`); the list's Retry also works.
+            return false
         }
     }
 
@@ -830,7 +878,10 @@ public final class LiveCoordinator {
         guard store.activeTeamID == teamID else { return }
         switch update {
         case .connected(let connected):
+            let was = presenceConnected
             presenceConnected = connected
+            if was && !connected { presenceLostAt = instants.now() }
+            if connected && !was { presenceReturned() }
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID, askedAt: removedMacs.mark)
         case .mac(let mac) where mac.removed == true:
@@ -882,6 +933,7 @@ public final class LiveCoordinator {
         parkedTerminals[id] = nil
         // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
         tabs.forget(macID: id)
+        feedStore.forgetOpenTabs(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -1302,6 +1354,30 @@ public final class LiveCoordinator {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
         followForegroundNotification()
+        followKeyboard()
+    }
+
+    /// The keyboard coming up means a key follows in a few hundred ms: wake the one link it
+    /// goes to now (RFD 0142 T2, ``typingLink``). Only that one: every listed Mac is on
+    /// screen on the Workspaces list, and a rename sheet there is not typing to all of them.
+    func followKeyboard() {
+        #if canImport(UIKit)
+        guard keyboardObserver == nil else { return }
+        keyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.typingLink.prewake() }
+        }
+        #endif
+    }
+
+    /// The link a key typed now goes to: the one Mac on screen (a workspace's terminal or
+    /// chat), else the focused Mac's.
+    var typingLink: LinkController {
+        if let shown = showingMacs, shown.count == 1, let id = shown.first, let session = sessions[id] {
+            return session.link
+        }
+        return focused.link
     }
 
     /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
@@ -1373,6 +1449,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 
@@ -1416,7 +1493,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10) {
+    var holdWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1429,7 +1506,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.

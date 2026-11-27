@@ -42,6 +42,9 @@ pub struct Client {
     /// The socket this client connected to: a list caller opens its v2 list on it
     /// (`cli/list_read.rs`).
     socket: std::path::PathBuf,
+    /// The wire ABI the daemon named at initialize (`_meta.acpmux.abi`); 0 for a daemon from
+    /// before the field ([`crate::protocol::peer_abi`]).
+    daemon_abi: std::sync::atomic::AtomicU32,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -177,6 +180,7 @@ impl Client {
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             socket: path.to_path_buf(),
+            daemon_abi: std::sync::atomic::AtomicU32::new(0),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -238,6 +242,8 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
+        self.daemon_abi
+            .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -279,6 +285,12 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The daemon's wire ABI, as named at initialize; 0 for a daemon from before the field.
+    /// A newer surface is asked for by [`Client::daemon_lists`], not by comparing this.
+    pub fn daemon_abi(&self) -> u32 {
+        self.daemon_abi.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The CLI path reported by the daemon's app launcher, if any.
@@ -688,6 +700,12 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     .into()
 }
 
+/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
+fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
+    let warning = params?.get("warning")?.as_str()?;
+    Some(format!("acpmux: {warning}"))
+}
+
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
@@ -750,10 +768,4 @@ mod lineage_tests {
             json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
         assert!(reply_lacks_lineage(&on_a_peer));
     }
-}
-
-/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
-fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
-    let warning = params?.get("warning")?.as_str()?;
-    Some(format!("acpmux: {warning}"))
 }

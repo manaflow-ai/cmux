@@ -92,8 +92,13 @@ jobs:
       - name: Install Linux build dependencies
         if: steps.crate.outputs.have == 'true' && runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         if: steps.crate.outputs.have == 'true'
@@ -118,7 +123,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux
+          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit

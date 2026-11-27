@@ -96,6 +96,10 @@ mod page_bridge;
 #[cfg(unix)]
 mod page_calls;
 #[cfg(unix)]
+mod page_keys;
+#[cfg(unix)]
+mod pane_flow;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
@@ -146,6 +150,8 @@ mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod synced;
+#[cfg(unix)]
 mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
@@ -158,6 +164,8 @@ pub(crate) mod timer;
 #[cfg(unix)]
 mod toolbar;
 #[cfg(unix)]
+mod view_state;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -165,9 +173,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
-pub(crate) use git_install::store_op_fetches;
-#[cfg(unix)]
 pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
+#[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
@@ -273,6 +281,16 @@ impl AppsSlot {
                     }),
                 );
                 supervisor.observe_kept_servers(self.server_observers.clone());
+                // Synced app storage (`storage:synced`) over the daemon's cloud link.
+                if mux.cloud_conversations().is_some() {
+                    let weak = Arc::downgrade(&supervisor);
+                    mux.set_appkv_sink(Arc::new(move |event| {
+                        if let Some(supervisor) = weak.upgrade() {
+                            supervisor.on_appkv_event(event);
+                        }
+                    }));
+                    supervisor.set_appkv_cloud(Arc::new(synced::MuxCloud::new(mux)));
+                }
                 supervisor
             })
             .clone();

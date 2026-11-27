@@ -87,6 +87,9 @@ const PARITY_HEADER: usize = 16;
 /// Type, receiver index and counter in front of a WireGuard data message's
 /// ciphertext.
 const WG_DATA_HEADER: usize = 16;
+/// A WireGuard keepalive: a data message with an empty payload, so its
+/// ciphertext is only the 16-byte Poly1305 tag.
+const WG_KEEPALIVE_LEN: usize = WG_DATA_HEADER + 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
@@ -132,12 +135,45 @@ const FLOOR_GROUP: u8 = 4;
 const FLOOR_MAX_DATAGRAM: usize = 256;
 /// The environment variable that turns the mode on.
 pub const ENV: &str = "CMUX_WG_ULTRA";
-
-/// `none` turns the tunnel's TCP congestion control off, so loss never
-/// shrinks a window and each stream runs at what its window and the pacer
-/// allow (Hysteria's "Brutal" idea, bounded by the stream window). For
-/// benches: it is unfair to other traffic on a congested link.
+/// The tunnel's TCP congestion control. Unset or `bbr`: the model-based
+/// controller (RFD 0142 O1), whose window follows the measured bottleneck
+/// rate and minimum RTT, so random loss does not shrink it. `cubic`: the
+/// loss-based controller cmux-wg used before. `none`: no congestion control,
+/// so each stream runs at what its window and the pacer allow (bounded by the
+/// stream window); for benches, as it is unfair to other traffic on a
+/// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
+
+/// Parities per group for bulk data (the pacer's bulk class: paced TCP
+/// transfers), at most the mode's own. Bulk needs its repair at any loss (a
+/// loss gate cut 50 ms / 2 % echo-flood goodput from 18.1 to 2.1 Mbit/s,
+/// RFD 0164 row 106), but not the four parities per four data datagrams
+/// input gets: a lost bulk datagram costs TCP a fast retransmit, a lost
+/// keystroke costs a visible stall. Two parities rebuild any two losses of a
+/// group of four. Measured at 50 ms (median of 3, echo-flood goodput in
+/// Mbit/s, bulk parity 4 / 2 / 1): 0.5 % loss 70.5 / 82.4 / 75.8, 1 % loss
+/// 68.5 / 74.4 / 45.5, 2 % loss 49.1 / 55.6 / 33.6; one parity loses goodput
+/// from 1 % loss up, two match four at half the parity bytes.
+const BULK_PARITY: u8 = 2;
+/// Benches only: the cap on bulk parities per group (1 to 15), in place of
+/// [`BULK_PARITY`]. A cap, not a count: a bulk group sends the smaller of
+/// this and the mode's own parities, so a value above the mode's changes
+/// nothing (`Fec { group: 4, parity: 4 }` with 8 still sends 4).
+pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
+
+/// Bulk parities per group: [`BULK_PARITY_ENV`] when set and in range, else
+/// [`BULK_PARITY`]. Read once per process.
+fn bulk_parity() -> u8 {
+    static PARITY: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *PARITY.get_or_init(|| bulk_parity_from(std::env::var(BULK_PARITY_ENV).ok().as_deref()))
+}
+
+pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
+    value
+        .and_then(|value| value.trim().parse::<u8>().ok())
+        .filter(|parity| (1..=MAX_PARITY).contains(parity))
+        .unwrap_or(BULK_PARITY)
+}
 
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
@@ -146,9 +182,26 @@ pub fn is_parity(datagram: &[u8]) -> bool {
     datagram.first() == Some(&TAG)
 }
 
-/// Whether [`CC_ENV`] asks for no congestion control.
-pub(crate) fn loss_blind_from_env() -> bool {
-    std::env::var(CC_ENV).is_ok_and(|value| value.trim().eq_ignore_ascii_case("none"))
+/// A process-wide pin set by [`crate::testing::pin_loss_based_congestion`]:
+/// it wins over [`CC_ENV`], and setting it needs no environment write.
+pub(crate) static CUBIC_PINNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The congestion control [`CC_ENV`] asks for; BBR when unset or unknown.
+pub(crate) fn congestion_from_env() -> smoltcp::socket::tcp::CongestionControl {
+    if CUBIC_PINNED.load(Ordering::Relaxed) {
+        return smoltcp::socket::tcp::CongestionControl::Cubic;
+    }
+    congestion_from(std::env::var(CC_ENV).ok().as_deref())
+}
+
+pub(crate) fn congestion_from(value: Option<&str>) -> smoltcp::socket::tcp::CongestionControl {
+    use smoltcp::socket::tcp::CongestionControl;
+    match value.map(|value| value.trim().to_ascii_lowercase()).as_deref() {
+        Some("none") => CongestionControl::None,
+        Some("cubic") => CongestionControl::Cubic,
+        _ => CongestionControl::Bbr,
+    }
 }
 
 /// How much repair data a tunnel sends.
@@ -321,6 +374,18 @@ impl UltraMode {
         mode.normalized()
     }
 
+    /// The mode a bulk group closes in: the same code and group, at most
+    /// [`bulk_parity`] parities. Copies are not cut: duplicating bulk is a
+    /// mode someone chose by hand.
+    fn for_bulk(self) -> Self {
+        let cut = |parity: u8| parity.min(bulk_parity());
+        match self {
+            Self::Fec { group, parity } => Self::Fec { group, parity: cut(parity) },
+            Self::Rs { group, parity } => Self::Rs { group, parity: cut(parity) },
+            other => other,
+        }
+    }
+
     /// Parities for a group of `members`: in proportion to `parity / group`,
     /// at least one, so a small group pays no more than a full one would.
     fn parities_for(group: u8, parity: u8, members: usize) -> usize {
@@ -394,6 +459,17 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     let index: [u8; 4] = datagram.get(4..8)?.try_into().ok()?;
     let counter: [u8; 8] = datagram.get(8..16)?.try_into().ok()?;
     Some((index, u64::from_le_bytes(counter)))
+}
+
+/// A WireGuard keepalive past a session's first message: it carries nothing,
+/// and a lost one is replaced by the next (the air floor sends one every few
+/// seconds on an idle link), so it gets no copies, parity or group. Before,
+/// Auto's floor or repair made each idle keepalive its own group with one or
+/// two 32-byte parities: two or three datagrams per keepalive on the radio.
+/// Counter 0 keeps its repair: an initiator's first keepalive confirms a new
+/// handshake, and the responder cannot send until it arrives.
+fn is_idle_keepalive(datagram: &[u8]) -> bool {
+    datagram.len() == WG_KEEPALIVE_LEN && data_id(datagram).is_some_and(|(_, counter)| counter > 0)
 }
 
 /// Datagrams the loss window spans before it halves.
@@ -837,25 +913,32 @@ impl UltraUnderlay {
 
     /// Whether a datagram of this class gets copies or parity: input at any
     /// loss (Auto decides when repair is on at all), screen state only above
-    /// 1 % measured loss. Bulk keeps the mode's repair: the pacer's bulk
+    /// 1 % measured loss. Bulk keeps repair, with fewer parities per group
+    /// ([`BULK_PARITY`]): the pacer's bulk
     /// class is mostly paced TCP connections, and with no repair their
     /// goodput at 50 ms / 2 % loss fell from 16.8 to 2.1 Mbit/s
     /// (`link_stream_bench --workload echo-flood`). Datagrams of no class
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss: its loss behaviour under
+            // the 1 % rule has not been measured (RFD 0164 B6).
+            None | Some(Priority::Media) => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
-        self.forward(datagram, priority);
+        match priority {
+            // Class 0 (input) goes on the best two paths; its repair below does not.
+            Some(p) if p.braid_class().duplicates() => self.inner.send_duplicated(datagram, p),
+            _ => self.forward(datagram, priority),
+        }
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
-        if !self.repairs(priority) {
+        if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
         }
         // Repaired screen state groups with input.
@@ -932,6 +1015,7 @@ impl UltraUnderlay {
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
         let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let mode = if group.priority == Some(Priority::Bulk) { mode.for_bulk() } else { mode };
         let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {

@@ -28,6 +28,7 @@
 //! [`chat::PromptOutbox`] is its twin for the agent chat's prompts (keyed by `promptId`).
 
 pub mod chat;
+pub mod progress;
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

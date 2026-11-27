@@ -655,6 +655,6 @@ function isMachineEndpointPath(pathname: string): boolean {
 
 export const config = {
   matcher: [
-    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler|connected).*)",
   ],
 };

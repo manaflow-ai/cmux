@@ -35,8 +35,13 @@ pub const MAGIC: [u8; 2] = *b"VS";
 pub const KIND_DIFF: u8 = 1;
 /// An ack, phone to host.
 pub const KIND_ACK: u8 = 2;
-/// The payload format version.
-const VERSION: u8 = 2;
+/// The payload format version [`diff`] writes. Version 3 sends the grid only from blank, the
+/// cursor as deltas from the base's and its shape and the modes only when they change, and
+/// leaves out empty tables and the span count (spans run to the payload's end): a one-key
+/// echo is 11 bytes, not 21. [`apply`] still reads version 2.
+const VERSION: u8 = 3;
+/// The version before (cols, rows, cursor, shape and modes in every payload).
+const VERSION_V2: u8 = 2;
 /// The most states sent and not yet acked that the sender keeps (to diff
 /// from once acked). Acks trail by a round trip, so at 60 Hz this covers
 /// about 17 s of them. Kept as the states themselves (shared, never
@@ -238,8 +243,8 @@ impl ScreenState {
 
     /// About how many bytes the state holds in memory (what the rings count).
     pub fn footprint(&self) -> usize {
-        std::mem::size_of::<ScreenState>()
-            + self.cells.len() * std::mem::size_of::<SyncCell>()
+        size_of::<ScreenState>()
+            + self.cells.len() * size_of::<SyncCell>()
             + self.cells.iter().map(|c| c.text.len() + c.style.link.len()).sum::<usize>()
     }
 
@@ -452,6 +457,17 @@ impl std::error::Error for SyncError {}
 const FLAG_FROM_BLANK: u8 = 1;
 const FLAG_CURSOR_VISIBLE: u8 = 1 << 1;
 const FLAG_ALTERNATE: u8 = 1 << 2;
+// Version 3: which header fields follow.
+/// A zigzag varint: the cursor column minus the base's.
+const FLAG_CURSOR_X: u8 = 1 << 3;
+/// A zigzag varint: the cursor row minus the base's.
+const FLAG_CURSOR_Y: u8 = 1 << 4;
+/// The cursor shape byte and the modes varint.
+const FLAG_SHAPE_MODES: u8 = 1 << 5;
+/// The style table.
+const FLAG_STYLES: u8 = 1 << 6;
+/// The move runs.
+const FLAG_MOVES: u8 = 1 << 7;
 
 // Cell stream tokens. A byte >= 0x20 starts a UTF-8 char: a narrow cell of
 // that one char.
@@ -534,17 +550,49 @@ pub fn diff_into(base: Option<&ScreenState>, latest: &ScreenState, out: &mut Vec
     if latest.alternate {
         flags |= FLAG_ALTERNATE;
     }
+    let (base_cursor, base_shape_modes) = match base {
+        Some(b) => (b.cursor, Some((b.cursor_shape, b.modes))),
+        None => ((0, 0), None),
+    };
+    let dx = i64::from(latest.cursor.0) - i64::from(base_cursor.0);
+    let dy = i64::from(latest.cursor.1) - i64::from(base_cursor.1);
+    let shape_modes = (latest.cursor_shape, latest.modes);
+    if dx != 0 {
+        flags |= FLAG_CURSOR_X;
+    }
+    if dy != 0 {
+        flags |= FLAG_CURSOR_Y;
+    }
+    if base_shape_modes != Some(shape_modes) {
+        flags |= FLAG_SHAPE_MODES;
+    }
+    if !table.is_empty() {
+        flags |= FLAG_STYLES;
+    }
+    if !moves.is_empty() {
+        flags |= FLAG_MOVES;
+    }
     out.push(flags);
-    put_varint(out, u64::from(latest.cols));
-    put_varint(out, u64::from(latest.rows));
-    put_varint(out, u64::from(latest.cursor.0));
-    put_varint(out, u64::from(latest.cursor.1));
-    out.push(latest.cursor_shape);
-    put_varint(out, u64::from(latest.modes));
+    if from_blank {
+        put_varint(out, u64::from(latest.cols));
+        put_varint(out, u64::from(latest.rows));
+    }
+    if dx != 0 {
+        put_varint(out, zigzag(dx));
+    }
+    if dy != 0 {
+        put_varint(out, zigzag(dy));
+    }
+    if flags & FLAG_SHAPE_MODES != 0 {
+        out.push(latest.cursor_shape);
+        put_varint(out, u64::from(latest.modes));
+    }
     out.extend_from_slice(&latest.digest().to_le_bytes());
-    put_varint(out, table.len() as u64);
-    for style in &table {
-        put_style(out, style);
+    if !table.is_empty() {
+        put_varint(out, table.len() as u64);
+        for style in &table {
+            put_style(out, style);
+        }
     }
     // Moves as runs: (rows skipped, first base row, rows).
     let mut runs: Vec<(u16, u16, u16)> = Vec::new();
@@ -554,7 +602,9 @@ pub fn diff_into(base: Option<&ScreenState>, latest: &ScreenState, out: &mut Vec
             _ => runs.push((dst, src, 1)),
         }
     }
-    put_varint(out, runs.len() as u64);
+    if !runs.is_empty() {
+        put_varint(out, runs.len() as u64);
+    }
     let mut next_row = 0u64;
     for &(dst, src, n) in &runs {
         put_varint(out, u64::from(dst) - next_row);
@@ -562,7 +612,7 @@ pub fn diff_into(base: Option<&ScreenState>, latest: &ScreenState, out: &mut Vec
         put_varint(out, u64::from(src));
         put_varint(out, u64::from(n));
     }
-    put_varint(out, spans.len() as u64);
+    // The spans run to the payload's end.
     let mut next_row = 0u64;
     for &(y, a, b) in &spans {
         put_varint(out, u64::from(y) - next_row);
@@ -725,17 +775,24 @@ fn put_style(out: &mut Vec<u8>, s: &SyncStyle) {
 pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, SyncError> {
     let mut r = Reader::new(payload);
     let version = r.u8()?;
-    if version != VERSION {
+    if version != VERSION && version != VERSION_V2 {
         return Err(SyncError::Version(version));
     }
+    let v3 = version == VERSION;
     let flags = r.u8()?;
-    let cols = r.small(u64::from(u16::MAX), "cols")?;
-    let rows = r.small(u64::from(u16::MAX), "rows")?;
-    if cols == 0 || rows == 0 || u64::from(cols) * u64::from(rows) > MAX_CELLS {
-        return Err(SyncError::Malformed("grid"));
-    }
-    let (cols, rows) = (cols as u16, rows as u16);
-    let base = if flags & FLAG_FROM_BLANK != 0 {
+    let from_blank = flags & FLAG_FROM_BLANK != 0;
+    let (cols, rows) = if v3 && !from_blank {
+        let base = base.ok_or(SyncError::NoBase)?;
+        (base.cols, base.rows)
+    } else {
+        let cols = r.small(u64::from(u16::MAX), "cols")?;
+        let rows = r.small(u64::from(u16::MAX), "rows")?;
+        if cols == 0 || rows == 0 || cols * rows > MAX_CELLS {
+            return Err(SyncError::Malformed("grid"));
+        }
+        (cols as u16, rows as u16)
+    };
+    let base = if from_blank {
         None
     } else {
         let base = base.ok_or(SyncError::NoBase)?;
@@ -748,20 +805,40 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
         Some(b) => b.clone(),
         None => ScreenState::blank(cols, rows),
     };
-    let cx = r.small(u64::from(u16::MAX), "cursor")? as u16;
-    let cy = r.small(u64::from(u16::MAX), "cursor")? as u16;
-    state.cursor = (cx, cy);
+    if v3 {
+        let (bx, by) = base.map_or((0, 0), |b| b.cursor);
+        let mut axis = |flag: u8, from: u16| -> Result<u16, SyncError> {
+            if flags & flag == 0 {
+                return Ok(from);
+            }
+            let v = i64::from(from) + unzigzag(r.varint()?);
+            u16::try_from(v).map_err(|_| SyncError::Malformed("cursor"))
+        };
+        let cx = axis(FLAG_CURSOR_X, bx)?;
+        let cy = axis(FLAG_CURSOR_Y, by)?;
+        state.cursor = (cx, cy);
+        if flags & FLAG_SHAPE_MODES != 0 {
+            state.cursor_shape = r.u8()?;
+            state.modes = r.small(u64::from(u32::MAX), "modes")? as u32;
+        } else if base.is_none() {
+            return Err(SyncError::Malformed("modes from blank"));
+        }
+    } else {
+        let cx = r.small(u64::from(u16::MAX), "cursor")? as u16;
+        let cy = r.small(u64::from(u16::MAX), "cursor")? as u16;
+        state.cursor = (cx, cy);
+        state.cursor_shape = r.u8()?;
+        state.modes = r.small(u64::from(u32::MAX), "modes")? as u32;
+    }
     state.cursor_visible = flags & FLAG_CURSOR_VISIBLE != 0;
     state.alternate = flags & FLAG_ALTERNATE != 0;
-    state.cursor_shape = r.u8()?;
-    state.modes = r.small(u64::from(u32::MAX), "modes")? as u32;
     let digest = u32::from_le_bytes(r.array::<4>()?);
-    let count = r.small(MAX_CELLS, "styles")?;
+    let count = if !v3 || flags & FLAG_STYLES != 0 { r.small(MAX_CELLS, "styles")? } else { 0 };
     let mut table = vec![SyncStyle::default()];
     for _ in 0..count {
         table.push(r.style()?);
     }
-    let moves = r.small(u64::from(rows), "moves")?;
+    let moves = if !v3 || flags & FLAG_MOVES != 0 { r.small(u64::from(rows), "moves")? } else { 0 };
     let mut dst = 0u64;
     let width = usize::from(cols);
     for _ in 0..moves {
@@ -773,13 +850,16 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
         let n = r.small(u64::from(rows) - dst.max(src), "move")?;
         let from = base.ok_or(SyncError::Malformed("move from blank"))?;
         let (d, s, n) = (dst as usize * width, src as usize * width, n as usize * width);
-        state.cells[d..d + n].clone_from_slice(&from.cells[s..s + n]);
+        let to = state.cells.get_mut(d..d + n).ok_or(SyncError::Malformed("move"))?;
+        to.clone_from_slice(from.cells.get(s..s + n).ok_or(SyncError::Malformed("move"))?);
         dst += n as u64 / width as u64;
     }
-    let spans = r.small(u64::from(rows), "spans")?;
+    // Version 2 counts its spans; version 3's run to the payload's end.
+    let mut spans = if v3 { u64::MAX } else { r.small(u64::from(rows), "spans")? };
     let mut y = 0u64;
     let cols_u = u64::from(cols);
-    for _ in 0..spans {
+    while spans > 0 && !(v3 && r.remaining() == 0) {
+        spans -= 1;
         // The delta counts from the row after the previous span.
         y = y.saturating_add(r.varint()?);
         if y >= u64::from(rows) {
@@ -974,6 +1054,14 @@ impl<'a> Reader<'a> {
         };
         Ok((width, text))
     }
+}
+
+fn zigzag(v: i64) -> u64 {
+    ((v << 1) ^ (v >> 63)) as u64
+}
+
+fn unzigzag(v: u64) -> i64 {
+    ((v >> 1) as i64) ^ -((v & 1) as i64)
 }
 
 fn put_varint(out: &mut Vec<u8>, mut v: u64) {
@@ -1714,7 +1802,9 @@ mod tests {
         let d = ScreenState::capture(&t2);
         let payload = diff(Some(&c), &d);
         assert_eq!(apply(None, &payload), Err(SyncError::NoBase));
-        assert_eq!(apply(Some(&a), &payload), Err(SyncError::GridMismatch));
+        // A version 3 diff names no grid (only a keyframe does): one applied to a base of
+        // another grid is refused by its digest, which covers the grid.
+        assert!(apply(Some(&a), &payload).is_err());
         // The wrong base of the right grid is caught by the digest.
         assert_eq!(apply(Some(&b), &payload), Err(SyncError::Digest));
     }
@@ -2120,10 +2210,10 @@ mod tests {
         assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 0);
         assert!(stamp_datagram(&mut d[0], 77));
         assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 77);
-        let ack = rx.on_datagram(&d[0]).unwrap();
+        let mut ack = rx.on_datagram(&d[0]).unwrap();
         assert_eq!(parse_ack_stamp(&ack), Some(77));
         assert_eq!(parse_ack_datagram(&ack), Some((3, 1)));
-        assert!(!stamp_datagram(&mut ack.clone(), 1));
+        assert!(!stamp_datagram(&mut ack, 1));
         // A stale copy is acked with its own stamp and the seq held.
         assert!(stamp_datagram(&mut d[0], 78));
         let again = rx.on_datagram(&d[0]).unwrap();
@@ -2139,7 +2229,7 @@ mod tests {
         assert!(rx.on_datagram(&ack_datagram(1, 1)).is_none());
         let mut d = Vec::new();
         diff_header(&mut d, 1, 1, 0, 0, 1);
-        d.extend_from_slice(&[VERSION, 0, 5, 5, 0, 0, 0, 0]);
+        d.extend_from_slice(&[VERSION_V2, 0, 5, 5, 0, 0, 0, 0]);
         assert!(rx.on_datagram(&d).is_some());
         assert!(rx.screen().is_none());
         for cut in 0..40 {

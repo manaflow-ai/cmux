@@ -30,6 +30,9 @@ jobs:
   # plus the gap to the next push plus the run, and base-red-watch bisects it over the covered range. A dispatch runs
   # at once (the coalesce job is skipped on it). vars.NEXT_WEB_LINT_COALESCE = '0' runs every push again.
   coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-web-lint
@@ -46,7 +49,7 @@ jobs:
     needs: coalesce
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 10 minutes, plus the R2 saves below (bounded at 4 and 2 minutes; a key R2 already has costs one HEAD request).
     timeout-minutes: 16
     # The R2 write credentials for the saves below: only a feat-cmux-next run enters next-cache-writer (deployment
@@ -61,13 +64,21 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -75,6 +86,8 @@ jobs:
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
 
       - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -82,7 +95,13 @@ jobs:
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"

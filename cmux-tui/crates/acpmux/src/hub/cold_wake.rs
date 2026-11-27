@@ -132,10 +132,10 @@ pub(crate) const fn plain_wake_cost(context: u64) -> u64 {
 pub(crate) const DEFAULT_COMPACT_ABOVE_TOKENS: u64 = 100_000;
 /// The range the compaction line is clamped to.
 pub(crate) const COMPACT_ABOVE_RANGE: (u64, u64) = (10_000, 500_000);
-/// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
+/// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (off by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
-/// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
-/// can be toggled but... this as a default seems decent").
+/// And compact a large cold chat before its batch goes in (off by default, like batching; Leo,
+/// 2026-11-26: "only do it for our personal fleet situation").
 pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
 /// The context (tokens) from which a cold batch compacts first ([`DEFAULT_COMPACT_ABOVE_TOKENS`]).
 pub const SETTING_COMPACT_ABOVE: &str = "agents.coldWake.compactAboveTokens";
@@ -168,13 +168,17 @@ pub(crate) fn env_flag(value: Option<&str>) -> Option<bool> {
 }
 
 /// The knobs as `doc` (the settings file) and `env` (the daemon's environment) have them, the
-/// environment winning. A missing key, file or an unreadable file is the default: on, at
+/// environment winning. A missing key, file or an unreadable file is the default: off (Leo,
+/// 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with compacition. only do it for
+/// our personal fleet situation"; our fleet turns both on in its own settings), at
 /// [`DEFAULT_COMPACT_ABOVE_TOKENS`]; compacting first needs batching on; a line out of
 /// [`COMPACT_ABOVE_RANGE`] is clamped to it, and a non-number is the default.
 pub(crate) fn settings_with(doc: Option<&Value>, env: impl Fn(&str) -> Option<String>) -> Knobs {
     let get = |key: &str| doc.and_then(|d| crate::user_settings::value(d, key));
     let flag = |key: &str, var: &str| {
-        env_flag(env(var).as_deref()).or_else(|| get(key).and_then(|v| v.as_bool())).unwrap_or(true)
+        env_flag(env(var).as_deref())
+            .or_else(|| get(key).and_then(|v| v.as_bool()))
+            .unwrap_or(false)
     };
     let enabled = flag(SETTING_ENABLED, ENV_ENABLED);
     let compact = enabled && flag(SETTING_COMPACT, ENV_COMPACT);
@@ -194,7 +198,19 @@ pub(crate) fn settings(doc: Option<&Value>) -> Knobs {
     settings_with(doc, |_| None)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The knobs a test thread runs with, whatever the settings file says (batching is off by
+    /// default; a `#[tokio::test]` runs on one thread).
+    pub(crate) static KNOBS_FOR_TEST: std::cell::Cell<Option<Knobs>> =
+        const { std::cell::Cell::new(None) };
+}
+
 fn read_settings() -> Knobs {
+    #[cfg(test)]
+    if let Some(knobs) = KNOBS_FOR_TEST.with(std::cell::Cell::get) {
+        return knobs;
+    }
     let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => settings_with(Some(&doc), env),
@@ -262,6 +278,16 @@ pub(crate) fn surgery_applied(answer: &Result<Value, RpcError>) -> bool {
 /// Whether a prompt's provenance is a cold batch's compaction.
 pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
+}
+
+/// Whether a cold batch's compaction (`provenance`) may go ahead of what waits in `session`'s
+/// queue: only the batch waits there (another agent's message or the inbox's notice, each of
+/// which `goes_in_by_itself`, or what waits aside), never a person's prompt. The batch's own
+/// gathered message always waits in the queue (`agent_gather.rs`), so the continuation's "nothing
+/// waits" check (`auto_resume.rs` `check_cut`) refused every cold compaction: 15 of 15 on one lane
+/// VM over 48 h logged `auto_resume.superseded` and none ran.
+pub(crate) fn goes_ahead_of_batch(session: &Session, provenance: Option<&Value>) -> bool {
+    is_own(provenance) && session.queue().iter().all(|q| q.aside() || q.goes_in_by_itself())
 }
 
 /// Whether the running turn is a cold batch's compaction: nothing steers into it.
@@ -345,7 +371,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
-        // only when it says no (off, not a stored Claude conversation, nothing to mask, too
+        // only when it says no (off, not a stored Claude or Codex conversation, nothing to mask, too
         // little to mask) or fails.
         if self.cold_wake_surgery(session, tokens, line).await {
             self.inbox_review(session);
@@ -370,15 +396,8 @@ impl Hub {
         tokens: u64,
         line: u64,
     ) -> bool {
-        let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry, line) {
-            tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
-            return false;
-        }
-        let answer = self.surgery(session, None, false).await;
-        let applied = surgery_applied(&answer);
-        tracing::info!(session = %session.id, tokens, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "cold wake surgery");
-        applied
+        tracing::debug!(session = %session.id, tokens, "cold wake surgery");
+        self.surgery_before_compact(session, line, "cold_wake").await
     }
 
     /// `cache_compact.rs`'s check but for the queue: no turn holds the lock, no Web or phone turn

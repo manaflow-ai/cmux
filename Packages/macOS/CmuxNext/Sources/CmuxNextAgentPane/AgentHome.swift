@@ -4,7 +4,7 @@ public import Foundation
 
 /// The agent-home folders (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a workspace without a folder (the
 /// default Home workspace) gives its new agent chats `<base>/<workspace-id>`, where `base` is
-/// `~/Library/Application Support/cmux/agent-home`. It is the chat cwd and the workspace's only
+/// `~/Library/Application Support/cmux-next/agent-home`. It is the chat cwd and the workspace's only
 /// root, made with mode 0700 on first use and marked as made by cmux (``marker``), so acpmux trusts
 /// it by construction. There is never a fallback to the home folder: a base
 /// that is not canonical, a workspace id that is not safe, or a symlink anywhere in the path gives
@@ -23,7 +23,7 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         self.base = base
     }
 
-    /// `~/Library/Application Support/cmux/agent-home`, a DEV build's own folder in a DEV build
+    /// `~/Library/Application Support/cmux-next/agent-home`, a DEV build's own folder in a DEV build
     /// (``BuildStatePaths/agentHome``).
     public static var standard: AgentHome? { AgentHome(base: BuildStatePaths.current.agentHome.path) }
 
