@@ -277,6 +277,8 @@ dependencies = [
  "cmux-theme-tokens",
  "serde",
  "serde_json",
+ "unicase",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -2817,6 +2819,12 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-general-category"

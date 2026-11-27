@@ -12,6 +12,8 @@ description = "The cmux NEXT app's theme and layout template rules (pure; the ma
 cmux-theme-tokens.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+unicase = "2.9"
+unicode-normalization.workspace = true
 
 [lints]
 workspace = true

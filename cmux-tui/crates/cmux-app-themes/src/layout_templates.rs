@@ -7,6 +7,8 @@
 
 use serde::Serialize;
 use serde_json::{Map, Value};
+use unicase::UniCase;
+use unicode_normalization::UnicodeNormalization;
 
 /// A refused change (Swift `LayoutTemplateRepository.Failure`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -19,7 +21,10 @@ pub enum Failure {
 /// Whether two template names are the same name: equal ignoring case (Swift
 /// `caseInsensitiveCompare`).
 pub fn same(a: &str, b: &str) -> bool {
-    a == b || a.to_lowercase() == b.to_lowercase()
+    if a.is_ascii() && b.is_ascii() {
+        return a.eq_ignore_ascii_case(b);
+    }
+    UniCase::unicode(a.nfd().collect::<String>()) == UniCase::unicode(b.nfd().collect::<String>())
 }
 
 fn field<'a>(template: &'a Value, key: &str) -> &'a str {
@@ -166,6 +171,8 @@ mod tests {
     fn same_ignores_case_only() {
         assert!(same("Two up", "two UP"));
         assert!(same("Émile", "émile"));
+        assert!(same("Émile", "E\u{301}MILE"));
+        assert!(same("Straße", "STRASSE"));
         assert!(!same("Two up", "Two up "));
     }
 }
