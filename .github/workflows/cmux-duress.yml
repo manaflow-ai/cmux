@@ -329,5 +329,5 @@ jobs:
         with:
           name: duress-scenarios
           path: ${{ runner.temp }}/duress-scenarios/
-          retention-days: 30
+          retention-days: 3
           if-no-files-found: ignore
