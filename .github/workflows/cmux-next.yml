@@ -947,8 +947,10 @@ jobs:
       # Why: note-12
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && 'generated-files' || github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && 'generated-files' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(steps.route.outputs.labels, ',full-ci,')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
-      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-path-route.md
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-path-route.md, 2026-11-27-path-route-pool-mirror.md
       - id: checkout
+        name: Checkout
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -981,6 +983,48 @@ jobs:
         timeout-minutes: 3
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *path-route-checkout
+      - name: "Pool mirror: Checkout"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 9
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/ci/prefetch-sparse-checkout.sh
+            /scripts/ci/path-route-sparse-checkout.txt
+            /.gitmodules
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 150 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (150 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
+          git config core.sparseCheckout true
+          { printf '%s\n' "$SPARSE"; git show "$SHA:scripts/ci/path-route-sparse-checkout.txt" 2>/dev/null || true; } > .git/info/sparse-checkout
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: Widen the sparse checkout with a parallel blob fetch
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3349,7 +3393,7 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["cmux-fleet-linux-x64","cmux-has-netem"]') }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
     permissions:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
