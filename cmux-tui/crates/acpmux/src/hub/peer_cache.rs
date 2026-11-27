@@ -214,27 +214,39 @@ impl Hub {
         peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
+        if self.remote_sessions.read().has_peer(&peer.name) {
+            return;
+        }
+        let live = saved.sessions.iter().any(super::peer_idle::live);
+        // Its closed rows past the bound stay out (`peer_closed_bound.rs`).
+        let past = super::peer_closed_bound::summaries_past_bound(&saved.sessions);
+        // Each row is built (marked, its text written) before the rows writer lock, which only
+        // puts them in: built under it, a restart's every saved peer held every other peer's
+        // notices for its whole list (cosmic-gray, 2026-11-27).
+        let rows: Vec<RemoteSession> = saved
+            .sessions
+            .into_iter()
+            .enumerate()
+            .filter(|(n, _)| !past.contains(n))
+            .filter_map(|(_, mut summary)| {
+                let receipt = super::peers::session_receipt(&summary)?;
+                mark_stale(&mut summary, saved.last_seen);
+                // An older build saved rows with a peer's own display line.
+                super::drop_display_lines(&mut summary);
+                let summary = PeerRow::new(&summary);
+                Some(RemoteSession { peer: peer.name.clone(), summary, receipt })
+            })
+            .collect();
         let mut map = self.remote_sessions.write();
         if map.has_peer(&peer.name) {
             return;
         }
         // A chat that was working or asking when this daemon stopped is read ahead now: its
         // peer dials at once instead of waiting to be used (`peer_demand.rs`).
-        if saved.sessions.iter().any(super::peer_idle::live) {
+        if live {
             peer.want();
         }
-        // Its closed rows past the bound stay out (`peer_closed_bound.rs`).
-        let past = super::peer_closed_bound::summaries_past_bound(&saved.sessions);
-        for (n, mut summary) in saved.sessions.into_iter().enumerate() {
-            if past.contains(&n) {
-                continue;
-            }
-            let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
-            mark_stale(&mut summary, saved.last_seen);
-            // An older build saved rows with a peer's own display line.
-            super::drop_display_lines(&mut summary);
-            let summary = PeerRow::new(&summary);
-            let remote = RemoteSession { peer: peer.name.clone(), summary, receipt };
+        for remote in rows {
             map.insert(remote.receipt.qualified_id(), remote);
         }
     }

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use crate::link::Link;
 use crate::peers::Chain;
-use crate::{Fetch, FetchError};
+use crate::{Fetch, FetchError, Fetched};
 
 /// Where faults went, for the mount's timing line and the tests.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +145,39 @@ impl Fetch for StoreFirst {
         if !rest.is_empty() {
             self.mac.fetch_add(rest.len() as u64, Ordering::Relaxed);
             let mut from_mac = self.link.batch(&rest).into_iter();
+            for answer in answers.iter_mut().filter(|answer| answer.is_none()) {
+                *answer = Some(from_mac.next().unwrap_or(Err(FetchError::Failed)));
+            }
+        }
+        answers.into_iter().map(|answer| answer.unwrap_or(Err(FetchError::Failed))).collect()
+    }
+
+    // The store holds the manifest's bytes; a file the Mac re-lists after a change
+    // (`Fetched::Restated`) can only come from the Mac.
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fetched, FetchError> {
+        if let Some(bytes) = self.stored_bytes(entry) {
+            let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
+            let end = start.saturating_add(len as usize).min(bytes.len());
+            return Ok(Fetched::Same(bytes.get(start..end).unwrap_or_default().to_vec()));
+        }
+        self.mac.fetch_add(1, Ordering::Relaxed);
+        self.link.read_fresh(entry, offset, len)
+    }
+
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fetched, FetchError>> {
+        let mut answers: Vec<Option<Result<Fetched, FetchError>>> = entries
+            .iter()
+            .map(|entry| self.stored_bytes(*entry).map(|bytes| Ok(Fetched::Same(bytes))))
+            .collect();
+        let rest: Vec<u32> = entries
+            .iter()
+            .zip(&answers)
+            .filter(|(_, answer)| answer.is_none())
+            .map(|(entry, _)| *entry)
+            .collect();
+        if !rest.is_empty() {
+            self.mac.fetch_add(rest.len() as u64, Ordering::Relaxed);
+            let mut from_mac = self.link.batch_fresh(&rest).into_iter();
             for answer in answers.iter_mut().filter(|answer| answer.is_none()) {
                 *answer = Some(from_mac.next().unwrap_or(Err(FetchError::Failed)));
             }
