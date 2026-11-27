@@ -4,6 +4,16 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveResult {
+    pub request: String,
+    pub answered: IntegrationApprovalApproveResultAnswered,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub reply: Option<Value>,
+}
+
 wire_errors! {
     /// The error codes integration.approval.approve declares.
     IntegrationApprovalApproveError {
@@ -891,16 +901,4 @@ wire_op! {
 pub struct MailThreadsPeekParams {
     pub connection: ConnectionId,
     pub thread_ids: Vec<String>,
-}
-
-wire_errors! {
-    /// The error codes mail.threads.peek declares.
-    MailThreadsPeekError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
 }
