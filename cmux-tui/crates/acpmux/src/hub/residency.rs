@@ -115,8 +115,8 @@ pub(super) fn adaptive_period(
     }
 }
 
-/// A filler chat (started on idle capacity, leo-workspace `tools/idle_feeder.py`): evictable, so
-/// no cap counts it. False until its start carries the marker (lane/idle-feeder-sources).
+/// A filler chat (started to use idle capacity): evictable, so no cap counts it. False until a
+/// chat's start carries a filler marker, so today no chat is filler.
 pub(super) fn is_filler(_session: &Session) -> bool {
     false
 }
