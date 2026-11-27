@@ -607,7 +607,7 @@ import {
   hostSelfRetrying,
   readHostRestoring,
 } from "./hostRetry";
-import { pageShowsWhatItIs } from "./firstPaint";
+import { newTabPaintReady, pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { bridgedWatch } from "./watchBannerModel";
@@ -7423,7 +7423,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const first = !paintReported.current;
     // A null lazy screen is a paint observation, not the screen's completed first report.
     // Native keeps its cover until the loaded screen's observation follows.
-    paintReported.current = newTab === undefined || newTabChunkDrawn || hostErrorSaid;
+    paintReported.current = newTabPaintReady(newTab !== undefined, newTabChunkDrawn, hostErrorSaid);
     if (settledNow) settledReported.current = settledSession;
     if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
