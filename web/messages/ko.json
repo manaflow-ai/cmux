@@ -5495,7 +5495,9 @@
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
-    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
+    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요.",
+    "errorRedirectNotAllowed": "이 빌드의 로그인 주소는 {backend}에서 허용되지 않습니다.",
+    "backendDevelopment": "개발 백엔드"
   },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",

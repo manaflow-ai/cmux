@@ -398,7 +398,7 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
     }
     servers.insert(SERVER_NAME.to_owned(), entry.clone());
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     let mut bytes = serde_json::to_vec_pretty(&config)?;
     bytes.push(b'\n');

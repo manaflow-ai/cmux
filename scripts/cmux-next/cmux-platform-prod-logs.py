@@ -49,7 +49,9 @@ _spec.loader.exec_module(base)
 # and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
 # team, so a cmux-vm service reads only `window`.
 VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
-SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
+# cmux-platform-development lives in the same account: its never_bound and bind_late lines (bind_probe) are the guest
+# facts a Cloud lane reads after a fresh create, and cmux-platform's worker-log-read.yml gets 403 on it too.
+SERVICES = ("cmux-platform-production", "cmux-platform-staging", "cmux-platform-development") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
@@ -59,7 +61,10 @@ ID_KEYS = {"vm": ("machine", "machineId", "machine_id", "vm", "vmId", "vm_id"),
            "team": ("team", "teamId", "team_id")}
 ALL_ID_KEYS = frozenset(k for keys in ID_KEYS.values() for k in keys)
 
-# Exact msg literals in cmux-platform src/server (non-test .ts, `msg: "..."`), as of main dbba2c7 (2026-11-15).
+# Exact msg literals in cmux-platform src/server (non-test .ts, `msg: "..."`), as of main 1c9f9328 (2026-11-26).
+# Refreshed from dbba2c7 (2026-11-15): 142 literals the platform added since were dropped as `unlisted`, among them
+# cloud.machine.edge_dns (cmux-platform#2242), so a read of the 2026-11-26 21:46Z signed-out machine could not say
+# whether its edge DNS check ran. A read's header now names each dropped msg that is a plain token (unlisted_msgs).
 # A template or computed msg is never here; add one only when it is a literal written by our code.
 PLATFORM_MSGS = frozenset({
     "after-response work failed",
@@ -75,9 +80,13 @@ PLATFORM_MSGS = frozenset({
     "cloud coderouter edge",
     "cloud environment build failed",
     "cloud environment setup did not start",
+    "cloud git egress",
+    "cloud github api egress",
     "cloud guest exec failed",
     "cloud late-VM lookup failed",
     "cloud legacy seed capture not deleted",
+    "cloud machine autosize",
+    "cloud machine guest call",
     "cloud machine guest rpc failed",
     "cloud mesh acl",
     "cloud mesh attach",
@@ -88,39 +97,72 @@ PLATFORM_MSGS = frozenset({
     "cloud provider call failed",
     "cloud provider route",
     "cloud router route",
+    "cloud sccache",
     "cloud slow call failed",
+    "cloud usage facts failed",
     "cloud usage ledger fact refused",
     "cloud usage ledger refused a whole batch",
     "cloud vm api capture unconfirmed at its deadline",
     "cloud vm api snapshot capture refused",
     "cloud vm api snapshot capture unconfirmed",
+    "cloud.allotment.admit",
+    "cloud.allotment.admit_failed",
     "cloud.approval.gate",
     "cloud.approval.run",
+    "cloud.billing.checkout",
     "cloud.bind.rpc",
     "cloud.call.abandoned",
+    "cloud.census.first_replies_failed",
+    "cloud.census.first_turn_failed",
     "cloud.census.put_failed",
     "cloud.census.settle_failed",
+    "cloud.census.start_gaps_failed",
+    "cloud.census.starts_failed",
     "cloud.census.sweep_failed",
+    "cloud.census.wake_echo_failed",
     "cloud.claim_fence_failed",
     "cloud.claim_fence_retry_alarm_failed",
     "cloud.claim_fence_retry_read_failed",
     "cloud.claim_fence_retry_reset_failed",
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
+    "cloud.create.adopted",
     "cloud.create.attach_after_bind",
+    "cloud.create.image_refollowed",
+    "cloud.create.submit",
+    "cloud.create.trace",
     "cloud.create.trace_unsent",
+    "cloud.divergence.read",
+    "cloud.divergence.read_failed",
+    "cloud.egress.failed",
+    "cloud.egress.org_invalid",
+    "cloud.egress.read",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
+    "cloud.fold.parked",
+    "cloud.fold.read",
+    "cloud.fold.read_failed",
+    "cloud.fold.skipped",
     "cloud.fork_snapshot_delete_failed",
-    # Why an overdue running machine was not paused, once per machine per change (cmux-platform src/server/cloud
-    # IdleKept.ts). Kept only as its idle_kept() projection: cmux#54889's timer-only `workload` lines.
     "cloud.idle.kept",
+    "cloud.idle.pause_not_sent",
+    "cloud.idle.policy_read_failed",
     "cloud.image.cache.failed",
     "cloud.image.follow",
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    "cloud.machine.bind_late",
+    # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
+    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
+    "cloud.machine.edge_dns",
+    "cloud.machine.exec_wake",
     "cloud.machine.ledger_wake",
+    "cloud.machine.mesh_enroll",
+    "cloud.machine.mesh_unenrolled",
+    "cloud.machine.pausing_failed",
+    "cloud.machine.pausing_told",
+    "cloud.machine.person_pause_rewoken",
     "cloud.machine.power_overdue",
     "cloud.machine.scaler_pause_held",
     "cloud.machine.size_read_failed",
@@ -133,28 +175,61 @@ PLATFORM_MSGS = frozenset({
     "cloud.machine.turn_wake_gave_up",
     "cloud.machine.verify_failed",
     "cloud.machine.woken_behind_ledger",
+    "cloud.machine.woken_watch_failed",
+    "cloud.machine_request",
+    "cloud.machine_request.consent_failed",
+    "cloud.member_removed.paused",
     "cloud.migration.classic_admitted",
     "cloud.mutations.orphan_resolved",
     "cloud.mutations.pre_fence",
     "cloud.ops.create",
+    "cloud.parked_wake",
+    "cloud.parked_wake_failed",
     "cloud.pass.abandoned",
+    "cloud.pause.page_cache",
+    "cloud.person_layer.expired",
     "cloud.platform_stop_allocations_failed",
+    "cloud.pool.cleared",
+    "cloud.pool.paused",
+    "cloud.pool.refused",
+    "cloud.pool.spend_limit_set",
+    "cloud.pool.warning",
     "cloud.record.reconcile_failed",
     "cloud.record.stale",
     "cloud.record.unknown",
     "cloud.room.failed",
     "cloud.spare.claimed",
     "cloud.spare.gateway_read",
+    "cloud.spare.hold_refused",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
+    "cloud.spare.replay_failed",
     "cloud.spare.restarting",
+    "cloud.spare.room_failed",
+    "cloud.spare.room_ledger_failed",
+    "cloud.spare.snapshot_failed",
+    "cloud.spare.unrouted",
+    "cloud.spend_cap.alert",
     "cloud.spend_cap.cleared",
     "cloud.spend_cap.paused",
     "cloud.spend_cap.read_failed",
     "cloud.spend_cap.record_failed",
     "cloud.spend_cap.warning",
-    # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
+    "cloud.start.first_reply",
+    "cloud.start.submit",
+    "cloud.start.trace",
+    "cloud.start_trace.unwritten",
     "cloud.submit.cut_off",
+    "cloud.usage.report_failed",
+    "cloud.usage.reported",
+    "cloud.wake_echo.note_failed",
+    "cloud.wake_served.note_failed",
+    "cloud.work_machine.failed",
+    "cloud.work_machine.not_ready",
+    "cloud.work_machine.ready",
+    "cloud.work_machine.skipped",
+    "cloud.work_machine.started",
+    "cloud_environment.secret_changed",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",
@@ -164,17 +239,35 @@ PLATFORM_MSGS = frozenset({
     "environment builder not deleted yet",
     "environment encryption configuration is invalid; secrets are refused",
     "environment.activity.failed",
+    "error",
+    "extensions.crawl",
+    "extensions.link_deferred",
     "grant check",
+    "hub.call",
+    "hub.linked",
+    "hub.unlinked",
     "inference.call_ledger",
+    "inference.call_shared",
+    "inference.config_invalid",
     "inference.finish_failed",
     "inference.request",
+    "inference.settle_failed",
+    "inference.spend.read_failed",
+    "inference.spend_guard.settle_failed",
+    "inference.spend_guard.skipped",
+    "inference_gateway.spares_remade",
+    "install_counts.additions",
     "install_counts.upload",
     "install_keys.jwks_load_failed",
     "late environment builder not deleted",
     "machine autosize",
     "machine autosize arm failed",
+    "machine autosize event failed",
+    "machine autosize press failed",
     "machine autosize tick failed",
     "machine create refused, falling back",
+    "machine github token",
+    "machine github token refused",
     "machine legacy provider",
     "machine placement",
     "machine placement unavailable",
@@ -183,8 +276,13 @@ PLATFORM_MSGS = frozenset({
     "machine state put failed",
     "machine turn standby not deleted",
     "machine.access_copy_failed",
+    "machine.child_join_minted",
     "machine.device_delete_pending",
+    "machine.device_session",
     "machine.egress_mismatch_destroy_failed",
+    "machine.github_revoke_failed",
+    "machine.guests_revoked",
+    "machine.join_minted_by_enrollment",
     "machine.join_minted_for_pairing",
     "machine.mesh_purge_failed",
     "machine.mesh_retire_failed",
@@ -195,6 +293,8 @@ PLATFORM_MSGS = frozenset({
     "machine.reap_protected",
     "machine.reaped",
     "machine.rejoin_retire_failed",
+    "machine.repo_fetch",
+    "machine.resize.guest_shape",
     "machine.revoked_with_server",
     "machine.rotation_retire_failed",
     "machine.self_capabilities",
@@ -207,6 +307,7 @@ PLATFORM_MSGS = frozenset({
     "machine.wg_key_rotate",
     "machines.admission.leak_settled",
     "machines.create.write_back_refused",
+    "machines.gate.wait",
     "machines.lease.ended",
     "machines.lease.idle_pause",
     "machines.lease.side_state_pruned",
@@ -214,18 +315,30 @@ PLATFORM_MSGS = frozenset({
     "machines.outbox.unknown_op",
     "machines.parked_prune_failed",
     "machines.spare.claim",
+    "machines.spare.cut_failed",
     "machines.spare.fill",
     "machines.spare.fill_diagnostic_unavailable",
     "machines.spare.finish",
+    "machines.spare.finish_resend",
+    "machines.spare.hold_failed",
     "machines.spare.ledger_failed",
+    "machines.spare.passes_failed",
     "machines.spare.refill_put_failed",
     "machines.spare.refresh",
+    "machines.spare.remade",
+    "machines.spare.remake_failed",
+    "machines.spare.reserve",
+    "machines.spare.room_unread",
     "machines.spare.running",
     "machines.spare.settle",
     "machines.spare.warm",
+    "machines.spare.wedged",
+    "machines.spare.wedged_release_failed",
     "mcp connector install untracked",
     "mcp connector revoke pending",
     "mcp_servers.added",
+    "mcp_servers.connect_started",
+    "mcp_servers.oauth_failed",
     "mcp_servers.removed",
     "mesh.device.delete_pending",
     "mesh.device.delete_refused",
@@ -233,7 +346,6 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
-    # A team hub call that threw before answering 503 mesh.unavailable: its kind and error type (cmux-platform#1660).
     "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
@@ -246,12 +358,38 @@ PLATFORM_MSGS = frozenset({
     "owner_tokens.jwks_load_failed",
     "platform machine call",
     "platform machine operation waiting",
+    "registered.slot_gone_revoke_failed",
+    "scim.failed",
+    "scim.user.create",
+    "scim.user.delete",
+    "scim.user.update",
     "security mail dropped",
+    "session_moves.recorded",
     "sign-in policy unreachable",
     "socket frame failed",
+    "stack keys unreachable",
+    "started",
+    "sync.gc.step_failed",
+    "sync.stored_facts.failed",
     "system op refused",
     "team machine audit write failed",
     "team selection unreachable",
+    "team.member_access_ended",
+    "team.member_access_unended",
+    "team_import.failed",
+    "team_import.plan",
+    "team_import.retry",
+    "team_import.start",
+    "team_import.undo",
+    "team_import.undo_retry",
+    "team_scim.token_revoked",
+    "team_scim.token_rotated",
+    "team_sso.jit",
+    "team_sso.jit_reverted",
+    "team_usage.read",
+    "token.spend_cap",
+    "tokens.failed",
+    "tokens.leaked",
     "turn checkpoints pruned",
     "turn machine deleted",
     "turn rewind",
@@ -264,8 +402,13 @@ PLATFORM_MSGS = frozenset({
     "turn standby not cooled",
     "turn standby resumed",
     "turn standby skipped",
+    "usage fact unpriced",
     "usage.audit",
     "usage.delete",
+    "usage.export",
+    "usage.level",
+    "usage.policy",
+    "usage.seat_days_failed",
     "usage.upload",
     "vault.alert_feed_failed",
     "vault.edge_rule_untracked",
@@ -282,12 +425,23 @@ PLATFORM_MSGS = frozenset({
     "vault.open_failed",
     "vault.read_alert",
     "vault.save_undo_failed",
+    "vault.secret_unverified",
+    "vault.tailnet_holder_claimed",
+    "vault.tailnet_holder_released",
+    "vault.tailnet_node_deleted",
+    "vault.tailnet_node_open_failed",
+    "vault.tailnet_node_read",
+    "vault.tailnet_node_written",
     "vault.upstream_read",
     "vault.user_key_created",
     "vault.user_key_open_failed",
     "vault.user_key_rewrapped",
     "vm api tenant not ready",
     "vm install revoke failed",
+    "webhooks.created",
+    "webhooks.deleted",
+    "webhooks.emit_failed",
+    "webhooks.rotated",
     "workspace environment watch failed",
     "workspace machine: carrier workspace mark not written",
     "workspace machine: extra machine not deleted",
@@ -301,10 +455,117 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
+                 "paused_for_ms": INT, "why": TOKEN, "exit": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
-# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
-PUBLIC_BOOLS = ("lacks", "shared", "host")
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
+# cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+
+# The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
+# ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+TRACE_STEPS = frozenset({
+    "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
+    "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
+    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit",
+})
+
+
+# machines.spare.claim and machines.spare.finish (cmux-platform Scaler.ts claimSpare): `skipped`, each fixed reason a
+# claim passed a spare over for (warming, paused, gateway_rule, generation, lost_*, ...) with its count, and `ms`, the
+# cumulative ms per fixed step. Without them a claim that saw a spare and still created reads only `spares: 1`
+# (production 2026-11-26 16:09Z and 16:46Z, hq#29939, hq#29940). A key that is not a plain token, or a count that is
+# not an int, is dropped; an id-like key is hashed (base.typed TOKEN).
+SPARE_COUNT_MSGS = frozenset({"machines.spare.claim", "machines.spare.finish"})
+SPARE_COUNTS_MAX = 24
+
+
+def token_counts(counts):
+    """{token: int} from a dict of fixed words to counts or ms; anything else is dropped. None when nothing is left."""
+    if not isinstance(counts, dict):
+        return None
+    out = {}
+    for k, v in counts.items():
+        key, n = base.typed(TOKEN, k), base.typed(INT, v)
+        if key is not None and n is not None and len(out) < SPARE_COUNTS_MAX:
+            out[key] = n
+    return dict(sorted(out.items())) or None
+
+
+def trace_steps(steps):
+    """A trace's steps as {listed step: ms}; a non-int or unlisted step is dropped."""
+    if not isinstance(steps, dict):
+        return None
+    out = {k: v for k, v in steps.items() if k in TRACE_STEPS and base.typed(INT, v) is not None}
+    return dict(sorted(out.items(), key=lambda kv: kv[1]))
+
+
+# cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
+# bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
+# an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
+BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
+UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
+CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
+HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+
+
+def probe_facts(out):
+    """The typed facts of a bind probe's out text, in NeverBoundProbe.ts's order: dns api then edge, https api then
+    edge. Every value is a fixed word, a band or a small int."""
+    facts = {}
+    dns, https = [], []
+    for raw in out.splitlines():
+        ln = raw.strip()
+        if ln in ("bind_file=present", "bind_file=missing"):
+            facts["bind_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("uptime_s="):
+            try:
+                up = float(ln.split("=", 1)[1])
+            except ValueError:
+                continue
+            if up >= 0:
+                facts["uptime"] = next((band for limit, band in UPTIME_BANDS if up < limit), "ge900s")
+        elif ln.startswith("nameservers="):
+            facts["nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n])
+        elif ln.startswith("route="):
+            facts["route"] = "default" if ln.split("=", 1)[1].strip() else "none"
+        elif ln.startswith("dns ") and "=" in ln:
+            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
+        elif ln.startswith("https "):
+            err = CURL_ERROR.search(ln)
+            code = HTTP_CODE.search(ln)
+            if err:
+                https.append(f"curl_{int(err.group(1))}")
+            elif code and code.group(1) != "000":
+                https.append(int(code.group(1)))
+            else:
+                https.append("no_answer")
+        elif ln == "curl=absent":
+            https = ["curl_absent", "curl_absent"]
+    for name, got in (("dns", dns), ("https", https)):
+        for target, v in zip(("api", "edge"), got):
+            facts[f"{name}_{target}"] = v
+    return facts
+
+
+def bind_probe(p):
+    """bind_probe's typed projection: outcome, ms, exit, truncated, the provider error code and probe_facts."""
+    if not isinstance(p, dict):
+        return None
+    out = {"outcome": p.get("outcome") if p.get("outcome") in BIND_PROBE_OUTCOMES else "other"}
+    for k in ("ms", "exit"):
+        v = base.typed(INT, p.get(k))
+        if v is not None:
+            out[k] = v
+    if isinstance(p.get("truncated"), bool):
+        out["truncated"] = p["truncated"]
+    if "error" in p:
+        out["error"] = base.typed(TOKEN, p["error"]) or True
+    if isinstance(p.get("out"), str):
+        out.update(probe_facts(p["out"]))
+    return out
 
 
 # cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
@@ -346,15 +607,93 @@ def idle_kept(j):
     return out
 
 
+# cloud.work_machine.*'s typed fields (CloudDO.ts): `work` is the work VM's id; the rest are sizes and timings.
+WORK_MACHINE_FIELDS = {"team": ID, "machine": ID, "work": ID, "cpu": INT, "memory_mb": INT, "ms": INT,
+                       "create_ms": INT, "history": INT}
+# A skip's reasons; a failure's `why` is the create answer's code, kept as a token. Anything else prints as "other".
+WORK_MACHINE_SKIPPED = frozenset({"no_plan", "agent_is_enough", "max_active", "max_machines", "rate", "budget"})
+# PausePolicy.ts PAUSE_POLICY_NAMES, plus "deployment" when the policy write was refused.
+WORK_MACHINE_POLICIES = frozenset({"current", "aggressive", "turn_end", "deployment"})
+
+
+def work_machine(j):
+    """cloud.work_machine.*'s typed projection: ids hashed, sizes and timings as ints, a fixed why and pause policy."""
+    msg = j["msg"]
+    out = {"msg": msg}
+    for k, kind in WORK_MACHINE_FIELDS.items():
+        v = base.typed(kind, j.get(k)) if k in j else None
+        if v is not None:
+            out[k] = v
+    why = j.get("why")
+    if isinstance(why, str):
+        if msg == "cloud.work_machine.skipped":
+            out["why"] = why if why in WORK_MACHINE_SKIPPED else "other"
+        else:
+            out["why"] = base.typed(TOKEN, why) or "other"
+    p = j.get("pause_policy")
+    if isinstance(p, str):
+        out["pause_policy"] = p if p in WORK_MACHINE_POLICIES else "other"
+    return out
+
+
+# cmux-vm's timed JSON lines (workers/cmux-vm src/lib/timing.ts logTimedEvent: `{"event": ..., ...phases}`), one per
+# create that reached the provider (handlers/vms.ts vmCreateLine). A kept line keeps its event, its booleans, its
+# phases' ms and providerTimingsMs's {fixed word: ms}; the VM's id and the mesh's id are dropped. Without it a
+# snapshot boot that stalled at the provider read as no line at all (cmux-platform live-fork create_overdue,
+# cmuxterm-hq run 45883744191: 3076 cmux-vm events scanned, the copy's create invisible).
+VM_EVENTS = frozenset({"vm_create"})
+VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
+               "providerTotalMs", "totalMs")
+VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+
+
+def vm_event(j):
+    """The kept fields of a VM_EVENTS line: only fixed names, booleans and ints."""
+    out = {"event": j["event"]}
+    for k in VM_EVENT_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    for k in VM_EVENT_MS:
+        v = base.typed(INT, j.get(k))
+        if v is not None:
+            out[k] = v
+    variant = j.get("imageVariant")
+    if variant in ("large", "base", "unlisted"):
+        out["imageVariant"] = variant
+    timings = token_counts(j.get("providerTimingsMs"))
+    if timings is not None:
+        out["providerTimingsMs"] = timings
+    return out
+
+
+def vm_event_line(e):
+    """The event's cmux-vm timed JSON line (`{"event": ...}`, no `msg`), if it has one: base.console_line reads only
+    lines with a `msg`, so these were neither kept nor counted as dropped."""
+    for cand in (base.dig(e, "$metadata", "message"), base.dig(e, "message"), base.dig(e, "source")):
+        j = cand
+        if isinstance(cand, str):
+            try:
+                j = json.loads(cand)
+            except ValueError:
+                continue
+        if isinstance(j, dict) and "msg" not in j and isinstance(j.get("event"), str):
+            return j
+    return None
+
+
 def public_log(j):
-    """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
+    """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
         return None, "tenant"
+    if "msg" not in j and j.get("event") in VM_EVENTS:
+        return vm_event(j), None
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
     if msg == "cloud.idle.kept":
         return idle_kept(j), None
+    if msg.startswith("cloud.work_machine."):
+        return work_machine(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -367,6 +706,24 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
+    if msg in TRACE_MSGS:
+        steps = trace_steps(j.get("steps"))
+        if steps is not None:
+            out["steps"] = steps
+    if msg in SPARE_COUNT_MSGS:
+        for k in ("skipped", "ms"):
+            counts = token_counts(j.get(k))
+            if counts is not None:
+                out[k] = counts
+    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+        probe = bind_probe(j["bind_probe"])
+        if probe is not None:
+            out["bind_probe"] = probe
+    if msg == "cloud.machine.edge_dns":
+        if isinstance(j.get("exit"), int) and not isinstance(j.get("exit"), bool):
+            out["exit"] = j["exit"]
+        if j.get("why") in ("bind", "claim"):
+            out["why"] = j["why"]
     if "error" in j:
         out["error"] = True
     return out, None
@@ -444,6 +801,9 @@ def vm_log(text):
     return out, None
 
 
+UNLISTED_NAMED_MAX = 24
+
+
 def line(e, counts=None):
     """One private row for an event: only typed, allowlisted values; never raw event text."""
     counts = counts if counts is not None else {}
@@ -469,6 +829,8 @@ def line(e, counts=None):
     if status is not None:
         rec["status"] = status
     j = base.console_line(e)
+    if j is None:
+        j = vm_event_line(e)
     text = vm_text_line(e) if j is None else None
     if j is not None or text is not None:
         log, why = public_log(j) if j is not None else vm_log(text)
@@ -476,6 +838,13 @@ def line(e, counts=None):
             rec["log"] = log
         else:
             counts[f"logs_dropped_{why}"] = counts.get(f"logs_dropped_{why}", 0) + 1
+            name = j.get("msg") if j is not None and why == "unlisted" else None
+            # A dropped msg that is a plain token (never an id, never free text) is named, so a platform msg this list
+            # lacks shows in the read that needed it instead of only as a count.
+            if isinstance(name, str) and base.typed(TOKEN, name) == name:
+                named = counts.setdefault("unlisted_msgs", {})
+                if name in named or len(named) < UNLISTED_NAMED_MAX:
+                    named[name] = named.get(name, 0) + 1
     return rec
 
 
@@ -560,7 +929,8 @@ def window_totals(events, needles):
             key["version"] = base.tag(version)
         log = rec.get("log")
         if log is not None:
-            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+            key["log"] = {k: v for k, v in log.items()
+                          if PUBLIC_FIELDS.get(k) != ID and WORK_MACHINE_FIELDS.get(k) != ID}
         k = json.dumps(key, sort_keys=True)
         totals[k] = totals.get(k, 0) + 1
     rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]
@@ -574,7 +944,7 @@ def window_needle(needles):
     """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
     a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
     The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
-    return needles[0] if len(needles) == 1 and needles[0] in PLATFORM_MSGS else None
+    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS) else None
 
 
 def query(token, service, frm, to, offset=None, needle=None):

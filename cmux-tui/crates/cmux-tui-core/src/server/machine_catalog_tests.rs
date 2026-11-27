@@ -259,3 +259,20 @@ fn cmux_next_machine_catalog_owner_metadata_withdraws_with_verified_app_authorit
     );
     assert_eq!(publisher.send(&mux, 2, json!([]))["error_code"], "machine_catalog.not_trusted");
 }
+
+/// A session list row names its journal head (`session-journal.md`, "Session
+/// list rows"), so a viewer can tell a row that ran ahead of its body.
+#[test]
+fn session_list_rows_carry_the_journal_head_sequence() {
+    let mux = mux();
+    let head_of = |row: &Value| row["extra"]["journal_head_sequence"].as_str().unwrap().to_owned();
+    let listed = dispatch(&mux, ResourceOperation::SessionList, Some("current")).unwrap();
+    assert_eq!(head_of(&listed[0]), mux.session_journal_head().unwrap().to_string());
+    let before = mux.session_journal_head().unwrap();
+    mux.new_workspace(None, None).unwrap();
+    let after = mux.session_journal_head().unwrap();
+    assert!(after > before, "a new workspace appends journal records");
+    let listed = dispatch(&mux, ResourceOperation::SessionList, Some("current")).unwrap();
+    assert_eq!(head_of(&listed[0]), after.to_string());
+    mux.shutdown();
+}

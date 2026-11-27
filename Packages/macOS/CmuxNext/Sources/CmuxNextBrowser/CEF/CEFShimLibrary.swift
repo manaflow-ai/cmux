@@ -290,6 +290,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Sends every first-party page request to the page host (1) or serves page folders (0): the live
     /// web loop. Nil in an older shim, which always serves the folders.
     let pageSchemeSetLive: (@convention(c) (Int32) -> Void)?
+    /// Names the browser whose agent chat document gets a renderer of its own on its next load
+    /// (`CEFOwnChatRenderer`); 0 for none. Nil in an older shim, where every chat shares one renderer.
+    let pageOwnRenderer: (@convention(c) (Int32) -> Void)?
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -508,6 +511,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageResourceRespondRanged = try r("cmux_shim_page_resource_respond_ranged")
         pageResourceRespondPage = r.optional("cmux_shim_page_resource_respond_page")
         pageSchemeSetLive = r.optional("cmux_shim_page_scheme_set_live")
+        pageOwnRenderer = r.optional("cmux_shim_page_own_renderer")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")
