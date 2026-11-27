@@ -132,9 +132,14 @@ cmux_next_cas_bound() {
 # (8b6d15df0, ultra1, 2026-11-27) died this way with no compile error in the tree.
 # The next build gets a new build service, so a caller that already allows one
 # retry should spend it here too.
+# One awk, no pipe: `awk | grep -q` under pipefail failed whenever the log was bigger than a pipe buffer
+# (grep -q exits at the first match, awk dies writing the rest: "awk: write error on /dev/stdout"), so a
+# real crash read as no crash and the no-cache retry never ran (nightly-next runs 46074261734, 46076637784,
+# 46079235693, about 110k log lines each).
 # Usage: cmux_next_build_service_crashed <log>
 cmux_next_build_service_crashed() {
   [[ -f "$1" ]] || return 1
-  awk '/^xcodebuild exit status:/ { exit } { print }' "$1" \
-    | grep -Eq 'The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)'
+  awk '/^xcodebuild exit status:/ { exit }
+       /The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)/ { found = 1; exit }
+       END { exit !found }' "$1"
 }

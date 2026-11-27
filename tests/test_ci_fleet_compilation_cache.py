@@ -268,6 +268,26 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "2")
 
+    def test_a_build_service_crash_in_a_large_log_is_seen_under_pipefail(self):
+        """The real Release log runs to about 110k lines. With `awk | grep -q` under pipefail, grep left at the
+        first match, awk failed writing the rest, and the crash read as no crash, so the no-cache retry never
+        ran (nightly-next runs 46074261734, 46076637784, 46079235693)."""
+        log = self.root / "big-release.log"
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        filler = "".join(f"CompileSwift normal arm64 /src/File{i}.swift\n" for i in range(200000))
+        log.write_text(filler[: len(filler) // 2] + crash + "\n" + filler + "xcodebuild exit status: 65\n")
+        lib = ROOT / "scripts/cmux-next/lib/compilation-cache.sh"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{log}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "crashed", result.stderr)
+        clean = self.root / "clean-release.log"
+        clean.write_text(filler + "xcodebuild exit status: 65\n" + crash + "\n")
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{clean}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "none", result.stderr)
+
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
         """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
         that hits the same diagnostic retries with the same local cache and says so."""
