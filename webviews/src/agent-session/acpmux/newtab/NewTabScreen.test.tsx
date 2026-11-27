@@ -411,6 +411,21 @@ const firstRunProps = {
   onShowAll: () => {},
 };
 
+test("bare modifiers leave the new tab's first-use refresh for actual input", async () => {
+  let touches = 0;
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} onTouched={() => touches++} />));
+  const field = await promptField();
+  for (const key of ["Meta", "Shift", "Control", "Alt", "CapsLock", "Fn", "AltGraph"]) {
+    await press(field, key);
+    await press(field, key, { repeat: true });
+  }
+  expect(touches).toBe(0);
+  await press(field, "a");
+  expect(touches).toBe(1);
+  await press(field, "b");
+  expect(touches).toBe(1);
+});
+
 /// What the page told the host about toasts (`pane.toastAvoidance`), with the composer card drawn
 /// 90 px tall at the page's foot.
 function watchToastReports() {
