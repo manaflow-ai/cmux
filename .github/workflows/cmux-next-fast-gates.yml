@@ -514,6 +514,7 @@ jobs:
       linkage: false
     permissions:
       contents: read
+      actions: read
   fast-gates:
     name: fast gates
     needs: [resolve]

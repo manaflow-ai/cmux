@@ -498,6 +498,7 @@ jobs:
       pair_skew: false
     permissions:
       contents: read
+      actions: read
 
   compile-preflight:
     # A web-bundle input can break the build on every tier (Leo, 2026-11-27: "surely we can just have legit build

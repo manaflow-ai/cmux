@@ -35,6 +35,10 @@ def main():
         trees = {row["sha"]: Path(directory) / row["sha"] for row in window["include"]}
         plan = list(pairs(window, head, trees))
         added = []
+        (logs / "matrix-result.json").write_text(json.dumps({
+            "completed": [], "not_run": window["include"], "passed": False,
+            "failed_stage": "source-preparation-incomplete",
+        }, indent=2) + "\n")
         try:
             for sha, tree in trees.items():
                 subprocess.run(["git", "-C", str(head), "fetch", "--no-tags", "--depth=1", "origin", sha],
@@ -42,22 +46,39 @@ def main():
                 subprocess.run(["git", "-C", str(head), "worktree", "add", "--detach", str(tree), sha],
                                check=True, timeout=120)
                 added.append(tree)
-            for row, (host, dial) in plan:
+            completed = []
+            for index, (row, (host, dial)) in enumerate(plan):
                 label = row["role"] + "-" + row["sha"][:12]
                 env = dict(os.environ, SKEW_LOG_DIR=str(logs / label))
                 start = time.monotonic()
                 cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
-                result = subprocess.run(["bash", str(head / "scripts/ci/mobile-pair-skew.sh"),
-                                         str(host), str(dial)], env=env, timeout=1800)
+                status, failed_stage = 1, ""
+                try:
+                    result = subprocess.run(["bash", str(head / "scripts/ci/mobile-pair-skew.sh"),
+                                             str(host), str(dial)], env=env, timeout=1800)
+                    status = result.returncode
+                    failed_stage = "" if status == 0 else "pair"
+                except subprocess.TimeoutExpired:
+                    status, failed_stage = 124, "pair-timeout"
+                except OSError:
+                    status, failed_stage = 127, "pair-launch"
                 after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 receipt = dict(row, pr_sha=subprocess.check_output(
                     ["git", "-C", str(head), "rev-parse", "HEAD"], text=True).strip(),
                     wall_seconds=time.monotonic() - start,
                     cpu_seconds=(after.ru_utime + after.ru_stime - cpu.ru_utime - cpu.ru_stime),
-                    exit_code=result.returncode)
+                    exit_code=status, failed_stage=failed_stage,
+                    cost_scope="pair including any build; excludes setup and source fetch")
                 (logs / (label + ".json")).write_text(json.dumps(receipt, indent=2) + "\n")
                 print(json.dumps(receipt), flush=True)
-                result.check_returncode()
+                completed.append(receipt)
+                (logs / "matrix-result.json").write_text(json.dumps({
+                    "completed": completed,
+                    "not_run": [pending for pending, _ in plan[index + 1:]],
+                    "passed": status == 0 and index + 1 == len(plan),
+                }, indent=2) + "\n")
+                if status:
+                    raise SystemExit(status)
         finally:
             for tree in reversed(added):
                 subprocess.run(["git", "-C", str(head), "worktree", "remove", str(tree)], check=True)

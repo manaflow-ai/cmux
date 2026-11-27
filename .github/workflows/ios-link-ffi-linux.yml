@@ -38,9 +38,10 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: ios-link-ffi-linux-${{ github.ref }}-${{ toJSON(inputs.linkage) == 'false' && 'skew' || 'linkage' }}
+  group: ios-link-ffi-linux-${{ inputs.head || github.ref }}-${{ toJSON(inputs.linkage) == 'false' && 'skew' || 'linkage' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -90,6 +91,9 @@ jobs:
       CARGO_TERM_COLOR: never
       CARGO_INCREMENTAL: "0"
     steps:
+      - name: Begin full gate timing
+        run: echo "PAIR_GATE_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -145,6 +149,20 @@ jobs:
         with:
           path: ${{ runner.temp }}/pair-binaries
           key: ${{ steps.binaries.outputs.cache-primary-key }}
+
+      - name: Record full gate wall time
+        if: always()
+        env:
+          SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
+        run: |
+          mkdir -p "$SKEW_LOG_DIR"
+          python3 - <<'PY'
+          import json, os, pathlib, time
+          pathlib.Path(os.environ["SKEW_LOG_DIR"], "gate-cost.json").write_text(json.dumps({
+              "wall_seconds": time.time() - float(os.environ["PAIR_GATE_START"]),
+              "scope": "job steps: checkout, tool installation, publication discovery, cache and pair matrix; excludes runner provisioning",
+          }) + "\n")
+          PY
 
       - name: Upload the pair logs
         if: always()

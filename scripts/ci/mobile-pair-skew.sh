@@ -39,7 +39,7 @@ echo "head (phone link): $(git -C "$head" rev-parse HEAD)"
 # The source SHA, role, compiler and platform are part of the key. Do not cache a
 # dirty tracked tree: it is not the source the receipt names.
 build_role() {
-  local tree=$1 role=$2 sha compiler key cached bin cache_lock
+  local tree=$1 role=$2 sha compiler key cached bin cache_lock target_lock
   local bins=() args=()
   sha=$(git -C "$tree" rev-parse HEAD)
   git -C "$tree" diff --quiet HEAD -- || { echo "::error::dirty pair source $tree"; return 1; }
@@ -64,10 +64,15 @@ build_role() {
     echo "binary cache hit: $role $sha"
   else
     for bin in "${bins[@]}"; do args+=(--bin "$bin"); done
+    # Cargo releases its lock before we copy. Keep the shared target stable through publication.
+    mkdir -p "$target"
+    exec {target_lock}>"$target/pair-build.lock"
+    flock "$target_lock"
     (cd "$tree/cmux-next-ios/rust" && CARGO_TARGET_DIR=$target cargo build --release -p cmux-mobile-host "${args[@]}")
     mkdir -p "$cached"
     for bin in "${bins[@]}"; do cp "$target/release/$bin" "$cached/$bin"; done
     printf '%s\n' "$sha $role" > "$cached/complete"
+    exec {target_lock}>&-
     echo "binary cache miss: $role $sha"
   fi
   for bin in "${bins[@]}"; do cp "$cached/$bin" "$work/bin/$bin"; done
