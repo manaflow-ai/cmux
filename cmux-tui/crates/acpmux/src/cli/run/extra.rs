@@ -2211,7 +2211,11 @@ fn print_lifecycle_report(v: &Value) {
     println!(
         "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
         v["archived"].as_u64().unwrap_or(0),
-        if v["dryRun"].as_bool() == Some(true) { "would be archived (dry run)" } else { "archived" },
+        if v["dryRun"].as_bool() == Some(true) {
+            "would be archived (dry run)"
+        } else {
+            "archived"
+        },
         v["offloaded"].as_u64().unwrap_or(0),
         if v["cloud"].as_bool() == Some(true) { "" } else { "; cloud history not set up" },
         mb("bytesBefore"),
