@@ -44,6 +44,8 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
@@ -75,12 +77,12 @@ pub(crate) mod clone_boot;
 mod closed_rows;
 #[cfg(unix)]
 mod closed_tmp;
+pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
-pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -95,6 +97,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -132,7 +135,7 @@ mod git_watch;
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
-mod github_owner;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
@@ -173,6 +176,8 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+// A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
+mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
@@ -315,6 +320,7 @@ pub(crate) mod queue_origin;
 mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
+mod recent_creates;
 mod rediscover;
 #[cfg(test)]
 mod refused_append_tests;
@@ -355,6 +361,7 @@ pub(crate) mod session_auth;
 pub(crate) mod session_budget_watch;
 pub(crate) mod session_hold;
 pub(crate) mod session_pages;
+mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
 #[cfg(test)]
@@ -417,6 +424,8 @@ mod tailnet_controller;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
+mod team_directory;
+pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
 mod terminal_input;
@@ -560,6 +569,10 @@ pub(crate) fn prompt_attribution_mark(
 ) {
     prompt_attribution::mark(params, sender, provenance);
 }
+/// A failed turn's error as auto-resume reads it, for a client that waits on the chat (`cmux cloud
+/// start-chat`): why it is continued by itself (`capacity`, `transport`), and the wait its own
+/// `retry after` names.
+pub use auto_resume::reset_hint::retry_after_ms;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 pub use pool::{
@@ -573,6 +586,7 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
+pub use turn_errors::transient_cause;
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -763,6 +777,11 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's `_acpmux/event` params (`server::event_value`) for an event stream of a chat
+    /// of this daemon's own, built by the first connection that sends it and shared by the rest
+    /// (`server::deliver`): a streamed token's message is copied and converted once, not once per
+    /// attached connection, and a client that asked for compact chunks reads it in place.
+    pub event_params: Arc<std::sync::OnceLock<serde_json::Value>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection. The ring
@@ -1197,6 +1216,8 @@ pub struct Hub {
     pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
+    pub(super) team_directory: team_directory::TeamDirectoryCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1639,6 +1660,8 @@ pub struct Hub {
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
     pub(crate) held_peer_asks: held_asks::HeldAsks,
+    /// Sessions just created on another machine (`recent_creates.rs`).
+    pub(crate) recent_creates: recent_creates::RecentCreates,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -1823,6 +1846,7 @@ impl Hub {
             remote_sessions: Default::default(),
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
+            team_directory: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -2037,6 +2061,7 @@ impl Hub {
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
+            recent_creates: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
@@ -2175,6 +2200,7 @@ impl Hub {
             record: Arc::new(record),
             remote: None,
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
@@ -2324,7 +2350,7 @@ impl Hub {
         let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(&meta);
+            session.meta_writer.note_saved(&meta, self.store.digest(&meta));
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -3430,6 +3456,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,

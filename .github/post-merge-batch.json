@@ -54,6 +54,7 @@
         "schemas/settings/source/agent-cache.json",
         "schemas/settings/source/agent-defaults.json",
         "schemas/settings/source/agent-retry.json",
+        "schemas/settings/source/agent-settle.json",
         "schemas/settings/source/agent-defaults.json",
         "schemas/settings/source/mcp-servers.json",
         "schemas/settings/source/subsessions.json",
@@ -393,6 +394,8 @@
         "design/agent-icons/manifest.json",
         "docs/chief-setup-prompts.md",
         "docs/cmux-next/customize-recipes.md",
+        "docs/cmux-next/guide/llms-full.txt",
+        "docs/cmux-next/guide/pages.json",
         "examples/looks/**",
         "docs/cmux-next/sidebar-customization/**",
         "docs/remote-agents-and-cloud.md",
@@ -419,6 +422,7 @@
         "schemas/settings/source/agent-cache.json",
         "schemas/settings/source/agent-defaults.json",
         "schemas/settings/source/agent-retry.json",
+        "schemas/settings/source/agent-settle.json",
         "schemas/settings/source/agent-defaults.json",
         "schemas/settings/source/mcp-servers.json",
         "schemas/settings/source/subsessions.json",
@@ -473,7 +477,8 @@
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
-        "schemas/sidebar-drag-geometry/vectors.json"
+        "schemas/sidebar-drag-geometry/vectors.json",
+        "backend/catalog/cloud-relay-operations.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },

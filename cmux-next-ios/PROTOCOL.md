@@ -285,10 +285,13 @@ closed with 4001 `moved`.
     from peers that never send relay frames and confirm routes with an
     in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
     sender can join the session's WebSocket relay ("WebSocket relay"
-    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
-    has no other path: no plain UDP and no TURN allocation, so the peer
-    joins at once too); absent from older peers, which never join, and
-    then neither does this side. A roam's endpoint announcement
+    below): `"ready"` (when nothing else reaches the peer), `"first"`
+    (relay first: it joins as its dial starts, beside the direct
+    race, and so does a peer that said `"first"` too; a peer that reads
+    it as `"ready"` keeps the older rule) or `"now"` (it has no other
+    path: no plain UDP and no TURN allocation, so the peer joins at once
+    too); absent from older peers, which never join, and then neither
+    does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -650,7 +653,13 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   client's `ping` is answered `pong` without waking the object.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  path (`relay: "now"`); as the dial starts when both said `"first"` (the
+  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
+  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  handshake initiation goes through the relay as it joins, the same
+  message, so a direct answer in flight still completes it; neither asks
+  the other with `wg-relay`, and a join that finds the peer already heard
+  is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
   heard nothing for 16 s in the foreground, when its relay socket dies while
@@ -693,8 +702,12 @@ learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
 upgrade, about three round trips to the edge) waited behind the Mac's gather
 and answer. Now it asks for the ticket at once:
 
-- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
-  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true` when it sends
+  `relay: "now"`, or `relay: "first"` (RFD 0142 R1: its join then starts as
+  the hub forwards the offer, beside the direct race and the Mac's own join,
+  not after `wg-resp`). Absent means false; an older Mac ignores the field.
+  A `first` dialer whose Mac answers `ready` (a build before relay first)
+  lets the early join go and keeps the 3 s rule.
 - **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
   own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
@@ -749,6 +762,26 @@ split wins.
   join and talk exactly as before, and an older Worker's relay object that
   answers the prewarm with `426` is created all the same. A prewarmed object
   holds no socket and no storage, so it is evicted soon after if nobody joins.
+- **Central pick (RFD 0142 O2, added 2026-11-25, server-only, off by
+  default, no version change):** with the Worker var
+  `LINK_RELAY_CENTRAL_PICK=on`, the user's hub learns where relays actually
+  ran fast, after Google Espresso. It keys a network pair on both ends'
+  AS number and ingress colo (`asn@colo>asn@colo`, phone first; no user,
+  device or address) and keeps, per pair and region, a moving average of the
+  relayed link's median round trip from the phone's existing `link_stat`
+  (`path: "https-relay"`, at least 3 samples; credited only when the phone's
+  placements in the last 30 minutes all went to one pair and region). The
+  prewarm then places the relay by the Rust pick
+  (`rust/crates/cmux-region-pick`, loaded as wasm): a learned region scores
+  what it measured, an unmeasured one its estimate plus the pair's least
+  learned-minus-estimate gap (at most 60 ms), and the pair moves off its
+  last region only for one at least max(10 ms, 20 %) faster, the margin
+  `relay_rank.rs` uses for TURN. With nothing learned, or a pair with no AS
+  number, the placement is exactly the one above. At most 64 pairs per user
+  are kept, and a row unseen for 7 days is dropped. Off (the default) the hub
+  creates no table and places as before. No frame, field, header or status
+  is new: old phones' `link_stat` feeds it as is, and an extra field in it is
+  ignored as before.
 
 ### When no path works
 

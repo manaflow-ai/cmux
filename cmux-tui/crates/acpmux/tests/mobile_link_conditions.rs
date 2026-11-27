@@ -25,8 +25,11 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
-// environment, so the bench's knobs are kept by name or every run takes the defaults.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+// environment, so the bench's knobs are kept by name or every run takes the defaults. Every
+// NETCOND_ name this file reads is here: `every_bench_knob_survives_the_hermetic_restart` fails
+// on one that is not (the send and attach knobs were missing, so `attach_bytes=286107` still
+// sent 5 MiB and `n=20 send_rows=idle,lte,duress` still ran 25 sends on five rows).
+const KEPT: &[&str] = &[
     "NETCOND_PROFILES",
     "NETCOND_PROFILES_FILE",
     "NETCOND_RELAY",
@@ -37,11 +40,49 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_BW_TURNS",
     "NETCOND_BW_SECS",
     "NETCOND_BW_APPS",
+    "NETCOND_DELTA_TURNS",
+    "NETCOND_SENDS",
+    "NETCOND_SEND_ROWS",
+    "NETCOND_SEND_BLACKOUT_MS",
+    "NETCOND_SEND_BOUND_S",
+    "NETCOND_ATTACH_SENDS",
+    "NETCOND_ATTACH_BYTES",
+    "NETCOND_ATTACH_ROWS",
     "NETCOND_AWAY",
     "NETCOND_LOADS",
     "NETCOND_CHAT_MAX_TURNS",
     "NETCOND_DEBUG",
-]);
+    "NETCOND_LIST_NS",
+    "NETCOND_LIST_CHANGED",
+    "NETCOND_LIST_ROWS",
+];
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(KEPT);
+
+/// The process restarts itself with a cleared environment (`daemon_env::enter`), keeping only
+/// `KEPT`: a knob read here but not kept silently takes its default in every run.
+#[test]
+fn every_bench_knob_survives_the_hermetic_restart() {
+    let _ = HERMETIC;
+    let source = include_str!("mobile_link_conditions.rs");
+    let quote = '"';
+    let needle = format!("{quote}NETCOND_");
+    let mut missing = Vec::new();
+    for (at, _) in source.match_indices(needle.as_str()) {
+        let rest = &source[at + 1..];
+        let len = rest.find(|c: char| !c.is_ascii_uppercase() && c != '_').unwrap_or(rest.len());
+        let name = &rest[..len];
+        let whole = name.len() > "NETCOND_".len() && rest[len..].starts_with(quote);
+        if whole && !KEPT.contains(&name) {
+            missing.push(name.to_owned());
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "read but not kept across the hermetic restart, add to KEPT: {missing:?}"
+    );
+}
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
@@ -299,7 +340,9 @@ impl Link {
         json!(kinds)
     }
 
-    /// The app's connect: `initialize` and the first watch page together, both answered.
+    /// The app's connect: `initialize` and the first watch page together, both answered. It asks
+    /// for row changes as patches (`_meta.acpmux.sessionChangedDelta`, `session-changed-delta-v1`,
+    /// #51376) as a raw-text phone does; a daemon without it ignores the key and sends whole rows.
     async fn open(
         addr: std::net::SocketAddr,
         token: &str,
@@ -1427,6 +1470,17 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
+    }
+    // Bytes per row change: each `_acpmux/session_changed` (the whole row) or, to a client that
+    // asked (#51376), `_acpmux/session_patch` (what changed), the JSON text; the phone's link adds
+    // a 9-byte frame header to each, under the 16 KiB deflate threshold. And how many of each came.
+    let of = |name: &str| t.down.get(name).copied().unwrap_or((0, 0));
+    let (whole, patch) = (of("_acpmux/session_changed"), of("_acpmux/session_patch"));
+    let (n, bytes) = (whole.0 + patch.0, whole.1 + patch.1);
+    if n > 0 {
+        emit(k, "session_changed_msgs", Some(whole.0 as f64));
+        emit(k, "session_patch_msgs", Some(patch.0 as f64));
+        emit(k, "bytes_per_session_changed", Some((bytes as f64 / n as f64).round()));
     }
     for (way, map) in [("down", &t.down), ("up", &t.up)] {
         let mut rows: Vec<_> = map.iter().collect();
@@ -2738,4 +2792,397 @@ async fn chat_background_catch_up_after_time_away() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The chat list on a reconnect and a pull to refresh: whole read (before) vs follow (after)
+//
+// Leo, 2026-11-26: "if im on cellular connection and it's some low tier 5g that bounces to lte or
+// i get into an elevator ... i should still be getting things fast and responsive and flowing,
+// even on ostensibly infinitely long chats." Contract point 3 (delta sync) for the list stream.
+//
+// A Mac with N closed chats (`NETCOND_LIST_NS`, default 100,1000,10000). The phone read the whole
+// list once (unshaped); then `NETCOND_LIST_CHANGED` (default 1,10) chats are renamed. Each row
+// (`NETCOND_LIST_ROWS`: lte, lossy-3, duress = lte with every core spinning) measures, through
+// the shaper:
+// - `reconnect`: before, the app's `initialize` + `_acpmux/watch {limit: 100}` then the rest in
+//   `_acpmux/sessions {cursor, limit: 500}` pages (`AcpmuxHub+SessionPages.swift`); after,
+//   `initialize` + `_acpmux/watch {afterSeq, listEpoch, limit: 100}` (`AcpmuxHub+ListFollow.swift`),
+//   following again while `more`.
+// - `refresh`: on an open link, before `_acpmux/watch {enabled}` and `_acpmux/sessions` pages
+//   (`LiveFeed.refresh` via `wholeList`); after one follow from the cursor.
+// Metrics (phase `list_reconnect_before|after`, `list_refresh_before|after`, scale `N/changed`):
+// `bytes_down`, `round_trips`, `caught_up_ms` (link up, or the refresh asked, to the list held
+// whole), `duplicates` (a row twice in one read), `holes` (held rows that differ from the Mac's
+// list read afterward, by id and name). The test asserts after costs flat in N (within 1.2x from
+// the smallest N to the largest, bytes) and 0 duplicates and holes.
+
+const LATER_PAGE_ROWS: u64 = 500;
+
+fn list_hub(home: &Path, chats: usize) -> Arc<Hub> {
+    acpmux::config::set_home_override(home.to_path_buf());
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    for i in 0..chats {
+        let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+            "schema": acpmux::store::META_SCHEMA, "id": format!("chat-{i:05}"),
+            "name": format!("chat {i}"), "harness": "fake", "cwd": format!("/work/{}", i % 40),
+            "status": "idle", "createdAt": i + 1, "updatedAt": i + 1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// The phone's list: rows by id, the cursor, and what a read saw twice.
+#[derive(Default)]
+struct PhoneList {
+    rows: std::collections::HashMap<String, Value>,
+    seq: Option<u64>,
+    epoch: Option<String>,
+    duplicates: u64,
+}
+
+impl PhoneList {
+    fn take(&mut self, rows: &[Value], seen: &mut std::collections::HashSet<String>) {
+        for row in rows {
+            let Some(id) = row["sessionId"].as_str() else { continue };
+            if !seen.insert(id.to_owned()) {
+                self.duplicates += 1;
+            }
+            self.rows.insert(id.to_owned(), row.clone());
+        }
+    }
+
+    fn rows_of(reply: &Value) -> Vec<Value> {
+        reply["sessions"].as_array().cloned().unwrap_or_default()
+    }
+
+    /// A whole read: `first` is the watch's reply, then pages on `link`. Rows it does not list go.
+    /// `paged`: the watch had a `limit`, so later pages are row pages of [`LATER_PAGE_ROWS`]
+    /// (`readRest`); else they are byte pages with only the cursor (`wholeList`).
+    async fn whole(
+        &mut self,
+        link: &mut Link,
+        first: Value,
+        paged: bool,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut next = Vec::new();
+        let rows = Self::rows_of(&first);
+        self.take(&rows, &mut seen);
+        next.extend(rows);
+        self.seq = first["listSeq"].as_u64();
+        self.epoch = first["listEpoch"].as_str().map(str::to_owned);
+        let mut cursor = first["nextCursor"].as_str().map(str::to_owned);
+        while let Some(c) = cursor {
+            let id = link
+                .post(
+                    "_acpmux/sessions",
+                    if paged {
+                        json!({"cursor": c, "limit": LATER_PAGE_ROWS})
+                    } else {
+                        json!({"cursor": c})
+                    },
+                )
+                .await?;
+            let (_, page) = link.answer(id, deadline).await?;
+            let rows = Self::rows_of(&page);
+            self.take(&rows, &mut seen);
+            next.extend(rows);
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+        }
+        self.rows.retain(|id, _| seen.contains(id));
+        Ok(())
+    }
+
+    fn follow_params(&self) -> Value {
+        json!({"enabled": true, "limit": WATCH_LIMIT, "afterSeq": self.seq, "listEpoch": self.epoch})
+    }
+
+    /// Lays a follow reply over the rows; Err when it is not a follow. Returns `more`.
+    fn lay(&mut self, reply: &Value) -> Result<bool, String> {
+        if reply["follow"] != json!(true) {
+            return Err(format!("not a follow: reset={}", reply["reset"]));
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.take(&Self::rows_of(reply), &mut seen);
+        for gone in reply["gone"].as_array().into_iter().flatten() {
+            if let Some(id) = gone["sessionId"].as_str() {
+                self.rows.remove(id);
+            }
+        }
+        self.seq = reply["listSeq"].as_u64().max(self.seq);
+        Ok(reply["more"] == json!(true))
+    }
+
+    async fn follow(
+        &mut self,
+        link: &mut Link,
+        first: Value,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        let mut more = self.lay(&first)?;
+        while more {
+            let id = link.post("_acpmux/watch", self.follow_params()).await?;
+            let (_, reply) = link.answer(id, deadline).await?;
+            more = self.lay(&reply)?;
+        }
+        Ok(())
+    }
+
+    /// Held rows that differ from `truth` by id or name.
+    fn holes(&self, truth: &std::collections::HashMap<String, Value>) -> u64 {
+        let missing = truth
+            .iter()
+            .filter(|(id, row)| self.rows.get(*id).map(|r| &r["name"]) != Some(&row["name"]))
+            .count();
+        let extra = self.rows.keys().filter(|id| !truth.contains_key(*id)).count();
+        (missing + extra) as u64
+    }
+}
+
+/// `initialize` (as the app sends it) and a watch with `watch`, through `addr`.
+async fn list_open(
+    addr: std::net::SocketAddr,
+    token: &str,
+    watch: Value,
+    deadline: Instant,
+) -> Result<(Link, Instant, Value), String> {
+    let mut link = tokio::time::timeout_at(deadline, Link::dial(addr))
+        .await
+        .map_err(|_| "connect timed out".to_owned())??;
+    let up = Instant::now();
+    let init = link
+        .post(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                   "clientCapabilities": {},
+                   "_meta": {"acpmux": {"localAppToken": token, "omitTimeBreakdown": true}}}),
+        )
+        .await?;
+    let watch = link.post("_acpmux/watch", watch).await?;
+    let (_, init) = link.answer(init, deadline).await?;
+    link.capabilities = init
+        .pointer("/_meta/acpmux/capabilities")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    let (_, reply) = link.answer(watch, deadline).await?;
+    Ok((link, up, reply))
+}
+
+/// The Mac's whole list, read unshaped.
+async fn list_truth(
+    addr: std::net::SocketAddr,
+    token: &str,
+) -> std::collections::HashMap<String, Value> {
+    let deadline = Instant::now() + BOUND;
+    let (mut link, _, first) =
+        list_open(addr, token, json!({"enabled": true, "limit": WATCH_LIMIT}), deadline)
+            .await
+            .unwrap();
+    let mut list = PhoneList::default();
+    list.whole(&mut link, first, true, deadline).await.unwrap();
+    list.rows
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the list follow bench: run with --ignored --nocapture"]
+async fn chat_list_reconnect_and_refresh_whole_vs_follow() {
+    let _ = HERMETIC;
+    let file = ProfileFile::builtin();
+    let ns: Vec<usize> = env_list("NETCOND_LIST_NS", &["100", "1000", "10000"])
+        .iter()
+        .map(|n| n.parse().unwrap())
+        .collect();
+    let changes: Vec<usize> =
+        env_list("NETCOND_LIST_CHANGED", &["1", "10"]).iter().map(|n| n.parse().unwrap()).collect();
+    let rows_wanted = env_list("NETCOND_LIST_ROWS", &["lte", "lossy-3", "duress"]);
+    let trace = Trace::new();
+    // (row, changed, phase) -> [(n, bytes_down)]
+    let mut after: std::collections::BTreeMap<(String, usize, &str), Vec<(usize, u64)>> =
+        Default::default();
+    let mut bad = Vec::new();
+    for &n in &ns {
+        let scratch = daemon_env::Scratch::new("netcond-list");
+        let hub = list_hub(&scratch.path().join("home"), n);
+        let listener = app_ws::listen(&hub).await;
+        let upstream: std::net::SocketAddr =
+            listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+        let mut control = Control::new(&hub);
+        let mut renamed = 0usize;
+        for row in &rows_wanted {
+            let (profile, loaded) = match row.as_str() {
+                "lte" => (file.get("lte").unwrap().clone(), false),
+                "lossy-3" => (file.get("lossy-3").unwrap().clone(), false),
+                "duress" => (file.get("lte").unwrap().clone(), true),
+                other => panic!("NETCOND_LIST_ROWS: no row {other}"),
+            };
+            for &k in &changes {
+                let scale = format!("{n}/{k}");
+                for (phase_before, phase_after, refresh) in [
+                    ("list_reconnect_before", "list_reconnect_after", false),
+                    ("list_refresh_before", "list_refresh_after", true),
+                ] {
+                    for (phase, follows) in [(phase_before, false), (phase_after, true)] {
+                        let key = Key { profile: row, phase, scale: &scale, run: 0, seed: 0 };
+                        // The phone held the whole list (its first connection), unshaped.
+                        let deadline = Instant::now() + BOUND * 4;
+                        let (mut first, _, page) = list_open(
+                            upstream,
+                            &listener.token,
+                            json!({"enabled": true, "limit": WATCH_LIMIT}),
+                            deadline,
+                        )
+                        .await
+                        .unwrap();
+                        let mut list = PhoneList::default();
+                        list.whole(&mut first, page, true, deadline).await.unwrap();
+                        assert!(
+                            first.capabilities.iter().any(|c| c == "session-list-follow-v1"),
+                            "the daemon follows the list"
+                        );
+                        drop(first);
+                        let shaper =
+                            Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
+                        let spin = loaded.then(Spin::start);
+                        let mut want: Vec<(String, String)> = Vec::new();
+                        let measured: Result<(u64, u64, f64), String> = async {
+                            let (bytes0, turns0, took);
+                            if refresh {
+                                // Open through the shaper as the app does (a follow: the hub
+                                // held the list), then the chats change, then the refresh.
+                                let (mut link, _, reply) = list_open(
+                                    shaper.addr(),
+                                    &listener.token,
+                                    list.follow_params(),
+                                    deadline,
+                                )
+                                .await?;
+                                list.follow(&mut link, reply, deadline).await?;
+                                for _ in 0..k {
+                                    renamed += 1;
+                                    let id = format!("chat-{:05}", renamed % n);
+                                    let name = format!("renamed-{renamed}");
+                                    let answer = control
+                                        .call(
+                                            method::MUX_RENAME,
+                                            json!({"sessionId": id, "newName": name}),
+                                        )
+                                        .await;
+                                    assert!(answer.get("error").is_none(), "rename {id}: {answer}");
+                                    want.push((id, name));
+                                }
+                                // The notices land before the refresh is counted.
+                                link.drain(Instant::now() + Duration::from_millis(1500)).await;
+                                let c = shaper.counters();
+                                (bytes0, turns0) = (c.down_bytes, c.up_turns);
+                                let asked = Instant::now();
+                                if follows {
+                                    let id =
+                                        link.post("_acpmux/watch", list.follow_params()).await?;
+                                    let (_, reply) = link.answer(id, deadline).await?;
+                                    list.follow(&mut link, reply, deadline).await?;
+                                } else {
+                                    let id = link
+                                        .post("_acpmux/watch", json!({"enabled": true}))
+                                        .await?;
+                                    let (_, reply) = link.answer(id, deadline).await?;
+                                    list.whole(&mut link, reply, false, deadline).await?;
+                                }
+                                took = asked.elapsed();
+                            } else {
+                                for _ in 0..k {
+                                    renamed += 1;
+                                    let id = format!("chat-{:05}", renamed % n);
+                                    let name = format!("renamed-{renamed}");
+                                    let answer = control
+                                        .call(
+                                            method::MUX_RENAME,
+                                            json!({"sessionId": id, "newName": name}),
+                                        )
+                                        .await;
+                                    assert!(answer.get("error").is_none(), "rename {id}: {answer}");
+                                    want.push((id, name));
+                                }
+                                (bytes0, turns0) = (0, 0);
+                                let watch = if follows {
+                                    list.follow_params()
+                                } else {
+                                    json!({"enabled": true, "limit": WATCH_LIMIT})
+                                };
+                                let (mut link, up, reply) =
+                                    list_open(shaper.addr(), &listener.token, watch, deadline)
+                                        .await?;
+                                if follows {
+                                    list.follow(&mut link, reply, deadline).await?;
+                                } else {
+                                    list.whole(&mut link, reply, true, deadline).await?;
+                                }
+                                took = up.elapsed();
+                            }
+                            let c = shaper.counters();
+                            Ok((c.down_bytes - bytes0, c.up_turns - turns0, ms(took)))
+                        }
+                        .await;
+                        drop(spin);
+                        let truth = list_truth(upstream, &listener.token).await;
+                        for (id, name) in &want {
+                            assert_eq!(truth[id]["name"], json!(name), "the Mac renamed {id}");
+                        }
+                        match measured {
+                            Ok((bytes, turns, ms)) => {
+                                let holes = list.holes(&truth);
+                                emit(&key, "bytes_down", Some(bytes as f64));
+                                emit(&key, "round_trips", Some(turns as f64));
+                                emit(&key, "caught_up_ms", Some(ms));
+                                emit(&key, "duplicates", Some(list.duplicates as f64));
+                                emit(&key, "holes", Some(holes as f64));
+                                if list.duplicates > 0 || holes > 0 {
+                                    bad.push(format!(
+                                        "{row} {phase} {scale}: {} duplicates, {holes} holes",
+                                        list.duplicates
+                                    ));
+                                }
+                                if follows {
+                                    after
+                                        .entry((row.clone(), k, phase))
+                                        .or_default()
+                                        .push((n, bytes));
+                                }
+                            }
+                            Err(why) => {
+                                emit_error(&key, "caught_up_ms", &why);
+                                bad.push(format!("{row} {phase} {scale}: {why}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for ((row, k, phase), by_n) in &after {
+        let (Some(small), Some(large)) = (by_n.first(), by_n.last()) else { continue };
+        if small.0 == large.0 {
+            continue;
+        }
+        let ratio = large.1 as f64 / small.1.max(1) as f64;
+        eprintln!(
+            "netcond-list: {row} {phase} changed={k}: bytes {} at {} -> {} at {} ({ratio:.2}x)",
+            small.1, small.0, large.1, large.0
+        );
+        if ratio > 1.2 {
+            bad.push(format!("{row} {phase} changed={k}: after grew {ratio:.2}x in N"));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
 }

@@ -136,9 +136,24 @@ extension LiveCoordinator {
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
-            session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
-                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
+            let hub = session.acpmux
+            session.feed.handle(event, sessions: hub.sessions)
+            // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
+            // event used to rebuild both maps over every chat on the main actor (about 30,000
+            // dictionary operations per event at 10,000 chats, 4 events a second).
+            switch event {
+            case .sessionsLoaded:
+                session.workspaces.setPending(hub.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
+                                              chatTitles: hub.sessions.compactMapValues(\.title))
+            case .sessionChanged(let changed, _, _):
+                session.workspaces.setPending(rows: [changed.id: hub.sessions[changed.id]], waitingFor: session.feed.waitingFor)
+            case .sessionsChanged(let followed):
+                var rows: [String: AcpmuxSession?] = followed.changed.mapValues { hub.sessions[$0.id] }
+                for id in followed.gone { rows[id] = .some(nil) }
+                session.workspaces.setPending(rows: rows, waitingFor: session.feed.waitingFor)
+            case .permissionPending(let id, _, _), .permissionResolved(let id):
+                session.workspaces.setPending(rows: [id: hub.sessions[id]], waitingFor: session.feed.waitingFor)
+            }
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)
@@ -1113,7 +1128,9 @@ extension LiveCoordinator {
                 sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
                 continue
             }
-            chatSessionChanged(id: used.tabID, macID: used.macID)
+            let listedSession = tree.agentTabs[used.tabID]?.session
+            chatSessionChanged(id: used.tabID, macID: used.macID,
+                               carryWaiting: !(used.session != nil && listedSession != nil && used.session != listedSession))
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
