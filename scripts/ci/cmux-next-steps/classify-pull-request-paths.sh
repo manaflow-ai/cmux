@@ -30,12 +30,17 @@ if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
       echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
       exit 1
     }
-  else
-    [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-      echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-      exit 1
-    }
   fi
+fi
+if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true && -z "$SAME_TREE_SHA" && "$DEV_DAILY_SHA" != "$GITHUB_SHA" ]]; then
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-391
+  # A merge moved feat-cmux-next before this run started: nothing is broken, so end green with every tier off.
+  echo "::notice title=cmux-next dev_daily superseded::dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; nothing builds here and the next dispatcher tick takes the new tip"
+  echo 'superseded=true' >> "$GITHUB_OUTPUT"
+  printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
+  printf '%s=\n' swift_canary_targets swift_filter swift_priority_filter swift_targets >> "$GITHUB_OUTPUT"
+  echo "- superseded dev-daily dispatch: asked for $DEV_DAILY_SHA, feat-cmux-next is at $GITHUB_SHA; every tier is off and the next dispatcher tick builds the new tip." >> "$GITHUB_STEP_SUMMARY"
+elif [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   {
     echo 'native=false'
     echo 'swift_canary=false'
@@ -200,7 +205,7 @@ if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
 fi
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
-  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run when the ready-to-land or full-ci label is added (the label re-runs this workflow at the same head)." >> "$GITHUB_STEP_SUMMARY"
+  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, a ready-to-land head while CI_LAND_FULL_PER_PR is not 1, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run with the full-ci label (or ready-to-land when CI_LAND_FULL_PER_PR=1; the label re-runs this workflow at the same head), and hourly on feat-cmux-next (cmux-next-hourly-full-tier.yml)." >> "$GITHUB_STEP_SUMMARY"
 fi
 # Whether this pull request changes the cmux-tui it would test against:
 # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,

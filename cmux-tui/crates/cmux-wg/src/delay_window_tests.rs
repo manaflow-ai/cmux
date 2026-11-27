@@ -217,6 +217,42 @@ fn a_resend_leaves_ahead_of_the_fresh_data_the_window_holds() {
     assert_eq!(crate::pacing::segment(&resent).map(|segment| segment.seq), Some(0));
 }
 
+#[test]
+fn acks_and_resends_leave_ahead_of_the_fresh_data_the_window_holds() {
+    if !enabled() {
+        return;
+    }
+    let now = Instant::now();
+    let mut pacer = crate::pacing::Pacer::default();
+    let (local, remote) = (1000, 2000);
+    for index in 0..48 {
+        pacer.push(tcp(local, remote, index * SEGMENT, Some(1), SEGMENT as usize), now);
+    }
+    pacer.received(&tcp(remote, local, 1, Some(0), 0), now);
+    while let Ok(Some(_)) = pacer.pop(now) {}
+    assert!(matches!(pacer.pop(now), Ok(None)), "held for an ACK, not a time");
+    // The peer's data arrives and is acknowledged: the ACK must not wait
+    // for an ACK of ours (a roam left both ends holding each other's).
+    pacer.push(tcp(local, remote, 48 * SEGMENT, Some(1 + SEGMENT), 0), now);
+    let ack = pacer.pop(now).ok().flatten().expect("the pure ACK leaves");
+    assert_eq!(crate::pacing::segment(&ack).map(|segment| segment.len), Some(0));
+    // The peer acknowledged the first segment, but the stack did not see it
+    // (it dropped the segment carrying it) and resends it: not loss to the
+    // pacer, yet it must leave too.
+    pacer.received(&tcp(remote, local, 1, Some(SEGMENT), 0), now);
+    pacer.push(tcp(local, remote, 0, Some(1 + SEGMENT), SEGMENT as usize), now);
+    let resent = pacer.pop(now).ok().flatten().expect("the resend leaves");
+    assert_eq!(crate::pacing::segment(&resent).map(|segment| segment.seq), Some(0));
+    // A resend forced by a path change leaves as well.
+    pacer.path_changed();
+    pacer.push(tcp(local, remote, SEGMENT, Some(1 + SEGMENT), SEGMENT as usize), now);
+    pacer.path_settled();
+    // (Later: the resend's ACK above took an RTT sample, so it is paced.)
+    let later = now + Duration::from_secs(1);
+    let forced = pacer.pop(later).ok().flatten().expect("the forced resend leaves");
+    assert_eq!(crate::pacing::segment(&forced).map(|segment| segment.seq), Some(SEGMENT));
+}
+
 /// A pacer whose connection 1000 -> 2000 has its delay window full: the
 /// first `INITIAL_WINDOW` bytes left and the rest waits for an ACK.
 fn held_pacer(now: Instant) -> crate::pacing::Pacer {
