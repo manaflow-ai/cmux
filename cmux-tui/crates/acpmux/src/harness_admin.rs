@@ -409,6 +409,7 @@ pub fn add(
             protocol,
             example: Some(example.clone()),
             force: p.replace,
+            launch: Default::default(),
         };
         let candidate = req.id.clone().or_else(|| harness::example_id(example));
         if let Some(id) = &candidate
