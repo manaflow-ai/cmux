@@ -25,6 +25,13 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - cmux-fleet-linux-x64
+    # Literal runner labels for the PR control and CI repair JIT pools.
+    - cmux-gcp-pr-control-jit-x64
+    # The one owned Linux label (runners.json `owned`, scripts/ci/one_linux_label.py). Most jobs reach it
+    # inside an expression, which actionlint does not check; base-only jobs name it bare (#55036 and after).
+    - cmux-linux
+    # The nightly GCP Linux pool's label, named bare by cmux-machine-channel-thin.yml's profiles job.
+    - cmux-gcp-nightly-x64
     # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
     # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which

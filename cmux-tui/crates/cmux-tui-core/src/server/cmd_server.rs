@@ -1,14 +1,14 @@
-//! Server and client command handlers: identify, ping, server stats,
+//! Server and client command handlers: ping, server stats,
 //! daemon shutdown, config reload, client info, focus reports, client list,
 //! pairing responses, machine usage and listening ports, and window titles.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
+//! `identify` is built in the cmux-tui binary crate (identify_reply.rs).
 
 use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
 use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
-use super::identify_capabilities;
 use crate::platform;
 
 use super::ClientIdentityWire;
@@ -51,41 +51,48 @@ pub(super) fn process_census(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Valu
     anyhow::bail!("process census is not available on this platform")
 }
 
-pub(super) fn identify(
-    mux: &Arc<Mux>,
-    machine_metadata: bool,
-    revisions: bool,
-) -> anyhow::Result<Value> {
-    let (registry_id, generation) = mux.registry_identity();
+/// `identify` while the owner restores its session (server/restoring.rs):
+/// no session exists yet, so the fields that name one are empty
+/// (`registry_id`, `generation`) or zero (the revisions), and
+/// `lifecycle_ready` is false. Every field the reply always has is there, and
+/// `restore` says what the restore does now (`crate::restore_progress`).
+/// Only a client that asks gets it (`restore_progress: true`).
+pub(super) fn restoring_identify(session: &str, revisions: bool) -> Value {
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
     let mut identity = json!({
         "app": "cmux-tui",
-        // The npm/PyPI release (the crate version in the app and local builds).
         "version": crate::release::distribution_version(),
         "build_commit": stamped_build_commit(),
         "build_id": build_id,
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities(mux),
-        "session": mux.session,
+        "capabilities": super::capabilities::always_identified(),
+        "session": session,
         "pid": std::process::id(),
-        "session_id": registry_id,
         "machine_name": crate::machine_name::machine_name(),
-        "registry_id": registry_id,
-        "generation": generation,
-        "workspace_revision": mux.with_state(|state| state.workspace_revision),
-        "terminal_revision": mux.terminal_registry_revision()?,
+        "registry_id": "",
+        "generation": "",
+        "workspace_revision": 0,
+        "terminal_revision": 0,
         "daemon_handoff": 1,
-        "lifecycle_ready": mux.server_lifecycle_ready(),
-        "launch_snapshot_path": mux.launch_snapshot_path(),
+        "lifecycle_ready": false,
+        "launch_snapshot_path": null,
     });
+    if revisions {
+        insert_revision_fields(&mut identity);
+    }
+    identity.insert("restore", crate::restore_progress::RestoreProgress::global().to_json());
+    identity
+}
+
+/// The fields `identify {revisions: true}` adds; none needs the session.
+fn insert_revision_fields(identity: &mut Value) {
     // NEXT Cloud daemons are long-lived across app launches.  Include the
     // backend origin they were started with so a later client can detect a
     // staging/prod switch before it attaches to the old daemon.  Classic
     // daemons intentionally omit this field and keep their existing behavior.
-    if revisions
-        && std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() == Ok("1")
+    if std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() == Ok("1")
         && let Some(backend) = std::env::var_os("CMUX_NEXT_CLOUD_BACKEND")
             .or_else(|| std::env::var_os("CMUX_NEXT_CLOUD_ENV"))
             .and_then(|value| value.into_string().ok())
@@ -93,40 +100,20 @@ pub(super) fn identify(
     {
         identity.insert("cloud_backend", json!(backend));
     }
-    // Opt-in like machine metadata: strict pre-revision SDKs decode the
-    // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
-    if revisions {
-        let (current, base) = super::api_revision_wire::identify_fields();
-        let channel = crate::release::InstallChannel::current();
-        identity.insert("api_revision", json!(current));
-        identity.insert("min_api_revision", json!(base));
-        identity.insert("crate_version", json!(env!("CARGO_PKG_VERSION")));
-        // How this daemon was installed and how to update it, for a client's refusal text.
-        identity.insert("install", json!(channel.as_str()));
-        identity.insert("update_command", json!(channel.update_command()));
-        // The source commit's time, so a client that updates this machine
-        // never moves it back to an older build (`link machine update --if-older`).
-        identity.insert("build_time", json!(stamped_build_time()));
-    }
-    if machine_metadata {
-        identity.insert("machine_id", json!(mux.machine_public_id));
-        identity.insert("session_resource_id", json!(mux.session_public_id));
-        identity.insert("machine_platform", crate::resource_api::machine_platform());
-        // What kind of device this machine is and the SF Symbol that kind draws
-        // (`cmux-device-kind`): the sidebar's machine header, hover card and remote headers
-        // draw the symbol by this name.
-        let device = cmux_device_kind::this_device().kind;
-        identity.insert("machine_device", json!(device.as_str()));
-        identity.insert("machine_symbol", json!(device.symbol()));
-        identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
-        // The worker's independently generated screen UUID is intentionally
-        // separate from the daemon machine ID. It is read only from the
-        // authenticated local supervisor cache and omitted from legacy
-        // identify replies.
-        identity
-            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
-    }
-    Ok(identity)
+    let (current, base) = super::api_revision_wire::identify_fields();
+    let channel = crate::release::InstallChannel::current();
+    identity.insert("api_revision", json!(current));
+    identity.insert("min_api_revision", json!(base));
+    let (version, oldest) = super::api_revision_wire::identify_versions();
+    identity.insert("api_version", json!(version));
+    identity.insert("min_api_version", json!(oldest));
+    identity.insert("crate_version", json!(env!("CARGO_PKG_VERSION")));
+    // How this daemon was installed and how to update it, for a client's refusal text.
+    identity.insert("install", json!(channel.as_str()));
+    identity.insert("update_command", json!(channel.update_command()));
+    // The source commit's time, so a client that updates this machine
+    // never moves it back to an older build (`link machine update --if-older`).
+    identity.insert("build_time", json!(stamped_build_time()));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -211,10 +198,41 @@ pub(super) fn set_client_info(
     device_name: Option<String>,
     device_id: Option<String>,
     api_revision: Option<u32>,
+    api_version: Option<String>,
     version: Option<String>,
     install: Option<String>,
     remote: bool,
 ) -> anyhow::Result<Value> {
+    // A dated pin names a revision; the reply says which
+    // version serves it. Only a pinning client gets the extra reply fields.
+    let mut reply = json!({});
+    let mut api_revision = api_revision;
+    if let Some(pin) = api_version.as_deref() {
+        let resolved = match super::api_revision_wire::compat().schema().resolve_version(pin) {
+            Ok(resolved) => resolved,
+            Err(error @ cmux_api_compat::CompatError::UnsupportedVersion { .. }) => {
+                anyhow::bail!(
+                    "{}",
+                    super::api_revision_wire::too_old_text(
+                        &error.to_string(),
+                        version.as_deref(),
+                        install.as_deref()
+                    )
+                )
+            }
+            Err(error) => anyhow::bail!("{error}"),
+        };
+        if let Some(revision) = api_revision
+            && revision != resolved.revision
+        {
+            anyhow::bail!(
+                "api_revision {revision} and api_version {pin} (revision {}) disagree; send one",
+                resolved.revision
+            );
+        }
+        api_revision = Some(resolved.revision);
+        reply = json!({"api_version": resolved.served, "api_revision": resolved.revision});
+    }
     // Refuse an unsupported revision before changing anything else; the
     // refusal names the client's own update command.
     if let Some(revision) = api_revision {
@@ -249,7 +267,7 @@ pub(super) fn set_client_info(
     }
     mux.refresh_terminal_client_identity(client);
     mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    Ok(json!({}))
+    Ok(reply)
 }
 
 pub(super) fn list_clients(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {

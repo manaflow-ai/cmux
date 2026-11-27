@@ -1,11 +1,15 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark, SessionMark } from "../shared/AgentMark";
-import type { HarnessIconSpec } from "../shared/harnessIcons";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+// AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
+// would pull this New Tab screen into the chat page's first script.
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -15,13 +19,12 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -31,7 +34,7 @@ import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
-import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
+import { useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
@@ -46,8 +49,9 @@ import {
   NEW_TAB_LABELS,
   prefixedEdit,
   cycleKind,
-  recentSessions,
+  RecentChats,
 } from "./newTabModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 function escapedLiteral(value: string): string {
   return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
@@ -99,6 +103,10 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -117,6 +125,10 @@ type Props = NewTabCommandActions & {
   startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
+  /// What draws over the field: the clock (`tabs.newTabClock.*`) and an extension's slot
+  /// (`tabs.newTabApp`), in the same room the other New Tab looks give them (newtab/appSlot.css
+  /// `.nt-above-room`), never in the field's place.
+  above?: React.ReactNode;
   now?: number;
 };
 
@@ -138,6 +150,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -153,6 +166,7 @@ export function NewTabPage({
   takeDraft,
   startFailure,
   onFieldEdit,
+  above,
 }: Props) {
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
@@ -206,14 +220,22 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
+  // The chats' folders newest first (sessionList.ts `FolderRecency`) and the recent rows
+  // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
+  // chat working elsewhere, costs this page no pass over every listed chat
+  // (test/new-tab-no-whole-list-passes.test.tsx).
+  const [lists] = useState(() => ({ folders: new FolderRecency(), recent: new RecentChats() }));
+  const localFolders = lists.folders.of(snapshot.sessions);
+  const newestProject = useMemo(
+    () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
+    [localFolders, home, knownProjects],
+  );
   const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
     ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started, home, knownProjects) ??
-        mostRecentProject(snapshot.sessions, home, knownProjects) ??
-        cwd));
+      : (firstProject(started, home, knownProjects) ?? newestProject ?? cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
   // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
@@ -295,22 +317,12 @@ export function NewTabPage({
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const {
-    attachments,
-    setAttachments,
-    pending,
-    originalFailures,
-    unsettled,
-    cancel,
-    retry,
-    attachError,
-    drop,
-    dropLanded,
-  } = useAttachmentIntake({
-    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
-  });
+  const { attachments, setAttachments, pending, originalFailures, unsettled, cancel, attachError, drop, dropLanded } =
+    useAttachmentIntake({
+      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+      pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+      dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
+    });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -380,7 +392,8 @@ export function NewTabPage({
   // The failure line sits where the rows float: they wait for the next edit, which clears the line.
   const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const recentChats = lists.recent;
+  const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>
       open
@@ -493,6 +506,11 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
@@ -508,10 +526,16 @@ export function NewTabPage({
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {
@@ -521,8 +545,35 @@ export function NewTabPage({
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
+  // `app.keyStyle`. The prompt keeps its typing: Emacs' Ctrl-N/P step the rows as the arrows do,
+  // and Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the rows, where j/k, gg/G and l or Return
+  // pick as the arrows and Return do and / goes back to the prompt. Their Esc is the page's.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const runListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    if (!rows.length) return false;
+    if (command === "list.next" || command === "list.previous") {
+      setSelected((current) => stepSelection(current, command === "list.next" ? 1 : -1, rows.length));
+      return;
+    }
+    if (inField) {
+      if (command !== "list.leave" || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+      return;
+    }
+    if (command === "list.first" || command === "list.last")
+      setSelected(command === "list.first" ? 0 : rows.length - 1);
+    else if (command === "list.open") {
+      const row = rows[selected];
+      if (row) activate(row);
+    } else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
+    else return false;
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });
+  const rowKeys = useListKeys({ onCommand: (command) => runListCommand(command, false) });
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
@@ -551,13 +602,8 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
-    } else {
-      // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
-      if (!backspaced) return;
-      event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
+    // Backspace takes no image: this page's attachments are a strip, and go only by their ×.
   };
   const prefixReset = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
@@ -596,9 +642,16 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
+      {above !== undefined && <div className="nt-above-room">{above}</div>}
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
-        <form className="acpmux-newtab-box" onSubmit={submit}>
+        <form
+          className="ui-glass ui-glass-floats acpmux-newtab-box"
+          // The composer family's one material: the App's popover glass, as the suggestions under it. In
+          // the page's flow, so no cover: nothing scrolls under it.
+          data-host-glass="popover"
+          onSubmit={submit}
+        >
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -610,7 +663,9 @@ export function NewTabPage({
             onBlur={(event) => {
               if (
                 fieldElement()?.contains(event.target) &&
-                !fieldElement()?.contains(event.relatedTarget as Node | null)
+                !fieldElement()?.contains(event.relatedTarget as Node | null) &&
+                // A key style's leave hands the keyboard to the rows: they stay up.
+                !list.current?.contains(event.relatedTarget as Node | null)
               )
                 setFocused(false);
             }}
@@ -671,12 +726,15 @@ export function NewTabPage({
                 >
                   <KindIcon kind={option} />
                   <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                  {hotkeys[option] && <KeyHint keys={hotkeys[option]!} />}
                 </button>
               ))}
             </fieldset>
           </div>
           {command.input}
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
@@ -690,7 +748,6 @@ export function NewTabPage({
               cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
@@ -743,10 +800,26 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The App's popover glass, as every Popover: the list floats over the page, which blurs in place under it.
+            data-host-glass="popover"
+            data-host-glass-cover=""
+            // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
+            data-popup-settle="results"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
+            tabIndex={listTakesKeys ? -1 : undefined}
+            onKeyDown={(event) => {
+              rowKeys(event);
+              if (event.defaultPrevented || event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              runListCommand("list.open", false);
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (!list.current?.contains(next) && !fieldElement()?.contains(next)) setFocused(false);
+            }}
           >
             <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
               {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
@@ -776,7 +849,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                    {index === selected && <KeyHint keys="↩" />}
                   </span>
                 </div>
               ))}
@@ -795,6 +868,7 @@ export function NewTabPage({
         <div className="acpmux-newtab-failed" role="alert">
           <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
           <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {/* retry-prompt-ok: opens the tab again: a chat sends its prompt (a paid model request), a terminal runs its command. */}
             {t(NEW_TAB_LABELS.openRetry)}
           </button>
           {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}
@@ -895,61 +969,6 @@ function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
-/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
-/// which agent it is at a glance; an agent without either draws the generic agent glyph.
-/// A chat's mark: the icon it set (acpmux `icon`), else its harness's.
-export function AgentMark({ harness, icon }: { harness?: string; icon?: HarnessIconSpec }) {
-  if (icon) return <SessionMark icon={icon} agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-}
-
-// 16px stroke icons in currentColor, matching ComposerPickers.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export function KindIcon({ kind }: { kind: TabKind }) {
-  switch (kind) {
-    case "terminal":
-      return (
-        <Icon>
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="m4.6 6.2 2 1.8-2 1.8M8.4 10h3" />
-        </Icon>
-      );
-    case "browser":
-      return (
-        <Icon>
-          <circle cx="8" cy="8" r="6.1" />
-          <path d="M1.9 8h12.2M8 1.9c1.7 1.7 2.5 3.7 2.5 6.1S9.7 12.4 8 14.1C6.3 12.4 5.5 10.4 5.5 8S6.3 3.6 8 1.9Z" />
-        </Icon>
-      );
-    case "agent":
-      return (
-        <Icon>
-          <path d="M8 1.9c.4 2.9 1.6 4.1 4.6 4.6-3 .5-4.2 1.7-4.6 4.6-.4-2.9-1.6-4.1-4.6-4.6 3-.5 4.2-1.7 4.6-4.6Z" />
-          <path d="M12.4 10.4c.15 1.1.6 1.55 1.7 1.7-1.1.15-1.55.6-1.7 1.7-.15-1.1-.6-1.55-1.7-1.7 1.1-.15 1.55-.6 1.7-1.7Z" />
-        </Icon>
-      );
-  }
-}
-
 /// A folder glyph (the project picker on both New Tab designs).
 export const FolderIcon = () => (
   <Icon>
@@ -979,3 +998,5 @@ const ChevronRight = () => (
     <path d="m6.3 4.6 3.3 3.4-3.3 3.4" />
   </Icon>
 );
+
+export { AgentMark, KindIcon } from "./tabMarks";

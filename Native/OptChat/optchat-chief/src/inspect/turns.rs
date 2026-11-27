@@ -104,6 +104,10 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let at_work = start["layout"]["at_work"].as_str();
     let computer = start["layout"]["computer"].as_str();
     let home = start["layout"]["home_workspace"].as_str();
+    let open_items = start["layout"]["open_items"].as_str();
+    let held_news = start["layout"]["held_news"].as_str();
+    let turn_start = start["layout"]["turn_start"].as_str();
+    let checks = start["layout"]["turn_checks"].as_str();
     let tail = now
         .into_iter()
         .chain(memory)
@@ -164,9 +168,12 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let delta = frozen_input.map(|(_, delta)| delta);
     let view_text = view.as_deref().unwrap_or("");
     let input_tail = || {
+        // The order brain/turns.rs sends it in.
         now.into_iter()
             .chain(memory)
             .chain(at_work)
+            .chain(open_items)
+            .chain(held_news)
             .chain(computer)
             .chain(home)
             .chain(
@@ -176,6 +183,8 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                     .flatten()
                     .filter_map(Value::as_str),
             )
+            .chain(turn_start)
+            .chain(checks)
             .collect::<Vec<_>>()
             .join("\n\n")
     };
@@ -274,7 +283,7 @@ pub fn system_parts(system_text: &str) -> Vec<Value> {
     let mut out = vec![
         part(
             "The spec's prompt",
-            "Taelin's one prompt for turns and compactions: the view, turns, compactions.",
+            "The Chief turn's prompt: the view and turn rules.",
             &base,
         ),
         part(

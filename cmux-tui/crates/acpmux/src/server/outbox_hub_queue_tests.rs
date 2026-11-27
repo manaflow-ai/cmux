@@ -36,6 +36,8 @@ struct StubHub {
     posts: Mutex<Vec<OutMessage>>,
     /// The message it holds under each idempotency key: one per key, however often it is posted.
     held: Mutex<HashMap<String, String>>,
+    /// Until when (the runtime's clock) every post is answered 503, whatever the script says.
+    down_until: Mutex<Option<tokio::time::Instant>>,
 }
 
 fn hub_status(status: u16, code: &str) -> HubError {
@@ -65,8 +67,11 @@ impl MeshHub for StubHub {
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.posts.lock().unwrap().push(message.clone());
         let name = message.to.name.clone().unwrap_or_default();
+        let down = self.down_until.lock().unwrap().is_some_and(|u| tokio::time::Instant::now() < u);
         let answer = if self.unknown.contains(&name.as_str()) {
             Answer::Fail(404, "mesh.unknown_recipient")
+        } else if down {
+            Answer::Fail(503, "mesh.unavailable")
         } else {
             self.script.lock().unwrap().pop_front().unwrap_or(Answer::Take)
         };
@@ -169,6 +174,107 @@ async fn settled(hub: &Arc<Hub>, id: &str, within: Duration) -> Delivery {
 
 const BOUND: Duration = Duration::from_millis(500);
 
+fn relay_backlog(hub: &Hub, count: usize) -> Vec<Delivery> {
+    let now = crate::store::now_ms();
+    (0..count)
+        .map(|n| {
+            let mut d = super::retry_delay_tests::delivery(now, false);
+            d.id = format!("delivery-{n}");
+            let key = format!("prompt-{n}");
+            d.request = request(&d.target, &key)["request"].clone();
+            d.attempts = 1;
+            d.relay_post = Some(OutMessage {
+                to: Target { name: Some("lane".into()), ..Default::default() },
+                from: Default::default(),
+                kind: crate::mesh::Kind::Prompt,
+                op: None,
+                body: "from a lane VM".into(),
+                mode: Default::default(),
+                idempotency_key: key,
+            });
+            hub.outbox.add(d).unwrap()
+        })
+        .collect()
+}
+
+/// Replay the backlog while the first eight relay posts hang. Once their deadlines pass,
+/// the same queue must drain, including the timed-out posts on their retry schedule.
+#[tokio::test(start_paused = true)]
+async fn outbox_replay_bounds_stalled_attempts_and_drains() {
+    const COUNT: usize = 547;
+    let (hub, stub) =
+        setup(StubHub { script: Mutex::new(vec![Answer::Stall; 8].into()), ..StubHub::default() });
+    let pending = relay_backlog(&hub, COUNT);
+    resume(&hub, pending);
+    // The paused clock advances when runnable tasks have parked. The relay deadline is 30 s.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(stub.posts.lock().unwrap().len(), 8);
+    assert_eq!(hub.outbox.unsettled(), COUNT);
+    let attempted = (0..COUNT)
+        .filter(|n| hub.outbox.get(&format!("delivery-{n}")).unwrap().attempts > 1)
+        .count();
+    assert_eq!(attempted, 8, "admission must precede the journal write");
+
+    // All eight posts have now timed out. Even while the relay's gate holds the backlog,
+    // each delivery leaves its slot free until its next attempt.
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert!(hub.mesh.gate().shut());
+    assert_eq!(hub.outbox_attempts.available_permits(), 8);
+
+    for n in 0..COUNT {
+        let d = settled(&hub, &format!("delivery-{n}"), Duration::from_secs(120)).await;
+        assert_eq!(d.state, State::Delivered);
+    }
+    assert_eq!(stub.held.lock().unwrap().len(), COUNT);
+}
+
+/// A stalled book makes every active attempt call block_in_place. With a small blocking
+/// pool, unbounded replay exhausts even the replacement worker that should drive timers.
+#[test]
+fn outbox_replay_leaves_a_worker_for_timers_while_the_book_is_held() {
+    use std::sync::mpsc as sync_channel;
+    let (started, starts) = sync_channel::channel();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .max_blocking_threads(12)
+        .on_thread_start(move || {
+            let _ = started.send(());
+        })
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (hub, _) = setup(StubHub::default());
+        let pending = relay_backlog(&hub, 547);
+        let (locked, lock) = sync_channel::channel();
+        let (release, released) = sync_channel::channel();
+        let holder = std::thread::spawn({
+            let hub = hub.clone();
+            move || {
+                hub.outbox.hold_book_for_then(Duration::ZERO, || {
+                    locked.send(()).unwrap();
+                    let _ = released.recv_timeout(Duration::from_secs(15));
+                })
+            }
+        });
+        lock.recv_timeout(Duration::from_secs(5)).unwrap();
+        resume(&hub, pending);
+        // One runtime worker and a replacement for each of the eight blocked attempts.
+        for _ in 0..9 {
+            starts.recv_timeout(Duration::from_secs(5)).expect("replay reached the held book");
+        }
+        let (tick, observed) = sync_channel::channel();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let _ = tick.send(());
+        });
+        let timely = observed.recv_timeout(Duration::from_secs(2));
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        timely.expect("a timer must run while retry attempts are blocked");
+    });
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_hub_503_queues_the_send_and_the_outbox_delivers_it_once() {
     let script = [Answer::Fail(503, "mesh.unavailable"), Answer::Fail(503, "mesh.unavailable")];
@@ -238,9 +344,11 @@ async fn a_batch_with_one_bad_recipient_keeps_its_rows() {
     let bad = bad.unwrap();
     assert_eq!(bad["status"], "queued", "{bad}");
     let good = settled(&hub, good["deliveryId"].as_str().unwrap(), Duration::from_secs(600)).await;
-    let bad = settled(&hub, bad["deliveryId"].as_str().unwrap(), Duration::from_secs(600)).await;
+    let bad = settled(&hub, bad["deliveryId"].as_str().unwrap(), Duration::from_secs(1200)).await;
     assert_eq!(good.state, State::Delivered, "{good:?}");
     assert_eq!(bad.state, State::Failed, "{bad:?}");
+    // A name the hub never lists fails after its bounded attempts, not on the first 404.
+    assert_eq!(bad.attempts, super::UNKNOWN_RECIPIENT_ATTEMPTS, "{bad:?}");
     let error = bad.error.unwrap_or_default();
     assert!(
         error.contains("mesh hub refused it") && error.contains("unknown_recipient"),
@@ -373,4 +481,122 @@ async fn call_within(
             });
         }
     }
+}
+
+/// RFD 0086 item 2's duress number: the hub answers 503 for [`OUTAGE`] while [`SENDS`] sends are
+/// made, one every [`OUTAGE`] / [`SENDS`]. Every send is answered `queued` within the bound, none
+/// is lost (the hub holds each once after it recovers), and the line printed says how long the
+/// outbox took to drain from the moment the hub answered again, on the runtime's clock (paused,
+/// so the outage costs no wall time) and the wall's.
+#[tokio::test(start_paused = true)]
+async fn duress_a_30s_hub_503_loses_none_of_100_sends_and_drains_on_recovery() {
+    const SENDS: u32 = 100;
+    const OUTAGE: Duration = Duration::from_secs(30);
+    let (hub, stub) = setup(StubHub::default());
+    let start = tokio::time::Instant::now();
+    let recovered_at = start + OUTAGE;
+    *stub.down_until.lock().unwrap() = Some(recovered_at);
+    let mut ids = Vec::new();
+    let mut slowest = Duration::ZERO;
+    for n in 0..SENDS {
+        tokio::time::sleep_until(start + OUTAGE * n / SENDS).await;
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-duress-{n}"));
+        let (answer, runtime, wall) = timed_send(&hub, params).await;
+        slowest = slowest.max(runtime).max(wall);
+        let queued = answer.expect("a hub 503 never fails the send");
+        assert_eq!(queued["status"], "queued", "{queued}");
+        ids.push(queued["deliveryId"].as_str().unwrap().to_owned());
+    }
+    assert!(slowest < BOUND, "a send took {slowest:?}");
+    tokio::time::sleep_until(recovered_at).await;
+    let wall = std::time::Instant::now();
+    let mut lost = 0;
+    for id in &ids {
+        let d = settled(&hub, id, Duration::from_secs(900)).await;
+        if d.state != State::Delivered {
+            lost += 1;
+        }
+    }
+    let drain = tokio::time::Instant::now() - recovered_at;
+    let drain_wall = wall.elapsed();
+    let held = stub.held.lock().unwrap().len();
+    let posts = stub.posts.lock().unwrap().len();
+    println!(
+        "DURESS hub503_for={}s sends={SENDS} lost={lost} hub_holds={held} hub_posts={posts} \
+         slowest_send={slowest:?} drain_after_recovery={drain:?} drain_wall={drain_wall:?}",
+        OUTAGE.as_secs(),
+    );
+    assert_eq!(lost, 0, "every send delivered");
+    assert_eq!(held, SENDS as usize, "the hub holds each send once");
+}
+
+/// A delivery that followed its chat's move over the hub names `HOST/ID` on a machine only the
+/// hub reaches (`follow_move` leaves it with no hub post). It goes through the hub to that id,
+/// never failing as "no session HOST/ID on" this machine, as six messages to one moved chat did
+/// on 2026-11-25.
+#[tokio::test(start_paused = true)]
+async fn a_followed_hub_move_goes_through_the_hub_not_a_lookup_here() {
+    let (hub, stub) = setup(StubHub::default());
+    let id = "01a2116d-0000-7000-8000-000000000001";
+    let target = format!("far-host/{id}");
+    let mut d = super::retry_delay_tests::delivery(crate::store::now_ms(), false);
+    d.id = "followed-hub-move".into();
+    d.target.clone_from(&target);
+    d.request = json!({
+        "sessionId": target,
+        "prompt": [{"type": "text", "text": "after the move"}],
+        "_meta": {"acpmux": {"promptId": "prompt-followed-move"}},
+    });
+    d.error = Some(format!("the chat moved; following it to {target}"));
+    assert!(hub.mesh_only_host(&target), "only the hub reaches {target}");
+    let d = hub.outbox.add(d).unwrap();
+    let delivering = {
+        let hub = hub.clone();
+        let id = d.id.clone();
+        tokio::spawn(async move { deliver(&hub, &id).await })
+    };
+    let d = settled(&hub, &d.id, Duration::from_secs(600)).await;
+    delivering.abort();
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert!(!d.no_session(), "{d:?}");
+    let posts = stub.posts.lock().unwrap();
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0].to.session_id.as_deref(), Some(id), "{posts:?}");
+    assert_eq!(posts[0].to.host.as_deref(), Some("far-host"), "{posts:?}");
+    assert_eq!(posts[0].idempotency_key, "prompt-followed-move", "{posts:?}");
+}
+
+/// RFD 0180 (EAGAIN, not ENOENT): a kept delivery whose target the hub does not list yet (its
+/// machine paused, restarting or between heartbeats) waits on the outbox's back-off and is
+/// delivered once the hub lists it, under its one key. Before: failed on the first 404 ("the
+/// mesh hub refused it: the hub answered 404 mesh.unknown_recipient"), 3 of 69 deliveries on
+/// one lane VM, 2026-11-23 to 11-25.
+#[tokio::test(start_paused = true)]
+async fn a_name_the_hub_lists_late_is_delivered_not_failed() {
+    let script = [
+        Answer::Fail(503, "mesh.unavailable"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+    ];
+    let (hub, stub) = setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
+    let (answer, _, _) = timed_send(&hub, request("far-host/waking", "prompt-unlisted")).await;
+    let queued = answer.expect("a 503 queues it");
+    assert_eq!(queued["status"], "queued", "{queued}");
+    let id = queued["deliveryId"].as_str().unwrap().to_owned();
+    let d = settled(&hub, &id, Duration::from_secs(1200)).await;
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert_eq!(stub.held.lock().unwrap().len(), 1, "the hub holds it once");
+    let posts = stub.posts.lock().unwrap();
+    assert!(posts.iter().all(|m| m.idempotency_key == "prompt-unlisted"), "{posts:?}");
+    assert_eq!(posts.len(), 5, "the 503, three 404s and the post it took: {posts:?}");
+}
+
+#[test]
+fn only_an_unlisted_name_with_attempts_left_waits() {
+    let unknown = hub_status(404, "mesh.unknown_recipient");
+    assert!(super::unknown_recipient_waits(&unknown, 1));
+    assert!(super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS - 1));
+    assert!(!super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS));
+    assert!(!super::unknown_recipient_waits(&hub_status(403, "mesh.forbidden"), 1));
 }

@@ -34,7 +34,11 @@ fn hub_of(n: usize) -> Arc<crate::hub::Hub> {
             "createdAt": 1, "updatedAt": i + 1, "preview": "A short synthetic reply",
         }))
         .unwrap();
-        hub.insert_test_session(meta);
+        let session = hub.insert_test_session(meta);
+        // An attach starts the chat's time-breakdown seed in the background, and its row notice
+        // wakes every connection attached to the chat whenever it lands: under load, inside a
+        // window a test counts. Seeded here, before any connection, it wakes none.
+        hub.seed_time_breakdown_for_test(&session);
     }
     hub
 }
@@ -68,8 +72,8 @@ impl Client {
         client
     }
 
-    /// Sends a request and reads lines until its answer, which must not be an error.
-    async fn call(&mut self, m: &str, params: Value) {
+    /// Sends a request and reads lines until its answer, which must not be an error; returns its result.
+    async fn call(&mut self, m: &str, params: Value) -> Value {
         self.next_id += 1;
         let id = self.next_id;
         self.input.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -79,12 +83,12 @@ impl Client {
                 let reply: Value = serde_json::from_str(&out.recv().await.unwrap()).unwrap();
                 if reply["id"] == id {
                     assert!(reply.get("error").is_none(), "{m}: {reply}");
-                    return;
+                    return reply["result"].clone();
                 }
             }
         })
         .await
-        .unwrap_or_else(|_| panic!("{m} answers"));
+        .unwrap_or_else(|_| panic!("{m} answers"))
     }
 
     async fn attach(&mut self, id: &str) {
@@ -92,8 +96,8 @@ impl Client {
             .await;
     }
 
-    async fn watch(&mut self, on: bool) {
-        self.call(method::MUX_WATCH, json!({"enabled": on})).await;
+    async fn watch(&mut self, on: bool) -> Value {
+        self.call(method::MUX_WATCH, json!({"enabled": on})).await
     }
 
     /// Reads lines until one contains `needle`; returns the lines read before it, and it.
@@ -140,6 +144,18 @@ fn changed_of(lines: &[String], id: &str, record_kind: &str) -> usize {
         .count()
 }
 
+/// Waits until no chat in `ids` has a time-breakdown seed running (`views.rs`
+/// `spawn_time_breakdown_seed`, started by an attach): its `row_notice` went out before.
+async fn settle_seeds(hub: &crate::hub::Hub, ids: &[&str]) {
+    tokio::time::timeout(WAIT, async {
+        while ids.iter().any(|id| hub.time_breakdown_seeding_for_test(&session(hub, id))) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the attaches' time-breakdown seeds end");
+}
+
 const STREAMED: usize = 200;
 const CHANGES: usize = 5;
 
@@ -157,6 +173,15 @@ async fn a_connection_not_attached_and_not_watching_is_never_woken_by_other_chat
     let mut watcher = Client::connect(&hub, "watcher").await;
     watcher.attach(&t).await;
     watcher.watch(true).await;
+    // An attach starts the chat's time-breakdown seed in the background, and the seed's
+    // `row_notice` wakes the chat's attached connections whenever it lands: counted after the
+    // line below, it was one more wake of `quiet` than the test makes (CI run 45641669048, 2 for
+    // 1). Settled first, then a record on T read by both, so every wake the setup made is counted
+    // before.
+    settle_seeds(&hub, &[&s, &t]).await;
+    hub.append(&session(&hub, &t), "in", "agent_message_chunk", chunk(&t, "set-up"));
+    quiet.until("set-up").await;
+    watcher.until("set-up").await;
     let (quiet_before, watcher_before) = (quiet.wakes(), watcher.wakes());
 
     let busy = session(&hub, &s);
@@ -205,7 +230,9 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     let mut page = Client::connect(&hub, "page").await;
     page.attach(&t).await;
     page.watch(true).await;
-    page.watch(false).await;
+    // The pause builds no list: the page keeps its rows and follows from its cursor when it turns
+    // the watch on again (webviews sessionPages.ts `pause`).
+    assert_eq!(page.watch(false).await, json!({}), "a paused watch answers without the list");
     let before = page.wakes();
     let busy = session(&hub, &s);
     for n in 0..CHANGES {
@@ -223,6 +250,7 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
 }
 
+#[cfg(unix)]
 fn cpu_now() -> Duration {
     // SAFETY: getrusage writes the struct it is given and reads nothing else.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
@@ -241,6 +269,7 @@ const EVENTS: usize = 4_000;
 /// to the last connection reading its last.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual per-event cost measurement"]
+#[cfg(unix)]
 async fn fanout_wake_cost() {
     for connections in [4usize, 16, 64] {
         let hub = hub_of(SESSIONS);

@@ -84,6 +84,15 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // A user line of the chat's own (the prompt's echo, a steer, tool results, a hook's
+        // feedback) goes out as its next model call's request (`model_calls.rs`).
+        if kind == "user" && parent.is_none() {
+            self.model_clock.requested(super::prompt_cache::now_ms());
+        }
+        // The turn's last assistant line on the main loop: Claude Code's own API error or not.
+        if kind == "assistant" && parent.is_none() {
+            *self.api_error.lock().await = super::api_error::text(line);
+        }
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
             || compaction_failed
@@ -94,6 +103,14 @@ impl Translator {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
                     *self.session_id.lock().await = Some(s.to_owned());
+                }
+                // A durable cron this conversation made in an earlier process (`loops.rs`).
+                if let (Some(cwd), Some(s)) = (
+                    line.get("cwd").and_then(Value::as_str),
+                    line.get("session_id").and_then(Value::as_str),
+                ) && let Some(goal) = self.durable_loops(cwd, s).await
+                {
+                    out.push(upd(goal));
                 }
                 if let Some(m) = line.get("model").and_then(Value::as_str) {
                     *self.model.lock().await = m.to_owned();
@@ -128,7 +145,7 @@ impl Translator {
                 // commands are sent again, tagged, when that changes the list.
                 if let Some(skills) = line.get("skills").and_then(Value::as_array) {
                     *self.skills.lock().await =
-                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        Some(skills.iter().filter_map(Value::as_str).map(str::to_owned).collect());
                     if let Some(u) = self.commands_update(false).await {
                         out.push(upd(u));
                     }
@@ -157,6 +174,8 @@ impl Translator {
                         if parent.is_none() {
                             let model = ev.pointer("/message/model").and_then(Value::as_str);
                             self.call_started(ev.pointer("/message/usage"), model).await;
+                            // The call's first byte (`model_calls.rs`).
+                            self.model_clock.started(super::prompt_cache::now_ms());
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -199,6 +218,8 @@ impl Translator {
                             Some("thinking_delta") => {
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
+                                } else {
+                                    self.model_clock.thought();
                                 }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
@@ -268,22 +289,6 @@ impl Translator {
                         if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
                             self.foreground_call(name, id, &input).await;
                         }
-                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
-                        // draw it as a checklist.
-                        if name == "TodoWrite"
-                            && let Some(plan) = todo_plan(&input)
-                        {
-                            out.push(upd(plan));
-                        }
-                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
-                        // instead: each call lands on its result (`task_plan.rs`). The
-                        // list is the main session's; a subagent's tasks stay its own.
-                        if main_line
-                            && super::task_plan::TaskPlan::follows(name)
-                            && let Some(id) = c.get("id").and_then(Value::as_str)
-                        {
-                            self.task_plan.lock().await.call(name, id, &input);
-                        }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84). A Monitor runs its
                         // command in the background too, and Claude's task
@@ -294,30 +299,48 @@ impl Translator {
                         if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
-                            let command =
-                                input.get("command").and_then(Value::as_str).unwrap_or("");
-                            let shell = BackgroundShell {
-                                sid: sid.clone(),
-                                command: command.to_owned(),
-                                description: input
-                                    .get("description")
-                                    .and_then(Value::as_str)
-                                    .map(str::trim)
-                                    .filter(|d| !d.is_empty())
-                                    .map(str::to_owned),
-                                task: None,
-                                background: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                launched: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                asked: false,
-                                announced: false,
-                                output: None,
-                                workflow_owned: false,
-                                workflow_agent: None,
-                                owner_tries: 0,
-                            };
-                            self.background_shells.lock().await.insert(id.to_owned(), shell);
+                            let background = monitor
+                                || input.get("run_in_background") == Some(&Value::Bool(true));
+                            let mut shells = self.background_shells.lock().await;
+                            let shell =
+                                shells.entry(id.to_owned()).or_insert_with(|| BackgroundShell {
+                                    sid: sid.clone(),
+                                    command: String::new(),
+                                    description: None,
+                                    task: None,
+                                    background,
+                                    launched: background,
+                                    asked: false,
+                                    announced: false,
+                                    output: None,
+                                    workflow_owned: false,
+                                    workflow_agent: None,
+                                    owner_tries: 0,
+                                });
+                            // A task event may already have supplied the task id and description.
+                            let late_command = shell.announced && shell.command.is_empty();
+                            if let Some(command) = input.get("command").and_then(Value::as_str) {
+                                shell.command = command.to_owned();
+                                // task_started sometimes uses the command itself as its description.
+                                if shell.description.as_deref() == Some(command.trim()) {
+                                    shell.description = None;
+                                }
+                            }
+                            if let Some(description) = input
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|d| !d.is_empty())
+                            {
+                                shell.description = Some(description.to_owned());
+                            }
+                            shell.background |= background;
+                            shell.launched |= background;
+                            if late_command && !shell.command.is_empty() {
+                                let mut update = background_task_update(id, shell, "running");
+                                update.set("origin", json!(origin(shell)));
+                                out.push(shell_update(shell, update));
+                            }
                         }
                         // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
                         if parent.is_none()
@@ -411,6 +434,21 @@ impl Translator {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
+            // A Stop hook that blocked the stop: Claude Code writes its reason as a synthetic user
+            // line, `Stop hook feedback:\n<reason>`, and the agent goes on. The chat draws it as one
+            // quiet line, so what the agent writes next reads as the hook's doing, not the agent
+            // saying it again (Leo, 2026-11-22: "i assume you got re-prompted here. i thought we
+            // removed those. you also basically said the same thing, so there didnt seem to be a
+            // point to that. if you did get hooked, i think it should get displayed better.").
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && stop_hook_feedback(line).is_some() =>
+            {
+                if let Some(reason) = stop_hook_feedback(line) {
+                    out.push(upd(json!({"sessionUpdate": "stop_hook_feedback", "text": reason})));
+                }
+            }
             "user" => {
                 for c in line
                     .pointer("/message/content")
@@ -430,7 +468,15 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // Claude Code words every move through Ctrl-B as the person's; one
+                        // acpmux made itself (`hub/auto_background.rs`) is not.
+                        let text = match self.background_shells.lock().await.get(tool) {
+                            Some(s) if !s.asked && !s.launched => relabel_auto_background(&text),
+                            _ => text,
+                        };
                         self.foreground_done(tool).await;
+                        // A clean result is what a later identical call is stubbed from (dedupe.rs).
+                        self.dedupe_result(tool, is_err, &text).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -478,14 +524,6 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
-                        // A task call's result redraws the task list (`task_plan.rs`).
-                        if let Some(plan) = self.task_plan.lock().await.result(
-                            tool,
-                            is_err,
-                            line.get("tool_use_result"),
-                        ) {
-                            out.push(upd(plan));
-                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
@@ -526,7 +564,7 @@ impl Translator {
                 }
             }
             "control_request" => {
-                let req = line.get("request").cloned().unwrap_or(Value::Null);
+                let req = line.get("request").unwrap_or(&Value::Null);
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("").to_owned();
                 match req.get("subtype").and_then(Value::as_str) {
                     Some("can_use_tool") => {
@@ -558,7 +596,7 @@ impl Translator {
                             "kind": tool_kind(name),
                             "status": "pending",
                             "rawInput": input,
-                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(&req)}}
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(req)}}
                         });
                         with_edit(&mut call, name, &input);
                         out.push(Message::request(
@@ -572,16 +610,38 @@ impl Translator {
                         ));
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
-                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, req).await),
                     // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
                     Some("hook_callback")
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(policy_gate::GATE_CALLBACK) =>
                     {
-                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                        out.extend(self.gate_hook(&sid, &rid, req).await);
+                    }
+                    // Harness magic: a call whose answer is in the context already (dedupe.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dedupe::DEDUPE_CALLBACK) =>
+                    {
+                        self.dedupe_hook(&rid, req).await;
+                    }
+                    // Harness magic: a repo's rule for a path the call touched (path_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(path_rules::PATH_RULES_CALLBACK) =>
+                    {
+                        self.path_rules_hook(&rid, req).await;
+                    }
+                    // Harness magic: a directory's rules, the first time it is touched
+                    // (dir_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dir_rules::DIR_RULES_CALLBACK) =>
+                    {
+                        self.dir_rules_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
@@ -733,7 +793,11 @@ impl Translator {
                 }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                // So is a "success" right after Claude Code's own API error line (`api_error.rs`).
+                let api_failure =
+                    super::api_error::failure(line, self.api_error.lock().await.take());
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+                    || api_failure.is_some();
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
@@ -908,6 +972,16 @@ impl Translator {
                         })));
                     }
                 }
+                // The turn's dedupe counts, on its result while the feature is on.
+                let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // And its path rules' counts, while that feature is on (path_rules.rs).
+                let path_rule_counts =
+                    Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
+                let dir_rule_counts =
+                    Some(self.dir_rules.turn_ended()).filter(|_| dir_rules::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -915,7 +989,10 @@ impl Translator {
                     && stop != "max_turn_requests"
                 {
                     Err(RpcError::internal(
-                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                        api_failure
+                            .as_deref()
+                            .or_else(|| line.get("result").and_then(Value::as_str))
+                            .unwrap_or(sub),
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
@@ -933,7 +1010,24 @@ impl Translator {
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
-                    Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
+                    let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
+                    if let Some(dedupe) = dedupe_counts {
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(counts) = path_rule_counts {
+                        hm.insert(path_rules::FEATURE.into(), counts.to_json());
+                    }
+                    if let Some(rules) = dir_rule_counts {
+                        hm.insert("dirRules".into(), rules.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
+                    }
+                    Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
                 // No prompt waits: the carried turn's prompt still to come takes it.
                 if waiting.is_empty() {
@@ -966,6 +1060,11 @@ impl Translator {
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
+                // What was read before is in the summary at most (dedupe.rs).
+                self.dedupe.reset();
+                // The rules said before it are gone from the context: due again (path_rules.rs).
+                self.path_rules.reset();
+                self.dir_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
@@ -1227,27 +1326,6 @@ impl Translator {
     }
 }
 
-/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
-/// (pending, in_progress or completed, as ACP names them). Nil for input
-/// that is not a todo list.
-fn todo_plan(input: &Value) -> Option<Value> {
-    let entries: Vec<Value> = input
-        .get("todos")?
-        .as_array()?
-        .iter()
-        .filter_map(|todo| {
-            let content = todo.get("content").and_then(Value::as_str)?;
-            let status = todo
-                .get("status")
-                .and_then(Value::as_str)
-                .filter(|status| matches!(*status, "in_progress" | "completed"))
-                .unwrap_or("pending");
-            Some(json!({"content": content, "status": status, "priority": "medium"}))
-        })
-        .collect();
-    Some(json!({"sessionUpdate": "plan", "entries": entries}))
-}
-
 /// A `compaction` update: a compaction of the chat's context `state`
 /// (`running`, `completed`, `failed`), with what Claude's line says about it.
 /// Claude Code repeats `running` every 30 seconds while it compacts; clients
@@ -1300,6 +1378,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+/// The reason of a Stop hook's block, from the synthetic user line Claude Code writes for it
+/// (`Stop hook feedback:\n<reason>`); None for any other line, and for a head with no reason.
+pub(super) fn stop_hook_feedback(line: &Value) -> Option<String> {
+    const HEAD: &str = "Stop hook feedback:";
+    let text = compaction_summary_text(line)?;
+    let reason = text.trim_start().strip_prefix(HEAD)?.trim();
+    (!reason.is_empty()).then(|| reason.to_owned())
+}
+
 /// The output file a background Bash launch's result names ("… Output is
 /// being written to: PATH"), as Claude Code words it; None for any other text.
 fn launch_output_file(text: &str) -> Option<String> {
@@ -1330,4 +1417,34 @@ fn ask_description(req: &Value) -> Option<&str> {
     req.get("description")
         .and_then(Value::as_str)
         .filter(|d| !crate::bg_hook::starts_with_subagent_mark(d))
+}
+
+/// Claude Code's result for a shell it moved to the background says "manually backgrounded by
+/// user" whenever the move came through Ctrl-B's request, which acpmux also sends on its own
+/// (`hub/auto_background.rs`). For a move the person did not ask for, the chat says it was moved.
+pub(super) fn relabel_auto_background(text: &str) -> String {
+    match text.strip_prefix("Command was manually backgrounded by user with ID: ") {
+        Some(rest) => match rest.split_once(". Output") {
+            Some((id, tail)) => {
+                format!("Command was moved to the background (ID: {id}). Output{tail}")
+            }
+            None => format!("Command was moved to the background (ID: {rest})"),
+        },
+        None => text.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod relabel_tests {
+    use super::relabel_auto_background;
+
+    #[test]
+    fn an_automatic_move_is_not_called_manual() {
+        let said = "Command was manually backgrounded by user with ID: b1. Output is being written to: /t/b1.output.";
+        assert_eq!(
+            relabel_auto_background(said),
+            "Command was moved to the background (ID: b1). Output is being written to: /t/b1.output."
+        );
+        assert_eq!(relabel_auto_background("ok"), "ok");
+    }
 }

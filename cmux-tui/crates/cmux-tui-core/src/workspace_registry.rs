@@ -42,7 +42,7 @@ use schema::{
     normalized_workspace_resource_deltas, require_resource_effect_pepper_id,
     resource_agent_hook_state_has_ended_at_column, terminal_hosts_has_on_exit_column,
     terminal_hosts_has_workspace_foreign_key, upsert_workspace_resource,
-    vacuum_with_file_temp_store,
+    vacuum_with_file_temp_store, workspace_upsert_delta,
 };
 mod terminal_snapshot_read;
 use session_reset::*;
@@ -128,9 +128,12 @@ mod workspace_commit_intent;
 mod workspace_rows_commit;
 use workspace_rows_commit::{
     commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+    insert_workspace_row_in_transaction,
 };
 pub(crate) mod workspace_name_store;
-pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
+pub(crate) use workspace_commit_intent::{
+    WorkspaceCommitIntent, WorkspaceCommitReceipt, WorkspaceInsert,
+};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
@@ -161,7 +164,6 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
-#[cfg(test)]
 pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{

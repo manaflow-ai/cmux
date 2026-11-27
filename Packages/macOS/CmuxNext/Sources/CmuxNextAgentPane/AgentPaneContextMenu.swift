@@ -33,6 +33,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var hasImage: Bool
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
+    /// A sent prompt with attachments: where `agentPane.attachmentView` draws them now (`inline` or
+    /// `strip`), for the Attachments Inline / Attachments at Top pair; nil on anything else.
+    var attachmentView: String?
 
     init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil) {
@@ -64,6 +67,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
+        attachmentView = (object["attachmentView"] as? String).flatMap { $0 == "inline" || $0 == "strip" ? $0 : nil }
         let resend = AgentPanePromptAgainMenu(report: object["sendPromptAgain"])
         sendPromptAgain = resend?.sessionId == sessionId ? resend : nil
         guard !text.isEmpty || hasImage || part != nil || sendPromptAgain != nil else { return nil }
@@ -193,21 +197,6 @@ enum AgentPaneContextMenu {
         return CGPoint(x: button.minX, y: top)
     }
 
-    /// The size `menu` draws at: `NSMenu.size` counts an Option alternate (Point at Element…'s Inspect
-    /// Element, ``inspectRows(picker:devTools:)``) as a row of its own, though it shares its primary's
-    /// row, so a menu opened above its More button stood a row and more above it (Lucas, 2026-11-11:
-    /// "the ... menu opens up too far away from the point anchor"). The alternates leave the menu for
-    /// the measure and come back at their places; the width keeps the widest row, an alternate's too.
-    static func drawnSize(of menu: NSMenu) -> CGSize {
-        let full = menu.size
-        let alternates = menu.items.enumerated().filter { $0.element.isAlternate }
-        guard !alternates.isEmpty else { return full }
-        for (index, _) in alternates.reversed() { menu.removeItem(at: index) }
-        let height = menu.size.height
-        for (index, item) in alternates { menu.insertItem(item, at: index) }
-        return CGSize(width: full.width, height: height)
-    }
-
     /// `text` as a Markdown quote, with a blank line after it for the reply.
     static func quote(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
@@ -303,6 +292,7 @@ enum AgentPaneContextMenu {
         var selectionActions: [NSMenuItem] = []
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
+        var attachments: [NSMenuItem] = []
         if let selection {
             let quote = Self.quote(selection)
             selectionActions.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") {
@@ -334,10 +324,17 @@ enum AgentPaneContextMenu {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
             }
             if let row = target.retryRowId {
+                // retry-prompt-ok: re-sends a model turn (a paid request)
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend, symbol: "pencil") { actions.edit(target.text) })
+            }
+            if let view = target.attachmentView {
+                // Where a sent prompt's attachments draw: the same `agentPane.attachmentView` as
+                // Settings' Attachment View and the composer's right-click (Leo, 2026-11-27: "it should
+                // be toggleable one or the other"). The page writes it, so every bubble redraws.
+                attachments = Self.attachmentViewRows(view) { actions.page("chat.menu.attachmentView", ["view": $0]) }
             }
             if let rowId = target.rowId, let sessionId = target.sessionId {
                 // The rail owns bookmark state; this callback is the menu's explicit seam.
@@ -382,12 +379,21 @@ enum AgentPaneContextMenu {
             find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") {
                 actions.edit(Self.quote(selection) + AgentPaneMenuStrings.askAboutThisPrompt)
             })
-            add([image, opens, row, part, copies, selectionActions, message, links, inspectors, find], to: menu)
+            add([image, opens, row, part, copies, selectionActions, message, links, attachments, inspectors, find], to: menu)
             return
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([header, image, opens, row, part, copies, message, links, chat, inspectors], to: menu)
+        add([header, image, opens, row, part, copies, message, links, attachments, chat, inspectors], to: menu)
+    }
+
+    /// Attachments Inline and Attachments at Top, the one in use checked (`view`: `inline` or `strip`).
+    static func attachmentViewRows(_ view: String, pick: @escaping (String) -> Void) -> [NSMenuItem] {
+        let inline = AgentPaneMenuAction.item(AgentPaneMenuStrings.attachmentsInline, symbol: "text.below.photo") { pick("inline") }
+        inline.state = view == "inline" ? .on : .off
+        let top = AgentPaneMenuAction.item(AgentPaneMenuStrings.attachmentsAtTop, symbol: "photo.on.rectangle.angled") { pick("strip") }
+        top.state = view == "strip" ? .on : .off
+        return [inline, top]
     }
 
     /// Adds the non-empty groups, split by separators.
@@ -445,6 +451,14 @@ enum AgentPaneMenuStrings {
         String(localized: "agentPane.menu.pointAtElement", defaultValue: "Point at Element…", bundle: .localizedModule)
     }
 
+    static var attachmentsInline: String {
+        String(localized: "agentPane.menu.attachmentsInline", defaultValue: "Attachments Inline", bundle: .localizedModule)
+    }
+
+    static var attachmentsAtTop: String {
+        String(localized: "agentPane.menu.attachmentsAtTop", defaultValue: "Attachments at Top", bundle: .localizedModule)
+    }
+
     static var openImage: String {
         String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .localizedModule)
     }
@@ -487,6 +501,7 @@ enum AgentPaneMenuStrings {
     }
 
     static var retry: String {
+        // retry-prompt-ok: re-sends a model turn (a paid request)
         String(localized: "agentPane.menu.retry", defaultValue: "Retry", bundle: .localizedModule)
     }
 

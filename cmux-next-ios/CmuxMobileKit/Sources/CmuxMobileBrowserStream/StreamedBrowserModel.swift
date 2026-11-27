@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import enum CmuxMobileModel.UserFacingError
+import struct CmuxMobileModel.BoundedWait
 import Foundation
 import Observation
 import os
@@ -114,6 +115,13 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The page drew a picture of its own (not held by a freeze). Until it does,
+    /// a tab opening with a frozen frame keeps that frame over the page
+    /// (`coversWithSnapshot`), as Safari keeps a tab's last frame while it loads.
+    public private(set) var showsPicture = false
+    /// The page holds the picture it showed (`freeze`).
+    @ObservationIgnored public private(set) var isFrozen = false
+    @ObservationIgnored private var closedForGood = false
     /// A snapshot was taken (the tab's last-known picture is kept from it).
     @ObservationIgnored public var onSnapshot: (@MainActor (CGImage) -> Void)?
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
@@ -191,6 +199,9 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// The stream closed and only ``reopen()`` (or showing the page again)
     /// opens it: the Mac stopped the page, or another viewer took it.
     public private(set) var canReopen = false
+    /// The last open failed for a reason that can pass (not a refusal, not a Mac without
+    /// the host): the page opens it again on its own (``reconnectAnswered()``), never Retry.
+    public private(set) var openFailed = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
     /// A shown page that stopped (no picture after a keyframe was asked for):
     /// asks again, restarts the decoder, then opens the stream again.
@@ -206,9 +217,9 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// ``maxStallReconnects`` the page waits for Reopen instead of cycling.
     @ObservationIgnored private var stallReconnects = 0
     static let maxStallReconnects = 3
-    static var reconnectingText: String { String(localized: "Reconnecting browser…") }
+    static var reconnectingText: String { String(localized: "Loading…") }
     /// The page waits for the Mac's link to come back (drawn as a chip, ``linkChip(for:)``).
-    static var linkReconnectingText: String { String(localized: "Reconnecting to the Mac…") }
+    static var linkReconnectingText: String { String(localized: "Loading…") }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
     /// until the history moved the buttons follow the step, and a second step waits for it.
@@ -286,6 +297,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
         canReopen = false
+        openFailed = false
         phase = reconnecting ? .waiting(Self.reconnectingText) : .connecting
         let sink = Sink(model: self)
         self.sink = sink
@@ -305,7 +317,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 if LinkErrorText.noBrowserHost(error) {
                     self?.unavailable()
                 } else {
-                    self?.failed(LinkErrorText.describe(error))
+                    self?.failed(LinkErrorText.describe(error), retries: LinkErrorText.retries(error))
                 }
             }
         }
@@ -326,7 +338,11 @@ public final class StreamedBrowserModel: BrowserTabState {
         let before = visible
         appActive = active
         visibilityChanged(from: before)
+        if active, isFrozen { decoder.redrawLastPicture() }
     }
+
+    /// Closed (the tab went, or the directory reset with its link).
+    public var isClosed: Bool { closedForGood }
 
     /// Whether the page is on screen now (and laid out): what opens again on
     /// a new link (``StreamedBrowserDirectory/linkChanged()``).
@@ -346,6 +362,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        // Hidden (another tab shown, the workspace left): its card shows the
+        // page as it was last seen, not as it was when the grid last showed.
+        if !visible, showsPicture, !isFrozen { takeSnapshot() }
         updateWatch()
         // Shown again (on screen, app active) with its stream gone: open it.
         if visible { reconnect() }
@@ -365,6 +384,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     public func close() {
+        closedForGood = true
         connection?.close()
         connection = nil
         sink = nil
@@ -396,12 +416,31 @@ public final class StreamedBrowserModel: BrowserTabState {
         phase = .unavailable
     }
 
-    private func failed(_ reason: String) {
+    private func failed(_ reason: String, retries: Bool) {
         connecting = false
         reconnecting = false
         sink = nil
+        openFailed = retries
         phase = .waiting(reason)
     }
+
+    #if os(iOS)
+    /// One open again after a failed one, answered: returns once it failed again, went
+    /// live, or settled where only a person (Reopen) or the Mac can move it, at most
+    /// `bound` later. ``AutoRetry`` waits on this.
+    public func reconnectAnswered(within bound: Duration = .seconds(20)) async {
+        reconnect()
+        // The bound: an open that never answers lets the stall watchdog and the next retry run.
+        await BoundedWait(bound).run { @MainActor [weak self] in
+            // No strong reference across the wait: a page closed meanwhile goes away.
+            await BoundedWait.observing { self?.openAnswered == false }
+        }
+    }
+
+    /// Whether the last open answered: failed, went live, or settled where only a person
+    /// (Reopen) or the Mac can move it.
+    private var openAnswered: Bool { openFailed || canReopen || phase == .live || phase == .unavailable }
+    #endif
 
     fileprivate func received(_ json: [String: Any], from sink: Sink) {
         guard sink === self.sink else { return }
@@ -503,7 +542,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 ? String(localized: "This page is open on another device.")
                 : String(localized: "Your Mac stopped this page."))
         case .waitForLink:
-            phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : Self.linkReconnectingText)
+            phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : String(localized: "Loading…"))
         }
     }
 
@@ -538,6 +577,7 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        if !shown.held, !showsPicture { showsPicture = true }
         reconnecting = false
         watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
@@ -674,6 +714,46 @@ public final class StreamedBrowserModel: BrowserTabState {
         history = nil
         queuedHistory = nil
         send(wire.navigate(target.absoluteString))
+    }
+
+    /// Freezes the page on the picture it shows (true) or lets it play again
+    /// (false). A tab zooming to the grid, resting there as its card and growing
+    /// back stays one still frame, as Safari's tabs do, instead of a video or a
+    /// moving page inside a moving card. The stream keeps decoding meanwhile
+    /// (the stall watchdog hears it), and the card's snapshot is the held frame.
+    public func freeze(_ frozen: Bool) {
+        guard frozen != isFrozen else { return }
+        isFrozen = frozen
+        decoder.setFrozen(frozen) { [weak self] drewHeld in
+            // A picture that came while frozen is the page's own once drawn.
+            guard drewHeld else { return }
+            Task { @MainActor in if let self, !self.showsPicture { self.showsPicture = true } }
+        }
+        // After the freeze on the decode queue: the snapshot is the held picture.
+        if frozen { takeSnapshot() }
+    }
+
+    /// A still kept from an earlier model of this tab (the link dropped and the
+    /// directory made the model again): the card and the opening page show it
+    /// until the stream draws.
+    public func seed(snapshot still: CGImageBox?) {
+        if snapshot == nil { snapshot = still }
+    }
+
+    /// The tab's frozen frame (its card) stays over the page: it has one, the
+    /// page has drawn nothing of its own yet, and the page is opening. A page
+    /// waiting on the Mac or the person (Reopen, unavailable) shows its status.
+    public var coversWithSnapshot: Bool {
+        Self.coversWithSnapshot(showsPicture: showsPicture, hasSnapshot: snapshot != nil, phase: phase)
+    }
+
+    /// A pure rule of its inputs, callable off the main actor (tests).
+    nonisolated static func coversWithSnapshot(showsPicture: Bool, hasSnapshot: Bool, phase: Phase) -> Bool {
+        guard hasSnapshot, !showsPicture else { return false }
+        switch phase {
+        case .connecting, .live: return true
+        case .waiting, .unavailable: return false
+        }
     }
 
     public func takeSnapshot() {
@@ -1042,7 +1122,12 @@ enum LinkErrorText {
             }
             return UserFacingError.message(error)
         }
-        return UserFacingError.message(error, fallback: "The page couldn't load. Try again.")
+        return UserFacingError.message(error, fallback: "The page couldn't load.")
+    }
+
+    /// A failed open worth opening again on its own: not the Mac refusing the address.
+    static func retries(_ error: any Error) -> Bool {
+        (error as? LinkError)?.code != "forbidden"
     }
 }
 

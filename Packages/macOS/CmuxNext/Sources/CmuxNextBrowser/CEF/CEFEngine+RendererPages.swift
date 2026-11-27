@@ -17,11 +17,22 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
     /// Chromium still loads the page (its last loading-state report): Chrome's tab icon spins
     /// while it does, so a page that never ends its load keeps a compositor animation at idle.
     public var loading: Bool = false
+    /// Chromium reports the page's renderer hung ("Page unresponsive").
+    public var unresponsive: Bool = false
+    /// The page's renderer ended and the sad tab shows (or shows when the tab is next shown).
+    public var exited: Bool = false
+    /// The person sees the page: its pane shows it and the content lifecycle did not hide it.
+    public var onScreen: Bool = false
+    /// Renderers the hidden-hang bound ended for this page (``BrowserHiddenHangBound``).
+    public var hangEnds: Int = 0
     /// Renderer client ids (the `--renderer-client-id=` of the helper processes that host its frames).
     public var rendererClients: [Int32]
 }
 
 extension CEFEngine {
+    /// The most cmux pages the fork puts in one renderer (``CEFSwitches/pagesPerRenderer``).
+    public static var cmuxPagesPerRenderer: Int { CEFSwitches.pagesPerRenderer }
+
     /// Every live Chromium page, by browser id, so a bench can name each renderer process's role
     /// (scripts/cmux-next/bench_power.py, scenario `loaded`). Read on request only: one shim call
     /// per page, no observation and no timer.
@@ -33,9 +44,16 @@ extension CEFEngine {
             page.url = tab.state.url?.absoluteString ?? ""
             page.title = tab.state.title ?? ""
             page.loading = tab.chromiumLoading
+            page.unresponsive = tab.state.isUnresponsive
+            page.exited = tab.state.processExit != nil
+            page.onScreen = tab.isOnScreenForHang
+            page.hangEnds = tab.hiddenHangBound.ends
             return page
         }
     }
+
+    /// What the cmux page collector did so far (`CEFPageRendererGC.stats`), for `debug.cef_pages`.
+    public var pageCollectorStats: [String: Int] { CEFRuntime.shared.pageRendererGC.stats }
 
     /// Runs DevTools `method` on the live page `browserID` (`debug.cef_page_devtools`: the idle
     /// bench's page metrics and CPU profile). Nil when no live page has that id.

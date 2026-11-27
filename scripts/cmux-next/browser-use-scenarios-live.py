@@ -26,12 +26,13 @@ import argparse, functools, hashlib, html, http.server, json, os, socket, socket
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from state_wait import wait_stable  # noqa: E402
+from browser_tab_routes import check_tab_routes  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--engines", default="webkit,chromium")
-parser.add_argument("--scenarios", default="login,search,tabs,drag,scroll,frames,upload")
+parser.add_argument("--scenarios", default="login,search,tabs,drag,scroll,frames,upload,viewport")
 parser.add_argument("--record", action="store_true", help="also record each scenario (JPEG frames + GIF when ffmpeg exists)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -214,6 +215,8 @@ def scenario_search(run, base):
 
 def scenario_tabs(run, base):
     navigate(run, base + "/tabs.html", "bu-tabs")
+    if run.engine == "chromium":
+        check_tab_routes(run, base, rpc, wait)
     before = len((run.page("tabs") or {}).get("tabs") or [])
     run.act("click-new-tab-link", "click", selector="#newtab")
     grew = wait(lambda: len((run.page("tabs") or {}).get("tabs") or []) > before, 15)
@@ -265,8 +268,22 @@ def scenario_upload(run, base):
     run.check(wait(lambda: "hello from the agent" in (run.js("names.textContent") or ""), 5), "the page reads the uploaded file")
 
 
+def scenario_viewport(run, base):
+    from browser_viewport import check_fullscreen, check_zoom
+
+    run.page("select_tab")
+    navigate(run, base + "/viewport.html", "bu-viewport")
+    ready = wait(lambda: run.js("""document.visibilityState === 'visible' &&
+        document.title === 'bu-viewport' && navigator.userAgent.includes('Chrome/')"""), 5)
+    run.check(ready, "the viewport fixture is visible in Chromium")
+    if not ready:
+        return
+    check_zoom(run, rpc, wait)
+    check_fullscreen(run, wait)
+
+
 SCENARIOS = {"login": scenario_login, "search": scenario_search, "tabs": scenario_tabs, "drag": scenario_drag,
-             "scroll": scenario_scroll, "frames": scenario_frames, "upload": scenario_upload}
+             "scroll": scenario_scroll, "frames": scenario_frames, "upload": scenario_upload, "viewport": scenario_viewport}
 
 
 LAST_RECORD = [0.0]
@@ -362,6 +379,8 @@ def main():
             continue
         wait(lambda: (rpc("browser.page.eval", {"tab": tab, "script": "document.title"}) or {}).get("value") == "bu-index", 60)
         for name in [s for s in opts.scenarios.split(",") if s]:
+            if name == "viewport" and engine != "chromium":
+                continue
             print(f"{engine} {name}", flush=True)
             run = Run(engine, tab, name)
             # The recorder takes the window server's image, which leaves out

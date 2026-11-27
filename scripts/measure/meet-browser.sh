@@ -15,19 +15,23 @@
 #              measure it: the engine and permission fixes on the ref, before any NIGHTLY carries them
 #   call=S    seconds of the loopback call (default 60)
 #   only=a,b  some runs only (cmux-chromium,cmux-chromium-fake,cmux-webkit,chrome-fake,chrome-plain)
+#   record=1  after cmux-chromium-fake's measured steps, film its tab joining a call (camera, mic level, screen
+#             share, a remote tile over WebRTC), then the signed-out Meet page, through the fleet's granted
+#             recorder (launch_reveal_record.py): meet-call.mp4 in report.tgz. Changes no measured number.
 # Prints MEET_BROWSER {json} and the table. report.tgz also includes Chrome startup logs.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/meet-browser"
 rm -rf "$out" && mkdir -p "$out"
-dmg="" build_job="" call=60 only=""
+dmg="" build_job="" call=60 only="" record=""
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build_job="${arg#build=}" ;;
     call=*) call="${arg#call=}" ;;
     only=*) only="${arg#only=}" ;;
+    record=1) record=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -59,8 +63,25 @@ trap 'exit 143' TERM
 mkdir -p "$work/app"
 if [[ "$build_job" == here ]]; then
   tag="meet-$(git rev-parse --short=10 HEAD)"
+  # A worker's warm checkout has no submodules and no GhosttyKit: get them first, as split-spring.sh does
+  # (without them cargo's ghostty-vt-sys build script fails: cmux18 step c447fb01).
+  for sub in ghostty ghostty-next; do
+    if [ ! -e "$sub/.git" ]; then
+      echo "MEET fetching submodule $sub"
+      git submodule update --init --depth 1 "$sub" || exit 1
+    fi
+  done
+  if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+    rm -rf GhosttyKit.xcframework
+    if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    echo "MEET getting GhosttyKit"
+    ./scripts/download-prebuilt-ghosttykit.sh || exit 1
+  fi
   echo "MEET building the app at $(git rev-parse HEAD) (reload.sh --tag $tag)"
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" > "$out/reload.log" 2>&1
+  # Streamed into the step's output (and kept), so a failure shows its cause, not only cargo's last line.
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log"
   built="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$built" || ! -d "$built" ]]; then
     echo "MEET the tagged build printed no app path" >&2
@@ -93,7 +114,7 @@ version="" build=""
 [[ -f "$plist" ]] && version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
 [[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
 python3 scripts/measure/meet-browser.py --side "$side" --name "$name" --work "$work" --out "$out" \
-  --dmg "$dmg" --build-job "$build_job" --version "$version ($build)" --call "$call" ${only:+--only "$only"} 2>&1 | tee "$out/run.log"
+  --dmg "$dmg" --build-job "$build_job" --version "$version ($build)" --call "$call" ${only:+--only "$only"} ${record:+--record} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 [[ -f "$out/table.md" ]] && cat "$out/table.md"

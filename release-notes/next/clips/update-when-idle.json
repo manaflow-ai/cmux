@@ -1,12 +1,11 @@
 {
-  "caption": "Turn on Update When Idle in Settings > Updates: cmux installs an update once your Mac has been idle, never while an agent works.",
+  "caption": "Turn on Update When Idle and cmux installs updates and restarts while you are away, agents still working.",
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "A fixed window", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
-    {"title": "Settings at Update When Idle", "rpc": {"method": "action.run", "params": {"action": "openSettings", "arguments": {"setting": "updates.installWhenIdle"}}}, "wait": 3, "clip": true},
-    {"title": "Turn it on", "cmux": ["settings", "set", "updates.installWhenIdle", "true"], "wait": 1.5, "clip": true},
-    {"title": "Back off", "cmux": ["settings", "reset", "updates.installWhenIdle"], "wait": 0.5}
+    {"title": "The window, before Settings opens", "wait": 1, "clip": true},
+    {"title": "Settings at Update When Idle", "rpc": {"method": "action.run", "params": {"action": "openSettings", "arguments": {"setting": "updates.automatic"}, "focus": true}}, "wait": 3.5, "clip": true}
   ],
   "crop": [0.25, 0.0, 0.75, 0.7]
 }

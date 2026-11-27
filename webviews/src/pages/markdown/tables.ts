@@ -31,6 +31,7 @@ import { $prose } from "@milkdown/kit/utils";
 import {
   followShownScrollerFade,
   markSidewaysEdges,
+  RESIZE_HANDLE_ATTRIBUTE,
   SIDEWAYS_ATTRIBUTE,
   SIDEWAYS_INK,
   SIDEWAYS_SCROLLER_ATTRIBUTE,
@@ -228,6 +229,39 @@ export function tableViewAt(target: Element | null): ResizableTableView | null {
   return wrapper ? (viewsByWrapper.get(wrapper) ?? null) : null;
 }
 
+/**
+ * Each document's table positions, in order (`ResizableTableView.index`), from each top-level
+ * block's (offsets in it). Every table view asks, at its mount and on each edit in it: a walk of the
+ * document each time made a file of many tables quadratic to open and a keystroke in a cell walk
+ * every node. ProseMirror keeps the blocks an edit did not touch, so only the new ones are walked.
+ */
+const tablesByDoc = new WeakMap<ProseNode, readonly number[]>();
+const tablesByBlock = new WeakMap<ProseNode, readonly number[]>();
+
+function tableStarts(doc: ProseNode): readonly number[] {
+  const cached = tablesByDoc.get(doc);
+  if (cached) return cached;
+  const starts: number[] = [];
+  doc.forEach((block, offset) => {
+    let inBlock = tablesByBlock.get(block);
+    if (!inBlock) {
+      const found: number[] = [];
+      if (block.type.name === "table") found.push(0);
+      // A paragraph or heading holds no table: its text is not walked.
+      else if (!block.isTextblock)
+        block.descendants((node, at) => {
+          if (node.type.name !== "table") return !node.isTextblock;
+          found.push(at + 1);
+          return false;
+        });
+      tablesByBlock.set(block, (inBlock = found));
+    }
+    for (const at of inBlock) starts.push(offset + at);
+  });
+  tablesByDoc.set(doc, starts);
+  return starts;
+}
+
 /** The narrowest a column can be dragged to, in CSS pixels. */
 export const MIN_COLUMN_WIDTH = 40;
 
@@ -264,6 +298,7 @@ export class ResizableTableView extends TableView {
     this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
+    this.handle.setAttribute(RESIZE_HANDLE_ATTRIBUTE, "");
     this.handle.contentEditable = "false";
     this.handle.hidden = true;
     this.handle.setAttribute("aria-hidden", "true");
@@ -361,12 +396,14 @@ export class ResizableTableView extends TableView {
   private index(): number {
     const pos = this.getPos();
     if (pos === undefined) return -1;
+    // The tables that start before it (a binary search: each of a file's tables asks).
+    const starts = tableStarts(this.view.state.doc);
     let index = 0;
-    this.view.state.doc.descendants((node, at) => {
-      if (at >= pos) return false;
-      if (node.type.name === "table") index++;
-      return node.type.name !== "table";
-    });
+    for (let end = starts.length; index < end;) {
+      const middle = (index + end) >> 1;
+      if (starts[middle]! < pos) index = middle + 1;
+      else end = middle;
+    }
     return index;
   }
 

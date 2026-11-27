@@ -98,7 +98,6 @@ mod platform {
 
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
-        static kSecGuestAttributePid: CFTypeRef;
         static kSecCodeInfoTeamIdentifier: CFTypeRef;
         static kSecCodeInfoIdentifier: CFTypeRef;
         fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
@@ -290,8 +289,23 @@ mod platform {
             unsafe { CFNumberCreate(ptr::null(), NUMBER_SINT32, (&raw const value).cast()) },
             "CFNumberCreate",
         )?;
-        // SAFETY: reading an immutable framework constant.
-        let keys = [unsafe { kSecGuestAttributePid }];
+        // `kSecGuestAttributePid` is the string "pid" (Security/SecCode.h). Made here rather than linked:
+        // the fleet's macOS cross SDK does not export the symbol, so linking it broke every fleet app build.
+        let pid_key = b"pid";
+        // SAFETY: the bytes are live for the call; CFString copies them.
+        let pid_key = Owned::new(
+            unsafe {
+                CFStringCreateWithBytes(
+                    ptr::null(),
+                    pid_key.as_ptr(),
+                    pid_key.len() as CFIndex,
+                    UTF8,
+                    0,
+                )
+            },
+            "CFStringCreateWithBytes",
+        )?;
+        let keys = [pid_key.0];
         let values = [number.0];
         // SAFETY: one live key and value; the standard callbacks retain them.
         let attributes = Owned::new(

@@ -271,3 +271,24 @@ pub fn clear_failure_kind(message: &str) -> &'static str {
 pub fn shell_quoted(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
 }
+
+/// Go to Directory (Shift-Cmd-G): the input that moves a terminal's shell to `path`, typed in
+/// the shell's own machine: Ctrl-U clears a half-typed line, then `cd -- PATH` and Return. A
+/// leading `~` stays bare so the shell expands it (the terminal's machine may be remote); a
+/// relative path is the shell's own, from its current directory. None for an empty path or one
+/// holding a control character (a newline would end the command early).
+pub fn go_to_directory_input(path: &str) -> Option<String> {
+    let path = path.trim();
+    if path.is_empty() || path.chars().any(char::is_control) {
+        return None;
+    }
+    let word = match path.strip_prefix('~') {
+        Some("") => "~".to_string(),
+        Some(rest) if rest.starts_with('/') => {
+            let rest = rest.trim_start_matches('/');
+            if rest.is_empty() { "~/".to_string() } else { format!("~/{}", shell_quoted(rest)) }
+        }
+        _ => shell_quoted(path),
+    };
+    Some(format!("\u{15}cd -- {word}\r"))
+}
