@@ -105,10 +105,10 @@ fn workspace_manifest(dir: &Path, manifest: &toml::Value) -> Option<toml::Value>
     }
     for ancestor in dir.ancestors().skip(1) {
         let candidate = ancestor.join("Cargo.toml");
-        if let Some(root) = read_manifest(&candidate) {
-            if root.get("workspace").is_some() {
-                return Some(root);
-            }
+        if let Some(root) = read_manifest(&candidate)
+            && root.get("workspace").is_some()
+        {
+            return Some(root);
         }
     }
     None
@@ -179,10 +179,10 @@ pub(crate) fn plan(files: &[PathBuf]) -> Vec<Check> {
                     None if plain => add(Check::Node { file: f.clone() }, &mut out),
                     None => {}
                 }
-                if let Some(dir) = up_find(file, &["biome.json", "biome.jsonc"]) {
-                    if local_tool(&dir, "biome").is_some() {
-                        add(Check::Biome { dir, file: f }, &mut out);
-                    }
+                if let Some(dir) = up_find(file, &["biome.json", "biome.jsonc"])
+                    && local_tool(&dir, "biome").is_some()
+                {
+                    add(Check::Biome { dir, file: f }, &mut out);
                 }
             }
             "py" => add(Check::Python { file: f }, &mut out),

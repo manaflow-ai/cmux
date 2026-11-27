@@ -84,6 +84,26 @@ fn plan_picks_checks_by_language() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn rust_edition_follows_the_nearest_package_or_workspace() {
+    let dir = std::env::temp_dir().join(format!("verify-edition-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(dir.join("c")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[workspace.package]\nedition = \"2024\"\n").unwrap();
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition.workspace = true\n",
+    )
+    .unwrap();
+    assert_eq!(cargo_edition(&dir.join("c/src/lib.rs")).as_deref(), Some("2024"));
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    assert_eq!(cargo_edition(&dir.join("c/src/lib.rs")).as_deref(), Some("2021"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[tokio::test]
 async fn run_checks_flag_breakage_and_pass_good_files() {
     let dir = std::env::temp_dir().join(format!("verify-run-{}", uuid::Uuid::now_v7()));
@@ -237,6 +257,13 @@ async fn rustfmt_uses_the_file_package_or_workspace_edition() {
         "[package]\nname = \"linked\"\nversion = \"0.1.0\"\nworkspace = \"..\"\nedition.workspace = true\n",
     );
 
+    write(
+        "ws/default/Cargo.toml",
+        r#"[package]
+name = "default"
+version = "0.1.0"
+"#,
+    );
     let cases = [
         (
             "ws/modern/src/lib.rs",
@@ -263,6 +290,7 @@ async fn rustfmt_uses_the_file_package_or_workspace_edition() {
             Some("2024"),
             false,
         ),
+        ("ws/default/src/lib.rs", "fn async() {}\n", Some("2015"), false),
         ("outside.rs", "fn gen() {}\n", None, false),
     ];
     for (name, source, edition, red) in cases {
