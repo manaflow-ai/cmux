@@ -35,6 +35,18 @@ fn stamp_and_counters_share_one_object() {
 }
 
 #[test]
+fn prefetch_is_stamped_by_its_own_switch() {
+    // The scorecard's byFeature splits only on what is stamped; prefetch's module reads the
+    // same setting and kill switch (`hub/prefetch.rs`), so the stamp matches what ran.
+    assert!(FEATURES.contains(&"prefetch"));
+    assert_eq!(setting_key("prefetch"), crate::hub::prefetch::SETTING_ENABLED);
+    assert_eq!(env_key("prefetch"), crate::hub::prefetch::ENV_KILL);
+    assert!(enabled_list(FEATURES, None, &no_env).contains(&"prefetch".to_owned()));
+    let off = json!({"agents": {"harnessMagic": {"prefetch": {"enabled": false}}}});
+    assert!(!enabled_list(FEATURES, Some(&off), &no_env).contains(&"prefetch".to_owned()));
+}
+
+#[test]
 fn opt_in_features_are_stamped_only_when_switched_on() {
     // RFD 0149's read-back: a turn with surgery on must say so even when it masked nothing.
     let default: Vec<String> = FEATURES.iter().map(|f| (*f).to_owned()).collect();
@@ -48,5 +60,8 @@ fn opt_in_features_are_stamped_only_when_switched_on() {
     // Dedupe's daemon switch turns it on too (#58129); surgery's only turns it off.
     let env_on = |k: &str| k.starts_with("ACPMUX_HM_").then(|| "1".to_owned());
     let all = enabled_all(None, &env_on);
-    assert!(all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()), "{all:?}");
+    assert!(
+        all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()),
+        "{all:?}"
+    );
 }
