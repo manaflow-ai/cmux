@@ -3,7 +3,7 @@ public import Foundation
 public import Observation
 
 /// The Accounts screen: one ``AccountRowState`` per provider, fed by
-/// detection, CodeRouter and the user's buttons. Every operation is async
+/// detection and the user's buttons. Every operation is async
 /// and runs off the main actor in the services; the model only applies
 /// row events. Settings and onboarding share one model.
 @MainActor
@@ -13,9 +13,6 @@ public final class AccountsModel {
     public private(set) var isRefreshing = false
     /// The provider whose paste sheet is open (a key or a Claude token).
     public var pasteTarget: AIProvider?
-    /// The provider whose Connect confirmation is open (Codex: its refresh
-    /// token moves to CodeRouter).
-    public var confirmTarget: AIProvider?
     /// Why the last team switch failed, until the next switch or refresh.
     public private(set) var teamError: String?
     @ObservationIgnored public let services: any AccountsServices
@@ -44,17 +41,14 @@ public final class AccountsModel {
         rows.first { $0.provider == provider } ?? AccountRowState(provider: provider)
     }
 
-    /// Rows of one group, in catalog order. OpenCode Go shows only when CodeRouter holds one.
+    /// Rows of one group, in catalog order. OpenCode Go has no local sign-in to show.
     public func rows(in group: AIProvider.Group) -> [AccountRowState] {
-        rows.filter { $0.provider.group == group && ($0.provider != .openCodeGo || !$0.linked.isEmpty) }
+        rows.filter { $0.provider.group == group && $0.provider != .openCodeGo }
     }
 
     public var isSignedInToCmux: Bool { services.isSignedInToCmux }
 
-    /// Why CodeRouter's list could not be read, if any row says so.
-    public var codeRouterProblem: String? { rows.lazy.compactMap(\.codeRouterProblem).first }
-
-    /// Detects every provider and reloads CodeRouter's accounts. A newer
+    /// Detects every provider. A newer
     /// refresh supersedes an older one; stale results are dropped.
     public func refresh() {
         generation += 1
@@ -63,34 +57,26 @@ public final class AccountsModel {
         teamError = nil
         isRefreshing = true
         apply(.detectionStarted)
-        apply(.cmuxSignIn(services.isSignedInToCmux))
         let services = services
         refreshTask = Task { [weak self] in
-            // Detection and the CodeRouter list run concurrently.
             let detecting = Task { await services.detect() }
-            let loading = Task { await Self.loadLinked(services) }
             // Membership re-reads on its own; the team list updates when it lands.
             if let active = services.activeTeam { Task { await active.refresh() } }
             // Roles (and the open team's details) re-read on their own too.
             if let teamsModel = self?.teamsModel { Task { await teamsModel.reload() } }
-            let found = await detecting.value, accounts = await loading.value
+            let found = await detecting.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found where !self.openingReauth.contains(detection.provider)
                 && (self.reauthCompletionGeneration[detection.provider].map({ current > $0 }) ?? true) {
                 self.apply(.detected(detection), to: detection.provider)
             }
             self.hasDetected = true
-            switch accounts {
-            case .success(let list): self.apply(.linkedLoaded(list))
-            case .failure(let message): self.apply(.linkedFailed(message))
-            case nil: break
-            }
             self.isRefreshing = false
         }
     }
 
     /// Makes `id` the active team. The App reloads what follows the team
-    /// (this screen's CodeRouter accounts included) when the switch lands.
+    /// when the switch lands.
     public func selectTeam(_ id: String) async {
         teamError = nil
         guard let active = services.activeTeam else { return }
@@ -176,101 +162,13 @@ public final class AccountsModel {
         return AccountsStrings.errorNoLocalPane
     }
 
-    /// Connect: asks for a paste first when there is no local secret to send.
-    public func connect(_ provider: AIProvider, pasted: String? = nil, confirmed: Bool = false) {
-        let state = row(provider)
-        guard state.canConnect, !state.isBusy else { return }
-        if pasted == nil, state.connectNeedsPaste {
-            pasteTarget = provider
-            return
-        }
-        if Self.needsConfirmation(provider), !confirmed {
-            confirmTarget = provider
-            return
-        }
-        confirmTarget = nil
-        // The row shows Connecting at once; the request runs after.
-        apply(.connectStarted, to: provider)
-        Task { await runConnect(provider, pasted: pasted) }
-    }
-
-    /// Connecting Codex hands its refresh token to CodeRouter, which then
-    /// refreshes it: the user confirms after reading that note.
-    public static func needsConfirmation(_ provider: AIProvider) -> Bool { provider.codeRouterLink == .codexOAuth }
-
-    /// Connects and waits; returns the failure text, or nil on success
-    /// (the palette and CLI report it).
-    @discardableResult
-    public func performConnect(_ provider: AIProvider, pasted: String? = nil) async -> String? {
-        await settle()
-        let state = row(provider)
-        guard !state.isBusy else { return AccountsStrings.errorBusy }
-        if let refusal = AccountsStrings.connectRefusal(state) { return refusal }
-        apply(.connectStarted, to: provider)
-        return await runConnect(provider, pasted: pasted)
-    }
-
-    private func runConnect(_ provider: AIProvider, pasted: String?) async -> String? {
-        do {
-            try await services.connect(provider, pasted: pasted)
-            // A reload that fails keeps what the row showed; the next refresh adds the new account.
-            let accounts = (try? await services.linkedAccounts()) ?? row(provider).linked
-            apply(.connectSucceeded(accounts), to: provider)
-            return nil
-        } catch {
-            let message = AccountsStrings.message(for: error)
-            apply(.connectFailed(message), to: provider)
-            return message
-        }
-    }
-
-    public func remove(_ account: LinkedAccount) {
-        guard !row(account.provider).isBusy else { return }
-        apply(.removeStarted(accountID: account.id), to: account.provider)
-        guard case .removing = row(account.provider).phase else { return }
-        Task { await runRemove(account) }
-    }
-
-    /// Removes and waits; returns the failure text, or nil.
-    @discardableResult
-    public func performRemove(_ account: LinkedAccount) async -> String? {
-        await settle()
-        guard !row(account.provider).isBusy else { return AccountsStrings.errorBusy }
-        apply(.removeStarted(accountID: account.id), to: account.provider)
-        // Not in the account list this screen last read.
-        guard case .removing = row(account.provider).phase else { return AccountsStrings.errorStaleList }
-        return await runRemove(account)
-    }
-
-    private func runRemove(_ account: LinkedAccount) async -> String? {
-        do {
-            try await services.remove(account)
-            // A reload that fails keeps the row's other accounts (the reducer drops this one).
-            let accounts = (try? await services.linkedAccounts()) ?? row(account.provider).linked
-            apply(.removeSucceeded(accounts), to: account.provider)
-            return nil
-        } catch {
-            let message = AccountsStrings.message(for: error)
-            apply(.removeFailed(message), to: account.provider)
-            return message
-        }
-    }
-
-    /// The linked account with `id`, from the last list or a fresh one.
-    public func linkedAccount(id: String) async -> LinkedAccount? {
-        if let known = rows.lazy.flatMap(\.linked).first(where: { $0.id == id }) { return known }
-        guard let accounts = try? await services.linkedAccounts() else { return nil }
-        apply(.linkedLoaded(accounts))
-        return accounts.first { $0.id == id }
-    }
-
     /// Saves a pasted key to the Keychain; returns the failure text, or nil.
     @discardableResult
     public func saveKey(_ key: String, for provider: AIProvider) -> String? {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
-        // Detection trusts a saved key by its presence (it never reads the secret), so a key
-        // Connect would refuse is never saved: it would read signed in and fail on Connect.
+        // Detection trusts a saved key by its presence (it never reads the secret), so a
+        // malformed key is never saved: it would read signed in and fail in the agent.
         guard CredentialResolver.isWellFormedKey(trimmed, for: provider) else { return AccountsStrings.errorInvalidFormat }
         do {
             try services.saveKey(trimmed, for: provider)
@@ -295,16 +193,5 @@ public final class AccountsModel {
     private func apply(_ event: AccountRowState.Event, to provider: AIProvider) {
         guard let index = rows.firstIndex(where: { $0.provider == provider }) else { return }
         rows[index].reduce(event)
-    }
-
-    private enum Linked { case success([LinkedAccount]), failure(String) }
-
-    private static func loadLinked(_ services: any AccountsServices) async -> Linked? {
-        guard services.isSignedInToCmux else { return nil }
-        do {
-            return .success(try await services.linkedAccounts())
-        } catch {
-            return .failure(AccountsStrings.message(for: error))
-        }
     }
 }

@@ -5,8 +5,8 @@ import CmuxNextIcons
 import SwiftUI
 
 /// One provider: name, status, redacted account label and source, the
-/// buttons its state allows, CodeRouter's linked accounts, and the inline
-/// paste field when it is the paste target.
+/// buttons its state allows, and the inline paste field when it is the
+/// paste target.
 struct AccountRowView: View {
     let model: AccountsModel
     let row: AccountRowState
@@ -41,21 +41,7 @@ struct AccountRowView: View {
                 .accessibilityIdentifier("cmux.accounts.status.\(row.provider.rawValue)")
             }
             buttons.padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
-            ForEach(row.linked) { account in
-                LinkedAccountLine(account: account, busy: row.phase == .removing(accountID: account.id), palette: palette) {
-                    model.remove(account)
-                }
-                .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
-            }
-            if row.provider.codeRouterLink == .bedrockKeys, model.isSignedInToCmux, !row.hasBedrockKeys {
-                Text(AccountsStrings.bedrockNeedsKeys).font(palette.caption).foregroundStyle(palette.tertiary)
-                    .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
-            }
             if let outcome { outcome.padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4) }
-            if model.confirmTarget == row.provider {
-                ConnectConfirmation(model: model, provider: row.provider, palette: palette)
-                    .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
-            }
             if model.pasteTarget == row.provider {
                 PasteField(model: model, provider: row.provider, palette: palette)
                     .padding(.leading, Metrics.iconSize + Metrics.space2 + Metrics.space4)
@@ -89,13 +75,6 @@ struct AccountRowView: View {
                     Button(AccountsStrings.deleteSavedKey) { model.deleteSavedKey(for: row.provider) }
                 }
             }
-            // Shown only when it can run (signed in to cmux, CodeRouter
-            // reachable, a routable provider); no line says why not.
-            if row.canConnect || row.phase == .connecting {
-                Button(AccountsStrings.connect) { model.connect(row.provider) }
-                    .disabled(row.isBusy)
-                    .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
-            }
         }
         .buttonStyle(AccountsButtonStyle(palette: palette))
     }
@@ -104,53 +83,8 @@ struct AccountRowView: View {
 
     private var outcome: Text? {
         switch row.outcome {
-        case .connected: Text(AccountsStrings.connected).font(palette.caption).foregroundStyle(palette.success)
-        case .removed: Text(AccountsStrings.removed).font(palette.caption).foregroundStyle(palette.secondary)
         case .failed(let message): Text(message).font(palette.caption).foregroundStyle(palette.danger)
         case nil: nil
         }
-    }
-}
-
-/// One account CodeRouter holds: label, state, Remove.
-private struct LinkedAccountLine: View {
-    let account: LinkedAccount
-    let busy: Bool
-    let palette: AccountsPalette
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(spacing: Metrics.space3) {
-            Icon(.accountRouted, size: 13).foregroundStyle(palette.tertiary)
-            Text(account.label).font(palette.caption).foregroundStyle(palette.text).lineLimit(1).truncationMode(.middle)
-            Text(account.state).font(palette.caption).foregroundStyle(account.isHealthy ? palette.secondary : palette.attention)
-            Spacer(minLength: Metrics.space4)
-            Button(AccountsStrings.remove, action: remove)
-                .buttonStyle(AccountsButtonStyle(palette: palette, destructive: true))
-                .disabled(busy)
-                .accessibilityIdentifier("cmux.accounts.remove.\(account.id)")
-        }
-    }
-}
-
-/// Connect confirmation with the Codex refresh-token note.
-struct ConnectConfirmation: View {
-    let model: AccountsModel
-    let provider: AIProvider
-    let palette: AccountsPalette
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.space3) {
-            Text(AccountsStrings.codexRefreshNote).font(palette.caption).foregroundStyle(palette.text)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: Metrics.space3) {
-                CmuxDialogActionButton(AccountsStrings.confirmConnect, hint: .return) { model.connect(provider, confirmed: true) }
-                    .accessibilityIdentifier("cmux.accounts.confirm.\(provider.rawValue)")
-                CmuxDialogActionButton(AccountsStrings.cancel, hint: .escape) { model.confirmTarget = nil }
-            }
-            .buttonStyle(AccountsButtonStyle(palette: palette))
-        }
-        .padding(Metrics.space4)
-        .background(palette.hover, in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
     }
 }
