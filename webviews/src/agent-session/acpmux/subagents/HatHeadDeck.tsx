@@ -10,7 +10,7 @@
 //
 // The marks are pointer twins of the list's lines (aria-hidden): the header button stays the one
 // keyboard control, and the open list reaches each line, as the stacked marks do today.
-import { type CSSProperties, type WheelEvent, useRef } from "react";
+import { type CSSProperties, type RefObject, type WheelEvent, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -26,6 +26,54 @@ export const DECK_MARKS = 8;
 /// How far the wheel goes for one card (the `cards` look): a trackpad's stream of small deltas moves
 /// one card per notch's worth, never one per event.
 const WHEEL_STEP = 24;
+
+/// Whether the deck fits its row beside the whole sentence (Leo, 2026-11-27, on the marks and "+2 more"
+/// after "10 subagents working": "should we compact these and drop them away in favour of text when
+/// things shrink?"). A measured fit, never a fixed count: the room the header has, less everything else
+/// in its flow with the words at their natural width, against the deck's own width. A deck that does not
+/// fit is laid out off the row (`data-fit="off"`, so it stays measurable) and the words keep the row. The
+/// room never depends on the deck's own state, so the answer never flaps at a boundary.
+function useDeckFit(deck: RefObject<HTMLSpanElement | null>, signature: string, measured: boolean): boolean {
+  const [fits, setFits] = useState(true);
+  useLayoutEffect(() => {
+    const node = deck.current;
+    const head = node?.closest<HTMLElement>(".acpmux-running-tray__head");
+    if (!node || !head || !measured) return undefined;
+    const fit = () => {
+      const style = getComputedStyle(head);
+      const gap = Number.parseFloat(style.columnGap) || 0;
+      let used = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      let count = 0;
+      for (const child of Array.from(head.children) as HTMLElement[]) {
+        if (child === node) continue;
+        const box = getComputedStyle(child);
+        if (box.position === "absolute" || box.display === "none") continue;
+        const own = child.classList.contains("acpmux-running-tray__title") ? child.scrollWidth : child.offsetWidth;
+        used += own + Number.parseFloat(box.marginLeft) + Number.parseFloat(box.marginRight);
+        count += 1;
+      }
+      const deckStyle = getComputedStyle(node);
+      const wanted =
+        Math.max(node.offsetWidth, node.scrollWidth) +
+        Number.parseFloat(deckStyle.marginLeft) +
+        Number.parseFloat(deckStyle.marginRight) +
+        gap;
+      setFits(used + gap * count + wanted <= head.clientWidth + 0.5);
+    };
+    fit();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(fit);
+    observer.observe(head);
+    // The words change (a count ticks, a name joins): the room they want does, though the row's box does not.
+    const words = new MutationObserver(fit);
+    words.observe(head, { subtree: true, childList: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      words.disconnect();
+    };
+  }, [deck, signature, measured]);
+  return fits;
+}
 
 type Mark = { harness?: string; tone?: number; icon: string };
 
@@ -64,10 +112,11 @@ export function HatHeadDeck({
   const t = useT();
   const shown = items.slice(0, DECK_MARKS);
   const rest = items.length - shown.length;
-  // After the one line's words (`trail`) the deck keeps all DECK_MARKS slots, empty ones too, so "+N
-  // more" sits in one place however many lines run and the bar never re-lays out as lines come and go.
-  const blanks = at === "trail" ? DECK_MARKS - shown.length : 0;
   const wheel = useRef(0);
+  const deckRef = useRef<HTMLSpanElement>(null);
+  // After the one line's words (`trail`) the deck draws only what fits beside them, and "+N more" ends it
+  // one gap after the last mark: no empty slots, so no floating gap before "+N more".
+  const fits = useDeckFit(deckRef, `${shown.length}:${rest}:${at}:${look}`, at === "trail");
   // The `cards` look: the wheel over the deck thumbs from card to card, wrapping, from the one in front.
   const onWheel = (event: WheelEvent<HTMLSpanElement>) => {
     if (shown.length < 2) return;
@@ -84,7 +133,9 @@ export function HatHeadDeck({
   };
   return (
     <span
+      ref={deckRef}
       className="acpmux-hat-deck"
+      data-fit={fits ? undefined : "off"}
       data-look={look}
       data-at={at}
       data-peeking={peeked !== undefined || undefined}
@@ -123,11 +174,6 @@ export function HatHeadDeck({
           </span>
         );
       })}
-      {Array.from({ length: blanks }, (_, index) => (
-        <span key={`blank-${index}`} className="acpmux-hat-deck__mark" data-blank aria-hidden="true">
-          <span className="acpmux-hat-deck__face" style={{ width: ROW_ICON, height: ROW_ICON }} />
-        </span>
-      ))}
       {rest > 0 && <span className="acpmux-summary-meta acpmux-hat-deck__rest">{t("tools.more", { n: rest })}</span>}
     </span>
   );

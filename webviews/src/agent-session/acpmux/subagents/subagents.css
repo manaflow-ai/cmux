@@ -2963,18 +2963,18 @@ button.cv-subagent > :last-child {
   flex: 0 1 auto;
   min-width: 0;
   margin-inline-start: calc(-1 * (var(--ds-space-1) + var(--grid-half-step)));
-  padding: calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
-  border-radius: var(--ds-radius-control, 6px);
+  /* No chip any more: nothing pads the words' end, the marks follow one gap after them. */
+  padding: calc(var(--grid-half-step) / 2) 0 calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
   color: var(--agent-muted);
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
-  transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
-    background-color var(--cv-actions-out) var(--cv-actions-out-ease);
 }
-.acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
-  > .acpmux-running-tray__title {
-  color: var(--agent-link, var(--agent-accent));
-  background: var(--agent-control-hover);
+/* The words stay the plain secondary ink in every state, hovered, focused or open, on no background (Leo,
+   2026-11-27: "dont put this garish blue in man we dont need it to be blue or highlighted";
+   test/subagent-strip-plain.test.ts keeps it so). Keyboard focus rings the header. */
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
 }
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;

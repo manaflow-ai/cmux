@@ -46,11 +46,24 @@
 .acpmux-hat-deck[data-peeking] > .acpmux-hat-deck__mark:not([data-peeked]) > .acpmux-hat-deck__face {
   opacity: 0.5;
 }
+/* "+N more" is the sentence's own words: its size, line height and secondary ink (Leo, 2026-11-27: "this
+   is just an awkward looking layout"), never the smaller metadata step. */
 .acpmux-hat-deck__rest {
   flex: none;
   margin-inline-start: var(--acpmux-tray-gap, 4px);
+  color: var(--agent-muted);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+/* Too narrow for the marks beside the whole sentence: they drop away and the words keep the row
+   (HatHeadDeck.tsx `useDeckFit`). Laid out off the row so its width stays measurable, never seen or hit. */
+.acpmux-hat-deck[data-fit="off"] {
+  position: absolute;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ---------- `cards`: a fanned deck that flips to the hovered card ---------- */
@@ -254,9 +267,4 @@
 .acpmux-running-tray[data-line] .acpmux-hat-deck {
   align-self: center;
   height: var(--acpmux-tray-head-height);
-}
-/* The trailing deck's empty slots keep their room and take no pointer. */
-.acpmux-hat-deck__mark[data-blank] {
-  pointer-events: none;
-  visibility: hidden;
 }

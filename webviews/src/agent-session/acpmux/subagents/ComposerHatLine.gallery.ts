@@ -107,10 +107,10 @@ const burst = chat(
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 
 /** The line's promises: one row of plain words on the hat's card, at the prompt's text size, no eye. */
-async function lineHolds(ctx: PlayContext, words: RegExp): Promise<void> {
+async function lineHolds(ctx: PlayContext, words: RegExp, options: { marks?: boolean } = {}): Promise<void> {
   await ctx.waitFor(() => words.test(head(ctx)?.textContent ?? "") || undefined);
   const header = head(ctx)!;
-  if (header.querySelector("svg, img")) throw new Error("the line draws a mark");
+  if (!options.marks && header.querySelector("svg, img")) throw new Error("the line draws a mark");
   const tray = header.closest<HTMLElement>(".acpmux-running-tray")!;
   if (!tray.hasAttribute("data-card")) throw new Error("the line has no card under it");
   if (tray.querySelector(".acpmux-hat-hide")) throw new Error("the line draws a hide eye");
@@ -179,6 +179,22 @@ export default agentPaneEntry({
       play: (ctx) => lineHolds(ctx, /^1 subagent working$/),
       snapshot: loneAgent,
       experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+    },
+    marks: {
+      note: 'Leo, 2026-11-27: "dont put this garish blue in man we dont need it to be blue or highlighted" / "overlapping text here what do we doooo". The default `trail` marks on 14 subagents and 6 commands, folded: the words plain, the marks and "+N more" after them, in one unit.',
+      play: (ctx) => lineHolds(ctx, /14 subagents working, 6 background commands running/, { marks: true }),
+      snapshot: burst,
+      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "trail" },
+    },
+    "marks-open": {
+      note: 'The same strip with the hat open: the panel button at the row\'s end, never over "+N more"; the words stay plain.',
+      play: async (ctx) => {
+        await lineHolds(ctx, /14 subagents working, 6 background commands running/, { marks: true });
+        head(ctx)!.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list > li") ?? undefined);
+      },
+      snapshot: burst,
+      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "trail" },
     },
     "mixed-open": {
       note: "Clicked open: the list of what runs, each with its name, state, time and Stop; a click again or Esc tucks it.",
