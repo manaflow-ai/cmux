@@ -43,7 +43,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout parent repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The synthetic PR commit and its first parent are sufficient for
           # the merge-base comparison, and keep this guard shallow like the
@@ -109,7 +109,7 @@ jobs:
     # cmux#22135 one release-notary failure hid 47 of the group's 65 guards).
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -163,6 +163,10 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Jobs that only drive the build fleet run on Linux, not a gateway Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gateway_jobs_on_linux.py
 
       - name: Validate scripts keep full clones full
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -226,6 +230,10 @@ jobs:
           python3 tests/test_ci_step_table.py
           python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_indexnow_notification.py
+
+      - name: Validate the green receipts that skip unchanged checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_receipt.py
 
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -586,6 +594,15 @@ jobs:
             echo "No base revision for this event; placeholder check skipped."
           fi
 
+      # Aziz, 2026-11-25: "it says mac is asleep incorrect" (cmux#57792). The service only
+      # knows no Mac has cmux connected, so iPhone copy must not say a Mac is asleep.
+      - name: Validate iOS copy never claims a Mac is asleep
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_presence_claims.py
+          python3 scripts/ci/check-ios-presence-claims.py
+
       - name: Validate reload shared DerivedData default
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
@@ -898,6 +915,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_docs_only_prs.py
 
+      - name: Check that a direct feat-cmux-next push compiles inside a taken coalesce window
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_base_coalesce_direct_push.py
+
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rd_host_macos_route.py
@@ -1125,10 +1146,12 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen), and a
+        # GitHub read is asked again after a refusal that can change (gh_http.py).
         run: |
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
+          python3 tests/test_ci_gh_http.py
 
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1318,6 +1341,10 @@ jobs:
       - name: Validate fast checks fail over from stalled labels
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Test fleet submission from a plain checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_submit_fleet_test.py
 
       - name: Validate the fast checks Rust setup carries the pinned cargo-nextest
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2582,7 +2609,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
         timeout-minutes: 6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
           # fetch-depth 0 would also fetch every branch of the repository
@@ -2646,7 +2673,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -2681,7 +2708,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

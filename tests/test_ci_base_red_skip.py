@@ -89,6 +89,18 @@ class BaseRedSkip(unittest.TestCase):
                 text = fh.read()
             self.assertIn("GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}", text, name)
 
+    def test_cmux_next_reads_the_base_only_when_cargo_is_routed(self):
+        """The walk reads up to 61 pages on github.token; a PR run that does not route cargo (its only reader)
+        must not spend them (2026-11-27: the repo's 5000 calls an hour gone ~8 min after each reset)."""
+        with open(os.path.join(WORKFLOWS, "cmux-next.yml"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        gate = "steps.route.outputs.fast_tier_cargo != 'false'"
+        for step_id in ("base-red-token", "base-red"):
+            at = lines.index(f"        id: {step_id}")
+            cond = lines[at + 1]
+            self.assertTrue(cond.lstrip().startswith("if:"), step_id)
+            self.assertIn(gate, cond, step_id)
+
     def test_push_runs_never_skip(self):
         env = dict(PR, GITHUB_EVENT_NAME="push")
         self.assertEqual(brs.decide(args(), env, now=NOW, read=reader([(3, [("kit", "failure")])])), ["base_red=false"])

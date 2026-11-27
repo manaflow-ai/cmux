@@ -526,7 +526,7 @@ public final class LiveCoordinator {
     }
 
     /// Presence down at least this long before its return redials the links.
-    static let presenceOutageMin: Duration = .seconds(3)
+    static let presenceOutageMin = PresenceTiming.outageMin
 
     // MARK: Warm start
 
@@ -635,13 +635,24 @@ public final class LiveCoordinator {
         }
     }
 
+    /// How long unchanged workspaces keep their snapshot stamp (``saveSnapshot()``).
+    static let snapshotStampInterval: TimeInterval = 60
+
     private func saveSnapshot() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         var saved = snapshot?.teamID == team.id ? snapshot?.workspaces ?? [:] : [:]
         let macIDs = Set(team.macs.map(\.id))
         saved = saved.filter { macIDs.contains($0.key) }
         for mac in team.macs where store.macData[mac.id]?.source == .live {
-            saved[mac.id] = .init(workspaces: store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }, savedAt: Date())
+            let workspaces = store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }
+            // The same workspaces keep their stamp for up to a minute: a fresh `savedAt` on every
+            // save made each one differ from the last, so the guard below never held and every
+            // change anywhere rewrote the file. The stamp still says when they were last live,
+            // to the minute.
+            let now = Date()
+            if let held = saved[mac.id], held.workspaces == workspaces,
+               now.timeIntervalSince(held.savedAt) < Self.snapshotStampInterval { continue }
+            saved[mac.id] = .init(workspaces: workspaces, savedAt: now)
         }
         let next = LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
                                 linkedMacID: focusedMacID ?? snapshot?.linkedMacID, workspaces: saved)

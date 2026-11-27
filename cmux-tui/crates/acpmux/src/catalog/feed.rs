@@ -326,7 +326,10 @@ fn matches(id: &str, pattern: &str) -> bool {
     if parts.len() > chars.len() {
         return false;
     }
-    chars[chars.len() - parts.len()..].iter().zip(&parts).all(|(c, part)| match part {
+    let Some(tail) = chars.get(chars.len() - parts.len()..) else {
+        return false;
+    };
+    tail.iter().zip(&parts).all(|(c, part)| match part {
         Some(want) => c == want,
         None => c.is_ascii_digit(),
     })
