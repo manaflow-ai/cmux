@@ -794,6 +794,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
+        // Team sends accepted while the mesh hub is offline have their own queue: they must not
+        // be resumed by the local prompt outbox.
+        hub.team_send_queue.open_at_start(&home().join("team-send-queue.json"), cloned);
         // A delivery that ends failed bounces to its sender (`hub/dead_letters.rs`).
         hub.start_bounces();
         crate::hub::register::load_registered();
