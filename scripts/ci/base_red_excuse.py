@@ -46,6 +46,9 @@ No failure is exit 0: asked about no red run or check (or about a green ws-check
 red run or check it was named that shows no failed job is still refused (2026-11-05: land-judge asks it about
 every merge, and a green head read as exit 1).
 
+Exit 3 is "not judged, a retry" (a rate limit, a read that never happened); exit 4 is "not judged, a tool error": the
+lane-gh broker refused one of its queries for its shape, which no retry clears, and the words name the fix.
+
 Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
 infra, not a verdict. A --sha that is one character forty times (a test's "a" * 40, an all-zero sha) is refused at
 once, before any read, unless BASE_RED_EXCUSE_FIXTURE_SHA=1 says a test fixture answers for it. 2026-11-05: a
@@ -109,6 +112,9 @@ RateLimited = getattr(_evidence, "RateLimited", ())
 # A read that never happened (main_fix_evidence.Unread: a request past its deadline, an answer over the size cap, a
 # `gh` that failed): exit 3, "not judged, a retry", never a verdict on the red. A reader without it leaves ().
 Unread = getattr(_evidence, "Unread", ())
+# A read the lane-gh broker refuses for its shape (main_fix_evidence.BrokerRefused): exit 4, a tool error naming the
+# fix, never a retry (exit 3) and never a verdict on the red (exit 1). A reader without it leaves ().
+BrokerRefused = getattr(_evidence, "BrokerRefused", ())
 
 
 class RateLimitedRead(Exception):
@@ -129,6 +135,13 @@ class UnreadRead(Exception):
     rerun clears. leo-workspace#9276 and #9153 both sat unlandable on that line (2026-11-24). Not a Refused, so only
     main() catches it.
     """
+
+
+class BrokerRefusedRead(Exception):
+    """A read the lane-gh broker refused for its shape, as rate_limit_aware re-raises it so the comparison cannot
+    swallow it: UnreadRead's reason exactly. Before it, the refusal was an Unread, so main() exited 3 and land-judge
+    refused hq#30852 "quota: not judged, retry after 02:24Z (reset)" twice (2026-11-27) over a query the broker
+    refuses on every call. Not a Refused, so only main() catches it: exit 4, its words naming the fix."""
 
 
 class JobBudgetCut(Exception):
@@ -155,6 +168,11 @@ def unread_classes() -> tuple:
     rate_limited_classes: a reader without Unread leaves it the empty tuple, and `except ((), UnreadRead)` is a
     TypeError on every other refusal. Read at call time, so a caller that loads a reader with Unread is honoured."""
     return ((Unread,) if isinstance(Unread, type) else tuple(Unread)) + (UnreadRead,)
+
+
+def broker_refused_classes() -> tuple:
+    """What main() reports as a broker refusal (exit 4): rate_limited_classes' shape and reason."""
+    return ((BrokerRefused,) if isinstance(BrokerRefused, type) else tuple(BrokerRefused)) + (BrokerRefusedRead,)
 
 
 def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
@@ -198,7 +216,7 @@ def read_once(key: tuple, read: Callable[[], object]):
     if key not in memo:
         try:
             memo[key] = (True, read())
-        except (Refused, RateLimitedRead, UnreadRead) as why:
+        except (Refused, RateLimitedRead, UnreadRead, BrokerRefusedRead) as why:
             memo[key] = (False, why)
     ok, found = memo[key]
     if not ok:
@@ -292,6 +310,10 @@ def rate_limit_aware(github):
             def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
+                except broker_refused_classes() as error:
+                    # First: a Refused subclass on main's reader, and a query the broker always refuses is no read
+                    # that a retry clears (UnreadRead) nor one a quota refused.
+                    raise BrokerRefusedRead(str(error)) from None
                 except unread_classes() as error:
                     # Before RateLimited: both are Refused subclasses on main's reader, and a read that never
                     # happened must not be answered as one that a quota refused.
@@ -4838,14 +4860,15 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # feat-cmux-next pushes of cmux-tui artifacts reuse a published tree and run no Mac build at all; 51 of them landed
 # between 22:08Z and 00:00Z on 2026-11-12, so 'build / build x86_64-apple-darwin', red at the head and red in base run
 # 43317021662, was refused as "no feat-cmux-next run of its workflow has a verdict for it to compare with". And an
-# agent host's GitHub broker refuses a `nodes` root field, so there every suite read failed and every run was read over REST:
-# when `nodes` is refused, the suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY) instead.
+# agent host's GitHub broker refuses a `nodes` root field (it can name a node of any repo the token sees), so the
+# suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY), the one root the broker reads a repo by.
+# It was a fallback after a refused `nodes(ids:)` read (SUITE_CHECKS_QUERY) until 2026-11-27: on a lane VM the refusal
+# reached SuiteChecks.read as rate_limit_aware's UnreadRead, not the Refused it caught, so the fallback never ran and
+# every land with a red there was refused "quota: not judged, retry after ... (reset)" (hq#30852, twice). No query
+# here names a root the broker refuses; test_merge_freeze.py BrokerGraphqlFieldsTests holds every one to its list.
 SUITES_PER_QUERY = 25
-SUITE_CHECKS_QUERY = ("query($name: String!) {{ nodes(ids: [{ids}]) {{ ... on CheckSuite {{ id checkRuns(first: 100, "
-                      "filterBy: {{checkType: ALL, checkName: $name}}) {{ nodes {{ conclusion }} pageInfo "
-                      "{{ hasNextPage }} }} }} }} }}")
-# The same answer read by commit: every check suite of each commit (a cmux commit has about 50), with its check runs
-# of the name. $name is the repo's name here, as the broker reads it; the check's name is $check.
+# Every check suite of each commit (a cmux commit has about 50), with its check runs of the name. $name is the repo's
+# name here, as the broker reads it; the check's name is $check.
 SUITE_COMMITS_QUERY = ("query($owner: String!, $name: String!, $check: String!) {{ repository(owner: $owner, "
                        "name: $name) {{ {commits} }} }}")
 SUITE_COMMIT = ("c{n}: object(oid: {sha}) {{ ... on Commit {{ checkSuites(first: 100) {{ pageInfo {{ hasNextPage }} "
@@ -4861,7 +4884,6 @@ class SuiteChecks:
     def __init__(self, github, repo: str = ""):
         self.github, self.repo = github, repo
         self.known: dict[tuple[str, str], frozenset[str] | None] = {}
-        self.rooted = False  # `nodes` was refused: suites are read by commit (SUITE_COMMITS_QUERY)
 
     def conclusions(self, runs: list[dict], index: int, name: str) -> frozenset[str] | None:
         """The conclusions ('' for one not finished) of every check run named NAME in RUNS[INDEX]'s check suite, or
@@ -4882,23 +4904,6 @@ class SuiteChecks:
 
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
-        if not self.rooted:
-            # Suite IDs name no repository: gh must use their repository even in a judge started from another
-            # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
-            query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
-            try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
-                                                   repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
-                    return  # read over REST instead, as before
-                self.rooted = True
-            except ValueError:
-                return
-            else:
-                if isinstance(found, dict) and not found.get("errors") and isinstance(found.get("data"), dict):
-                    self.keep(found["data"].get("nodes") or [], set(suites), name)
-                return
         self.read_by_commit(suites, name)
 
     def read_by_commit(self, suites: dict[str, str], name: str) -> None:
@@ -4911,8 +4916,10 @@ class SuiteChecks:
         query = SUITE_COMMITS_QUERY.format(commits=" ".join(SUITE_COMMIT.format(n=n, sha=json.dumps(sha))
                                                             for n, sha in enumerate(shas)))
         try:
+            # Scoped to the repo twice: the owner and name variables (the broker's call repo, lane_gh_vm.graphql_repo)
+            # and GH_REPO, so a judge started from another checkout never reads another repo's suites (hq#22832).
             found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                                                "-f", f"name={repo}", "-f", f"check={name}"]))
+                                                "-f", f"name={repo}", "-f", f"check={name}"], repo=self.repo))
         except (Refused, ValueError):
             return
         data = found.get("data") if isinstance(found, dict) and not found.get("errors") else None
@@ -10510,6 +10517,11 @@ def main(argv: list[str] | None = None) -> int:
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
+    except broker_refused_classes() as error:
+        # Not judged, and not a retry: the broker refuses this query on every call. Exit 4, which land-judge reads as
+        # a tool error (broker_refused) naming the fix in these words, never as a quota or a red.
+        print(f"not judged, tool error: {error}", file=sys.stderr)
+        return 4
     except unread_classes() as error:
         # Not "not excused": nothing was read, so nothing was judged. land-judge reads 3 as a retry
         # (classifier_rate_limited), never as the red_not_excused strike an exit 1 would record.
