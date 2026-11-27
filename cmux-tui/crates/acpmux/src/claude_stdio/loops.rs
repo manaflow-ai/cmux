@@ -17,6 +17,16 @@
 //! next fire in Unix ms where Claude said one), not only the shown loop's: Claude holds them in
 //! its process, so its machine must be up when one is due (`hub/agent_timer.rs`, wake kind 4 of
 //! the pause-resume lane).
+//!
+//! A durable cron (`CronCreate` with `durable: true`) outlives its process: Claude keeps it in
+//! the project's `.claude/scheduled_tasks.json` and a resumed process fires it again, but the
+//! resumed process never calls CronCreate, so before this acpmux knew no timer after the first
+//! hibernate and put the chat to sleep again 7 minutes after each wake. A 2-hour coordinator cron
+//! (`53 1-23/2 * * *`) then fired at none of 01:53Z and 03:53Z on 2026-11-26: the chat was asleep
+//! (01:47Z-02:54Z, 03:18Z-04:43Z) and the report came only at the next unrelated prompt. Each
+//! `init` (`inbound.rs`) now reads that file and arms the recurring durable tasks this
+//! conversation created ([`Translator::durable_loops`]), so the chat stays up for them as for a
+//! cron it created in this process.
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -34,6 +44,36 @@ const WAKEUP_KEY: &str = "wakeup";
 pub(super) struct Loops {
     calls: HashMap<String, (&'static str, Value)>,
     armed: Vec<(String, Value)>,
+    /// The keys armed from `.claude/scheduled_tasks.json` (`durable_loops`), not a CronCreate this
+    /// process made: a task gone from the file disarms.
+    durable: HashSet<String>,
+}
+
+/// The recurring durable tasks `session` created, from a `scheduled_tasks.json`'s text, as
+/// `(key, goal)`: aged-out tasks (`createdAt + maxAgeMs` past `now`) and one-shots are left out
+/// (a one-shot is a reminder, not a loop).
+pub(super) fn durable_tasks(text: &str, session: &str, now: u64) -> Vec<(String, Value)> {
+    let Ok(file) = serde_json::from_str::<Value>(text) else { return Vec::new() };
+    let Some(tasks) = file.get("tasks").and_then(Value::as_array) else { return Vec::new() };
+    tasks
+        .iter()
+        .filter(|t| t.get("createdBySessionId").and_then(Value::as_str) == Some(session))
+        .filter(|t| t.get("recurring").and_then(Value::as_bool) == Some(true))
+        .filter(|t| {
+            let created = t.get("createdAt").and_then(Value::as_u64);
+            let age = t.get("maxAgeMs").and_then(Value::as_u64);
+            !matches!((created, age), (Some(c), Some(a)) if c.saturating_add(a) <= now)
+        })
+        .filter_map(|t| {
+            let id = t.get("id").and_then(Value::as_str)?;
+            let mut goal = json!({"kind": "loop", "status": "active"});
+            objective(&mut goal, t.get("prompt").and_then(Value::as_str).unwrap_or(""));
+            if let Some(cron) = t.get("cron").and_then(Value::as_str) {
+                goal.set("schedule", json!(cron));
+            }
+            Some((format!("cron:{id}"), goal))
+        })
+        .collect()
 }
 
 impl Loops {
@@ -62,6 +102,7 @@ impl Loops {
     }
 
     fn disarm(&mut self, key: &str) -> bool {
+        self.durable.remove(key);
         let before = self.armed.len();
         self.armed.retain(|(k, _)| k != key);
         self.armed.len() != before
@@ -175,10 +216,39 @@ impl Translator {
         (after != before).then(|| goal_update(after))
     }
 
+    /// The goal update the durable tasks this conversation created make (module docs), from
+    /// Claude's `init` line: its `cwd` and `session_id`. A task armed already (a CronCreate this
+    /// process made) keeps its goal; one gone from the file since the last read disarms.
+    pub(super) async fn durable_loops(&self, cwd: &str, session: &str) -> Option<Value> {
+        let path = Path::new(cwd).join(".claude").join("scheduled_tasks.json");
+        // No file: no durable task (an unreadable one keeps what was armed).
+        let tasks = match std::fs::read_to_string(&path) {
+            Ok(text) => durable_tasks(&text, session, now_ms()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(_) => return None,
+        };
+        let mut loops = self.loops.lock().await;
+        let before = loops.shown();
+        let gone: Vec<String> =
+            loops.durable.iter().filter(|k| !tasks.iter().any(|(t, _)| t == *k)).cloned().collect();
+        for key in gone {
+            loops.disarm(&key);
+        }
+        for (key, goal) in tasks {
+            if !loops.armed.iter().any(|(k, _)| *k == key) {
+                loops.armed.push((key.clone(), goal));
+                loops.durable.insert(key);
+            }
+        }
+        let after = loops.shown();
+        (after != before).then(|| goal_update(after))
+    }
+
     /// Claude's exit ended its loops: the goal update that clears them, when any was armed.
     pub(super) async fn end_loops(&self) -> Option<Message> {
         let mut loops = self.loops.lock().await;
         loops.calls.clear();
+        loops.durable.clear();
         if loops.armed.is_empty() {
             return None;
         }

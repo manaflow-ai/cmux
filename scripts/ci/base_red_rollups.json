@@ -131,6 +131,12 @@
           ],
           "prefixes": []
         },
+        "full-carry": {
+          "exact": [
+            "full-ci base merge carry"
+          ],
+          "prefixes": []
+        },
         "mac-ios-e2e": {
           "exact": [
             "mac-ios-e2e"
@@ -180,18 +186,6 @@
           "exact": [],
           "prefixes": [
             "web / react-apps-check ("
-          ]
-        },
-        "react-doctor": {
-          "exact": [
-            "web / react-doctor"
-          ],
-          "prefixes": []
-        },
-        "runners": {
-          "exact": [],
-          "prefixes": [
-            "web / runners / "
           ]
         },
         "web-db-migrations": {

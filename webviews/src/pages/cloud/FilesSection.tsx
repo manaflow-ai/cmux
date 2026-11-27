@@ -2,7 +2,8 @@
 // click; a file click previews a small text file, which Edit turns into a field that Save writes back.
 // Delete, Upload and Download go to the host (native confirmation or file panel); the page never
 // calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
-// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
+// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry
+// (retry-prompt-ok: it runs the push or pull again, which opens the host's file panel again). A
 // machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
@@ -267,23 +268,26 @@ function FileRows({
       return indexes.sort((a, b) => a - b);
     },
   });
+  // A row's place (`data-index`, which TanStack measures it by, and `aria-posinset`/`aria-setsize`,
+  // the screen reader's "3 of 1,000") is written on its element here, not drawn by the row: an entry
+  // coming, going or moving above a row moves its place, and that draws none of the rows. `places`
+  // is the current listing's, read by the rows' ref as they mount.
+  const places = useRef({ indexOf, count: entries.length });
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render -- the rows' ref callback reads it in this commit, before this component's layout effects: an effect would place new rows by the last listing.
+  places.current = { indexOf, count: entries.length };
   const measure = useCallback(
     (node: HTMLElement | null) => {
+      if (node) place(node, places.current.indexOf, places.current.count);
       if (node && !rowHeight.current && node.offsetHeight > 0) rowHeight.current = node.offsetHeight;
       virtualizer.measureElement(node);
     },
     [virtualizer],
   );
-
-  // A row's index moves when entries come or go above it. Its row keeps its props (the index is not
-  // one it draws again for) and is told here, so TanStack measures the right entry on a resize.
+  // The rows already mounted take their new places when the listing changes (only the mounted rows).
   useLayoutEffect(() => {
-    for (const [key, node] of virtualizer.elementsCache) {
-      const at = indexOf.get(String(key));
-      if (at !== undefined && node.getAttribute("data-index") !== String(at))
-        node.setAttribute("data-index", String(at));
-    }
-  }, [virtualizer, indexOf]);
+    for (const node of list.current?.querySelectorAll<HTMLElement>(":scope > [data-path]") ?? [])
+      place(node, indexOf, entries.length);
+  }, [indexOf, entries.length]);
 
   // One function per handler for every render: a memo row draws again only when its own props change.
   const handlers = useStableHandlers({
@@ -308,8 +312,6 @@ function FileRows({
     children.push(
       <FileRow
         key={pathOf(entry)}
-        index={index}
-        count={entries.length}
         measure={measure}
         entry={entry}
         path={pathOf(entry)}
@@ -336,9 +338,19 @@ function FileRows({
   );
 }
 
+/** Writes a row element's place in the listing: `data-index` (TanStack measures it by that) and
+ *  `aria-posinset`/`aria-setsize`. Only what changed is written. */
+function place(node: HTMLElement, indexOf: ReadonlyMap<string, number>, count: number): void {
+  const index = indexOf.get(node.dataset.path ?? "");
+  if (index === undefined) return;
+  if (node.dataset.index !== String(index)) {
+    node.dataset.index = String(index);
+    node.setAttribute("aria-posinset", String(index + 1));
+  }
+  if (node.getAttribute("aria-setsize") !== String(count)) node.setAttribute("aria-setsize", String(count));
+}
+
 interface FileRowProps {
-  index: number;
-  count: number;
   measure: (node: HTMLElement | null) => void;
   entry: FsEntry;
   path: string;
@@ -351,18 +363,7 @@ interface FileRowProps {
   onRemove: (path: string) => void;
 }
 
-/** Equal props but for `index`: the list sets a moved row's attribute itself. */
-function sameRow(before: FileRowProps, after: FileRowProps): boolean {
-  const keys = Object.keys(after) as (keyof FileRowProps)[];
-  return (
-    keys.length === Object.keys(before).length &&
-    keys.every((key) => key === "index" || Object.is(before[key], after[key]))
-  );
-}
-
 const FileRow = memo(function FileRow({
-  index,
-  count,
   measure,
   entry,
   path,
@@ -375,14 +376,8 @@ const FileRow = memo(function FileRow({
 }: FileRowProps) {
   const isFolder = entry.kind === "directory";
   return (
-    <li
-      ref={measure}
-      data-index={index}
-      data-path={path}
-      className={`cloud-item cloud-file kind-${entry.kind}`}
-      aria-posinset={index + 1}
-      aria-setsize={count}
-    >
+    // `data-index`, `aria-posinset` and `aria-setsize` are written by the list (`place`), not drawn here.
+    <li ref={measure} data-path={path} className={`cloud-item cloud-file kind-${entry.kind}`}>
       <button
         type="button"
         className="cloud-link-button cloud-file-name cloud-mono"
@@ -409,7 +404,7 @@ const FileRow = memo(function FileRow({
       </span>
     </li>
   );
-}, sameRow);
+});
 
 export function FilesSection({
   store,
@@ -470,6 +465,7 @@ export function FilesSection({
           </button>
         )}
       </div>
+      {/* retry-prompt-ok: nothing ran; running it again opens the host's native file panel, so it is the person's. */}
       {files.busy && (
         <p className="cloud-muted cloud-transfer-busy">
           {t(L.transferBusy)}{" "}

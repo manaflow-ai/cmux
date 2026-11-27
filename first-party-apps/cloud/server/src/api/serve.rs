@@ -178,10 +178,13 @@ fn send_events<R: BufRead, W: Write>(
 fn edge_line(down: &EdgeDown) -> Value {
     let mut data = json!({
         "machine": down.machine, "kind": if down.port.is_some() { "forward" } else { "browser" },
-        "host": "127.0.0.1", "localPort": down.local_port, "generation": down.generation,
+        "host": "127.0.0.1", "localPort": down.local_port,
+        "generation": down.generation,
         "state": "down", "reason": down.reason });
     if let Some(port) = down.port {
         data["port"] = json!(port);
+        data["scheme"] = json!(&down.scheme);
+        data["url"] = json!(format!("{}://127.0.0.1:{}/", down.scheme, down.local_port));
     }
     event_line("cloud.port.changed", data)
 }

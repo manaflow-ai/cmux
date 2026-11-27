@@ -13,8 +13,38 @@
 // `max` bound the drag; the surface's CSS still clamps what it reads, so a width saved in a wide pane
 // never crowds a narrow one.
 import { useLayoutEffect, useRef } from "react";
+import { declareMove } from "../layout/motionContract";
 import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import "./SplitEdge.css";
+
+/** How long a one-off split resize (a pane opening or closing beside another, a double-click reset) is
+ *  declared: the frames that lay it out and the judge's read of them, with room for slow frames. Ending
+ *  it two frames later was too early: a busy page's judge read the laid-out frame after it ended. */
+const SPLIT_RESIZE_MS = 300;
+
+/**
+ * Declares the resize a split makes when a pane opens or closes beside another, or its width is put
+ * back (schemas/layout-motion/contract.json `resize`): every box moves once, to its new place. `once`
+ * keeps it honest: a second move of a box in the window (a bounce) stays undeclared.
+ */
+export function declareSplitResize(by: string): void {
+  declareMove({ event: "resize", scope: "all", once: true, by }, { ms: SPLIT_RESIZE_MS });
+}
+
+/**
+ * For a pane that opens beside another and narrows it (a side panel beside the chat): declares the
+ * split's resize before the frame that lays the opening out, and again for the closing. Each box moves
+ * once, to its new place, in that frame; a second move (a row rewrapped a frame later) is a bounce and
+ * stays undeclared. `undefined`: the pane opens in a place of its own (a tab), beside nothing it
+ * narrows, so there is no resize to declare.
+ */
+export function useSplitOpenResize(pane: string | undefined): void {
+  useLayoutEffect(() => {
+    if (pane === undefined) return;
+    declareSplitResize(`${pane} opens`);
+    return () => declareSplitResize(`${pane} closes`);
+  }, [pane]);
+}
 
 export type SplitEdgeProps = {
   /** Which side of the sized pane the edge is on: `left` for a panel on the right of what it splits;

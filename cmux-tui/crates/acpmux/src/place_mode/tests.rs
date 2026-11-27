@@ -19,11 +19,12 @@ fn local(busy: bool) -> Local {
         busy: busy.then(|| "no room: RAM is the limit".into()),
         room: Some(if busy { 0.0 } else { 4.0 }),
         ram_free: Some(12e9),
+        caps: vec![],
     }
 }
 
 fn facts(busy: bool, account: Account) -> Facts {
-    Facts { local: local(busy), account, machines: vec!["studio".into()] }
+    Facts { local: local(busy), account, machines: vec!["studio".into()], ..Facts::default() }
 }
 
 /// Auto, for every combination of room, Cloud and hybrid: this Mac with room; a new Cloud VM
@@ -76,7 +77,7 @@ fn hybrid_follows_the_flag_then_the_plan() {
 #[test]
 fn auto_with_this_macs_room_unknown_starts_here() {
     let f =
-        Facts { local: Local::default(), account: account(true, false, true), machines: vec![] };
+        Facts { local: Local::default(), account: account(true, false, true), ..Facts::default() };
     let d = decide(&PlaceMode::Auto, &f);
     assert_eq!(d.place, Place::ThisMac);
     assert_eq!(d.chip, "Auto · This Mac");
@@ -172,4 +173,125 @@ fn this_mac_is_read_from_the_placement_verdict() {
     assert_eq!(l.busy, None);
     assert_eq!(local_of(&verdict(false, None)).busy, None);
     assert_eq!(local_of(&json!({})), Local::default());
+}
+
+fn report(accepting: bool, caps: &[&str], teams: &[&str]) -> Report {
+    Report {
+        v: 1,
+        enrolled: true,
+        accepting,
+        owner_idle: Some(accepting),
+        caps: caps.iter().map(|c| (*c).to_owned()).collect(),
+        policy: crate::autocloud_enroll::Policy {
+            teams: teams.iter().map(|t| (*t).to_owned()).collect(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn machine(name: &str, accepting: bool, room: f64, folder: bool) -> EnrolledMachine {
+    EnrolledMachine {
+        name: name.into(),
+        auto_cloud: report(accepting, &["arm64", "macos", "xcode"], &["team_a"]),
+        room: Some(room),
+        ram_free: Some(20e9),
+        folder,
+    }
+}
+
+fn with(busy: bool, enrolled: Vec<EnrolledMachine>, need: Need) -> Facts {
+    Facts {
+        local: Local { caps: vec!["arm64".into(), "macos".into()], ..local(busy) },
+        account: account(true, false, true),
+        enrolled,
+        need,
+        ..Facts::default()
+    }
+}
+
+/// The order, every tier: this Mac with room; else an enrolled machine (accepting, allowed,
+/// fit, with room; folder first, then room, then name); else Cloud.
+#[test]
+fn auto_order_is_this_mac_then_enrolled_then_cloud() {
+    let pool = vec![machine("b-mini", true, 3.0, false), machine("a-mini", true, 3.0, false)];
+    let d = decide(&PlaceMode::Auto, &with(false, pool.clone(), Need::default()));
+    assert_eq!((d.place, d.tier), (Place::ThisMac, Some(Tier::ThisMac)));
+
+    let d = decide(&PlaceMode::Auto, &with(true, pool.clone(), Need::default()));
+    assert_eq!(d.place, Place::Machine { id: "a-mini".into() }, "ties go by name");
+    assert_eq!(d.tier, Some(Tier::Enrolled));
+    assert_eq!(d.chip, "Auto · a-mini: 20 GB free");
+
+    let mut roomier = pool.clone();
+    roomier.push(machine("z-studio", true, 8.0, false));
+    let d = decide(&PlaceMode::Auto, &with(true, roomier.clone(), Need::default()));
+    assert_eq!(d.place, Place::Machine { id: "z-studio".into() }, "more room first");
+
+    roomier.push(machine("y-folder", true, 1.0, true));
+    let d = decide(&PlaceMode::Auto, &with(true, roomier, Need::default()));
+    assert_eq!(d.place, Place::Machine { id: "y-folder".into() }, "the folder first");
+    assert!(d.why.contains("the folder already there"), "{}", d.why);
+
+    let d = decide(&PlaceMode::Auto, &with(true, vec![], Need::default()));
+    assert_eq!((d.place, d.tier), (Place::Cloud { hybrid: true }, Some(Tier::Cloud)));
+}
+
+/// The owner wins and the policy holds: no machine whose owner is at it, none that is full,
+/// none whose policy refuses this team, none that does not fit; this machine never as its own
+/// enrolled peer.
+#[test]
+fn auto_skips_active_full_refusing_or_unfit_machines() {
+    let cloud = Place::Cloud { hybrid: true };
+    let active = vec![machine("desk", false, 9.0, true)];
+    assert_eq!(decide(&PlaceMode::Auto, &with(true, active, Need::default())).place, cloud);
+    let full = vec![machine("full", true, 0.0, true)];
+    assert_eq!(decide(&PlaceMode::Auto, &with(true, full, Need::default())).place, cloud);
+    let other_team = Need { team: Some("team_b".into()), ..Need::default() };
+    let pool = vec![machine("mini", true, 3.0, false)];
+    assert_eq!(decide(&PlaceMode::Auto, &with(true, pool.clone(), other_team)).place, cloud);
+    let own_team = Need { team: Some("team_a".into()), ..Need::default() };
+    assert_eq!(
+        decide(&PlaceMode::Auto, &with(true, pool.clone(), own_team)).place,
+        Place::Machine { id: "mini".into() }
+    );
+    let gpu = Need { caps: vec!["gpu-nvidia".into()], ..Need::default() };
+    assert_eq!(decide(&PlaceMode::Auto, &with(true, pool, gpu)).place, cloud);
+    let mut f = with(true, vec![machine("mac", true, 9.0, true)], Need::default());
+    f.local.name = "mac".into();
+    assert_eq!(decide(&PlaceMode::Auto, &f).place, cloud, "never itself");
+}
+
+/// Mac work: an enrolled Mac that fits even when this Mac has room but cannot run it; never
+/// the cloud; nowhere when no Mac fits and this one cannot run it.
+#[test]
+fn mac_work_goes_to_the_mac_tier_never_the_cloud() {
+    let xcode = Need { caps: vec!["xcode".into()], ..Need::default() };
+    let pool = vec![machine("mini", true, 3.0, false)];
+    let d = decide(&PlaceMode::Auto, &with(false, pool, xcode.clone()));
+    assert_eq!(d.place, Place::Machine { id: "mini".into() }, "this Mac has no Xcode");
+    assert!(d.why.starts_with("this Mac cannot run it (it needs xcode)"), "{}", d.why);
+    let d = decide(&PlaceMode::Auto, &with(false, vec![], xcode));
+    assert_eq!(d.place, Place::Nowhere);
+    assert_eq!(d.chip, "Auto · needs a Mac");
+    let macos = Need { caps: vec!["macos".into()], ..Need::default() };
+    let d = decide(&PlaceMode::Auto, &with(true, vec![], macos));
+    assert_eq!(d.place, Place::ThisMac, "a busy Mac that fits: here anyway, never the cloud");
+}
+
+/// The verdict reader: rows with an `autoCloud` block, not this machine, not loaded.
+#[test]
+fn enrolled_of_reads_the_verdicts_rows() {
+    let v = json!({"hosts": [
+        {"name": "mac", "local": true, "autoCloud": {"enrolled": true, "caps": ["macos"]}},
+        {"name": "mini", "local": false, "room": 2.0, "ramFree": 8e9,
+         "autoCloud": {"enrolled": true, "accepting": true}},
+        {"name": "busy", "local": false, "load": true, "autoCloud": {"enrolled": true}},
+        {"name": "old", "local": false, "room": 5.0}]});
+    let e = enrolled_of(&v);
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0].name, "mini");
+    assert_eq!(e[0].room, Some(2.0));
+    assert!(e[0].auto_cloud.accepting);
+    assert_eq!(local_of(&v).caps, vec!["macos"]);
 }

@@ -266,8 +266,10 @@ else:
     if "-f sha=" in runs:
         failures.append("wake-nightly-next-tick asks with no sha, so the tick applies its rolling rule")
     runs_on = workflow_jobs.single_runs_on(wake)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("wake-nightly-next-tick runs on the nightly mini, as the other loop control jobs")
+    # Our own runners, never Blacksmith: the nightly mini, or the nightly's Linux label (it holds the dispatch's App
+    # keys, which stay off the mini; run 45562645699 slept 18.4 and 12.9 min on github.token's spent hour).
+    if "blacksmith" in runs_on.lower() or not ("CI_NIGHTLY_MINI" in runs_on or "cmux-gcp-nightly-x64" in runs_on):
+        failures.append("wake-nightly-next-tick runs on our nightly runners (the mini or the nightly Linux label), never Blacksmith")
     # The wait for the promotion moved off the signing Mac: a nightly-next-one that left before nightly-next moved
     # (left_pending) gets the loop's retry of its commit from here, unless nightly-next moved meanwhile.
     retry_step = next((s for s in wake.get("steps", [])

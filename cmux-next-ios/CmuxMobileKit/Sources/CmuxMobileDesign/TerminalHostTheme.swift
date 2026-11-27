@@ -16,6 +16,7 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
         "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
         "alpha-blending", "window-colorspace",
         "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
+        "background-cells-opacity", "background-cells-neutral-fade",
     ]
     /// The longest value kept on one line (hostd's bound).
     static let maxValueLength = 64

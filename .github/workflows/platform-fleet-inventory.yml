@@ -41,7 +41,7 @@ concurrency:
 jobs:
   write:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: cmux-next-production
     timeout-minutes: 10
     steps:
@@ -110,7 +110,7 @@ jobs:
             body="$RUNNER_TEMP/inventory-$provider.json"
             [ -f "$body" ] || continue
             # A fresh secret takes a few seconds to reach every edge: 401 or no answer is retried.
-            for i in 1 2 3 4 5 6 7 8; do
+            for _ in 1 2 3 4 5 6 7 8; do
               code=$(curl -sS -o "$RUNNER_TEMP/inventory-answer.json" -w '%{http_code}' -X POST \
                 -H 'content-type: application/json' -H @<(printf 'authorization: Bearer %s\n' "$token") \
                 --data @"$body" "https://cmux-platform-production.debussy.workers.dev/v1/internal/fleet-inventory") || code=000

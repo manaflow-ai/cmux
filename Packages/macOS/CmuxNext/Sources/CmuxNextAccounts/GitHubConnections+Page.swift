@@ -20,6 +20,10 @@ extension GitHubConnections {
             "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
             // Msg 3790: signed out, the card says to sign in and shows the Sign In button.
             "signIn": scopeIsSignedOut ? .string(SignInButton.defaultTitle) : .null,
+            // Under it: what that Sign In signs in to ("Signs in to cmux.com").
+            "signInBackend": scopeIsSignedOut ? signInBackend.map(JSONValue.string) ?? .null : .null,
+            "cliSignIn": .string(Self.cliSignIn),
+            "cliSignInDetail": .string(Self.cliSignInDetail),
             "connections": .array(currentConnections.map { row in
                 ["id": row["id"] ?? .null,
                  "account": row["account"]?["name"] ?? "GitHub",
@@ -46,6 +50,8 @@ private extension GitHubConnections {
     static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .localizedModule) }
     static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
     static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var cliSignIn: String { String(localized: "github.cliSignIn", defaultValue: "Use GitHub CLI", table: "GitHubConnection", bundle: .localizedModule) }
+    static var cliSignInDetail: String { String(localized: "github.cliSignInDetail", defaultValue: "Optional personal login for gh and git.", table: "GitHubConnection", bundle: .localizedModule) }
     static var unavailable: String { String(localized: "github.unavailable", defaultValue: "GitHub connections are unavailable on this deployment.", table: "GitHubConnection", bundle: .localizedModule) }
     static var pendingText: String { String(localized: "github.pending", defaultValue: "Finish connecting in your browser, then refresh.", table: "GitHubConnection", bundle: .localizedModule) }
     static var failed: String { String(localized: "github.failed", defaultValue: "GitHub could not be updated. Refresh to try again.", table: "GitHubConnection", bundle: .localizedModule) }

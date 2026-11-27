@@ -35,7 +35,8 @@
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
 # Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
-# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. The report keeps the measured app's
+# Info.plist for its CFBundleVersion and CMUXCommit after the copies and DMG have been deleted.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
 # /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
 # anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
@@ -369,6 +370,10 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$name" == q || "$name" == m ]] && sweep_prompts Cancel "after $tag"
   echo "$json" >>"$OUT/runs.jsonl"
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
+  # Capture the build identity after timing, while the measured copy still exists.
+  if [[ ! -f "$OUT/Info.plist" ]]; then
+    cp "$app/Contents/Info.plist" "$OUT/Info.plist" || rc=1
+  fi
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
     n|p|k|s|x) rm -rf "$OUT/copy-$tag" "$OUT/pkgscripts-$tag" ;;
