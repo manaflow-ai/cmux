@@ -108,3 +108,15 @@ fn heavy_comes_from_daemon_status() {
     assert_eq!(heavy_of(&status), need(Kind::Test, 6, 2));
     assert_eq!(heavy_of(&json!({"host_pressure": {"local_turns": 0}})), None);
 }
+
+#[test]
+fn mem_stall_comes_from_daemon_status_in_psis_shape() {
+    let avgs = json!({"avg10": 41.26, "avg60": 10.67, "avg300": 2.29});
+    let zero = json!({"avg10": 0.0, "avg60": 0.0, "avg300": 0.0});
+    let stall = json!({"source": "vmstat", "some": avgs, "full": zero, "coveredSecs": 9});
+    let m = mem_stall_of(&json!({"host_pressure": {"mem_stall": stall}})).unwrap();
+    assert_eq!(m.some.avg10, 41.26);
+    let load = Load { mem_stall: Some(m), ..Load::default() };
+    assert_eq!(serde_json::to_value(&load).unwrap()["memStall"], stall);
+    assert_eq!(mem_stall_of(&json!({"host_pressure": {"local_turns": 0}})), None);
+}

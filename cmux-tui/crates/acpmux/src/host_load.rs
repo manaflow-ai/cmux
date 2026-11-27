@@ -58,6 +58,12 @@ pub struct Load {
     pub direct_scanned: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refaults: Option<u64>,
+    /// Memory stall in PSI's shape (`some`/`full`, `avg10`/`avg60`/`avg300`, percent) estimated
+    /// from the reclaim counters by the daemon's once-a-second reader, for hosts where
+    /// `memSomeAvg60` is missing because PSI is off (cmuxterm-hq RFD 0182 B1). Left out with no
+    /// daemon, or one under two seconds old.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_stall: Option<crate::host_pressure::mem_stall::MemStall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_free_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,6 +357,13 @@ pub fn heavy_of(status: &serde_json::Value) -> Option<Heavy> {
     serde_json::from_value(status.pointer("/host_pressure/heavy")?.clone()).ok()
 }
 
+/// `memStall` from `daemon status`'s `host_pressure.mem_stall`.
+pub fn mem_stall_of(
+    status: &serde_json::Value,
+) -> Option<crate::host_pressure::mem_stall::MemStall> {
+    serde_json::from_value(status.pointer("/host_pressure/mem_stall")?.clone()).ok()
+}
+
 /// The sample: the `/proc` reads (blocking, about [`CPU_WINDOW`]) beside the daemon's answer.
 pub async fn sample() -> Load {
     let reads = tokio::task::spawn_blocking(read_host);
@@ -361,6 +374,7 @@ pub async fn sample() -> Load {
     load.local_turns = turns;
     load.busy = turns.map(|n| n > 0);
     load.heavy = status.as_ref().and_then(heavy_of);
+    load.mem_stall = status.as_ref().and_then(mem_stall_of);
     load
 }
 
