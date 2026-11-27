@@ -108,6 +108,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
@@ -250,6 +251,7 @@ pub mod tailnet_ingress;
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
 mod team;
+mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
