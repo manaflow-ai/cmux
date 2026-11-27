@@ -5025,6 +5025,8 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The corner radius of menus.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.cornerRadius</string>
 			<key>pfm_range_max</key>
@@ -5037,6 +5039,8 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>How visible the menu's edge line is.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.borderOpacity</string>
 			<key>pfm_range_max</key>
@@ -5051,6 +5055,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>The shadow under menus.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.shadow</string>
 			<key>pfm_range_list</key>
@@ -5066,6 +5072,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The menu background color, as #RRGGBB or #RRGGBBAA.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.fill</string>
 			<key>pfm_title</key>
@@ -5074,6 +5082,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The space inside the menu's edges.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.padding</string>
 			<key>pfm_range_max</key>
@@ -5086,6 +5096,8 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The corner radius of the hovered row's highlight.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.highlightRadius</string>
 			<key>pfm_range_max</key>
@@ -5098,6 +5110,8 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The height of a one-line menu row.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.rowHeight</string>
 			<key>pfm_range_max</key>
@@ -5112,6 +5126,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How strongly menu shortcuts are drawn.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.shortcuts</string>
 			<key>pfm_range_list</key>
@@ -5127,6 +5143,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How menu section labels are drawn.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.sectionLabel</string>
 			<key>pfm_range_list</key>
@@ -5142,6 +5160,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How the lines between menu row groups are drawn.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.separator</string>
 			<key>pfm_range_list</key>
@@ -5158,6 +5178,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>Whether destructive menu rows, such as Delete, are drawn in red.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.destructiveInk</string>
 			<key>pfm_range_list</key>
@@ -5173,6 +5195,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>Where a submenu opens next to its menu.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.submenu</string>
 			<key>pfm_range_list</key>
@@ -5188,6 +5212,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How the second line of a menu row is drawn.</string>
 			<key>pfm_name</key>
 			<string>appearance.menu.subtitle</string>
 			<key>pfm_range_list</key>
@@ -5201,6 +5227,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The space inside a popover's edges.</string>
 			<key>pfm_name</key>
 			<string>appearance.popover.padding</string>
 			<key>pfm_range_max</key>
@@ -5215,6 +5243,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How a popover's header line is drawn.</string>
 			<key>pfm_name</key>
 			<string>appearance.popover.header</string>
 			<key>pfm_range_list</key>
@@ -5228,6 +5258,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The height of progress bars in popovers.</string>
 			<key>pfm_name</key>
 			<string>appearance.popover.progressHeight</string>
 			<key>pfm_range_max</key>
@@ -5242,6 +5274,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>standard</string>
+			<key>pfm_description</key>
+			<string>The color of progress bars in popovers.</string>
 			<key>pfm_name</key>
 			<string>appearance.popover.progressFill</string>
 			<key>pfm_range_list</key>
