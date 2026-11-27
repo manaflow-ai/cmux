@@ -434,14 +434,6 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         self.membershipKey = membershipKey
         if animated { pendingAnimated = true }
         pending = model
-        // The first rows go in now, not on the next run-loop turn: the launch's
-        // first layout and commit then hold them, instead of laying out an empty
-        // list, committing it, and doing both again a turn later before the
-        // first frame (a hosted launch measured 15-250 ms in that turn).
-        if dataSource?.snapshot().numberOfSections == 0 {
-            applyPending()
-            return
-        }
         guard !applyScheduled else { return }
         applyScheduled = true
         // Every write of this run-loop turn (a burst from the Mac) becomes one apply.
