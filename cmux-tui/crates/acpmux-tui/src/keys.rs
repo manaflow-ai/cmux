@@ -578,7 +578,7 @@ impl App {
                 let has_pending = self
                     .selected_id()
                     .and_then(|id| self.transcripts.get(&id))
-                    .map(|t| t.pending_permission().is_some())
+                    .map(|t| crate::live_permission(t).is_some())
                     .unwrap_or(false);
                 if has_pending && self.editor().is_empty() && self.answering.is_none() {
                     match key.code {
