@@ -39,9 +39,10 @@ export function AppearanceBar({ section }: { section: string }) {
   }, [store, state.readable]);
   const live = state.connected && state.readable && !busy;
   const areas = useMemo(() => appearanceAreas(section), [section]);
-  const undo = history.nextUndo;
+  // The durable history's next change (the page's own step, or a newer one by an agent or the CLI).
+  const undo = store.appearanceUndoLabel();
   const redo = history.nextRedo;
-  const undoLabel = undo ? t("settingsPage.history.undoNamed", undo.label) : t("settingsPage.history.undo");
+  const undoLabel = undo ? t("settingsPage.history.undoNamed", undo) : t("settingsPage.history.undo");
   const redoLabel = redo ? t("settingsPage.history.redoNamed", redo.label) : t("settingsPage.history.redo");
   const canRestore = store.appearanceChangedSinceOpened();
   const canReset = store.appearanceCustomized();

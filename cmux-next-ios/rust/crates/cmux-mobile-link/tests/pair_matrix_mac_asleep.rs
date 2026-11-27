@@ -362,6 +362,7 @@ async fn mac_asleep(
     row.emit("ttfc_ms", result.map(|(v, _)| v), serde_json::json!({ "attempts": attempts }));
 }
 
+#[allow(clippy::too_many_arguments, reason = "one matrix cell's facts, each read once")]
 async fn mac_asleep_resume(
     base: &Base,
     mac: &Mac,
@@ -585,7 +586,7 @@ impl Cache {
                 if publisher.publish_delta(&viewers, &stream, &chunk).await.sent == 1 {
                     counted.fetch_add(CHUNK as u64, Ordering::Relaxed);
                 }
-                if n % BULK_SNAPSHOT_EVERY == 0 {
+                if n.is_multiple_of(BULK_SNAPSHOT_EVERY) {
                     publisher.publish_snapshot(&viewers, &stream, &chunk).await;
                 }
             }
@@ -727,6 +728,7 @@ async fn cache_mac_asleep(
     until_awake(asleep_at, wake).await;
 }
 
+#[allow(clippy::too_many_arguments, reason = "one matrix cell's facts, each read once")]
 async fn cache_mac_asleep_resume(
     cache: &Cache,
     mac: &Mac,
@@ -891,11 +893,11 @@ async fn pair_matrix_mac_asleep() {
                     if let Some(cache) = &cache {
                         match condition.as_str() {
                             "mac-asleep" => {
-                                cache_mac_asleep(cache, &mac, load, page, duress, wake, &row).await
+                                cache_mac_asleep(cache, &mac, load, page, duress, wake, &row).await;
                             }
                             "mac-asleep-resume" => {
                                 cache_mac_asleep_resume(cache, &mac, load, page, duress, wake, away, &row)
-                                    .await
+                                    .await;
                             }
                             "mac-asleep-send" => {
                                 if run == 0 {
@@ -915,10 +917,10 @@ async fn pair_matrix_mac_asleep() {
                     match condition.as_str() {
                         "mac-asleep" => mac_asleep(&base, &mac, &phone, page, duress, wake, &row).await,
                         "mac-asleep-resume" => {
-                            mac_asleep_resume(&base, &mac, &phone, page, duress, wake, away, &row).await
+                            mac_asleep_resume(&base, &mac, &phone, page, duress, wake, away, &row).await;
                         }
                         "mac-asleep-send" => {
-                            mac_asleep_send(&base, &mac, &phone, page, duress, wake, &row).await
+                            mac_asleep_send(&base, &mac, &phone, page, duress, wake, &row).await;
                         }
                         other => panic!("unknown condition {other}"),
                     }

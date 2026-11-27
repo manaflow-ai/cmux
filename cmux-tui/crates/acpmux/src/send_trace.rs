@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 /// The machine's platform edge (cmux-platform `PLATFORM_EDGE_DOMAIN`).
 pub const EDGE_ORIGIN: &str = "https://platform.cmux.internal";
 /// One post's whole bound.
+// timeout: a best-effort trace post; past it the trace is dropped and the send goes on.
 const POST_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most prompts waiting on their first update at once; a fuller map drops the oldest.
 const MAX_PENDING: usize = 256;
@@ -163,7 +164,7 @@ pub fn first_update(session: &str) {
     }
     let p = {
         let Ok(mut map) = PENDING.lock() else { return };
-        if !map.get(session).is_some_and(|p| p.handed.is_some()) {
+        if map.get(session).is_none_or(|p| p.handed.is_none()) {
             return;
         }
         let p = map.remove(session);
@@ -173,11 +174,11 @@ pub fn first_update(session: &str) {
     let Some(p) = p else { return };
     let end_ms = now_ms();
     let body = body(&p, end_ms, machine_id());
-    // Closing the first_token span.
-    drop(p.step);
+    // Closing the first_token span; the trace id outlives it for the post.
+    let Pending { trace_id, step, .. } = p;
+    drop(step);
     let Some(body) = body else { return };
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-    let trace_id = p.trace_id;
     rt.spawn(post(trace_id, body));
 }
 
@@ -205,7 +206,11 @@ pub fn spans_url(trace_id: &str) -> String {
 
 async fn post(trace_id: String, body: Value) {
     static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
-        reqwest::Client::builder().timeout(POST_TIMEOUT).connect_timeout(POST_TIMEOUT).build().ok()
+        cmux_egress::client_builder("acpmux::send_trace")
+            .timeout(POST_TIMEOUT)
+            .connect_timeout(POST_TIMEOUT)
+            .build()
+            .ok()
     });
     let Some(client) = CLIENT.as_ref() else { return };
     let span = tracing::info_span!("send_trace.post", trace_id = %trace_id);

@@ -85,8 +85,8 @@ pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 }
 /// one coord-sim fan-in run); at 64 MB that run read none back (cmux#49864). The cost is up to
 /// 48 MB more resident memory, only while that many copies are live.
 const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
-/// Copies a bound evicted whose generation and last seq the store remembers, so the read-ahead
-/// reads such a chat again only once it moved past them (`Store::covers`).
+/// Copies a bound evicted whose generation the store remembers, so the read-ahead does not read
+/// such a chat again (`Store::covers`).
 const EVICTED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
@@ -248,7 +248,7 @@ enum Op {
     /// What each copy of a peer covers (`warm.rs`).
     Covers {
         peer: String,
-        reply: mpsc::SyncSender<HashMap<String, (Option<u64>, u64)>>,
+        reply: mpsc::SyncSender<warm::Covers>,
     },
     Flush {
         peer: Option<String>,
@@ -643,6 +643,10 @@ struct Kept {
     head: Head,
     /// Its records once read (`Store::load`); None while they are only on disk.
     records: Option<BTreeMap<u64, Value>>,
+    /// Its records' lines as its last write encoded them (`disk::encode_with`): only records
+    /// that came or changed since are serialized again. Never more than `records` holds, and
+    /// dropped with them, so not charged apart.
+    lines: disk::Lines,
     /// Bytes of `records`, and of its file on disk (0: none).
     memory: u64,
     disk: u64,
@@ -681,6 +685,7 @@ impl Kept {
         Self {
             head,
             records: None,
+            lines: disk::Lines::new(),
             memory,
             disk,
             own,
@@ -743,12 +748,13 @@ struct Store {
     /// Peers whose full list came this run: a session they do not list is not theirs any more.
     full_listed: HashSet<String>,
     barred: HashMap<Key, Option<u64>>,
-    /// Copies a bound evicted ([`Store::trim_kept`], [`Store::evict_disk`]): their generation and
-    /// last seq, at most [`EVICTED_KEYS`]. The read-ahead (`warm.rs`) takes them as covered, so a
-    /// chat that did not move is not read and written again every round only to be evicted
-    /// again: on the owner's Mac, with every agent VM's chats read ahead (#52790), that loop
-    /// rewrote copies at 14 MB/s for hours (137 GB, 2026-11-25) and the Mac beachballed.
-    evicted: HashMap<Key, (u64, u64)>,
+    /// Copies a bound evicted ([`Store::trim_kept`], [`Store::evict_disk`]): their generation, at
+    /// most [`EVICTED_KEYS`]. The read-ahead (`warm.rs`) does not read them again, so a chat is
+    /// not read and written again every round only to be evicted again: on the owner's Mac, with
+    /// every agent VM's chats read ahead (#52790), that loop rewrote copies at 14 MB/s for hours
+    /// (137 GB, 2026-11-25) and the Mac beachballed. #55956 read one again once it moved, and a
+    /// fleet's chats all move: the loop went on at 3-4 MB/s.
+    evicted: HashMap<Key, u64>,
     /// Peers removed before the disk was read (or whose ops were lost then): their files go
     /// when it is.
     forgotten: HashSet<String>,
@@ -1265,7 +1271,7 @@ impl Store {
         self.join_live(key, link, seq, vec![record]);
     }
 
-    /// A seq the link is not sent live (an agent request or answer, `server/mod.rs` `deliver`):
+    /// A seq the link is not sent live (an agent request or answer, `server::deliver`):
     /// the copy covers it as a page that leaves its kind out would, under the same rule as a
     /// record (next to what it covers, on the link a page joined), so a record the link lost is
     /// never passed over.
@@ -1319,8 +1325,12 @@ impl Store {
             let Some(seq) = seq_of(&r) else { continue };
             // One the copy holds as it is already came before (a page again): a write told it,
             // or will.
-            if crate::hub::open_delivery::of_a_prompt(&r) && held.get(&seq) != Some(&r) {
+            let same = held.get(&seq) == Some(&r);
+            if crate::hub::open_delivery::of_a_prompt(&r) && !same {
                 c.fresh.insert(seq);
+            }
+            if !same {
+                c.lines.remove(&seq);
             }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
@@ -1365,6 +1375,7 @@ impl Store {
         let mut opener_changed = false;
         while held.len() > events || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
+            c.lines.remove(&seq);
             let old_bytes = record_bytes(&old);
             c.memory -= old_bytes;
             *memory -= old_bytes;
@@ -1405,6 +1416,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(&key) {
                     crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
+                    c.lines = disk::Lines::new();
                     self.memory -= std::mem::take(&mut c.memory);
                 }
                 continue;
@@ -1507,6 +1519,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(key) {
                     c.head = head;
                     c.records = Some(records);
+                    c.lines = disk::Lines::new();
                     c.memory = bytes;
                 }
                 self.memory += bytes;
@@ -1612,14 +1625,14 @@ impl Store {
     /// Removes `key`'s copy as a bound does ([`Store::remove`]), remembering how far it covered
     /// ([`Store::evicted`]), within [`EVICTED_KEYS`].
     fn evict(&mut self, key: &Key) {
-        let covered =
-            self.copies.get(key).and_then(|c| Some((c.head.generation?, c.head.last_seq)));
+        let covered = self.copies.get(key).and_then(|c| c.head.generation);
         self.remove(key);
         let Some(covered) = covered else { return };
-        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
-            if let Some(old) = self.evicted.keys().next().cloned() {
-                self.evicted.remove(&old);
-            }
+        if self.evicted.len() >= EVICTED_KEYS
+            && !self.evicted.contains_key(key)
+            && let Some(old) = self.evicted.keys().next().cloned()
+        {
+            self.evicted.remove(&old);
         }
         self.evicted.insert(key.clone(), covered);
     }
@@ -1771,9 +1784,9 @@ impl Store {
         if stops_before_write(key) {
             anyhow::bail!("tests only: the daemon stopped before the copy's file was written");
         }
-        let Some(c) = self.copies.get(key) else { return Ok(()) };
+        let Some(c) = self.copies.get_mut(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
-        let bytes = disk::encode(&c.head, records);
+        let bytes = disk::encode_with(&c.head, records, &mut c.lines);
         let (hash, last) = (disk::content_hash(&c.head, &bytes), (c.written, c.disk));
         // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
         let head = match bytes.iter().position(|b| *b == b'\n') {
@@ -1929,11 +1942,11 @@ impl Hub {
         {
             hook.pause();
         }
-        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
+        // The rows fence, then the registry with no lock (`peer_table.rs`).
+        let _rows = self.remote_sessions.fence();
+        let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
             return;
         };
-        let _rows = self.remote_sessions.fence();
         if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }

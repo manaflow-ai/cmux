@@ -6,9 +6,9 @@
 // - At rest nothing inside the tray has a fill of its own. (The pill in the screenshot was the
 //   line's hover: summary.css's opaque --acpmux-menu-hover at a 7px radius, inside the tray's 2px
 //   padding.)
-// - Hovering a line that opens something fills the whole line, its stop button included, out to
-//   the tray's own edges (one inset, never a pill inside the strip), with the arrow cursor; the
-//   line's button draws no second fill.
+// - Hovering a line that opens something fills the whole line out to the tray's own edges (one
+//   inset, never a pill inside the strip), with the arrow cursor; the line's button draws no second
+//   fill. Hovering its stop button fills that button alone, never the line.
 // - A line with nothing to open has no hover at all.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -96,7 +96,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
-  test("hover fills the whole line to the tray's edges, its stop button inside, with the arrow", async () => {
+  test("hover fills the whole line to the tray's edges, its stop button alone on its own hover", async () => {
     const page = await open(true);
     try {
       await page.hover(".acpmux-agent-line__button");
@@ -124,9 +124,17 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       expect(geometry.right).toBeCloseTo(0, 1);
       expect(geometry.stopInside).toBe(true);
       expect(geometry.cursor).toBe("default");
-      // On the stop button the line keeps its one fill; the button only brightens.
+      // On the stop button only the button fills, as the header's panel button does: never the line
+      // around it (a highlight covers only its control). The line's wash may fade out first.
       await page.hover(".acpmux-session-info-stop");
-      expect(await filled(page)).toEqual(["acpmux-agent-line"]);
+      await page.waitForFunction(() => {
+        const line = document.querySelector<HTMLElement>(".acpmux-agent-line")!;
+        const color = getComputedStyle(line).backgroundColor;
+        return color === "rgba(0, 0, 0, 0)" || color === "transparent";
+      });
+      const lit = await filled(page);
+      expect(lit).toHaveLength(1);
+      expect(lit[0]).toContain("acpmux-session-info-stop");
     } finally {
       await page.close();
     }
