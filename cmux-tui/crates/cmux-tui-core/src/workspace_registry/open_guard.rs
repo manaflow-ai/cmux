@@ -245,24 +245,18 @@ fn try_preflight_unsupported_schema(
 ) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
     let connection = open_registry_database_read_only(database_path)?;
     connection.busy_timeout(std::time::Duration::from_millis(500))?;
-    let has_meta: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_meta {
-        return Ok(None);
-    }
-    let Some(found) = meta_value(&connection, "schema_version")? else {
+    let stamps = crate::store_compat::read_stamps(&connection, "workspace registry")?;
+    let crate::store_compat::Verdict::Refuse { found, min_reader } =
+        crate::store_compat::verdict(super::STORE_RULE, &stamps)
+    else {
         return Ok(None);
     };
-    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
-    if found <= SCHEMA_VERSION {
-        return Ok(None);
-    }
     Ok(Some(UnsupportedWorkspaceRegistrySchema {
         found,
         newest_supported: SCHEMA_VERSION,
+        min_reader,
+        written_by: stamps.written_by,
+        backup_path: crate::store_compat::newest_backup(database_path, SCHEMA_VERSION),
         database_path: Some(database_path.to_path_buf()),
         registry_id: meta_value(&connection, "registry_id")?,
     }))

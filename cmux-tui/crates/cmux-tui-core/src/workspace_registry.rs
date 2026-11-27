@@ -248,6 +248,13 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // projections one owned envelope instead of storing anonymous projection JSON.
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
+/// The registry's place in the rollback rule (`store_compat`). An additive
+/// schema bump keeps `min_reader`; a breaking one sets it to the new schema.
+pub(crate) const STORE_RULE: crate::store_compat::StoreRule = crate::store_compat::StoreRule {
+    label: "workspace registry",
+    schema: SCHEMA_VERSION,
+    min_reader: 15,
+};
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 /// The registry runs with `synchronous=NORMAL` in WAL mode
 /// (`wal_durability.rs`): a commit is in the WAL when it returns, which a
@@ -309,6 +316,12 @@ pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> a
 pub struct UnsupportedWorkspaceRegistrySchema {
     found: i64,
     newest_supported: i64,
+    /// The oldest schema that reads the stored file (`min_reader_schema`,
+    /// else `found`): above `newest_supported`, or the build would read it.
+    min_reader: i64,
+    written_by: Option<String>,
+    /// The newest `<file>.v<N>.bak` with N at most `newest_supported`.
+    backup_path: Option<PathBuf>,
     database_path: Option<PathBuf>,
     registry_id: Option<String>,
 }
@@ -326,6 +339,15 @@ impl UnsupportedWorkspaceRegistrySchema {
         self.database_path.as_deref()
     }
 
+    pub fn min_reader(&self) -> i64 {
+        self.min_reader
+    }
+
+    /// The backup this build can roll the registry back to.
+    pub fn backup_path(&self) -> Option<&Path> {
+        self.backup_path.as_deref()
+    }
+
     pub fn registry_id(&self) -> Option<&str> {
         self.registry_id.as_deref()
     }
@@ -333,11 +355,15 @@ impl UnsupportedWorkspaceRegistrySchema {
 
 impl std::fmt::Display for UnsupportedWorkspaceRegistrySchema {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "unsupported workspace registry schema {}; newest supported is {}",
-            self.found, self.newest_supported
-        )
+        formatter.write_str(&crate::store_compat::refusal_text(
+            "workspace registry",
+            self.found,
+            self.min_reader,
+            self.newest_supported,
+            self.written_by.as_deref(),
+            self.database_path.as_deref(),
+            self.backup_path.as_deref(),
+        ))
     }
 }
 
