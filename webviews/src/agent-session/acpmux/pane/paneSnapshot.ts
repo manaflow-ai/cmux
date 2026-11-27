@@ -159,6 +159,8 @@ import {
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
+  reconnectRefusalStarts,
+  RETRY_FIRST_MS,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
@@ -419,8 +421,6 @@ export type PaneSnapshotArgs = {
   setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
-  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -566,7 +566,6 @@ export function paneSnapshotEffect({
   restartGate,
   setLinkDown,
   setHostTroubleSince,
-  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -918,6 +917,10 @@ export function paneSnapshotEffect({
   // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
   // Looking is cheap, so a daemon started again elsewhere is found within seconds.
   let reconnect = false;
+  /// The next ask is the starting `ready` handshake although the page reconnects (`reconnect` stays
+  /// true for the page's own state): a reconnect was refused with a definite answer, such as this
+  /// app's agent service stopped (hostRetry.ts `reconnectRefusalStarts`), and only `ready` starts it.
+  let startOnAsk = false;
   /// The chat the lost client held (direct.ts `CarriedChat`): the next client starts from it, so
   /// a reconnect keeps every row on screen instead of reading the chat again from nothing.
   let carriedChat: CarriedChat | undefined;
@@ -929,10 +932,10 @@ export function paneSnapshotEffect({
   /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
   let troubleSince: number | undefined;
   let connecting = false;
-  /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
-  /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
+  /// The loop is in its slow spell (hostRetry.ts `hostRetryStep` `slow`): its timer asks at most every
+  /// REFUSED_RETRY_MAX_MS, and an event (`HOST_WAKE_EVENTS`) asks now. It never stops.
   let stopped = false;
-  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  /// The host's `acpmux-daemon-answered` already asked once in this slow spell (hostRetry.ts `hostWakeAsks`).
   let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
@@ -995,10 +998,13 @@ export function paneSnapshotEffect({
     // its identity, without unmounting ComposerContext and losing a pending machine selection.
     reconnectingRef.current = true;
     cloudTypingPrewarm.reset();
+    // A `reconnect` only looks for a daemon; after its definite refusal this ask starts one (`startOnAsk`).
+    const asksReconnect = reconnect && !startOnAsk;
+    startOnAsk = false;
     try {
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
-      acpWire.lifecycle("handshake", { reconnect });
+      acpWire.lifecycle("handshake", { reconnect: asksReconnect });
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -1048,7 +1054,7 @@ export function paneSnapshotEffect({
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
         tab?: unknown;
-      }>("ready", reconnect ? { reconnect } : {})
+      }>("ready", asksReconnect ? { reconnect: true } : {})
         // The host cleared its toast box for this handshake: it hears the mounted composer's again.
         .finally(resendToastAvoidance);
       if (cancelled) return;
@@ -1386,23 +1392,16 @@ export function paneSnapshotEffect({
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
           const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
-          // Bounded: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is not asked
-          // again on a timer; the line says so with Retry, and an event asks again (`stopped`).
+          // Never given up: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is asked
+          // again at most every REFUSED_RETRY_MAX_MS, and an event asks now (`stopped`). Nothing is said.
           const step = lostRetryStep({
             troubleForMs: failingSince - troubleSince,
             upForMs: failingSince - connectedAt,
             waitMs: lost.wait,
           });
-          if (step.kind === "stop") {
-            stopped = true;
-            setHostGaveUp(true);
-            const failure = new Error("The agent service keeps closing this chat's connection.");
-            setHostError(failure.message);
-            setHostFailure(failure);
-            setHostErrorShown(true);
-            return;
-          }
-          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
+          stopped = step.kind === "retry" && step.slow === true;
+          if (step.kind === "stop") return;
+          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = lost.next;
         },
         mockModule
@@ -1506,7 +1505,6 @@ export function paneSnapshotEffect({
       setHostErrorShown(false);
       stopped = false;
       answerSpent = false;
-      setHostGaveUp(false);
       failingSince = undefined;
       setLinkDown(false);
       setHostRestoring(undefined);
@@ -3036,20 +3034,29 @@ export function paneSnapshotEffect({
         // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
         const asleep = (peer: string | undefined) =>
           peer !== undefined && snapshotRef.current?.peerKinds?.[peer] !== "ssh" && cloudMachineAsleep(peer);
-        setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep));
+        // A reconnect's definite refusal (a stopped agent service) is not said: the starting ask that
+        // follows at once clears it (`startOnAsk`), and says it only if that one is refused too.
+        const restartOffered = offersAcpmuxRestart(error);
+        const startsNext = asksReconnect && reconnectRefusalStarts(error, restartOffered);
+        if (startsNext) {
+          startOnAsk = true;
+          retryDelay = RETRY_FIRST_MS;
+        }
+        setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep, asksReconnect));
         // A refused chat of another machine still names that machine on its chip (cx-k21v).
         setMachineName((current) => refusedMachine(error) ?? current);
         // Another binary's daemon on this app's socket: the card offers Restart acpmux.
-        setAcpmuxRestartOffered(offersAcpmuxRestart(error));
+        setAcpmuxRestartOffered(restartOffered);
         // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
         // in flight asks again itself when it ends.
         // A reply too large to send is the same at every ask: only the line's Retry asks again.
-        // Bounded (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
-        // stops; the line says why with Retry, and an event asks again (`stopped`).
-        const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
-        // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
-        stopped = step.kind === "stop" && !tooLarge;
-        setHostGaveUp(stopped);
+        // Never given up (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
+        // asks at most every REFUSED_RETRY_MAX_MS and an event asks now (`stopped`); a stopped service
+        // is asked to start at once. Only a chat too large to open waits for the line's Retry.
+        const step = startsNext
+          ? { kind: "retry" as const, waitMs: RETRY_FIRST_MS }
+          : hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+        stopped = step.kind === "retry" && step.slow === true;
         if (step.kind === "retry" && restartGate.mayAsk()) {
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
@@ -3101,13 +3108,15 @@ export function paneSnapshotEffect({
     retryPending = true;
     setRetryQueued(true);
   };
-  // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
+  // A slow loop asks now on an event instead of at its next tick: the window shown or focused again,
   // the network back, or the host's word that its agent service changed.
   const wake = (event: Event) => {
-    if (cancelled || !restartGate.mayAsk()) return;
+    if (cancelled || !restartGate.mayAsk() || directClient.current) return;
     const hidden = document.visibilityState === "hidden";
     if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
     answerSpent = event.type === "acpmux-daemon-answered";
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    retryTimer = undefined;
     void connectHost();
   };
   for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);

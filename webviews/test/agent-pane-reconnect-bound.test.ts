@@ -1,9 +1,10 @@
-// The pane's handshake loop is bounded (Leo, 2026-11-24: "I feel like there are often these like dead
-// hang loops"; 2026-11-23: "infinite Reconnecting..."). Before, a pane whose agent service never came
-// back asked again every 2 s forever (cmux#49148: 490 reconnects an hour from one pane), and cmux#51294
-// only changed the line's words after two minutes. Now the loop stops at SELF_RETRY_SAID_MS: no timer
-// asks again, the line offers Restart agent service, and an event (the window shown or focused, the
-// network back, the host's word that acpmux answers again) asks once more.
+// The pane's handshake loop is bounded in rate, never in time (Leo, 2026-11-24: "I feel like there are
+// often these like dead hang loops"; 2026-11-27, on "The agent service stopped. Retry": "retry on its
+// own and never send messages like this. just remove it"). Before cmux#54312 a pane whose agent service
+// never came back asked again every 2 s forever (cmux#49148: 490 reconnects an hour from one pane); then
+// the loop stopped at SELF_RETRY_SAID_MS and waited on a click. Now, past SELF_RETRY_SAID_MS, it keeps
+// asking at most every REFUSED_RETRY_MAX_MS (`slow`), and an event (the window shown or focused, the
+// network back, the host's word that acpmux answers again) asks at once.
 //
 // These tests run the loop's rules on a simulated clock: the asks an hour without a daemon, before
 // and after, and the time from the daemon's return to the pane's next ask.
@@ -44,29 +45,35 @@ function asksInAnHour(bounded: boolean, error: unknown = daemonGone): number {
   return asks;
 }
 
-test("a pane whose agent service never comes back stops asking at the bound", () => {
+test("a pane whose agent service never comes back keeps asking, slowly, for the whole hour", () => {
   const before = asksInAnHour(false);
   const after = asksInAnHour(true);
-  console.log(`asks an hour without a daemon: before ${before}, after ${after}`);
-  // Before: one ask every 2 s for the whole hour.
+  console.log(`asks an hour without a daemon: unbounded ${before}, slowed ${after}`);
+  // Unbounded: one ask every 2 s for the whole hour.
   expect(before).toBeGreaterThan(1_700);
-  // After: the asks of the first two minutes, then none.
-  expect(after).toBeLessThanOrEqual(Math.ceil(SELF_RETRY_SAID_MS / 2_000) + 8);
+  // Slowed: the asks of the first two minutes, then one every 30 s until the hour ends, never none.
+  const quick = Math.ceil(SELF_RETRY_SAID_MS / 2_000) + 8;
+  const slow = Math.floor((HOUR_MS - SELF_RETRY_SAID_MS) / REFUSED_RETRY_MAX_MS);
+  expect(after).toBeGreaterThanOrEqual(slow);
+  expect(after).toBeLessThanOrEqual(quick + slow + 1);
 });
 
-test("the bound stops the loop, except a machine link acpmux itself reconnects and a chat too large", () => {
+test("past the bound the loop slows and never stops, except a chat too large", () => {
   expect(hostRetryStep({ error: daemonGone, troubleForMs: SELF_RETRY_SAID_MS - 1, waitMs: 2_000 })).toEqual({
     kind: "retry",
     waitMs: 2_000,
   });
   expect(hostRetryStep({ error: daemonGone, troubleForMs: SELF_RETRY_SAID_MS, waitMs: 2_000 })).toEqual({
-    kind: "stop",
+    kind: "retry",
+    waitMs: REFUSED_RETRY_MAX_MS,
+    slow: true,
   });
   // acpmux reconnects a machine's link itself and tells the pane nothing: no event to wait for, so
   // it keeps a slow timer.
   expect(hostRetryStep({ error: machineUnreachable, troubleForMs: HOUR_MS, waitMs: 2_000 })).toEqual({
     kind: "retry",
     waitMs: REFUSED_RETRY_MAX_MS,
+    slow: true,
   });
   // A chat too large to open gets the same reply at every ask: it stops at once (only Retry asks).
   expect(hostRetryStep({ error: { reason: "message.too_large" }, troubleForMs: 0, waitMs: 250 })).toEqual({
@@ -74,7 +81,7 @@ test("the bound stops the loop, except a machine link acpmux itself reconnects a
   });
 });
 
-test("a daemon that drops the pane right after every connect is not asked again past the bound", () => {
+test("a daemon that drops the pane right after every connect is asked again slowly past the bound", () => {
   // Five minutes of a daemon that drops the pane 100 ms after every connect.
   const run = (bounded: boolean) => {
     let now = 0;
@@ -84,22 +91,25 @@ test("a daemon that drops the pane right after every connect is not asked again 
       connects += 1;
       now += 100;
       const lost = lostRetryDelay(delay, 100);
-      if (bounded && lostRetryStep({ troubleForMs: now, upForMs: 100, waitMs: lost.wait }).kind === "stop") break;
-      now += lost.wait;
+      const step = bounded ? lostRetryStep({ troubleForMs: now, upForMs: 100, waitMs: lost.wait }) : undefined;
+      if (step?.kind === "stop") throw new Error("a flapping daemon is never given up on");
+      now += step?.kind === "retry" ? step.waitMs : lost.wait;
       delay = lost.next;
     }
     return connects;
   };
   const before = run(false);
   const after = run(true);
-  console.log(`connects in 5 min of a flapping daemon: before ${before}, after ${after}`);
+  console.log(`connects in 5 min of a flapping daemon: unslowed ${before}, slowed ${after}`);
   expect(after).toBeLessThan(before);
-  expect(after).toBeLessThanOrEqual(20);
+  // The first two minutes at up to 10 s apart, then one every 30 s: still asking at the end.
+  expect(after).toBeGreaterThanOrEqual(Math.floor(180_000 / REFUSED_RETRY_MAX_MS));
+  expect(after).toBeLessThanOrEqual(30);
   // A connection that stayed up always reconnects, however long the trouble before it.
   expect(lostRetryStep({ troubleForMs: HOUR_MS, upForMs: CONNECTION_STABLE_MS, waitMs: 250 }).kind).toBe("retry");
 });
 
-test("a stopped pane asks again on the daemon's return, not on a tick", () => {
+test("a slow pane asks at once on the daemon's return or a person's event", () => {
   const stopped = { stopped: true, connecting: false, hidden: false, answerSpent: false };
   // The host's word that acpmux answers again: the pane asks at once (0 ms after the event).
   expect(hostWakeAsks({ ...stopped, event: "acpmux-daemon-answered" })).toBe(true);
