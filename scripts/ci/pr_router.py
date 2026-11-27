@@ -278,7 +278,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`)")
+                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`, and the "
+                         f"steps that build a changed generated source's users)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -370,13 +371,15 @@ def nightly_gate_on() -> bool:
 
 
 def nightly_gates(config: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
-    """The nightly-mirroring steps of CONFIG's table jobs FILES route. Unknown files route every such step; an
-    unreadable table routes none here (the full tier and the post-merge batch still run it)."""
+    """The nightly-mirroring steps of CONFIG's table jobs FILES route, and the steps a changed generated source reaches
+    (ci_steps.GENERATED_GATE: #62617's regenerated Rust client broke its caller after the merge, #62842). Unknown
+    files route every nightly-mirroring step; an unreadable table routes none here (the full tier and the post-merge
+    batch still run it)."""
     jobs = [job for job in config.get("table_jobs", []) if job in NIGHTLY_GATE_JOBS]
     if not jobs:
         return []
     try:
-        return ci_steps.nightly_gate_steps(ci_steps.load(table or ci_steps.TABLE), files, jobs)
+        return ci_steps.land_gate_steps(ci_steps.load(table or ci_steps.TABLE), files, jobs)
     except Exception:  # noqa: BLE001
         return []
 

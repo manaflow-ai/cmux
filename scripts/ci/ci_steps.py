@@ -43,7 +43,8 @@ step at the merged tip (cmux-next-pr-pipeline-linux-batch.yml) and bisects a new
 the nightly's publish or reds its run, found hours after the merge (Leo, 2026-11-27: "shouldn't a build check fail
 beforehand fast like fast-fail is useful ci all stuff"). Such a step keeps its whole route under `--pr-scope`, and
 pr_router.py starts it on a landing head of the affected tier (nightly_gate_steps), so the landing fails, not the
-nightly. .github/nightly-step-coverage.json maps the nightly step back to it ({"table": NAME};
+nightly. A changed generated source keeps every rooted input the same way (GENERATED_GATE: #62617).
+.github/nightly-step-coverage.json maps the nightly step back to it ({"table": NAME};
 tests/test_nightly_step_coverage.py checks both directions).
 
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
@@ -83,7 +84,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -264,18 +265,87 @@ def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
         return True
     patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
+    # A generated source (generated_source) keeps every rooted input under PR_SCOPE: the step that compiles the code
+    # using it runs before the merge, not in the post-merge batch (#62617, see GENERATED_GATE).
+    rooted = [glob_pattern(g) for g in step.inputs if narrow and not named_input(g) and rooted_input(g)]
     ignored = [(g.startswith("!"), glob_pattern(g.lstrip("!"))) for g in reversed(step.ignore)]
 
     def kept(path: str) -> bool:
         return next((back for back, i in ignored if i.match(path)), True)
 
-    return any(p.match(path) and kept(path) for path in paths for p in patterns)
+    def hit(path: str) -> bool:
+        return any(p.match(path) for p in patterns) or (
+            bool(rooted) and any(p.match(path) for p in rooted) and generated_source(path))
+
+    return any(hit(path) and kept(path) for path in paths)
+
+
+# A generated source (an output of scripts/ci/generated-files.json's generators or conventions, or a file of
+# scripts/ci/generated-files-baseline.txt) is left out of path classification (fast-track, the cargo fast tier,
+# generated-drift owns it), and its only route was a step's whole-directory input. #62617 regenerated the cmux-vm Rust
+# client (cmux-vm-client/src/generated.rs): --pr-scope left cmux-vm-clients-rust to the post-merge batch and the land
+# tier started no pr-pipeline.yml, so its caller (cmux-vm/src/run.rs, E0061) broke the base and #62842 fixed it forward.
+# Leo, 2026-11-27: "It can just be like, okay, you got to fix this afterwards or whatever, just as if it were like a
+# follow-up". So a changed generated source routes every step that reaches it through a rooted input (one that names a
+# directory: `workers/cmux-vm/cli/**`, not `**` or `**/*.rs`), under --pr-scope and on a landing head of the affected
+# tier (land_gate_steps).
+GENERATED_GATE = ("scripts/ci/generated-files.json", "scripts/ci/generated-files-baseline.txt")
+_generated: list[re.Pattern[str]] | None = None
+
+
+def rooted_input(glob: str) -> bool:
+    """An input that starts with a directory name: it reaches one tree, not the whole repo (`**`, `**/*.rs`, `*`)."""
+    return not glob.startswith(("*", "?"))
+
+
+def generated_globs(root: Path = ROOT) -> list[str]:
+    """The globs of generated sources: each generator's outputs, the conventions and the baseline's files (not the
+    manifest's `committed` paths: a lockfile is an input to the build). An unreadable file adds nothing."""
+    globs: list[str] = []
+    try:
+        manifest = json.loads((root / GENERATED_GATE[0]).read_text(encoding="utf-8"))
+        globs += [g for g in manifest.get("conventions", []) if isinstance(g, str)]
+        globs += [o for gen in manifest.get("generators", []) for o in gen.get("outputs", []) if isinstance(o, str)]
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        lines = (root / GENERATED_GATE[1]).read_text(encoding="utf-8").splitlines()
+        globs += [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    except OSError:
+        pass
+    return [g for g in globs if g]
+
+
+def generated_source(path: str) -> bool:
+    global _generated
+    if _generated is None:
+        _generated = [glob_pattern(g) for g in generated_globs()]
+    return any(p.match(path) for p in _generated)
+
+
+def generated_gate_steps(table: Table, paths: list[str] | None,
+                         jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """The blocking steps a changed generated source of PATHS reaches through a rooted input (GENERATED_GATE), in JOBS
+    when given: the checks that compile the code using it. An unknown diff names none (the full tier runs them)."""
+    changed = [p for p in paths or [] if generated_source(p)]
+    if not changed:
+        return []
+    return [step.name for step in table.steps.values()
+            if step.blocks and (not jobs or step.job in jobs) and any(map(rooted_input, step.inputs)) and routed(
+                replace(step, inputs=tuple(filter(rooted_input, step.inputs))), changed)]
 
 
 def nightly_gate_steps(table: Table, paths: list[str] | None, jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
     """The steps with a `nightly` counterpart a diff of PATHS routes (every input kept), in JOBS when given."""
     return [step.name for step in table.steps.values()
             if step.nightly and (not jobs or step.job in jobs) and routed(step, paths, pr_scope=True)]
+
+
+def land_gate_steps(table: Table, paths: list[str] | None, jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """The steps a landing head of the affected tier runs before the merge: nightly_gate_steps and
+    generated_gate_steps, in table order."""
+    gated = set(nightly_gate_steps(table, paths, jobs)) | set(generated_gate_steps(table, paths, jobs))
+    return [name for name in table.steps if name in gated]
 
 
 def route(table: Table, paths: list[str] | None, label: str | None = None,
