@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextNotifications
+@testable import CmuxNextNotifications
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import CmuxVisibleRows
@@ -19,7 +19,8 @@ struct VisibleRowsContractTests {
         try await VisibleRowsContract.check(SidebarWorkspaceRows.self)
     }
 
-    /// In `VisibleRowsBaseline` (CmuxVisibleRows): the panel makes a new row view for every ledger entry on every render.
+    /// In `VisibleRowsBaseline` for items walked only: the daemon answers each change with the whole ledger, and the
+    /// panel reads it to find what changed. Every other rule holds and fails the test if it breaks.
     @Test func notificationsPanel() async throws {
         try await VisibleRowsContract.check(NotificationsPanelRows.self)
     }
@@ -112,14 +113,14 @@ struct VisibleRowsContractTests {
     func close() { window.close() }
 }
 
-/// The notifications panel over `rows` ledger entries, a row view made for each as `NotificationsPanelController.render` does.
+/// The notifications panel over `rows` ledger entries, shown as `NotificationsPanelController.render` shows a ledger reply.
 @MainActor final class NotificationsPanelRows: VisibleRowsFixture {
     static let name = "notifications panel"
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
     let card = NotificationsPanelView()
     let window: NSWindow
     var rows: [NotificationsPanelRow]
-    var list: NotificationsPanelView { card }
+    var list: NotificationsPanelList { card.list }
 
     init(rows count: Int) async throws {
         _ = NSApplication.shared
@@ -138,41 +139,61 @@ struct VisibleRowsContractTests {
                               createdAt: now.addingTimeInterval(-60 * Double(index)), unread: unread, surface: nil, terminal: nil)
     }
 
-    /// What the controller's render does: new row views, shown, the selection drawn, the panel sized to the card.
+    /// What the controller's render does with a ledger reply: the rows shown, the selection drawn, the panel sized to the card.
     func render() {
-        let views = rows.map { NotificationRowView(row: $0, now: Self.now, callbacks: .init(open: {}, dismiss: {}, menu: { NSMenu() })) }
-        _ = card.show(views, loaded: true)
+        _ = card.show(rows, loaded: true, now: Self.now)
         card.select(nil)
         window.setContentSize(card.fittingSize)
         drawFrame(window)
     }
 
-    var viewportRows: Int { card.rowViews.filter { !$0.visibleRect.isEmpty }.count }
+    var viewportRows: Int {
+        let visible = list.visibleRect
+        return list.mountedViews.filter { visible.intersects($0.frame) }.count
+    }
 
-    /// A notification is read: the ledger's reply marks one row read (the panel reloads on an unread change).
+    /// A notification is read: the ledger's reply marks one shown row read (the panel reloads on an unread change).
     func changeOneItem() async throws {
         let read = rows[1]
         rows[1] = Self.row(1, unread: !read.unread)
         render()
     }
 
+    /// From the middle of the ledger (that move is not measured), one row down.
     func scrollOneRow() async throws -> Bool {
-        guard let scroll = Self.scrollView(in: card), let first = card.rowViews.first else { return false }
+        guard let scroll = list.enclosingScrollView, let first = list.mountedViews.first else { return false }
         let clip = scroll.contentView
-        clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + first.frame.height))
-        scroll.reflectScrolledClipView(clip)
-        drawFrame(window)
+        let maxY = max(0, list.frame.height - clip.bounds.height)
+        guard maxY > 0 else { return false }
+        self.scroll(scroll, to: min(maxY / 2, 2_000))
+        _ = list.listWork.take()
+        self.scroll(scroll, to: clip.bounds.minY + first.frame.height)
         return true
+    }
+
+    private func scroll(_ scroll: NSScrollView, to y: CGFloat) {
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        drawFrame(window)
     }
 
     /// The panel is a fixed width (`NotificationsPanelView.width`).
     func resizeOneStep() async throws -> Bool { false }
 
     func close() { window.close() }
+}
 
-    static func scrollView(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView { return scroll }
-        for child in view.subviews { if let found = scrollView(in: child) { return found } }
-        return nil
+/// A reused row view of the panel acts on the notification it shows now, not the one it was made for.
+@MainActor @Suite(.serialized, .closesItsWindows) struct NotificationsPanelReuseTests {
+    @Test func aReusedRowOpensTheRowItShows() async throws {
+        let fixture = try await NotificationsPanelRows(rows: 200)
+        defer { fixture.close() }
+        var opened: [String] = []
+        fixture.list.open = { opened.append($0.id) }
+        _ = try await fixture.scrollOneRow()
+        let view = try #require(fixture.list.mountedViews.first)
+        #expect(view.row.id != fixture.rows[0].id, "the list did not scroll")
+        _ = view.accessibilityPerformPress()
+        #expect(opened == [view.row.id])
     }
 }

@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-bytes",
     "crates/cmux-pool-pod",
     "crates/cmux-vmd",
     "crates/cmux-terminal-host-protocol",
@@ -214,6 +215,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-cloud-disk",
     "crates/cmux-tab-snapshots",
+    "crates/cmux-phone-page",
     "crates/cmux-palette-ranker",
     "crates/cmux-keymap",
     "crates/cmux-terminal-find",
@@ -225,6 +227,7 @@ members = [
     "crates/cmux-usage-patterns",
     "crates/cmux-usage-share",
     "crates/cmux-vault-egress",
+    "crates/cmux-vault-e2e",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/cmux-computer-use",
@@ -473,6 +476,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
+cmux-bytes = { path = "crates/cmux-bytes" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
@@ -526,6 +530,7 @@ cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
 cmux-usage-share = { path = "crates/cmux-usage-share" }
 cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
+cmux-vault-e2e = { path = "crates/cmux-vault-e2e" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
@@ -593,6 +598,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-phone-page = { path = "crates/cmux-phone-page" }
 cmux-cloud-disk = { path = "crates/cmux-cloud-disk" }
 cmux-vnc = { path = "crates/cmux-vnc" }
 cmux-computer-use = { path = "crates/cmux-computer-use", default-features = false }
@@ -766,6 +772,15 @@ smoltcp = { path = "vendor/smoltcp" }
 opt-level = "z"
 lto = "thin"
 codegen-units = 1
+
+# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
+# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
+# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
+# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
+# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
+# is unchanged.
+[profile.release.build-override]
+strip = false
 
 [profile.release.package.cmux-tui]
 opt-level = "z"

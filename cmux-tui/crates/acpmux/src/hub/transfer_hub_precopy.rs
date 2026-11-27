@@ -155,7 +155,7 @@ impl Hub {
                 "this machine names no webRoots, so no moved chat may work here",
             ));
         }
-        let guard = Guard::parse(&json!({"control": "peer", "roots": roots})).await?;
+        let guard = Guard::from_config_roots(&roots).await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;

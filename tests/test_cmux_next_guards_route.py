@@ -31,6 +31,19 @@ def callers():
 
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
+    def test_control_plane_guards_use_the_small_linux_pool(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        for name in ("fast-check-route", "security-holes", "workflow-start-lint"):
+            with self.subTest(job=name):
+                runs_on = jobs[name]["runs-on"]
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on)
+                self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
+                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
+
+        # static-checks executes the larger, multi-step nightly capability and generated-string checks.
+        self.assertTrue(jobs["static-checks"]["runs-on"].endswith("|| 'cmux-linux' }}"))
+
     def test_feat_cmux_next_runs_release_notary_on_pushes(self):
         # A push runs every release-notary step in parallel, judged at the tip. The ci-guards.yml matrix leg ran them
         # one after another (915 s on 4 vCPU) and ended cancelled at its 15 minutes, with no verdict, on every push.
@@ -136,6 +149,22 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn("--root .guard-base", calls[1])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)
+
+    def test_marking_a_draft_ready_does_not_cancel_its_run(self):
+        # The jobs that judge a head skip ready_for_review (the land tier): the draft's run already judges that same
+        # head. In the PR's shared group (cancel-in-progress) the ready_for_review run cancelled the draft's run and
+        # then skipped, so the head had no guard verdict: 4 of the 10 heads marked ready while their run was going,
+        # 03:34Z-04:40Z 2026-11-27 (cmux#60334's b44fdf65, run 45929725137). So that event gets a group of its own.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        triggers = workflow.get(True) or workflow.get("on") or {}
+        self.assertIn("ready_for_review", triggers["pull_request"]["types"])
+        skips = [name for name, job in workflow["jobs"].items()
+                 if "github.event.action != 'ready_for_review'" in str(job.get("if") or "")]
+        self.assertTrue(skips)
+        group = workflow["concurrency"]["group"]
+        self.assertIn("${{ github.event_name == 'pull_request' && github.event.action == 'ready_for_review' && "
+                      "format('-ready-{0}', github.run_id) || '' }}", group)
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
 
     def test_a_push_runs_every_guard_group_a_pull_request_can_run(self):
         # The merge gate excuses a pull request's guard group red only by the base's newest push run of the same job

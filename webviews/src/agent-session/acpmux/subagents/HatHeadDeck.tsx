@@ -64,6 +64,9 @@ export function HatHeadDeck({
   const t = useT();
   const shown = items.slice(0, DECK_MARKS);
   const rest = items.length - shown.length;
+  // After the one line's words (`trail`) the deck keeps all DECK_MARKS slots, empty ones too, so "+N
+  // more" sits in one place however many lines run and the bar never re-lays out as lines come and go.
+  const blanks = at === "trail" ? DECK_MARKS - shown.length : 0;
   const wheel = useRef(0);
   // The `cards` look: the wheel over the deck thumbs from card to card, wrapping, from the one in front.
   const onWheel = (event: WheelEvent<HTMLSpanElement>) => {
@@ -120,6 +123,11 @@ export function HatHeadDeck({
           </span>
         );
       })}
+      {Array.from({ length: blanks }, (_, index) => (
+        <span key={`blank-${index}`} className="acpmux-hat-deck__mark" data-blank aria-hidden="true">
+          <span className="acpmux-hat-deck__face" style={{ width: ROW_ICON, height: ROW_ICON }} />
+        </span>
+      ))}
       {rest > 0 && <span className="acpmux-summary-meta acpmux-hat-deck__rest">{t("tools.more", { n: rest })}</span>}
     </span>
   );
