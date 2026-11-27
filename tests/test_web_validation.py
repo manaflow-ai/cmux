@@ -51,9 +51,11 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
             "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
-            "    permissions:\n      contents: read\n      actions: read\n"
+            "    permissions:\n      contents: read\n      actions: read\n      id-token: write\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
-            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n"
+            "      push_base: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick)"
+            " && needs.coalesce.outputs.base || '' }}\n",
             self.text,
         )
 
@@ -93,7 +95,7 @@ class CiWebInstallsBeforeNodeModules(unittest.TestCase):
 
     def test_an_install_only_off_pull_requests_does_not_count(self):
         job = (
-            "jobs:\n  shard:\n    steps:\n"
+            "name: t\njobs:\n  shard:\n    steps:\n"
             "      - name: Verify\n        run: |\n"
             '          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then\n'
             "            exec ./scripts/build-webviews-app.sh --check\n"
