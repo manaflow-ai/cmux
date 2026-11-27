@@ -1207,6 +1207,33 @@ status=0
 exit "$status"
 '''
 
+# The web tests a pull request can break from outside web/ (or from a web/ path its shards leave to the batch):
+# since #57511 a feat-cmux-next pull request routes web-tests-1..4 only on a named input, so an images/, .github/ or
+# catalog change that a web test imports or reads went red only in the post-merge batch (#53974, #57649). This step
+# routes on every pull request (pr_scope = false, inputs ["**"]) and asks scripts/ci/web_tests_affected.py for the
+# test files whose import closure or literal read paths hold a changed path; none (the usual case) exits in a few
+# seconds with no install. A path that reaches more than 80 tests (a message catalog, the preload) is left to the shards
+# and the batch, as is a whole set over 80. Unset $CI_PATHS_FILE (the batch, an unknown diff) exits 0: the shards
+# run every test there. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+[step.web-tests-affected]
+job = "linux"
+timeout = 300
+pr_scope = false
+needs = ["bun"]
+title = "Web tests the change reaches"
+about = "the web bun test files whose imports or read paths hold a changed file (scripts/ci/web_tests_affected.py), on a pull request"
+inputs = ["**"]
+run = '''
+[ -n "${CI_PATHS_FILE:-}" ] || { echo "No change list: the web-tests shards run every web test."; exit 0; }
+picked="$(python3 -I scripts/ci/web_tests_affected.py "$CI_PATHS_FILE")" || picked=""
+[ -n "$picked" ] || { echo "No web test reaches a changed path."; exit 0; }
+mapfile -t files <<<"$picked"
+echo "Web tests the change reaches (${#files[@]}):"; printf '  %s\n' "${files[@]}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./scripts/run-tests.sh "${files[@]}"
+'''
+
 # ci-web.yml's web-production-build job: `bun run vercel-build` with the job's build-only env (no secrets: placeholder
 # keys and an unreachable database URL). `inputs` cover web_subareas.py's production_build subarea (a superset: its
 # web/e2e, web/tests and test-runner exclusions are left to the step's first line, `has production_build`). It runs

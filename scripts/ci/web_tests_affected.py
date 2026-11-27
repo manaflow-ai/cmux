@@ -14,7 +14,7 @@ every test. A changed test file selects itself. A change to what every test load
 web/bunfig.toml, web/tsconfig.json, the preload's closure) or a set over --cap selects nothing and says so: the
 web-tests shards and the post-merge batch run them all.
 
-  web_tests_affected.py [--rev REV] [--cap N] [--json] PATHS_FILE|-   one test path (web-relative) a line, or JSON
+  web_tests_affected.py [--rev REV] [--cap N] [--json] PATHS_FILE|-   one test path a line (./ and web-relative), or JSON
 """
 from __future__ import annotations
 
@@ -35,17 +35,17 @@ PRELOAD = "web/tests/test-preload.ts"
 DEFAULT_CAP = 80
 IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+|\bmock\.module\s*\(\s*)(["'])([^"'\n]+)\1""")
-STRING_RE = re.compile(r"""(["'`])((?:[^"'`\\\n$]|\\.){1,200}?)\1""")
+STRING_RE = re.compile(r"""(["'`])((?:[^"'`\\\n]|\\.){1,200}?)\1""")
 JOIN_RE = re.compile(r"""\b(?:join|resolve)\s*\(([^()]{0,400})\)""")
 
 
 class Tree:
     """The tracked files at a revision (git ls-tree, git cat-file) or in the work tree (git ls-files)."""
 
-    def __init__(self, rev: str | None) -> None:
-        self.rev = rev
+    def __init__(self, rev: str | None, root: Path = ROOT) -> None:
+        self.rev, self.root = rev, root
         cmd = ["git", "ls-tree", "-r", "--name-only", rev] if rev else ["git", "ls-files"]
-        self.files = set(subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True).stdout.splitlines())
+        self.files = set(subprocess.run(cmd, cwd=root, check=True, capture_output=True, text=True).stdout.splitlines())
         self.dirs: set[str] = set()
         for f in self.files:
             d = posixpath.dirname(f)
@@ -61,12 +61,12 @@ class Tree:
         text = ""
         if self.rev is None:
             try:
-                text = (ROOT / path).read_text(errors="replace")
+                text = (self.root / path).read_text(errors="replace")
             except OSError:
                 pass
         else:
             if self._cat is None:
-                self._cat = subprocess.Popen(["git", "cat-file", "--batch"], cwd=ROOT, stdin=subprocess.PIPE,
+                self._cat = subprocess.Popen(["git", "cat-file", "--batch"], cwd=self.root, stdin=subprocess.PIPE,
                                              stdout=subprocess.PIPE)
             assert self._cat.stdin and self._cat.stdout
             self._cat.stdin.write(f"{self.rev}:{path}\n".encode())
@@ -103,6 +103,12 @@ def specifier_base(spec: str, here: str) -> str | None:
     return None
 
 
+def test_side(path: str) -> bool:
+    """A file whose bare repo paths ("images/cmux-vm/x") are paths it reads: a test, a helper, a script, a file
+    outside web/. App and docs code (web/app, web/data) quote repo paths as text, which no test reads."""
+    return TEST_RE.search(path) is not None or not path.startswith("web/") or path.startswith(("web/tests/", "web/scripts/"))
+
+
 def scan(tree: Tree, path: str, files: set[str], dirs: set[str]) -> list[str]:
     """Adds the literal paths `path` names to files/dirs and returns the code modules it imports."""
     text = tree.text(path)
@@ -119,10 +125,15 @@ def scan(tree: Tree, path: str, files: set[str], dirs: set[str]) -> list[str]:
         if len(parts) > 1:
             literals.append("/".join(parts))
     for lit in literals:
+        if "${" in lit:  # `../../.github/workflows/${name}`: the directory before the first hole
+            lit = lit[:lit.index("${")]
+            lit = lit if lit.endswith("/") else posixpath.dirname(lit) + "/"
+            if lit in ("/", "./", "../"):
+                continue
         if " " in lit or "\\" in lit or "://" in lit or len(lit) < 1:
             continue
         relative = lit in (".", "..") or lit.startswith("./") or lit.startswith("../")
-        if not relative and "/" not in lit.strip("/"):
+        if not relative and ("/" not in lit.strip("/") or not test_side(path)):
             continue
         bases = [posixpath.join(here, lit)] if relative else [lit.strip("/"), "web/" + lit.strip("/")]
         for base in bases:
@@ -134,13 +145,14 @@ def scan(tree: Tree, path: str, files: set[str], dirs: set[str]) -> list[str]:
                 if target.endswith(CODE_EXTS):
                     modules.append(target)
                 break
-            if target == "" or target in tree.dirs:
-                if target not in ("", "web"):
-                    dirs.add(target)
-                break
             module = resolve_module(tree, target) if relative else None
             if module:
                 modules.append(module)
+                break
+            if target == "" or target in tree.dirs:
+                # App code names directories as text ("../vms" in a message); a test-side file lists or walks them.
+                if target not in ("", "web") and test_side(path):
+                    dirs.add(target)
                 break
     return modules
 
@@ -180,23 +192,31 @@ def web_tests(tree: Tree) -> list[str]:
 
 
 def select(tree: Tree, changed: list[str], cap: int = DEFAULT_CAP) -> dict:
+    """The tests each changed path reaches. A path that alone reaches more than `cap` tests (what every test loads, a
+    message catalog most pages import) is left to the web-tests shards and the batch; the other paths still pick
+    theirs, so a change to en.json and one page runs that page's test. If the union is still over `cap`: none."""
     changed = sorted(set(c for c in changed if c))
     memo: dict[str, tuple[frozenset, frozenset]] = {}
     preload, _ = closure(tree, PRELOAD, memo) if PRELOAD in tree.files else (frozenset(), frozenset())
-    everything = sorted(c for c in changed if c in GLOBAL or c in preload)
-    if everything:
-        return {"tests": [], "skipped": f"{everything[0]} is loaded by every web test", "changed": changed}
+    left = {c: "loaded by every web test" for c in changed if c in GLOBAL or c in preload}
     tests = web_tests(tree)
-    picked = []
+    by_path: dict[str, list[str]] = {c: [] for c in changed if c not in left}
     for test in tests:
         files, dirs = closure(tree, test, memo)
-        if any(c in files or any(c.startswith(d + "/") for d in dirs) for c in changed):
-            picked.append(test)
-    # A deleted or renamed test: the changed path itself, when it is still a test at this tree, is in `tests` already.
+        # A directory holding the test itself (a test that lists its siblings) is not a dependency on every one.
+        home = posixpath.dirname(test)
+        dirs = frozenset(d for d in dirs if not (home == d or home.startswith(d + "/")))
+        for c in by_path:
+            if c in files or any(c.startswith(d + "/") for d in dirs):
+                by_path[c].append(test)
+    for c, hits in by_path.items():
+        if len(hits) > cap:
+            left[c] = f"reaches {len(hits)} test files, over the cap of {cap}"
+    picked = sorted({t for c, hits in by_path.items() if c not in left for t in hits})
+    result = {"tests": picked, "skipped": None, "left": left, "changed": changed, "of": len(tests)}
     if len(picked) > cap:
-        return {"tests": [], "skipped": f"{len(picked)} test files over the cap of {cap}", "changed": changed,
-                "would": len(picked)}
-    return {"tests": picked, "skipped": None, "changed": changed, "of": len(tests)}
+        result.update(tests=[], skipped=f"{len(picked)} test files over the cap of {cap}", would=len(picked))
+    return result
 
 
 def read_paths(arg: str) -> list[str]:
@@ -222,10 +242,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
         return 0
+    for path, why in sorted(result.get("left", {}).items()):
+        print(f"web_tests_affected: {path} {why}: the web-tests shards and the post-merge batch run them", file=sys.stderr)
     if result.get("skipped"):
         print(f"web_tests_affected: none picked: {result['skipped']}", file=sys.stderr)
     for test in result["tests"]:
-        print(test[len("web/"):])
+        print("./" + test[len("web/"):])  # ./ makes bun take it as a path, not a name filter
     return 0
 
 
