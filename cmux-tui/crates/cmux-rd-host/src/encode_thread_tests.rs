@@ -49,6 +49,8 @@ fn job(target_kbps: u32, halve_first: bool) -> Job {
         force_idr: true,
         idr_reason: None,
         target_kbps,
+        force_ltr_refresh: false,
+        acknowledged_ltr_tokens: Vec::new(),
         picture: None,
         profile: Default::default(),
         refine: false,
