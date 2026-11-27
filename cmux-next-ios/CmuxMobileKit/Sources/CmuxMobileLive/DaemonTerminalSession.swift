@@ -175,6 +175,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// ``agentCLIPhoneGridCapability``).
     private var phoneGridOffered = false
     private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Settings → Transport → Claude Code at Phone Size (off by default), and its frames did not
+    /// fail twice.
+    private var phoneGridWanted: Bool { Self.agentCLIPhoneGridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
     /// Where the setting is read (tests give each session its own).
     var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of
@@ -1439,7 +1442,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease), identify
             // and, replacing a live attach, the attach.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted, agentCLIs: hybridFallbacks < 2)
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted, phoneGrid: phoneGridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
             log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
@@ -1492,7 +1495,8 @@ public final class DaemonTerminalSession: TerminalSession {
             shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
             leased = shortLease || (identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false)
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
-            phoneGridOffered = identify.map { Self.lists(Self.agentCLIPhoneGridCapability, $0) } ?? false
+            // Only with the setting on: off, the attach sends no view grid (the path before it).
+            phoneGridOffered = phoneGridWanted && (identify.map { Self.lists(Self.agentCLIPhoneGridCapability, $0) } ?? false)
             sendKeys = identify.map { Self.lists(Self.sendKeyCapability, $0) } ?? false
             // A daemon that does not list the hybrid stream would refuse a resume's fields
             // (one older than it, or one this phone reached after a Mac update rolled back).
@@ -2884,19 +2888,34 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// What `set-client-info` declares: the lean stream (agent CLIs, shells, full-screen
     /// programs, coalesced PTY bytes for everything else) only with the setting on.
-    static func capabilities(agentCLIHybrid: Bool, agentCLIs: Bool = true) -> [String] {
-        if agentCLIHybrid { return clientCapabilities + leanStreamCapabilities + [agentCLIPhoneGridCapability] }
-        return agentCLIs ? clientCapabilities + agentCLIPhoneGridCapabilities : clientCapabilities
+    /// With `phoneGrid` (its own setting, off by default) Claude Code also comes drawn at the
+    /// phone's grid; off, the attach is exactly what it was before that path.
+    static func capabilities(agentCLIHybrid: Bool, phoneGrid: Bool = false) -> [String] {
+        switch (agentCLIHybrid, phoneGrid) {
+        case (true, true): return clientCapabilities + leanStreamCapabilities + [agentCLIPhoneGridCapability]
+        case (true, false): return clientCapabilities + leanStreamCapabilities
+        case (false, true): return clientCapabilities + agentCLIPhoneGridCapabilities
+        case (false, false): return clientCapabilities
+        }
+    }
+
+    /// Settings → Transport → Claude Code at Phone Size, the
+    /// `CmuxMobilePreferences.Key.agentCLIPhoneGrid` key; read at each attach.
+    nonisolated static let agentCLIPhoneGridDefaultsKey = "cmuxMobile.settings.agentCLIPhoneGrid"
+
+    nonisolated static func agentCLIPhoneGridEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: agentCLIPhoneGridDefaultsKey)
     }
 
     /// Claude Code drawn at this phone's own grid by the Mac's daemon, from its transcript and
-    /// the Mac screen's facts (cmux-tui `agent-cli-phone-grid-v1`, `server/agent_cli_phone.rs`),
-    /// on by default: the Mac never resizes for it (Leo, 2026-11-25: "do everything at parity
-    /// on the phone"; "you obviously fit to phone by default"). Shells and full-screen programs
-    /// keep the byte stream and the phone's own reflow.
+    /// the Mac screen's facts (cmux-tui `agent-cli-phone-grid-v1`, `server/agent_cli_phone.rs`):
+    /// the Mac never resizes for it (Leo, 2026-11-25: "do everything at parity on the phone").
+    /// Off by default until it is no worse than Claude Code's own screen for daily use (Leo,
+    /// 2026-11-27: "what about in comparison to the previous thing?"; the table on #56889).
+    /// Shells and full-screen programs keep the byte stream and the phone's own reflow.
     nonisolated static let agentCLIPhoneGridCapability = "agent-cli-phone-grid-v1"
-    /// What a phone declares without the Transport setting: an agent CLI's frames, packed, at
-    /// its own grid; nothing else changes.
+    /// What a phone declares with only Claude Code at Phone Size on: an agent CLI's frames,
+    /// packed, at its own grid; nothing else changes.
     nonisolated static let agentCLIPhoneGridCapabilities = [agentCLIHybridCapability, agentCLIHybridLeanCapability, agentCLIPhoneGridCapability]
 
     /// The lean stream's names: cmux-mobile-link `names::TERMINAL_LEAN_STREAM` on the phone
