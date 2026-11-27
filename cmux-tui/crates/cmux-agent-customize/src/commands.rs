@@ -5,7 +5,7 @@
 //!   loads as `/NAME` and reports over ACP, so the composer's `/` menu lists it in a new chat.
 //! - Codex: `~/.codex/prompts/NAME.md` (`$CODEX_HOME/prompts`), Codex's custom prompts, which it
 //!   runs as `/prompts:NAME`.
-//! - cmux: `~/.config/cmux/commands/NAME.md` ([`crate::paths::cmux_commands_dir`]), cmux's own
+//! - cmux: `~/.config/cmux-next/commands/NAME.md` ([`crate::paths::cmux_commands_dir`]), cmux's own
 //!   saved prompts: the daemon's `apps.composer.list` answers them beside the extensions' commands,
 //!   so `/NAME` is in every chat's `/` menu whatever the agent, and picking it writes the prompt
 //!   into the draft.
