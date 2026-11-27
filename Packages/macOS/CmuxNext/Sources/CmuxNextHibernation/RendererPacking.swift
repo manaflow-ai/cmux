@@ -11,7 +11,8 @@ import os
 /// against goal 1.2). Building that chat's page again puts it in the oldest renderer, and the second exits.
 ///
 /// Pure: the App feeds the live pages (`CEFEngine.rendererPages`) and which of them it may build again.
-public enum RendererPacking {
+public struct RendererPacking {
+    public init() {}
     public struct Page: Equatable, Sendable {
         /// The page's browser id.
         public var browser: Int32
