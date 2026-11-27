@@ -7,7 +7,17 @@
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
-import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
@@ -1666,11 +1676,14 @@ function ThreadMinimapView({
   /// ticks with the transcript's newest message and the next about 200 more (bench/chat-open.bench.ts
   /// PROFILE=1), so the open waited on the rail. Until the frame after a chat's first commit, the list
   /// is one spacer as tall as every row, so the rail keeps its size and nothing moves when they come.
+  /// Drawn as a transition: the 180 or so ticks were one sync commit in the task after that paint,
+  /// so the next frame (where the chat-open bench marks the latest message drawn, and a first key
+  /// would echo) waited 45 ms on them; React now builds them in slices that frame does not wait on.
   const [ticksFor, setTicksFor] = useState<{ sessionId?: string } | undefined>(undefined);
   const ticksDrawn = ticksFor !== undefined && ticksFor.sessionId === sessionId;
   useEffect(() => {
     if (ticksDrawn) return;
-    return drawTicksAfterPaint(() => setTicksFor({ sessionId }));
+    return drawTicksAfterPaint(() => startTransition(() => setTicksFor({ sessionId })));
   }, [ticksDrawn, sessionId]);
   const drawnKey = ticksDrawn ? `drawn ${drawn.join(" ")}` : "none";
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
