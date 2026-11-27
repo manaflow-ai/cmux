@@ -43,7 +43,7 @@ const planted = [
     "animate height",
     "export function Row(el: HTMLElement) { el.animate([{ height: '0px' }, { height: '40px' }], 120); }",
   ],
-  ["animate height", "export function Row(el: HTMLElement) { el.style.transition = 'height 120ms'; }"],
+  ["animate height", "export function Row(el: HTMLElement) { el.style.transition = 'height 120ms'; }"], // motion-allow: lint fixture, the literal the row lint must flag
 ] as const;
 
 test("each row-motion ban planted in a row with no baseline fails", () => {
