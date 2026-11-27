@@ -244,6 +244,32 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
+      # The agent-pane-real-acpmux step builds acpmux on an ephemeral runner: with no cargo cache it compiled ~470
+      # crates from scratch and could pass its 1800 s budget (job 138744570179, 2026-11-24). Restore the dependency
+      # build agent-pane-acpmux-cache.yml saves from feat-cmux-next, only when that step is routed. Never saves here
+      # (a pull request's save is a per-ref copy no other pull request can read, #54905).
+      - name: Does the change route the agent pane's acpmux build?
+        id: acpmux
+        run: |
+          # The step's own finer router reads one path a line (ci/run's $CI_PATHS_FILE); PATHS_FILE is NUL-separated.
+          lines=""
+          if [ -n "${PATHS_FILE:-}" ]; then lines="$RUNNER_TEMP/changed-paths-lines.txt"; tr '\0' '\n' < "$PATHS_FILE" > "$lines"; fi
+          if ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+              | python3 -c 'import json,sys; sys.exit(0 if "agent-pane-real-acpmux" in json.load(sys.stdin).get("web-browser", []) else 1)' \
+            && CI_PATHS_FILE="$lines" python3 -I scripts/ci/web_subareas.py has agent_pane; then
+            echo "routed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore the agent pane's acpmux cargo build
+        if: ${{ steps.acpmux.outputs.routed == 'true' }}
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          shared-key: agent-pane-real-acpmux
+          save-if: false
+          workspaces: cmux-tui -> target
       - name: Run the routed web-browser steps (ci/steps.toml)
         # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
         env:
@@ -476,11 +502,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/github_fetch_auth.py
       # The kit's simulator tests on the fleet pool (scripts/ci/ios-sim-pool.sh): this Mac builds for testing and
-      # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow times both,
-      # on uses the pool's verdict with this Mac as the fallback, unset or off skips it (shadow spends Mac minutes). Same-repo pull requests only.
+      # the pool runs them; the ios-kit step reads the verdict, with this Mac as the fallback when the pool gives none.
+      # On by default (Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap"); the
+      # shadow run that timed both ran its one run (#56945). vars.CMUX_IOS_SIM_LINUX=off leaves the pool out. Same-repo pull requests only.
       - name: Fleet pool, build the kit's simulator tests
         id: sim-pool
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX) && vars.CMUX_FLEET_CONTROLLER != '' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_IOS_SIM_LINUX != 'off' && vars.CMUX_FLEET_CONTROLLER != '' }}
         continue-on-error: true
         timeout-minutes: 25
         run: |
@@ -509,7 +536,7 @@ jobs:
       # ios-kit (the same inputs), so the list is never empty when it is routed; `none` names no step.
       - name: Run the routed ios steps (ci/steps.toml)
         env:
-          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX }}
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX == 'off' && 'off' || 'on' }}
           CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
           GH_TOKEN: ${{ github.token }}
         run: |
