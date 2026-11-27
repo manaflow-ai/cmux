@@ -64,6 +64,7 @@ fn sync(
         animated,
         reveals: true,
         anchor: None,
+        keeps_view: false,
     }
 }
 
@@ -685,6 +686,7 @@ fn layout_switching_to_a_split_screen_or_empty_strip_clamps_to_zero() {
         animated: true,
         reveals: true,
         anchor: None,
+        keeps_view: false,
     });
     assert_eq!(state.spring.target, 0.);
 }
@@ -701,6 +703,7 @@ fn layout_live_resize_holds_the_view_and_reveals_at_the_end() {
         animated: false,
         reveals: false,
         anchor: None,
+        keeps_view: false,
     });
     assert_eq!(state.spring.value, 224.);
     assert!(state.reveal_deferred);
@@ -722,6 +725,7 @@ fn layout_a_resize_drag_anchors_the_camera_on_the_dragged_column() {
         animated: false,
         reveals: false,
         anchor: Some(c("1")),
+        keeps_view: false,
     });
     assert_eq!(screen_x(&state, "1"), before);
 }
@@ -741,6 +745,7 @@ fn anchored_sync(before: &ColumnStrip, after: &ColumnStrip, offset: f64) -> Colu
         animated: true,
         reveals: false,
         anchor: Some(c("1")),
+        keeps_view: false,
     });
     state
 }
@@ -806,6 +811,7 @@ fn beside_the_new_column_scrolls_into_view_and_focus_stays_in_the_chat() {
         animated: false,
         reveals: true,
         anchor: None,
+        keeps_view: false,
     };
     state.reduce(event(beside_strip(2)));
     state.reduce(event(beside_strip(3)));
@@ -988,10 +994,10 @@ fn rows_transpose_and_keep_a_slot_per_live_row() {
     assert_eq!(scroll.row_for_slot(1), None);
 }
 
-/// A row camera keeps its vertical spring when a row closes: only the
-/// horizontal strip clamps the presented camera (#22059).
+/// A row camera clamps like a column camera when a row closes (Swift #44802): the removal is one
+/// commit, so the strip that stays shows up to its end and the camera does not spring back.
 #[test]
-fn rows_a_close_keeps_the_vertical_spring() {
+fn rows_a_close_clamps_the_vertical_camera() {
     let mut scroll = RowScroll::new();
     let strip = scroll.strip(rows(&[41, 42, 43]), 100.);
     scroll.state.reduce(ColumnScrollEvent::Sync {
@@ -1001,6 +1007,7 @@ fn rows_a_close_keeps_the_vertical_spring() {
         animated: false,
         reveals: true,
         anchor: None,
+        keeps_view: false,
     });
     assert_eq!(scroll.state.spring.value, 516.);
     let strip = scroll.strip(rows(&[41, 42]), 100.);
@@ -1011,9 +1018,36 @@ fn rows_a_close_keeps_the_vertical_spring() {
         animated: true,
         reveals: true,
         anchor: None,
+        keeps_view: false,
     });
-    assert_eq!(scroll.state.spring.value, 516.);
+    assert_eq!(scroll.state.spring.value, 208.);
     assert_eq!(scroll.state.spring.target, 208.);
+}
+
+/// A key press's trade (`keeps_view`, Swift `keptColumn`): the anchor stays where it shows and nothing
+/// reveals, where the same sync without it reveals the focused column.
+#[test]
+fn keeps_view_holds_the_anchor_and_reveals_nothing() {
+    let before = make_strip(&[600., 600., 600.]);
+    let after = make_strip(&[600., 600., 700.]);
+    let run = |keeps_view: bool| {
+        let mut state = settled_never(&before, "2");
+        let at = state.spring.target;
+        state.reduce(ColumnScrollEvent::Sync {
+            strip: after.clone(),
+            focused: Some(p("2")),
+            source: ColumnFocusSource::Keyboard,
+            animated: true,
+            reveals: true,
+            anchor: Some(c("0")),
+            keeps_view,
+        });
+        (at, state.spring.target)
+    };
+    let (at, held) = run(true);
+    assert_eq!(held, at, "the held camera did not move");
+    let (_, revealed) = run(false);
+    assert!(revealed > held, "without keeps_view the focused column is revealed: {revealed}");
 }
 
 // MARK: ColumnStripGeometry (snap, wheel and rubber band)

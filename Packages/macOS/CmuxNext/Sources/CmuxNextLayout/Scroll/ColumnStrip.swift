@@ -61,16 +61,6 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
 
     public func clamp(_ offset: CGFloat) -> CGFloat { min(max(offset, 0), maxOffset) }
 
-    public func index(of column: ColumnID) -> Int? { columns.firstIndex { $0.id == column } }
-
-    public func index(ofPane pane: PaneID) -> Int? { columns.firstIndex { $0.paneFrames[pane] != nil || $0.panes.contains(pane) } }
-
-    public func column(containing pane: PaneID) -> Column? { index(ofPane: pane).map { columns[$0] } }
-
-    /// A column at least as wide as the viewport cannot show whole (it is
-    /// left-aligned). Narrower columns shrink their padding instead.
-    public func isWide(_ frame: CGRect) -> Bool { frame.width >= visibleWidth - 0.5 }
-
     /// Padding: the gap, shrunk when the column is nearly as wide as the view.
     public func padding(for width: CGFloat) -> CGFloat { min(max((visibleWidth - width) / 2, 0), gap) }
 
@@ -78,21 +68,5 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     public func isFullyVisible(_ rect: CGRect, at offset: CGFloat) -> Bool {
         let pad = padding(for: rect.width)
         return rect.minX - pad >= offset + leadingCover - 0.5 && rect.maxX + pad <= offset + leadingCover + visibleWidth + 0.5
-    }
-
-    /// A column counts as visible when it shows whole, or when it is wider
-    /// than the view and covers all of it.
-    public func isColumnVisible(_ index: Int, at offset: CGFloat) -> Bool {
-        let frame = columns[index].frame
-        if isWide(frame) { return frame.minX <= offset + leadingCover + 0.5 && frame.maxX >= offset + leadingCover + visibleWidth - 0.5 }
-        return isFullyVisible(frame, at: offset)
-    }
-
-    /// Relative order of the columns present in both strips is unchanged
-    /// (only insertions, removals and width changes happened).
-    public func keepsOrder(of other: ColumnStrip) -> Bool {
-        let mine = Set(columns.map(\.id))
-        let theirs = Set(other.columns.map(\.id))
-        return columns.map(\.id).filter(theirs.contains) == other.columns.map(\.id).filter(mine.contains)
     }
 }

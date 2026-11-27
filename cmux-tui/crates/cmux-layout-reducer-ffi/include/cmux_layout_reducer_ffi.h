@@ -889,7 +889,8 @@ typedef struct CmuxScrollSync {
     uint8_t source;
     uint8_t animated;
     uint8_t reveals;
-    uint8_t reserved[5];
+    uint8_t keeps_view; /* a key resize press's trade: keep the anchor, reveal nothing */
+    uint8_t reserved[4];
 } CmuxScrollSync;
 
 typedef struct CmuxScrollEffects {

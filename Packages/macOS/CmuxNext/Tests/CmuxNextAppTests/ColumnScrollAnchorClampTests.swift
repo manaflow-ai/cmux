@@ -23,7 +23,7 @@ struct ColumnScrollAnchorClampTests {
 
     /// The camera on `before` at rest at `offset`, focus on p0; then one animated sync to `after`, anchored on c1.
     static func anchoredSync(from before: ColumnStrip, to after: ColumnStrip, offset: CGFloat = 0) -> ColumnScrollState {
-        var state = ColumnScrollState()
+        let state = ColumnScrollState()
         state.reduce(.sync(before, focused: "p0", source: .keyboard, animated: false))
         state.spring.value = offset
         state.spring.target = offset
