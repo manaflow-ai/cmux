@@ -197,7 +197,10 @@ class LiveBase(unittest.TestCase):
     def test_the_callee_merges_onto_the_live_base_then_fails_fast(self) -> None:
         block = job_block(CALLEE.read_text(), "web")
         merge = block.index("compile_preflight.py merge-live-base")
-        touched = block.index("compile_preflight.py web-touched")
+        # The check that reads the merged root (source_ref == '') runs after the merge; the early one runs only when
+        # the bundle source is the checkout's own GitHub merge commit, whose answer the merge does not change.
+        touched = block.index('compile_preflight.py web-touched "$WEB_SOURCE_ROOT"')
+        self.assertIn("inputs.source_ref != '' && inputs.source_ref == github.sha", block)
         dup = block.index("tests/test_webviews_no_duplicate_import_names.py")
         install = block.index("name: Setup Bun")
         self.assertLess(merge, touched)
