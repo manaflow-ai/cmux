@@ -30,6 +30,16 @@
 //! cold archive (`store/cold.rs`) or cold segments; the pack is a second copy, about a twelfth
 //! of the log's size, in the chat's folder, and goes with it.
 //!
+//! A seal writes the chat's lines to a `work-*` folder in its pack store and removes it after. A
+//! daemon that ends mid-seal (a restart, a kill, an update) leaves that folder, which is the
+//! chat's whole log as lines: on Leo's Mac, 2026-11-27, five of them held 18.75 GB (8.4 and
+//! 7.0 GB of one 8.6 GB chat) and nothing removed them. [`sweep_dead_work`] removes them: each
+//! seal sweeps its own chat's under its pack turn (only a seal makes one, and only under that
+//! turn), so any it finds is a dead seal's. A chat's next seal comes with its next 4 MiB, and
+//! the chats whose logs are large enough to leave a big one are the ones that grow. No sweep
+//! walks every chat at start: `session_dir` settles or materializes a chat (journal and fork
+//! stores), which is not a cost to pay for 700 chats to find a few folders.
+//!
 //! `ACPMUX_PACK_AS_IT_GROWS=0` turns it off (nothing is installed; a pack is then made only at
 //! a move, as before).
 //!
@@ -45,6 +55,31 @@ fn enabled() -> bool {
         std::env::var("ACPMUX_PACK_AS_IT_GROWS").ok().as_deref().map(str::trim),
         Some("0" | "false" | "off")
     )
+}
+
+/// The prefix of a seal's scratch folder in a chat's pack store.
+const WORK_PREFIX: &str = "work-";
+
+/// Removes every seal scratch folder (`work-*`) in the pack store at `root`; the bytes freed.
+/// The caller holds the chat's [`PackTurn`], so none of them is a live seal's.
+pub(in crate::hub) fn sweep_dead_work(root: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(root) else { return 0 };
+    let mut freed = 0u64;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        if !dir || !name.to_string_lossy().starts_with(WORK_PREFIX) {
+            continue;
+        }
+        let bytes = super::super::bundle_files(&entry.path())
+            .map(|files| files.iter().map(|(_, size)| size).sum::<u64>())
+            .unwrap_or(0);
+        match crate::home_fs::remove_dir_all(entry.path()) {
+            Ok(()) => freed += bytes,
+            Err(error) => tracing::warn!("dead seal scratch not removed: {error:#}"),
+        }
+    }
+    freed
 }
 
 /// What one seal of a chat did.
@@ -163,9 +198,14 @@ impl Hub {
                 return Err(error);
             }
         };
+        // Under the turn no other seal of this chat runs: any scratch here is a dead one's.
+        let freed = sweep_dead_work(store.root());
+        if freed > 0 {
+            tracing::info!(session = %id, "removed {freed} bytes of seal scratch a daemon left");
+        }
         let checked =
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
-        let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
+        let work = store.root().join(format!("{WORK_PREFIX}{}", uuid::Uuid::now_v7().simple()));
         let sealed = (|| -> anyhow::Result<Sealed> {
             if checked && let Some(extended) = self.extend_pack(&session, through, &store, &work)? {
                 return Ok(extended);
