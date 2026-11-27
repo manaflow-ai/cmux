@@ -13,6 +13,10 @@ struct Add {
     until: Vec<String>,
     #[serde(rename = "match")]
     match_text: Option<String>,
+    /// Where `match` is looked for: `turn` (default, any reply text of the turn), `reply` (the
+    /// turn's final reply only), `replyStart` (the final reply begins with it).
+    #[serde(rename = "matchIn")]
+    match_in: Option<crate::hub::watch_events::MatchIn>,
     once: Option<bool>,
     /// A time watch (`hub/watch_timers.rs`): first due time, period, last due time, in ms since
     /// the epoch (the CLI and MCP tool turn `--at`, `--every`, `--until` into these).
@@ -80,6 +84,11 @@ pub(super) async fn handle(
             let mut a: Add = serde_json::from_value(params.clone())
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             crate::hub::validate_match(a.match_text.as_deref())?;
+            if a.match_in.is_some() && a.match_text.is_none() {
+                return Err(RpcError::invalid_params(
+                    "matchIn needs match: the text to look for in the turn's reply",
+                ));
+            }
             let time = (a.at_ms.is_some() || a.every_ms.is_some() || a.prompt.is_some())
                 .then(|| timer(&a, crate::store::now_ms()))
                 .transpose()?;
@@ -134,6 +143,7 @@ pub(super) async fn handle(
                 sessions,
                 until: a.until,
                 match_text: a.match_text,
+                match_in: a.match_in.unwrap_or_default(),
                 once: a.once.unwrap_or(true) && every_ms.is_none(),
                 caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
                 active: true,
