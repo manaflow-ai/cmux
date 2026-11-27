@@ -243,6 +243,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
     case cloudTurnRewind(AgentPaneCloudTurnRewind)
+    /// Sources > Add Folder on a Cloud chat (`cloud.folder.add`, ``AgentPaneModel/onCloudFolderAdd``).
+    case cloudFolderAdd
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -344,6 +346,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.composerFilled {filled}`: the composer came to hold something, or nothing (text or
+    /// chips). Toggle Terminal and Chat reads it without a page call (``AgentPaneView/toggleDraftFilled``).
+    case composerFilled(Bool)
     /// `pane.commandAvailability`: the page commands the native palette may run in this chat now
     /// (``AgentPageCommand``); the palette greys out the others.
     case commandAvailability([String])

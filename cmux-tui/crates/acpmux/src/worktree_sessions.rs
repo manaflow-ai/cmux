@@ -19,7 +19,7 @@ use serde::Deserialize;
 pub fn default_roots(home: &Path) -> Vec<PathBuf> {
     let mut roots =
         vec![home.join("Projects"), home.join("wt"), home.join("src"), home.join("code")];
-    for parent in [home.join("wt"), home.join(".cmux/worktrees")] {
+    for parent in [home.join("wt"), home.join(".cmux/worktrees"), home.join(".wt/checkouts")] {
         if let Ok(entries) = std::fs::read_dir(&parent) {
             roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
         }
