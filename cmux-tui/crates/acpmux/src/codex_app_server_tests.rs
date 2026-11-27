@@ -140,11 +140,13 @@ fn a_fast_pick_during_pagination_settles_after_the_last_page_or_close() {
         if close {
             assert_eq!(reply["error"]["message"], "catalog connection closed");
         } else {
-            assert!(reply["result"]["configOptions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|v| v["id"] == "fast-mode" && v["currentValue"] == "priority"));
+            assert!(
+                reply["result"]["configOptions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["id"] == "fast-mode" && v["currentValue"] == "priority")
+            );
         }
     }
 }
@@ -276,9 +278,10 @@ fn failed_file_read_settles_current_and_held_requests() {
     tr.auth.lock().unwrap().login_id = Some(json!("login"));
     tr.background().request(&json!({"id":"inflight", "method":TERMINATE,
         "params":{"threadId":"thread", "processId":"process"}}));
-    assert!(tr
-        .handle_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
-        .is_empty());
+    assert!(
+        tr.handle_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
+            .is_empty()
+    );
     let out = tr.handle_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
     for id in ["queued", "current", "inflight"] {
         assert!(
