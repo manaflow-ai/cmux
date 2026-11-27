@@ -70,6 +70,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &plan-sparse |
+            /.github/actions/cache-restore/
             /webviews/
             /schemas/
             /scripts/
