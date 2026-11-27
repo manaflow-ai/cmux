@@ -64,6 +64,35 @@ class Unread(Refused):
     reads as "not judged, a retry" instead of red_not_excused)."""
 
 
+class BrokerRefused(Refused):
+    """A read the lane-gh broker refused for its shape: a GraphQL root field or field outside the broker's allowlist
+    (cmuxterm-hq tools/lane-gh-broker/parts/44-calls-graphql.py GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS). The broker
+    refuses the same query on every call, so it is neither a verdict on a red nor a retry: it is this tool's bug, and
+    the fix is the query, never the allowlist (that is security). Before this it was an Unread, which base_red_excuse.py
+    exits 3 on and land-judge reads as a rate limit: hq#30852 was refused "quota: not judged, retry after 02:24Z
+    (reset)" twice on 2026-11-27 over SUITE_CHECKS_QUERY's root `nodes`, and every retry after the reset was refused
+    the same way. A Refused, so gh-merge-green keeps refusing to merge on one; base_red_excuse.py catches it first
+    (BrokerRefusedRead, exit 4: a tool error that names the fix)."""
+
+
+# The broker's guard refusal as lane-gh prints it ("gh: lane-gh call graphql OWNER/REPO: refused: graphql: root field
+# nodes is refused ..."). Every `graphql:` refusal of graphql_check is about the query's shape (a root field, a field,
+# a fragment, a missing repo), never a quota, so none is cleared by a retry. A broker quota or latch refusal does not
+# read "refused: graphql: " and stays an Unread.
+BROKER_REFUSED = re.compile(r"\blane-gh call graphql \S+: refused: graphql: [^\n]*")
+BROKER_REFUSED_LEAD = "the lane-gh broker refuses this query on every call (no retry clears it): "
+BROKER_REFUSED_FIX = ("fix the query, not the broker: read it under an allowed root field (repository naming the "
+                      "call's repo, search type: ISSUE, rateLimit) and allowed fields (cmuxterm-hq "
+                      "tools/lane-gh-broker/graphql-allowlist.json), or with a REST GET; the allowlist is security "
+                      "and is never widened for this")
+
+
+def broker_refusal(stderr: str) -> str | None:
+    """The broker's guard refusal in gh's STDERR (BROKER_REFUSED), or None when it holds none."""
+    found = BROKER_REFUSED.search(stderr or "")
+    return found.group(0).strip() if found else None
+
+
 def read_name(args: list[str]) -> str:
     """The read, short enough to print in a refusal. `gh api <route>` is that route; anything else is its words,
     capped at 200 characters -- `run view <run> --repo R --job <job> --log`, which is the read most likely to be
@@ -104,8 +133,10 @@ class GitHub:
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Unread(f"GitHub evidence request failed: {read_name(args)}: "
-                             + errors.read(2000).decode(errors="replace"))
+                said = errors.read(2000).decode(errors="replace")
+                if (refused := broker_refusal(said)) is not None:
+                    raise BrokerRefused(f"{BROKER_REFUSED_LEAD}{read_name(args)}: {refused}; {BROKER_REFUSED_FIX}")
+                raise Unread(f"GitHub evidence request failed: {read_name(args)}: " + said)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):

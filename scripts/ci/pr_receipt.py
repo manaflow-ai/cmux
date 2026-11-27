@@ -141,8 +141,11 @@ def github(repository: str, token: str, deadline_seconds: float = 40) -> Callabl
         request.add_header("Accept", "application/vnd.github+json")
         if token:
             request.add_header("Authorization", f"Bearer {token}")
-        with urllib.request.urlopen(request, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)) as response:
-            return json.loads(response.read())
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import gh_http  # noqa: PLC0415 - scripts/ci on the path only when a lookup runs
+
+        _, body, _ = gh_http.request(request, min(REQUEST_TIMEOUT_SECONDS, remaining), raise_errors=True)
+        return json.loads(body)
 
     return call
 
