@@ -10,7 +10,7 @@ person's own app is never asked anything). Everything goes through the copy's ow
 `cmux ext shot --json`, `cmux settings set`, and the daemon ops through `cmux-tui raw command` (the same binary
 under the name that has the `raw` scope; a direct socket line when that name refuses). The Mac app's control
 socket is used only for what the CLI has no verb for (an action run, `apps.views`, `snapshot.get`), found by
-the copy's pid. No clicks.
+the copy's pid. Default rows do not click; the opt-in agent_prompts row uses Computer Use.
 
 A row is one function `row_<name>(ctx) -> dict` in ROWS. It installs or scaffolds a sample (an extension's
 manifest written to the copy's own customize folder installs it with no consent card: the customize app is

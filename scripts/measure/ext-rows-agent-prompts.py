@@ -54,7 +54,7 @@ def run(ctx, core):
     helper = core.load("agent_prompts_cu", core.ROOT / "scripts/measure/accounts-nightly-probe.py")
     folder = ctx.work / "agent-prompts"
     folder.mkdir(parents=True, exist_ok=True)
-    result = {"checks": {}, "steps": [], "screenshots": [], "submitted": False}
+    result = {"checks": {}, "steps": [], "screenshots": []}
     marker = f"Stand-up verified {ctx.token}"
     manifest, files = fixture(marker)
     install = core.install_customize(ctx, manifest, files)
@@ -121,6 +121,12 @@ def run(ctx, core):
         result["screenshots"].append(str(path))
 
     try:
+        workspace = ctx.rpc("action.run", {"action": "workspace.newAtBottom",
+                                           "origin": "script", "focus": True})
+        result["workspace"] = workspace
+        created = [item for item in workspace.get("created", []) if str(item).startswith("ws_")]
+        if workspace.get("error") or len(created) != 1:
+            raise RuntimeError("Could not create and focus a dedicated workspace")
         cu = helper.ComputerUse()
         own = wait(windows, "isolated app window")
         if len(own) != 1:
@@ -142,7 +148,8 @@ def run(ctx, core):
         result["checks"]["palette_toast_visible"] = True
         result["runtime_log"] = core.logs_with(ctx, "agent-prompt-note " + marker, wait=3)
         result["checks"]["palette_export_ran"] = bool(result["runtime_log"])
-        opened = ctx.rpc("action.run", {"action": "palette.newAgentChat", "origin": "script"})
+        opened = ctx.rpc("action.run", {"action": "palette.newAgentChat", "origin": "script",
+                                        "target": "workspace:" + created[0], "focus": True})
         result["new_chat"] = opened
         if isinstance(opened, dict) and opened.get("error"):
             raise RuntimeError("Could not open an isolated draft chat")
@@ -165,7 +172,8 @@ def run(ctx, core):
         result["inserted_text"] = inserted[1]["value"]
         result["checks"]["exact_draft_inserted"] = True
         # There is deliberately no Return or Send action anywhere in this row.
-        result["checks"]["draft_left_unsent"] = True
+        result["checks"]["harness_did_not_invoke_send"] = True
+        result["submission_state_verified"] = False
     except Exception as error:
         result["checks"]["gui_flow"] = False
         result["error"] = f"{type(error).__name__}: {error}"
