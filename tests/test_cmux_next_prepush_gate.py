@@ -2646,6 +2646,22 @@ pub fn reset(snapshot: &Snapshot) {
         self.assertEqual(result.returncode, 0, output)
         self.assertNotIn("now has 0 process-scan line(s)", output)
 
+    def test_a_classic_ids_row_added_for_an_untouched_script_puts_the_script_in_the_trees(self):
+        # #62254: the state-roots scanner reads scripts/cmux-next too, but ratchet_row_files kept only CHANGED_SCOPES
+        # rows, so a row added for an untouched script left it out of both trees and read as "no longer has".
+        spec = importlib.util.spec_from_file_location("prepush_gate_row_scopes", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        script = "scripts/cmux-next/harness/daemon.py"
+        self.write(script, 'p = os.path.join(home, "cmux", "harnesses")\n')
+        self.commit("base: a harness naming a Classic folder, no row")
+        self.write("scripts/cmux-next/classic-ids-baseline.tsv", f'{script}\tjoin(home, "cmux")\t1\tkeep\tharness\n')
+        self.commit("adds its row")
+
+        files = gate.ratchet_row_files(self.repo, "HEAD~1", "HEAD")
+
+        self.assertIn(script, files)
+
     def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)
         gate = importlib.util.module_from_spec(spec)
