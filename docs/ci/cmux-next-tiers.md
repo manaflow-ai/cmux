@@ -131,7 +131,10 @@ every fork pull request that changes a `.swift` file under `Packages/macOS/CmuxN
 (Sources or Tests, whatever else it changes): a Release-only optimizer crash
 (cx-ebm.59.5) reached the base through a PR that only had the Debug tiers. A
 same-repository PR runs it only with `full-ci` or when the build fleet gives no
-verdict (2026-10-21), as a fork PR does for its other native sources. Every
+verdict (2026-10-21), as a fork PR does for its other native sources. With
+`full-ci` (ready-to-land adds it) it runs only when the same paths without the
+label reach `native` or `mac_release`: a daemon-Rust-, iOS- or CI-only head
+skips it (2026-11-27, 9 of 24 PR heads, 166 of 393 runner-min). Every
 `feat-cmux-next` push runs it, so a Release-only break shows on the base push
 and push-attribution names the PR.
 
