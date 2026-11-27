@@ -123,10 +123,51 @@ fn request(command: SessionCmd) -> Result<Value> {
     Ok(json!({"op": op, "to": to, "params": params, "idempotencyKey": key}))
 }
 
+/// The key a name target was given as: `HOST/NAME` split back together, or the bare name.
+fn name_key(to: &Value) -> Option<String> {
+    let name = to["name"].as_str()?;
+    Some(match to["host"].as_str() {
+        Some(host) => format!("{host}/{name}"),
+        None => name.to_owned(),
+    })
+}
+
+/// The recipient for a session this daemon resolved to `routed` (`resolve::control_route`'s id,
+/// `PEER/ID` or `ID`): the exact session id, which the hub routes without guessing a host.
+fn pinned_to(routed: &str) -> Value {
+    json!({"sessionId": routed.rsplit('/').next().unwrap_or(routed)})
+}
+
+/// A stop or resume by name goes as the session's exact id when this daemon can resolve it. The
+/// hub reads `A/B` as host A, name B, so a session whose own name has a slash
+/// (`coord/review` on a machine named otherwise), or a bare name several machines
+/// hold (`claude-17`), was enqueued for the wrong machine or none, refused there, and the CLI had
+/// said `queued` (shadow-leo: "close sessions that are well and truly done"). A name several
+/// sessions answer is refused here with its choices; one this daemon does not know goes as before.
+async fn pin_target(client: &crate::client::Client, request: &mut Value) -> Result<()> {
+    if !matches!(request["op"].as_str(), Some("stop" | "resume")) {
+        return Ok(());
+    }
+    let Some(key) = name_key(&request["to"]) else { return Ok(()) };
+    match crate::cli::resolve::control_route(client, &key).await {
+        Ok((routed, _)) => request["to"] = pinned_to(&routed),
+        Err(e) => {
+            let unknown = e
+                .downcast_ref::<crate::cli::errors::AppError>()
+                .is_some_and(|a| matches!(a.code, crate::cli::errors::Code::NoSession));
+            if !unknown {
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
-    let request = request(command)?;
+    let mut request = request(command)?;
     // The daemon keeps its token. The CLI uses only its normal local socket.
     let client = crate::daemon::connect(true).await?;
+    pin_target(&client, &mut request).await?;
     let reply = match client.request(method::MUX_MESH_CONTROL, request.clone()).await {
         Ok(reply) => reply,
         Err(error) => {
@@ -166,145 +207,5 @@ pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cli::command::{Cli, Command, flatten};
-    use clap::Parser;
-
-    fn parse(args: &[&str]) -> Value {
-        let command = Cli::try_parse_from(args).unwrap().command.unwrap();
-        let Command::Session(command) = flatten(command) else {
-            panic!("mesh command flattened away")
-        };
-        request(command).unwrap()
-    }
-
-    #[test]
-    fn mesh_cli_keeps_start_policy_and_exact_recipients() {
-        let start = parse(&[
-            "acpmux",
-            "session",
-            "start",
-            "review",
-            "--machine",
-            "worker",
-            "-m",
-            "codex/gpt-6-astra",
-            "--policy",
-            "ask",
-            "--cwd",
-            "/remote",
-            "--idempotency-key",
-            "start-test",
-        ]);
-        assert_eq!(start["op"], "start");
-        assert_eq!(start["to"], json!({"host": "worker"}));
-        assert_eq!(start["params"]["_meta"]["acpmux"]["policy"], "ask");
-        assert_eq!(start["params"]["_meta"]["acpmux"]["harness"], "codex");
-        let stop = parse(&["acpmux", "session", "stop", "worker/review", "--mesh"]);
-        assert_eq!(stop["to"], json!({"host": "worker", "name": "review"}));
-        // `HOST/SESSION-ID`, as a move's `movedTo` prints it, goes as the id, not as a name.
-        let id = "01a21858-8b6b-7681-9020-63c037858477";
-        let stop = parse(&["acpmux", "session", "stop", &format!("worker/{id}"), "--mesh"]);
-        assert_eq!(stop["to"], json!({"sessionId": id}));
-        let resume = parse(&["acpmux", "session", "resume", "stable-id", "--mesh", "--id"]);
-        assert_eq!(resume["to"], json!({"sessionId": "stable-id"}));
-        let receipt = parse(&["acpmux", "session", "receipt", "msg_test"]);
-        assert_eq!(receipt, json!({"receipt": "msg_test"}));
-    }
-
-    /// `session stop --id ID` and `session resume --id ID` need no `--mesh`: they run as the
-    /// positional forms do, on this daemon's resolver.
-    #[test]
-    fn id_without_mesh_runs_the_local_command() {
-        let local = |args: &[&str]| flatten(Cli::try_parse_from(args).unwrap().command.unwrap());
-        let id = "0b7e7c2e-6f43-4a51-9d0e-2a4c3b1f5e6d";
-        for argv in [
-            &["acpmux", "session", "stop", "--id", id][..],
-            &["acpmux", "session", "stop", id, "--id"][..],
-            &["acpmux", "session", "kill", "--id", id, "--purge"][..],
-        ] {
-            match local(argv) {
-                Command::Kill { session, purge, condition, .. } => {
-                    assert_eq!(session, id, "{argv:?}");
-                    assert_eq!(purge, argv.contains(&"--purge"), "{argv:?}");
-                    // Without --if-idle the stop is the plain one, as before.
-                    assert_eq!(condition, crate::cli::command::StopIf::default(), "{argv:?}");
-                }
-                _ => panic!("{argv:?} did not run the local stop"),
-            }
-        }
-        match local(&["acpmux", "session", "resume", "--id", id]) {
-            Command::ResumeQueue { session, .. } => assert_eq!(session, id),
-            _ => panic!("resume --id did not run the local resume"),
-        }
-        // `--idempotency-key` is still a mesh-only flag.
-        assert!(
-            Cli::try_parse_from(["acpmux", "session", "stop", id, "--idempotency-key", "k"])
-                .is_err()
-        );
-        // With --mesh, --id still names the exact id.
-        let stop = parse(&["acpmux", "session", "stop", "stable-id", "--mesh", "--id"]);
-        assert_eq!(stop["to"], json!({"sessionId": "stable-id"}));
-    }
-
-    /// `session stop|close NAME --outcome done|dropped --reason TEXT` carries both to the local
-    /// stop and to a mesh stop (`close_why.rs`); another outcome is refused by clap.
-    #[test]
-    fn stop_and_close_carry_the_reason_and_outcome() {
-        let local = |args: &[&str]| flatten(Cli::try_parse_from(args).unwrap().command.unwrap());
-        for verb in ["stop", "close"] {
-            let argv =
-                ["acpmux", "session", verb, "lane", "--outcome", "done", "--reason", "merged"];
-            match local(&argv) {
-                Command::Kill { session, close, .. } => {
-                    assert_eq!(session, "lane");
-                    assert_eq!(close.outcome.as_deref(), Some("done"));
-                    assert_eq!(close.reason.as_deref(), Some("merged"));
-                }
-                _ => panic!("{verb} did not run the local stop"),
-            }
-        }
-        let argv = ["acpmux", "session", "stop", "lane", "--outcome", "unfinished"];
-        assert!(Cli::try_parse_from(argv).is_err(), "unfinished is the daemon's to record");
-        let stop =
-            parse(&["acpmux", "session", "stop", "w/lane", "--mesh", "--outcome", "dropped"]);
-        assert_eq!(stop["params"], json!({"outcome": "dropped"}));
-    }
-
-    /// `session stop --if-idle [--expect-revision REV]` runs the local stop with its condition;
-    /// a revision needs --if-idle, and the mesh hub's stop takes neither.
-    #[test]
-    fn if_idle_runs_the_local_stop_with_its_condition() {
-        use crate::cli::command::StopIf;
-        let local = |args: &[&str]| flatten(Cli::try_parse_from(args).unwrap().command.unwrap());
-        let condition = |args: &[&str]| match local(args) {
-            Command::Kill { condition, .. } => condition,
-            _ => panic!("{args:?} did not run the local stop"),
-        };
-        assert_eq!(
-            condition(&[
-                "acpmux",
-                "session",
-                "stop",
-                "lane",
-                "--if-idle",
-                "--expect-revision",
-                "42"
-            ]),
-            StopIf { if_idle: true, expect_revision: Some(42) }
-        );
-        assert_eq!(
-            condition(&["acpmux", "session", "stop", "lane", "--if-idle", "--purge"]),
-            StopIf { if_idle: true, expect_revision: None }
-        );
-        assert_eq!(condition(&["acpmux", "session", "stop", "lane"]), StopIf::default());
-        for argv in [
-            &["acpmux", "session", "stop", "lane", "--expect-revision", "42"][..],
-            &["acpmux", "session", "stop", "lane", "--mesh", "--if-idle"][..],
-            &["acpmux", "session", "stop", "lane", "--if-idle", "--expect-revision", "-1"][..],
-        ] {
-            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} parsed");
-        }
-    }
-}
+#[path = "mesh_control_tests.rs"]
+mod tests;
