@@ -64,6 +64,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
 
 
+| mobile-pair-cache | `mobile-pair-skew-cache.sh` on Linux with preexisting Cargo release outputs | Headless phone/Mac connect wall and CPU seconds, immutable binary cache miss then hit; exact source pair and observed cache state retained. |
+
 ## Dev loop
 
 | name | what it measures | ticket / owner | last touched | status |
