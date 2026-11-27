@@ -2969,6 +2969,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The reads filling it, after the newest records showed; cancelled when the link drops
     /// or another attach starts.
     private var gapTask: Task<Void, Never>?
+    /// Consecutive gap-page failures, for the bounded retry backoff.
+    private var gapFailures = 0
     /// Each gap page's byte cap, as an older page's.
     static let gapBytes = olderBytes
 
@@ -2976,10 +2978,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// (they are newer than anything in it), then sends it to the chat once (`applyGap`): the
     /// turns above the newest one change one time, not once a page. The gap is at most
     /// ``bridgeMaxSeqs`` wide (a wider one opens no gap: `holeTooWide`), so this is a few reads
-    /// at most. A page that fails stops the fill with nothing of it shown; the next attach that
-    /// catches up (the link back, a lag) reads it again from its start.
+    /// at most. A page that fails retries from its cursor with bounded backoff; a link drop
+    /// cancels the fill, and the next attach reads it again from its start.
     private func startGapFill() {
         guard gapTask == nil, let fill = gapFill, attached, let hub, hub.isReady else { return }
+        gapFailures = 0
         let generation = generation
         let sessionID = sessionID
         // The task holds the source only between its requests, never across one.
@@ -2995,13 +2998,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         "toolOutputMaxBytes": .number(Double(Self.toolOutputMaxBytes)), "kinds": Self.kinds(hub),
                     ]), timeout: Self.pageTimeout)
                 } catch {
-                    if self?.generation == generation {
-                        log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page after \(cursor, privacy: .public) failed, waits for the next attach")
-                        self?.gapTask = nil
+                    guard let self, self.generation == generation, !Task.isCancelled else { return }
+                    self.gapFailures += 1
+                    let delay = Self.retryDelay(afterFailures: self.gapFailures)
+                    log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page after \(cursor, privacy: .public) failed, retries in \(delay)")
+                    do {
+                        try await Task.sleep(for: delay)
+                    } catch {
+                        return
                     }
-                    return
+                    continue
                 }
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.gapFailures = 0
                 let part = Self.gapPart(page, after: cursor, end: fill.end)
                 gapRecords += part.records
                 cursor = part.cursor

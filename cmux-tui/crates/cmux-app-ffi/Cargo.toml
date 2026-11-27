@@ -83,6 +83,9 @@ cmux-process = { path = "../cmux-process" }
 # The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A staged update's Info.plist and its frameworks' pages (src/updater/staged_prewarm.rs).
+plist = "1"
+libc = "0.2"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"
 # The background ready copy's decisions (app.backgroundReady): the quit, the hidden plan, the login item, the
