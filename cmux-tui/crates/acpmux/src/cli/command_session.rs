@@ -6,6 +6,13 @@ use std::path::PathBuf;
 
 use crate::cli::command::{CloseArgs, MoveSessionsArgs, PlaceSessionArgs, RebalanceArgs, StopIf};
 
+/// `session auto-settle`'s choice: the settings decide, or this chat never settles on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum AutoSettleMode {
+    Follow,
+    Never,
+}
+
 #[derive(Subcommand)]
 pub enum SessionCmd {
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
@@ -255,6 +262,16 @@ pub enum SessionCmd {
         /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
+    },
+    /// Settle a chat now: archived, off every list, on the Settled shelf (`hub/auto_settle.rs`).
+    Settle { session: String },
+    /// Bring a settled (or archived) chat back to the lists.
+    Unsettle { session: String },
+    /// Whether the auto-settle settings (`agents.autoSettle.*`) apply to this chat.
+    AutoSettle {
+        session: String,
+        #[arg(value_enum)]
+        mode: AutoSettleMode,
     },
     /// Label a session: key=value pairs, `--remove key`, `--ttl seconds`.
     Tag {

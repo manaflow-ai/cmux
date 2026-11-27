@@ -1271,6 +1271,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let weak = weak.clone();
         crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
     }
+    // Chats settle on their own by `agents.autoSettle.*` (`hub/auto_settle.rs`).
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("auto-settle", &hub.fatal, move || {
+            Hub::auto_settle_loop(weak.clone())
+        });
+    }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
