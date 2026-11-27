@@ -1002,7 +1002,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
@@ -2488,6 +2488,9 @@ export type IntegrationsRun = { action: "refresh" } | { action: "install" | "rep
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
+/** A write of the durable settings history: also the daemon's revision of the change it recorded
+ * (`history_revision`, what settings.restore takes), beside the host's own load revision. */
+export type HistoryMutationResult = MutationResult & { history_revision?: string };
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
 
@@ -2583,6 +2586,17 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** The daemon's durable settings history (settings-history-v1), newest first, which the host
+   * forwards (durableHistory.ts); absent from older hosts. */
+  "cmux.settings.history": [Record<string, never>, { entries: unknown[] }];
+  /** settings.undo as the person: takes back the newest change of any writer. */
+  "cmux.settings.undo": [Mutation<object>, HistoryMutationResult];
+  /** settings.restore as the person: the file just before the change that produced `revision`. */
+  "cmux.settings.restore": [Mutation<{ revision: string }>, HistoryMutationResult];
+  /** settings.reset_group as the person: a section or `section.group` back to its defaults. */
+  "cmux.settings.reset_group": [Mutation<{ group: string }>, HistoryMutationResult];
+  /** One settings.edit of resets (a card that is not one schema group): one history entry. */
+  "cmux.settings.reset_keys": [Mutation<{ keys: string[] }>, HistoryMutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
