@@ -54,6 +54,18 @@ import UniformTypeIdentifiers
         #expect(!ComposeInlineAttachmentView.isClick(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 10)))
     }
 
+    @Test func cancellingThenReschedulingDoesNotOpenTheCancelledPicture() async throws {
+        let click = DraftPictureClick()
+        click.delay = 0.05
+        var opened: [String] = []
+        click.schedule { opened.append("cancelled") }
+        click.cancel()
+        click.schedule { opened.append("replacement") }
+
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(opened == ["replacement"])
+    }
+
     /// A left-button event at `point` in `field`'s window.
     static func mouse(_ type: NSEvent.EventType, at point: CGPoint, in field: NSView, clicks: Int = 1,
                       flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
