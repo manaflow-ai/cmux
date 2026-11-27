@@ -188,4 +188,30 @@ import Testing
         #expect(FeedListPlan.fresh(["n1", "a"], seen: &seen) == ["n1"])
         #expect(FeedListPlan.fresh(["n1"], seen: &seen).isEmpty)
     }
+
+    // MARK: Arrivals (ios-feed.md item K)
+
+    @Test func liveEventsAtTheTopSpringIn() {
+        #expect(FeedArrival.springs(fresh: ["n"], order: ["n", "a", "b"], hadRows: true, atTop: true))
+        #expect(FeedArrival.springs(fresh: ["n", "m"], order: ["m", "n", "a"], hadRows: true, atTop: true))
+    }
+
+    @Test func aLoadAFilterSwitchOrAScrolledReaderShowsAtOnce() {
+        // The first rows of a session.
+        #expect(!FeedArrival.springs(fresh: ["a", "b"], order: ["a", "b"], hadRows: false, atTop: true))
+        // The reader is down the list (the "N new" pill counts them instead) or a jump is animating.
+        #expect(!FeedArrival.springs(fresh: ["n"], order: ["n", "a"], hadRows: true, atTop: false))
+        // A filter switch brings in unseen older rows below the top.
+        #expect(!FeedArrival.springs(fresh: ["old"], order: ["a", "old"], hadRows: true, atTop: true))
+        // A burst bigger than an arrival.
+        let burst: [String] = (0..<5).map { "n\($0)" }
+        #expect(!FeedArrival.springs(fresh: Set(burst), order: burst + ["a"], hadRows: true, atTop: true))
+        #expect(!FeedArrival.springs(fresh: [], order: ["a"], hadRows: true, atTop: true))
+    }
+
+    @Test func theSoftTapPlaysAtMostOncePerGap() {
+        #expect(FeedArrival.taps(now: 100, last: nil))
+        #expect(!FeedArrival.taps(now: 101, last: 100))
+        #expect(FeedArrival.taps(now: 100 + FeedArrival.hapticGap, last: 100))
+    }
 }

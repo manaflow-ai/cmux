@@ -14,7 +14,10 @@ why it may stay. Shrink it; do not grow it without a reason the review accepts.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -57,6 +60,9 @@ ALLOWED: dict[str, str] = {
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
+    "cmux-next-ios-kit.yml: Wait for the fleet-built CmuxMobileLinkFFI.xcframework":
+        "bounded fallback reuse: one artifact/jobs read every 30 s, at most 9 passes while the fleet job is in progress; "
+        "queued/failed jobs fall back immediately; a candidate for handing the artifact through a workflow_run or needs edge",
     "ci-shed-superseded-runs.yml: Cancel queued runs nobody will read":
         "every 10 minutes (#47662): reads the queued list once, then one cancel per picked run, spaced by "
         "--spacing so the writes stay under the secondary limit; it stops at a primary rate limit. Not a poll",
@@ -169,7 +175,90 @@ class GithubTokenPollingTests(unittest.TestCase):
         self.assertFalse(stale, f"no longer polling, remove from ALLOWED: {stale}")
 
 
+class IosFleetWaitTests(unittest.TestCase):
+    def _script(self) -> str:
+        text = (WORKFLOWS / "cmux-next-ios-kit.yml").read_text()
+        marker = "      - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework"
+        start = text.index(marker)
+        run = text.index("        run: |", start) + len("        run: |\n")
+        end = text.index("\n      - name: Build CmuxMobileLinkFFI.xcframework", run)
+        return "\n".join(line[10:] for line in text[run:end].splitlines()) + "\n"
+
+    def _run(self, mode: str) -> tuple[str, list[str], list[str], str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "gh.log"
+            sleep_log = root / "sleep.log"
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            (fakebin / "gh").write_text(
+                "#!/bin/bash\n"
+                f"echo \"$*\" >> {log}\n"
+                "case \"$*\" in\n"
+                f"  *'artifacts?name='*) [[ {mode!r} == ready ]] && echo 42 || true ;;\n"
+                "  *'/artifacts/42/zip'*) : ;;\n"
+                f"  *'/jobs?per_page=100'*) [[ {mode!r} == active ]] && echo in_progress || echo \"$MODE\" ;;\n"
+                "esac\n"
+            )
+            (fakebin / "gh").chmod(0o755)
+            (fakebin / "unzip").write_text(
+                "#!/bin/bash\n"
+                'dest="${@: -1}"\n'
+                'mkdir -p "$dest"\n'
+                'touch "$dest/Info.plist"\n'
+            )
+            (fakebin / "unzip").chmod(0o755)
+            script = (
+                f"sleep() {{ echo \"$1\" >> {sleep_log}; SECONDS=$((SECONDS+$1)); }}\n"
+                + self._script()
+            )
+            env = dict(os.environ)
+            env.update({
+                "PATH": f"{fakebin}:{env['PATH']}", "RUN": "repos/o/r/actions/runs/1",
+                "ATTEMPT": "1", "JOB": "CmuxMobileLinkFFI.xcframework (build fleet)",
+                "ARTIFACT": "cmux-next-ios-link-ffi-xcframework", "RUNNER_TEMP": str(root),
+                "RUNNER_OS": "Linux", "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(root / "out"),
+                "MODE": "failed" if mode == "failed" else mode,
+            })
+            result = subprocess.run(["bash", "-c", script], cwd=root, env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = log.read_text().splitlines() if log.exists() else []
+            sleeps = sleep_log.read_text().splitlines() if sleep_log.exists() else []
+            output = (root / "out").read_text() if (root / "out").exists() else ""
+            return result.stdout, calls, sleeps, output
+
+    def test_queued_and_failed_exit_without_polling(self) -> None:
+        for mode in ("queued", "failed"):
+            with self.subTest(mode=mode):
+                stdout, calls, sleeps, output = self._run(mode)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(sleeps, [])
+                self.assertIn("building it here", stdout)
+
+    def test_ready_artifact_is_used_without_wait(self) -> None:
+        stdout, calls, sleeps, output = self._run("ready")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sleeps, [])
+        self.assertIn("hit=true", output)
+
+    def test_active_job_stops_at_240_seconds(self) -> None:
+        stdout, calls, sleeps, output = self._run("active")
+        self.assertEqual(len(calls), 18)
+        self.assertEqual(sleeps, ["30"] * 8)
+        self.assertIn("within 240 s", stdout)
+
+
 class ShellTests(unittest.TestCase):
+    def test_redirections_and_literals_in_quoted_command_substitutions(self) -> None:
+        poll = "while :; do gh api rate_limit; sleep 1; done"
+        for command in ("cat <<<WORD", "echo '<<EOF'", 'echo "<<EOF"', "echo ok # <<EOF"):
+            with self.subTest(command=command):
+                self.assertTrue(shell_polls(f'value="$(\n{command}\ntrue\n)"\n{poll}'))
+        # The quotes, close parenthesis and apparent shell commands in this body are literal.
+        body = f'cat <<-\'EOF\'\n\t)" {poll}\n\tEOF'
+        self.assertIsNone(shell_polls(f'value="$({body}\n)"'))
+        self.assertTrue(shell_polls(f'value="$({body}\n)"\n{poll}'))
+
     def test_loops_that_sleep_and_call(self) -> None:
         self.assertTrue(shell_polls('until gh run view "$id" --json status | grep -q completed; do\n  sleep 30\ndone\n'))
         self.assertTrue(shell_polls("x=1; while true; do gh api rate_limit; sleep 5; done"))

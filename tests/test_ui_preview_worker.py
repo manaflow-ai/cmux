@@ -208,6 +208,65 @@ class LookTests(unittest.TestCase):
             self.assertIn("shoots web scenes only", receipt["error"])
 
 
+class SwiftPeerTests(unittest.TestCase):
+    """serve --no-swift --swift-peer URL: a web worker on a broker VM hands its Swift scenes to a display Mac's serve
+    (POST /shoot), so the Mac needs no broker and a Swift push is not a miss."""
+
+    def serve_mac(self, tmp: Path):
+        mac = FakeWorker(tmp / "mac")
+        server = w.http.server.ThreadingHTTPServer(("127.0.0.1", 0), w.make_handler(mac, w.queue.Queue()))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return mac, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_a_web_worker_posts_a_swift_look_its_peer_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac, url = self.serve_mac(Path(tmp))
+            web = FakeWorker(Path(tmp) / "web")
+            web.swift_on, web.swift_peer = False, url
+            receipt = web.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(mac.shot, [BASE, HEAD])
+            [scene] = receipt["scenes"]
+            self.assertEqual(scene["scene"], "tabs")
+            self.assertTrue(scene["changed"])
+            # The web worker caches the peer's shots by commit like its own: a second look asks the Mac nothing.
+            mac.shot.clear()
+            web.look(request())
+            self.assertEqual(mac.shot, [])
+
+    def test_a_web_worker_with_a_peer_takes_swift_only_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on, worker.swift_peer = False, "http://127.0.0.1:9"
+            jobs = w.queue.Queue()
+            answer = {"seq": 42, "requests": [dict(request(), seq=42)]}
+            self.assertEqual(w.follow_once(worker, jobs, 41, lambda tool, args, timeout: answer), 42)
+            self.assertFalse(jobs.empty())
+
+    def test_a_peer_that_does_not_answer_is_named_in_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = FakeWorker(Path(tmp))
+            web.swift_on, web.swift_peer = False, "http://127.0.0.1:9"
+            receipt = web.look(request())
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIn("the Swift peer http://127.0.0.1:9 did not answer", receipt["error"])
+
+    def test_the_mac_refuses_a_bad_ask_and_a_web_only_mac_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac = FakeWorker(Path(tmp))
+            for ask, why in (({"sha": "x", "scenes": ["tabs"]}, "40 hex"),
+                             ({"sha": HEAD, "scenes": ["../etc"]}, "scenes must be"),
+                             ({"sha": HEAD, "scenes": ["tabs"], "branch": "a b"}, "plain branch")):
+                with self.assertRaisesRegex(w.LookError, why):
+                    mac.peer_answer(ask)
+            mac.swift_on = False
+            with self.assertRaisesRegex(w.LookError, "web scenes only"):
+                mac.peer_answer({"sha": HEAD, "scenes": ["tabs"]})
+            self.assertEqual(mac.shot, [])
+
+
 class FollowTests(unittest.TestCase):
     """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
 
@@ -263,7 +322,48 @@ class FollowTests(unittest.TestCase):
             with self.assertRaises(w.LookError):
                 w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq")
         self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
-        self.assertEqual(ran[1][3], "manaflow-ai/cmuxterm-hq")
+        self.assertEqual(ran[1][3:], ["manaflow-ai/cmuxterm-hq", "-"])
+
+    def test_a_host_taking_the_lease_over_posts_nothing_its_predecessor_had(self):
+        # Host A led and posted 7614..7616; host B, last leading at 7613, takes the lease over and resumes there.
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            b.host = "preview-b"
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            web = ["webviews/src/a.tsx"]
+            posted = [dict(request(head_sha=f"{n:040x}", ui_files=web, pushed_at=ago(7620 - n + 900)), seq=n)
+                      for n in (7614, 7615, 7616)]
+            in_flight = dict(request(head_sha=f"{7617:040x}", ui_files=web, pushed_at=ago(30)), seq=7617)
+            jobs = w.queue.Queue()
+            _, call = self.broker({"seq": 7617, "requests": [*posted, in_flight]})
+            lines, real = [], w.log
+            w.log = lines.append
+            try:
+                self.assertEqual(w.follow_once(b, jobs, 7613, call), 7617)
+            finally:
+                w.log = real
+            req, _ = jobs.get_nowait()
+            self.assertEqual(req["head_sha"], f"{7617:040x}")  # pushed as A stopped: may never have been posted
+            self.assertTrue(jobs.empty())
+            self.assertFalse(b.receipts_path.exists())  # A's receipts stand: B writes none for A's pushes
+            self.assertEqual(sum("before this worker took the role" in x for x in lines), 3, lines)
+
+    def test_state_put_carries_its_json_on_stdin_not_argv(self):
+        # 2026-11-27: a 768 KiB census copy in one argv string failed E2BIG (128 KiB per string on Linux).
+        from unittest import mock
+        ran = []
+
+        def fake(argv, **kw):
+            ran.append((argv, kw.get("input")))
+            return mock.Mock(returncode=0, stdout=json.dumps({"status": 200, "data": {}}), stderr="")
+
+        big = {"name": "now-census", "files": {"ui-preview/h.json": "x" * (700 << 10)}}
+        with mock.patch.object(w.subprocess, "run", fake):
+            w.lane_gh_call("state_put", big, 5, repo="manaflow-ai/cmuxterm-hq")
+        argv, stdin = ran[0]
+        self.assertEqual(argv, ["lane-gh", "call", "state_put", "manaflow-ai/cmuxterm-hq", "-"])
+        self.assertEqual(json.loads(stdin), big)
+        self.assertLess(max(map(len, argv)), 128 << 10)
 
     def test_a_reset_broker_queue_restarts_at_its_newest(self):
         with tempfile.TemporaryDirectory() as tmp:
