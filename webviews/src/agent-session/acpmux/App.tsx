@@ -100,7 +100,12 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
+import {
+  askAppCloudPick,
+  cloudPickChoices,
+  rememberStartedProject,
+  startedProjectChoices,
+} from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
@@ -9403,12 +9408,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => ({
-        projects: listedProjects(result),
-        // `machine`: the host listed the chat's other machine's folders, not this Mac's.
-        machine: result?.machine === true,
-        answer: result,
-      })),
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then(async (result) => {
+        const projects = listedProjects(result);
+        const machine = result?.machine === true;
+        // The host lists only its newest folders (AgentPaneOmnibar.maximumEntries), and the page drops a
+        // default folder the list does not name (a removed worktree, cmux#51272). A page of this Mac with no
+        // folder of its own asks for its default by path when the list leaves it out: only a folder the host
+        // no longer lists gives way. The first default the list or the ask names ends it (the page takes the
+        // first one known, newtab/startedProject.ts).
+        const page = newTabNow.current;
+        const ownFolder = page?.cwd !== undefined && page.cwd !== page.home && !isAgentHome(page.cwd);
+        if (!machine && page?.home !== undefined && !page.startsRemote && !ownFolder) {
+          const listed = new Set(projects.map((project) => project.cwd));
+          for (const folder of startedProjectChoices(page.startedProject)) {
+            if (listed.has(folder)) break;
+            const found = await callNative<{ projects?: string[]; repos?: unknown }>("project.list", {
+              query: folder,
+            }).catch(() => undefined);
+            // The ask matches a path's subfolders too: only the folder itself counts.
+            const own = listedProjects(found).find((project) => project.cwd === folder);
+            if (own) {
+              projects.push(own);
+              break;
+            }
+          }
+        }
+        return { projects, machine, answer: result };
+      }),
     [],
   );
   /// The daemon's list, with the New Tab page it was asked for (`newTabGeneration`): the list is

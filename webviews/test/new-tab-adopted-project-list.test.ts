@@ -163,4 +163,69 @@ await requireBrowserLane("new-tab-adopted-project-list.test.ts", async () => {
       expect(asks).toBe(2);
     },
   );
+
+  // The host names only its newest 40 folders (AgentPaneOmnibar.maximumEntries), and the page dropped a default
+  // folder the list did not name: a default older than the newest 40 read No folder. The page asks for it by path.
+  test.each(engines.map(([name]) => name))(
+    "%s: a default folder older than the host's newest 40 stays the New Tab's folder",
+    async (name) => {
+      const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
+      const page = await context.newPage();
+      await installPaintedFrames(page);
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      const OLD = `${HOME}/src/old-repo`;
+      await page.addInitScript(
+        ({ endpoint, home, old }) => {
+          // No folder of its own (the home folder): the page starts on the default folder.
+          const newTab = { kind: "agent", hotkeys: {}, home, cwd: home, projects: [], startedProject: old };
+          const w = window as unknown as Record<string, unknown> & { __queried?: string };
+          w.__cmuxNewTabContext = newTab;
+          const newest = Array.from({ length: 40 }, (_, index) => `${home}/src/recent-${index}`);
+          const answer = (request: { method: string; params?: { query?: string } }): unknown => {
+            switch (request.method) {
+              case "ready":
+                return Promise.resolve({
+                  ok: true,
+                  value: {
+                    protocolVersion: 1,
+                    transport: "acpmux-websocket",
+                    endpoint,
+                    token: "t",
+                    newSession: true,
+                    newTab,
+                  },
+                });
+              case "newTab.context":
+                return Promise.resolve({ ok: true, value: { newTab } });
+              case "project.list":
+                if (request.params?.query) {
+                  w.__queried = request.params.query;
+                  return Promise.resolve({ ok: true, value: { projects: request.params.query === old ? [old] : [] } });
+                }
+                return Promise.resolve({ ok: true, value: { projects: newest } });
+              default:
+                return Promise.resolve({ ok: true, value: null });
+            }
+          };
+          (window as unknown as { webkit: unknown }).webkit = {
+            messageHandlers: {
+              agentSession: {
+                postMessage: (request: { method: string; params?: { query?: string } }) => answer(request),
+              },
+            },
+          };
+        },
+        { endpoint, home: HOME, old: OLD },
+      );
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.waitForFunction((old) => (window as unknown as { __queried?: string }).__queried === old, OLD);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      await page.locator(".nt-location").getByText("old-repo").waitFor({ timeout: 10_000 });
+      const strip = (await page.locator(".nt-location").textContent()) ?? "";
+      await context.close();
+      expect(strip).toContain("old-repo");
+      expect(strip).not.toContain("No folder");
+    },
+  );
 });
