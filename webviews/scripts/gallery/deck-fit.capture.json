@@ -2,115 +2,159 @@
   "envs": [["dark", "none"]],
   "shots": [
     {
-      "name": "deck-300",
+      "name": "deck-300-before",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-before",
+      "width": 300,
+      "widthName": "300",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "before": ""
+      }
+    },
+    {
+      "name": "deck-300-stack",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-stack",
+      "width": 300,
+      "widthName": "300",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "stack": ""
+      }
+    },
+    {
+      "name": "deck-300-steps",
       "entry": "agent-pane.composer-hat-line-deck",
       "variant": "fit-steps",
       "width": 300,
+      "widthName": "300",
       "height": 420,
       "deviceScaleFactor": 2,
       "clip": ".acpmux-dock",
       "arms": {
-        "before": "",
-        "stack": "",
         "steps": ""
-      },
-      "armQuery": {
-        "before": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "before"
-        },
-        "stack": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "stack"
-        },
-        "steps": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "steps"
-        }
       }
     },
     {
-      "name": "deck-440",
+      "name": "deck-440-before",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-before",
+      "width": 440,
+      "widthName": "440",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "before": ""
+      }
+    },
+    {
+      "name": "deck-440-stack",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-stack",
+      "width": 440,
+      "widthName": "440",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "stack": ""
+      }
+    },
+    {
+      "name": "deck-440-steps",
       "entry": "agent-pane.composer-hat-line-deck",
       "variant": "fit-steps",
       "width": 440,
+      "widthName": "440",
       "height": 420,
       "deviceScaleFactor": 2,
       "clip": ".acpmux-dock",
       "arms": {
-        "before": "",
-        "stack": "",
         "steps": ""
-      },
-      "armQuery": {
-        "before": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "before"
-        },
-        "stack": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "stack"
-        },
-        "steps": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "steps"
-        }
       }
     },
     {
-      "name": "deck-560",
+      "name": "deck-560-before",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-before",
+      "width": 560,
+      "widthName": "560",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "before": ""
+      }
+    },
+    {
+      "name": "deck-560-stack",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-stack",
+      "width": 560,
+      "widthName": "560",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "stack": ""
+      }
+    },
+    {
+      "name": "deck-560-steps",
       "entry": "agent-pane.composer-hat-line-deck",
       "variant": "fit-steps",
       "width": 560,
+      "widthName": "560",
       "height": 420,
       "deviceScaleFactor": 2,
       "clip": ".acpmux-dock",
       "arms": {
-        "before": "",
-        "stack": "",
         "steps": ""
-      },
-      "armQuery": {
-        "before": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "before"
-        },
-        "stack": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "stack"
-        },
-        "steps": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "steps"
-        }
       }
     },
     {
-      "name": "deck-900",
+      "name": "deck-900-before",
       "entry": "agent-pane.composer-hat-line-deck",
-      "variant": "fit-steps",
+      "variant": "fit-before",
       "width": 900,
+      "widthName": "900",
       "height": 420,
       "deviceScaleFactor": 2,
       "clip": ".acpmux-dock",
       "arms": {
-        "before": "",
-        "stack": "",
+        "before": ""
+      }
+    },
+    {
+      "name": "deck-900-stack",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-stack",
+      "width": 900,
+      "widthName": "900",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
+        "stack": ""
+      }
+    },
+    {
+      "name": "deck-900-steps",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "fit-steps",
+      "width": 900,
+      "widthName": "900",
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-dock",
+      "arms": {
         "steps": ""
-      },
-      "armQuery": {
-        "before": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "before"
-        },
-        "stack": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "stack"
-        },
-        "steps": {
-          "exp": "composer-hat-deck-fit",
-          "arm": "steps"
-        }
       }
     }
   ]
