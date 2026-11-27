@@ -949,6 +949,29 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     )
 }
 
+/// `vm exec --help`'s note (vm_exec_input.rs): argv, stdin, and how a file gets there.
+#[cfg(unix)]
+const EXEC_NOTE_EN: &str = "\
+Several words keep their argv (each is shell-quoted); one word is a shell line:
+  cmux vm exec dev -- 'ls | wc -l'
+Piped stdin reaches the command, binary included (up to 16 MiB), so this copies a file:
+  cat f | cmux vm exec dev -- sh -c 'cat > f'
+--stdin waits for a slow pipe; --no-stdin never reads stdin. Without either, stdin is read
+when it is not a terminal and has data within a second. A larger file: scp
+(`cmux cloud prepare-scp --help`).
+";
+
+#[cfg(unix)]
+const EXEC_NOTE_JA: &str = "\
+複数の語はそれぞれシェル用に引用され、argv のまま届きます。1 語ならシェルの 1 行です:
+  cmux vm exec dev -- 'ls | wc -l'
+パイプした標準入力はコマンドに届きます（バイナリ可、16 MiB まで）。ファイルのコピー:
+  cat f | cmux vm exec dev -- sh -c 'cat > f'
+--stdin は遅いパイプを待ち、--no-stdin は標準入力を読みません。どちらもなければ、端末でなく
+1 秒以内にデータがある標準入力を読みます。もっと大きいファイルは scp で
+（`cmux cloud prepare-scp --help`）。
+";
+
 /// The short spelling's usage (vm_short.rs): the VM by name or id, or none when you have one.
 #[cfg(unix)]
 fn short_usage(name: &str, verb: &Verb) -> String {
@@ -956,7 +979,7 @@ fn short_usage(name: &str, verb: &Verb) -> String {
     let flags = flags.trim();
     match name {
         "ls" | "list" => format!("cmux vm {name}"),
-        "exec" => "cmux vm exec [NAME|ID] -- COMMAND...".to_owned(),
+        "exec" => "cmux vm exec [NAME|ID] [--stdin|--no-stdin] -- COMMAND...".to_owned(),
         "rename" => "cmux vm rename [NAME|ID] NEW_NAME".to_owned(),
         // `--all`: every running VM (vm_short.rs `pause_all`).
         "pause" | "shutdown" => format!("cmux vm {name} [NAME|ID | --all]"),
@@ -979,6 +1002,8 @@ fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
     if japanese {
         let note = if shutdown {
             "`shutdown` は `pause` と同じです（削除は `rm`）。\n"
+        } else if name == "exec" {
+            EXEC_NOTE_JA
         } else {
             ""
         };
@@ -992,7 +1017,13 @@ fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
             }
         )
     } else {
-        let note = if shutdown { "`shutdown` is `pause` (`rm` deletes the VM).\n" } else { "" };
+        let note = if shutdown {
+            "`shutdown` is `pause` (`rm` deletes the VM).\n"
+        } else if name == "exec" {
+            EXEC_NOTE_EN
+        } else {
+            ""
+        };
         format!(
             "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\n{}\n",
             verb.en,

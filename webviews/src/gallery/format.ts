@@ -520,6 +520,9 @@ export type KeybindingsPageVariant = VariantBase & {
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & {
   props: P;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
   /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
