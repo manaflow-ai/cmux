@@ -22,6 +22,7 @@ mod presets;
 mod queued;
 mod session_open;
 mod signature;
+mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1127,6 +1128,23 @@ fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
 }
 
 pub(super) async fn handle_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
+) -> Result<Value, RpcError> {
+    let mut reply = Box::pin(handle_request_unstamped(hub, conn, m, params, sender_token)).await;
+    // Every `session/new` refusal says why in a short code (`requests/start_reason.rs`).
+    if m == method::SESSION_NEW
+        && let Err(error) = &mut reply
+    {
+        start_reason::stamp(error);
+    }
+    reply
+}
+
+async fn handle_request_unstamped(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
