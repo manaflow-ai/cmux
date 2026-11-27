@@ -366,12 +366,13 @@ def unreached(text: str, roots: set[tuple[str, str]],
 
 def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
     """`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
-    its resolve (`cargo metadata --locked --offline`) holds: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
+    its resolve (`cargo metadata --all-features --locked --offline`) holds: a lock entry for a crate no manifest
+    names. Empty when cargo gives no resolve (a fake, a
     failure, no time left): this only adds to cargo's own verdict."""
     if timeout <= 1:
         return []
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
+    code, _ = cargo(["metadata", "--format-version", "1", "--all-features", "--locked", "--offline"], repo / root, env,
                     timeout=timeout, out=out)
     if code != 0 or not out or not out[0].strip():
         return []

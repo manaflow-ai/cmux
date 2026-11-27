@@ -119,6 +119,23 @@ class CargoLocksTests(unittest.TestCase):
                       "longer resolve: b 0.1.0)", result.stdout)
         self.assertNotIn("ffi/Cargo.lock", result.stdout)
 
+    def test_a_lock_entry_for_an_optional_dependency_behind_a_feature_is_not_stale(self):
+        """2026-11-27: cmux-tui's lock lists wasmtime and dhat, cmux-rd-host's rav1e, all optional dependencies behind
+        features no default turns on; `cargo metadata` without --all-features left them out of the resolve and every
+        lock that holds one was called stale, though `cargo update --workspace` keeps them (and fix could not)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\nb = { path = "../core/b", optional = true }\n\n'
+                   '[features]\nextra = ["dep:b"]\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.assertIn('name = "b"', (self.repo / "ffi/Cargo.lock").read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "ffi gains an optional b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
     def test_fix_drops_the_orphaned_entry(self):
         self.drop_crate_b()
 
