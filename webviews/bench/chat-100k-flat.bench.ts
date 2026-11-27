@@ -444,6 +444,18 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1200, height: 800 },
     });
+    // A hidden chat stays hidden across a reload of its document (CEF keeps a hidden browser's state; the page's
+    // own rebuild, hiddenRebuild.ts, reloads it hidden): the hide below marks the tab, and its next document starts
+    // hidden before any page script runs.
+    await context.addInitScript(() => {
+      try {
+        if (sessionStorage.getItem("bench.hidden") !== "1") return;
+      } catch {
+        return;
+      }
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    });
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
@@ -498,8 +510,13 @@ try {
         `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
+      // Hidden pages that rebuilt their document (hiddenRebuild.ts), printed with the launch's numbers.
+      let rebuilds = 0;
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
+        page.on("console", (message) => {
+          if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+        });
         await page.goto(urlFor(index));
         await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
           timeout: 180_000,
@@ -745,6 +762,7 @@ try {
               configurable: true,
               get: () => true,
             });
+            sessionStorage.setItem("bench.hidden", "1");
             document.dispatchEvent(new Event("visibilitychange"));
             if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
           }, !HIDDEN_FOCUS);
@@ -1334,6 +1352,7 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
+      if (rebuilds) console.log(`  ${name}: ${rebuilds} hidden page(s) rebuilt their document`);
       const row: Launch = {
         name,
         idlePct,
