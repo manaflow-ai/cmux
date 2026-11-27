@@ -28,6 +28,10 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// The pane's content kind for the frame-timing log (`terminal`, `browser`, `agent`, `page`, ...) and whether
+    /// its content has presented a picture (a terminal's surface drew, a page's window shows); nil: unknown. Read once
+    /// per pane per timed transition, at its first frame (`TransitionFrameLog`, `surface` and `blank_first_frame`).
+    func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)?
 }
 
 extension LayoutPaneContentProvider {
@@ -35,6 +39,7 @@ extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)? { nil }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -76,6 +81,8 @@ final class LayoutViewContext {
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
     var dividerMenu: ((SplitID) -> NSMenu?)?
+    /// The divider drag's frame timing (``LayoutRootView/frameTiming``).
+    var frameTiming: TransitionFrameLog?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -188,6 +195,15 @@ final class LayoutViewContext {
     /// show in one frame with it on or off. A test that pins `reduceMotionOverride` pins this too.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
+    /// Asks for the panes' move at a split, a close and a zoom in a test that pins `reduceMotionOverride`
+    /// (``movesPanesAtCommit``); nil: the pin alone gives none.
+    var commitMotionOverride: Bool?
+
+    /// Whether a split, a close and a zoom move their panes (``PaneCommitMotion``): movement animates and
+    /// `ui.paneAnimations` is on. A test that pins `reduceMotionOverride` gets no move unless it asks for one, so a
+    /// fixture that counts the frames of a change that shows in one commit keeps its count.
+    var movesPanesAtCommit: Bool { !reduceMotion && (commitMotionOverride ?? (reduceMotionOverride == nil && animatesPaneLayout)) }
+
     /// `pane`'s host: the one it has, the one a change kept for it, or a new one. A host that comes back hidden (a pane
     /// a zoom covered) stays hidden: its screen shows it in the pass that places it
     /// (`ScreenContentView.showSnapReturning`), never a frame earlier at the place it had.
@@ -199,14 +215,17 @@ final class LayoutViewContext {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
             entry.host.isLeaving = false
-            entry.host.chrome.isHidden = entry.host.isHidden
+            entry.host.chrome.isHidden = entry.host.hidesRing // a move still keeps it under the others: no ring in this turn
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
             if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
+        // A probe's time of the make of a pane's content while `debug.motion` records (with views made ahead or with none).
+        MotionTrace.begin("layout.content")
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        MotionTrace.end("layout.content")
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
             spareHost = nil
@@ -287,11 +306,21 @@ final class LayoutViewContext {
         }
     }
 
+    /// The panes `screen` took out of its layout that still show (``retire(_:from:until:)``): until the change that took
+    /// them out shows, or, when that change moves its panes, under the panes that take their room until the motion's end
+    /// (`PaneCommitMotion.keepsDeparted`). O(retired panes).
+    func retiredShown(of screen: ScreenID) -> [PaneID] {
+        retired.compactMap { pane, entry in entry.screen == screen && entry.shown ? pane : nil }
+    }
+
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
     /// (``retire(_:from:until:)``) hide, their rings with them. Their teardown is work no frame
     /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
     @discardableResult
     func hideRetiredShown(of screen: ScreenID) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one hide for each pane that the change took out).
+        MotionTrace.begin("layout.hide")
+        defer { MotionTrace.end("layout.hide") }
         var hid = false
         for (pane, entry) in retired where entry.screen == screen && entry.shown {
             entry.host.isLeaving = false
@@ -301,6 +330,21 @@ final class LayoutViewContext {
             hid = true
         }
         return hid
+    }
+
+    /// The presentation that shows an unzoom placed its panes: each host of `panes` that `screen` holds hidden shows
+    /// (the panes that the zoom covered come back). Returns whether any did.
+    func showReturning(_ panes: [PaneID], on screen: NSView) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one show for each pane that comes back).
+        MotionTrace.begin("layout.show")
+        defer { MotionTrace.end("layout.show") }
+        var shown = false
+        for pane in panes {
+            guard let host = hosts[pane], host.superview === screen, host.isHidden else { continue }
+            host.isHidden = false
+            shown = true
+        }
+        return shown
     }
 
     /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,

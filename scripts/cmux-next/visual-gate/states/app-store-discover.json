@@ -2,7 +2,8 @@
   "title": "App Store: Discover lists the four examples",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],

@@ -264,6 +264,28 @@ async fn a_running_chat_takes_new_folders_on_its_next_start() {
     let (reply, _) = c.call("_acpmux/set_directories", set).await;
     assert_eq!(reply.unwrap()["applied"], json!("unchanged"));
 
+    let stale = json!({
+        "sessionId": id,
+        "additionalDirectories": [a],
+        "expectedAdditionalDirectories": [a],
+    });
+    let error = c.call("_acpmux/set_directories", stale).await.0.expect_err("stale set");
+    assert_eq!(error["data"]["reason"], json!("additionalDirectories.changed"), "{error}");
+
+    // A source deleted outside the chat remains removable because the CAS token does not
+    // revalidate the old path against the filesystem.
+    std::fs::remove_dir_all(&b).expect("delete source folder");
+    let remove_deleted = json!({
+        "sessionId": id,
+        "additionalDirectories": [a],
+        "expectedAdditionalDirectories": [s(&a), s(&b)],
+    });
+    c.call("_acpmux/set_directories", remove_deleted)
+        .await
+        .0
+        .expect("remove deleted source folder");
+    assert_eq!(c.add_dirs(&id).await, [s(&a)]);
+
     // An empty list clears them; a missing one, or a bad folder, is refused.
     let clear = json!({"sessionId": id, "additionalDirectories": []});
     c.call("_acpmux/set_directories", clear).await.0.expect("clear");

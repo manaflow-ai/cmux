@@ -40,10 +40,16 @@ final class CEFPaneHost {
     /// The placeholder's page is frozen as soon as its browser exists (the spare window, `CEFSpareWindow`):
     /// it is never shown, so Chromium never learns it is hidden and would run its frames and timers.
     var freezesPlaceholder = false
+    /// The placeholder's browser is made with no URL (no navigation, so no history entry) and the first
+    /// page that joins this window takes it as its own browser (`adoptPlaceholder`), with no `tab_add`:
+    /// the cmux pages' spare window (`CEFRuntime.pageSpareWindow`).
+    var adoptablePlaceholder = false
     /// An extension's popup window (chrome.windows.create type popup, fork
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
     var popupWindow: Int32?
+    /// Closes `popupWindow`'s tab when no panel attached the window in time (`closeUnattachedPopupWindow`).
+    var popupAttachDeadline: DemandTimer?
 
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
@@ -61,6 +67,8 @@ final class CEFPaneHost {
             guard let self else { return false }
             return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
         }
+        // A first-frame hold that a window change began ends with the grant of the tab shown then (as `holdFirstFrameIfAppeared`).
+        hostView.layerHosting.heldGrant = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -106,6 +114,9 @@ final class CEFPaneHost {
 
     /// Runs a block at the end of this run-loop turn (`CEFLayerHosting.atEndOfTurn`); tests run it when they choose.
     var endOfTurn: CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) }
+    /// How a page that took its pane's next size ahead of a commit tells it laid out there (``CEFCommitLayoutWait``);
+    /// tests pass their own.
+    var commitLayoutWait = CEFCommitLayoutWait()
     /// Whether a host visibility pass is queued for this run-loop turn.
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
@@ -152,6 +163,8 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        // A page given its address before any pane showed it loads from this frame; its browser comes after it.
+        tab.startLoadAwaitingBrowser()
         shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
@@ -265,7 +278,7 @@ final class CEFPaneHost {
             #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
-            let initialURL = tab.takeInitialURLString()
+            let initialURL = adoptablePlaceholder && placeholder === tab ? "" : tab.takeInitialURLString()
             let create = {
                 CEFStartSteps.shared.createWindow {
                     shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
@@ -304,7 +317,7 @@ final class CEFPaneHost {
         }
         tab.isCreationPending = true
         let activates = visibleTab === tab
-        let spare = takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil
+        let spare = adoptPlaceholder(tab) ?? (takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil)
         let browser = spare ?? tabAdd(tab, anchor: anchor, activates: activates)
         if browser == 0 {
             tab.creationFailed()
@@ -428,10 +441,20 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
+            if runtime.hosts[key] === self, holdsOwnTab || isOwnTabHost || isDroppable { runtime.hosts[key] = nil }
         }
         // A lent tab closed while its window was still being made: the placeholder goes too.
         if isAgentHost { retireIfUnused() }
+    }
+
+    /// A pane host with no tabs left holds no window either (`removed`), so the runtime lets it go: a pane
+    /// whose pages all hibernated keeps no `CEFHostView` (and its layers) per pane, and its next page makes a
+    /// fresh host and window as this one would have. It stays while it is the spare, a placeholder's, an
+    /// extension popup's, still creating a page or a window (`pendingWindows`), or home to a tab an agent drives
+    /// (`hasLentTabs`).
+    private var isDroppable: Bool {
+        placeholder == nil && popupWindow == nil && deferredCreations.isEmpty && !isSpare && !hasLentTabs
+            && !runtime.pendingWindows.values.contains { $0 === self }
     }
 
     func refreshExtensionActions() {

@@ -5,6 +5,11 @@
 // `output_end`) until its state is final, then stops reading. Its Output disclosure opens the
 // Cloud start's checklist rows (Copy files, Run setup script) and the output, moving the composer
 // with it; a failure opens it once by itself.
+//
+// A repository's own setup (`.cmux/worktree.toml`) waits in `awaiting_approval` until the person
+// reads it: the line opens on the commands it would run and the ignored files it would copy into
+// this worktree only, and Run Setup approves that recipe (`git.worktree.setup.run` with `approve`,
+// its fingerprint). A failed, timed-out or interrupted setup offers Retry, which runs it again.
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePageNow, visibleInterval } from "../../ui/pageClock";
 import {
@@ -13,6 +18,7 @@ import {
   appendSetupOutput,
   isFinalSetupState,
   readSetupReply,
+  type ResolvedWorktreeRecipe,
   type WorktreeSetupRun,
   type WorktreeSetupState,
 } from "../../worktreeRecipe";
@@ -38,8 +44,9 @@ export function useWorktreeSetupStart(folder: string | undefined): WorktreeSetup
   return folder ? startedWorktreeSetup(folder) : undefined;
 }
 
-/** A setup as the line draws it; `read` is false until the first `git.worktree.setup` answer. */
-export type SetupView = { run: WorktreeSetupRun; output: string; read: boolean };
+/** A setup as the line draws it; `read` is false until the first `git.worktree.setup` answer.
+ *  `recipe` is what the host resolved for the worktree, with its approval. */
+export type SetupView = { run: WorktreeSetupRun; output: string; read: boolean; recipe?: ResolvedWorktreeRecipe };
 
 type Repeat = (name: string, tick: () => void, every: () => number | null) => () => void;
 
@@ -59,6 +66,7 @@ export function followWorktreeSetup(
   let output = "";
   let final = false;
   let last: WorktreeSetupRun | undefined;
+  let recipe: ResolvedWorktreeRecipe | undefined;
   const deadline = Date.now() + SETUP_READ_DEADLINE_MS;
   // Reads that end before a final state end the line too, as interrupted, so it never spins on
   // with nothing following it and always offers Dismiss.
@@ -66,7 +74,7 @@ export function followWorktreeSetup(
     if (final || stopped) return;
     final = true;
     const run = last ?? { state: "interrupted", output: "", outputStart: "0", outputEnd: "0" };
-    onView({ run: { ...run, state: "interrupted" }, output, read: true });
+    onView({ run: { ...run, state: "interrupted" }, output, read: true, ...(recipe ? { recipe } : {}) });
   };
   const read = () => {
     if (stopped || inFlight || final) return;
@@ -84,8 +92,9 @@ export function followWorktreeSetup(
         output = appendSetupOutput(output, since, answer.run);
         since = answer.run.outputEnd;
         last = answer.run;
+        recipe = answer.recipe ?? recipe;
         final = isFinalSetupState(answer.run.state);
-        onView({ run: answer.run, output, read: true });
+        onView({ run: answer.run, output, read: true, ...(recipe ? { recipe } : {}) });
       })
       .catch(giveUp)
       .finally(() => {
@@ -104,18 +113,24 @@ export function followWorktreeSetup(
 }
 
 /** The setup of the worktree at `root` as the line draws it: the create reply's state until the
- *  first read answers. */
+ *  first read answers. A new `generation` (after Run Setup or Retry) follows it again from the
+ *  start, keeping the last view until the first new read answers. */
 export function useWorktreeSetup(
   callNative: Native,
   root: string | undefined,
   start?: WorktreeSetupStart,
+  generation = 0,
 ): SetupView | undefined {
   const [view, setView] = useState<SetupView | undefined>(undefined);
-  useEffect(() => {
+  const [viewRoot, setViewRoot] = useState(root);
+  if (viewRoot !== root) {
+    setViewRoot(root);
     setView(undefined);
+  }
+  useEffect(() => {
     if (!root) return;
     return followWorktreeSetup(callNative, root, setView);
-  }, [callNative, root]);
+  }, [callNative, root, generation]);
   if (view) return view;
   if (!start) return undefined;
   const run: WorktreeSetupRun = { state: start.state, output: "", outputStart: "0", outputEnd: "0" };
@@ -123,15 +138,34 @@ export function useWorktreeSetup(
   return { run, output: "", read: false };
 }
 
-type Status = "done" | "running" | "error";
+type Status = "done" | "running" | "error" | "waiting";
 
 export function setupStatus(state: WorktreeSetupState): Status {
+  if (state === "awaiting_approval") return "waiting";
   return state === "succeeded" ? "done" : state === "copying" || state === "running" ? "running" : "error";
+}
+
+/** What the line offers once a setup stops: Run Setup (with the fingerprint of the recipe the person
+ *  reads above it) while a repository recipe waits for its first yes, Retry after a setup that did not
+ *  succeed, else nothing. A recipe that changed since its yes asks again rather than retrying. */
+export type SetupAction = { kind: "approve"; fingerprint: string } | { kind: "retry" } | undefined;
+
+export function setupAction(view: SetupView | undefined): SetupAction {
+  if (!view?.read) return undefined;
+  const { state } = view.run;
+  const approval = view.recipe?.approval;
+  const unanswered = approval && !approval.approved ? approval.fingerprint : undefined;
+  if (state === "awaiting_approval")
+    return unanswered ? { kind: "approve", fingerprint: unanswered } : { kind: "retry" };
+  if (state !== "failed" && state !== "timed_out" && state !== "interrupted") return undefined;
+  return unanswered ? { kind: "approve", fingerprint: unanswered } : { kind: "retry" };
 }
 
 /** The line's words for a state. A setup with no script that succeeded only copied files. */
 export function setupLabel(run: WorktreeSetupRun, t: Translate, hasScript = true): string {
   switch (run.state) {
+    case "awaiting_approval":
+      return t("worktreeSetup.awaitingApproval");
     case "copying":
       return t("worktreeSetup.copying");
     case "running":
@@ -155,7 +189,8 @@ export function setupDuration(
 ): string | undefined {
   if (startedMs === undefined) return undefined;
   const ms = Math.max(0, (finishedMs ?? now) - startedMs);
-  if (ms < 1000) return "<1s";
+  // Under a second reads "0s", never "<1s", like the turn's Working for (#60596).
+  if (ms < 1000) return "0s";
   if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
   const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
@@ -171,6 +206,8 @@ export function SetupMark({ status }: { status: Status }) {
         <Check size={14} />
       ) : status === "running" ? (
         <Spinner size={14} loading />
+      ) : status === "waiting" ? (
+        <span className="acpmux-cloud-start__pending-mark" aria-hidden />
       ) : (
         <AlertCircle size={14} />
       )}
@@ -180,10 +217,42 @@ export function SetupMark({ status }: { status: Status }) {
             ? "cloudStartup.state.done"
             : status === "running"
               ? "cloudStartup.state.running"
-              : "cloudStartup.state.error",
+              : status === "waiting"
+                ? "cloudStartup.state.pending"
+                : "cloudStartup.state.error",
         )}
       </span>
     </span>
+  );
+}
+
+/** What a repository recipe would do, read before it runs: its setup command, its teardown, and the
+ *  ignored files it copies from the main checkout into this worktree only. */
+export function SetupReview({ recipe }: { recipe: ResolvedWorktreeRecipe }) {
+  const t = useT();
+  const setup = recipe.setup?.trim();
+  const teardown = recipe.teardown?.trim();
+  return (
+    <div className="acpmux-worktree-setup__details acpmux-worktree-setup__review">
+      {setup && (
+        <div className="acpmux-worktree-setup__review-part" data-part="setup">
+          <span className="acpmux-worktree-setup__review-label">{t("worktreeSetup.reviewSetup")}</span>
+          <pre className="acpmux-worktree-setup__output selectable">{setup}</pre>
+        </div>
+      )}
+      {teardown && (
+        <div className="acpmux-worktree-setup__review-part" data-part="teardown">
+          <span className="acpmux-worktree-setup__review-label">{t("worktreeSetup.reviewTeardown")}</span>
+          <pre className="acpmux-worktree-setup__output selectable">{teardown}</pre>
+        </div>
+      )}
+      {recipe.include.length > 0 && (
+        <div className="acpmux-worktree-setup__review-part" data-part="include">
+          <span className="acpmux-worktree-setup__review-label">{t("worktreeSetup.reviewInclude")}</span>
+          <pre className="acpmux-worktree-setup__output selectable">{recipe.include.join("\n")}</pre>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -265,13 +334,22 @@ export function setupFacts(run: WorktreeSetupRun, now: number, t: Translate): st
  *  and, once the setup is over, Dismiss. */
 export function WorktreeSetupLine({
   creating = false,
+  cloning,
   view,
   onDismiss,
+  onRun,
+  runPending = false,
   defaultOpen = false,
 }: {
   creating?: boolean;
+  /// The GitHub repository (`owner/name`) whose checkout comes first: the line says it gets it ready.
+  cloning?: string;
   view?: SetupView | undefined;
   onDismiss?: () => void;
+  /// Run Setup (`approve`: the fingerprint of the recipe the person read) or Retry (no `approve`).
+  onRun?: (approve?: string) => void;
+  /// A Run Setup or Retry the host has not answered yet: its button waits.
+  runPending?: boolean;
   defaultOpen?: boolean;
 }) {
   const t = useT();
@@ -279,10 +357,13 @@ export function WorktreeSetupLine({
   const live = creating || !state || !isFinalSetupState(state);
   const now = usePageNow(live);
   const failed = state !== undefined && setupStatus(state) === "error";
-  const [open, setOpen] = useState(defaultOpen || failed);
-  // A failure opens the output once by itself (the Cloud start's rule); the person may close it.
-  const [openedForFailure, setOpenedForFailure] = useState(failed);
-  if (failed && !openedForFailure) {
+  const action = onRun ? setupAction(view) : undefined;
+  const review = action?.kind === "approve" ? view?.recipe : undefined;
+  const [open, setOpen] = useState(defaultOpen || failed || Boolean(review));
+  // A failure, or a recipe waiting to be read, opens the details once by itself (the Cloud start's
+  // rule); the person may close them.
+  const [openedForFailure, setOpenedForFailure] = useState(failed || Boolean(review));
+  if ((failed || review) && !openedForFailure) {
     setOpenedForFailure(true);
     setOpen(true);
   }
@@ -291,7 +372,9 @@ export function WorktreeSetupLine({
       <output className="acpmux-switch-notice acpmux-worktree-setup acpmux-worktree-creating" data-state="creating">
         <span className="acpmux-worktree-setup__summary">
           <SetupMark status="running" />
-          <span className="acpmux-worktree-setup__label">{t("worktree.creating")}</span>
+          <span className="acpmux-worktree-setup__label">
+            {cloning ? t("worktree.preparingRepo", { repo: cloning }) : t("worktree.creating")}
+          </span>
         </span>
       </output>
     );
@@ -322,6 +405,16 @@ export function WorktreeSetupLine({
           {t("worktreeSetup.output")}
           {detailsShown ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
+        {action && onRun && (
+          <button
+            type="button"
+            className="acpmux-folder-choice-button"
+            disabled={runPending}
+            onClick={() => onRun(action.kind === "approve" ? action.fingerprint : undefined)}
+          >
+            {t(action.kind === "approve" ? "worktreeSetup.runSetup" : "worktreeSetup.retry")}
+          </button>
+        )}
         {!live && onDismiss && (
           <button type="button" className="acpmux-folder-choice-button" onClick={onDismiss}>
             {t("worktree.dismiss")}
@@ -330,7 +423,7 @@ export function WorktreeSetupLine({
       </span>
       <span className="acpmux-worktree-setup__drawer" data-open={detailsShown ? "true" : "false"} inert={!detailsShown}>
         <span className="acpmux-worktree-setup__clip">
-          <SetupDetails view={view} now={now} hasScript={hasScript} />
+          {review ? <SetupReview recipe={review} /> : <SetupDetails view={view} now={now} hasScript={hasScript} />}
         </span>
       </span>
     </output>
@@ -342,14 +435,35 @@ export function WorktreeSetupNotice({
   callNative,
   folder,
   creating,
+  cloning,
 }: {
   callNative: Native;
   folder: string | undefined;
   creating: boolean;
+  cloning?: string;
 }) {
   const start = useWorktreeSetupStart(folder);
   const root = start ? folder : undefined;
-  const view = useWorktreeSetup(callNative, root, start);
+  const [generation, setGeneration] = useState(0);
+  const [runPending, setRunPending] = useState(false);
+  const view = useWorktreeSetup(callNative, root, start, generation);
+  // Run Setup and Retry: the host runs the worktree's setup again (or for the first time, with the
+  // person's yes to the recipe they read); the line then follows it from the start. A refusal (the
+  // recipe changed, a setup already running) shows what the next read says.
+  const run = (approve?: string) => {
+    if (!root || runPending) return;
+    setRunPending(true);
+    callNative("git.worktree.setup.run", {
+      path: root,
+      idempotency_key: crypto.randomUUID(),
+      ...(approve ? { approve } : {}),
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        setRunPending(false);
+        setGeneration((value) => value + 1);
+      });
+  };
   const final = view ? isFinalSetupState(view.run.state) : false;
   const finalRef = useRef(final);
   finalRef.current = final;
@@ -363,8 +477,10 @@ export function WorktreeSetupNotice({
   return (
     <WorktreeSetupLine
       creating={creating && !view}
+      {...(cloning && creating ? { cloning } : {})}
       view={view}
-      {...(root ? { onDismiss: () => forgetWorktreeSetup(root) } : {})}
+      {...(root ? { onDismiss: () => forgetWorktreeSetup(root), onRun: run } : {})}
+      runPending={runPending}
     />
   );
 }

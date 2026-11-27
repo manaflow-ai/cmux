@@ -14,9 +14,34 @@ public struct TerminalFindResults: Equatable, Sendable {
     /// One match: its cells on each row it covers (`end` inclusive).
     public struct Match: Equatable, Sendable {
         public var segments: [TerminalLink.Segment]
-        /// The first row the match covers.
-        public var row: Int { segments.first?.row ?? 0 }
+        /// Where the daemon found it (a `terminal-find` match), in the daemon's rows.
+        public var daemon: Daemon?
+        /// The first row the match covers; -1 for a daemon match older than the mirror.
+        public var row: Int { segments.first?.row ?? -1 }
+        /// The mirror holds the match's first row.
+        public var isLoaded: Bool { !segments.isEmpty }
+
+        public init(segments: [TerminalLink.Segment], daemon: Daemon? = nil) {
+            self.segments = segments
+            self.daemon = daemon
+        }
+
+        /// A daemon match's place: its first row (the daemon's numbering), the rows it spans
+        /// beyond the first, and its first and last cells' columns.
+        public struct Daemon: Equatable, Sendable {
+            public var row: Int
+            public var span: Int
+            public var startColumn: Int
+            public var endColumn: Int
+        }
     }
+
+    /// The matches came from the daemon (the whole history), not from the mirror's rows.
+    public private(set) var fromDaemon = false
+    /// The daemon searched every row (false while pages are still coming).
+    public private(set) var isComplete = true
+    /// The text the daemon gave for a regex it could not compile.
+    public private(set) var invalidPattern: String?
 
     /// At most this many matches are kept (a one-letter query in a long scrollback).
     public static let limit = 10_000
@@ -31,6 +56,38 @@ public struct TerminalFindResults: Equatable, Sendable {
         query = ""
         matches = []
         selected = nil
+    }
+
+    /// A search the daemon answers page by page (``append(page:map:columns:)``).
+    public init(daemonQuery query: String) {
+        self.query = query
+        matches = []
+        selected = nil
+        fromDaemon = true
+        isComplete = false
+    }
+
+    /// Adds a page: its matches are older than those held (pages come newest first). The
+    /// highlighted match stays the same one; the first page highlights the newest.
+    /// A restarted page (a reflow renumbered the markers) replaces what was held.
+    public mutating func append(page: TerminalFindPage, map: TerminalFindRowMap, columns: Int) {
+        if page.restarted {
+            matches = []
+            selected = nil
+        }
+        invalidPattern = page.invalidPattern
+        let room = Self.limit - matches.count
+        let older = page.hits.prefix(max(0, room)).reversed().map { Match(hit: $0, map: map, columns: columns) }
+        let hadNone = matches.isEmpty
+        matches.insert(contentsOf: older, at: 0)
+        if hadNone { selected = matches.isEmpty ? nil : matches.count - 1 } else if let current = selected { selected = current + older.count }
+        isComplete = page.complete || page.nextBefore == nil || matches.count >= Self.limit
+    }
+
+    /// The mirror was replaced or grew: lays every daemon match on its rows again.
+    public mutating func remap(_ map: TerminalFindRowMap, columns: Int) {
+        guard fromDaemon else { return }
+        for index in matches.indices { matches[index].place(map: map, columns: columns) }
     }
 
     /// Searches `rows` (row `firstRow + i` is `rows[i]`; `wraps[i]`: it goes on, soft
@@ -63,8 +120,11 @@ public struct TerminalFindResults: Equatable, Sendable {
         for (index, match) in matches.enumerated() {
             let segments = match.segments.map { TerminalLink.Segment(row: $0.row + delta, start: $0.start, end: $0.end) }
             guard !segments.contains(where: { $0.row < 0 }) else { continue }
+            var daemon = match.daemon
+            daemon?.row += delta
+            if let row = daemon?.row, row < 0 { continue }
             if index == selected { newSelected = kept.count }
-            kept.append(Match(segments: segments))
+            kept.append(Match(segments: segments, daemon: daemon))
         }
         matches = kept
         selected = kept.isEmpty ? nil : (newSelected ?? 0)
@@ -75,7 +135,7 @@ public struct TerminalFindResults: Equatable, Sendable {
     public mutating func select(nearestRow row: Int) {
         guard !matches.isEmpty else { return }
         var best = 0
-        for (index, match) in matches.enumerated() where abs(match.row - row) <= abs(matches[best].row - row) { best = index }
+        for (index, match) in matches.enumerated() where match.isLoaded && abs(match.row - row) <= abs(matches[best].row - row) { best = index }
         selected = best
     }
 

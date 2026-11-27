@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p .",
+    "typecheck": "bun scripts/gen-chief-vm-source.ts && tsc -p .",
     "test": "vitest run",
     "test:node": "vitest run --config vitest.node.config.ts",
     "dev": "wrangler dev --env development",
@@ -31,7 +31,7 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/vitest-plugin": "1.9.2",
     "@cloudflare/workers-types": "5.20260925.1",
     "@types/node": "26.6.2",
     "@types/pg": "8.23.1",

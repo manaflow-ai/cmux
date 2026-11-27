@@ -8,7 +8,7 @@ legacy-identity requirement is a dispatch-time variable.
 
 - check-nightly-webviews runs the gating webview checks on the exact build commit beside the app build, and
   publish-nightly's Final publication gate refuses a build without them green (scripts/ci/nightly_publish_guard.py
-  webview-verdict).
+  webview-verdict) when NIGHTLY_COMPONENT_GATES is block; otherwise it publishes with a "Nightly stale part" warning.
 - .github/nightly-known-bad.json, read live from feat-cmux-next, holds a build whose commit contains a listed bad
   commit without its fix, in publish-nightly, before anything is uploaded.
   Held is not failed; an unreadable list publishes with a warning.
@@ -185,10 +185,61 @@ class WebviewVerdictTests(unittest.TestCase):
         self.assertIn("HTTP 502", line)
 
 
+class ShelfVerdictTests(unittest.TestCase):
+    def test_own_build_needs_this_runs_shelf_job_green_on_the_build_commit(self):
+        self.assertTrue(guard.shelf_verdict("own", "success", BUILD, BUILD)[0])
+        for result, checked in (("failure", BUILD), ("cancelled", ""), ("", ""), ("success", "d" * 40)):
+            with self.subTest(result=result, checked=checked):
+                ok, line = guard.shelf_verdict("own", result, checked, BUILD)
+                self.assertFalse(ok)
+                self.assertIn("App Store shelf", line)
+
+    def test_recovered_build_needs_its_runs_shelf_job_green(self):
+        green = [{"name": guard.SHELF_JOB, "status": "completed", "conclusion": "success"}]
+        self.assertTrue(guard.shelf_verdict("recovered", "", "", BUILD, lambda: green)[0])
+        for listed in ([], [{"name": guard.SHELF_JOB, "status": "completed", "conclusion": "failure"}],
+                       [{"name": guard.WEBVIEW_JOB, "status": "completed", "conclusion": "success"}]):
+            with self.subTest(listed=listed):
+                self.assertFalse(guard.shelf_verdict("recovered", "", "", BUILD, lambda: listed)[0])
+
+    def test_one_job_mode_waits_for_this_runs_shelf_job(self):
+        reads = iter([[{"name": guard.SHELF_JOB, "status": "in_progress", "conclusion": None}]] * 2
+                     + [[{"name": guard.SHELF_JOB, "status": "completed", "conclusion": "success"}]])
+        now = [0.0]
+        sleeps = []
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+        ok, line = guard.shelf_verdict("run", "", "", BUILD, lambda: next(reads), 1800, sleep, lambda: now[0])
+        self.assertTrue(ok, line)
+        self.assertEqual(sleeps, [30, 30])
+
+    def test_one_job_mode_refuses_a_red_or_unfinished_shelf(self):
+        red = [{"name": guard.SHELF_JOB, "status": "completed", "conclusion": "failure"}]
+        ok, line = guard.shelf_verdict("run", "", "", BUILD, lambda: red, 1800, lambda s: None, lambda: 0.0)
+        self.assertFalse(ok)
+        self.assertIn("failure", line)
+        running = [{"name": guard.SHELF_JOB, "status": "in_progress", "conclusion": None}]
+        now = [0.0]
+        def sleep(seconds):
+            now[0] += seconds
+        ok, line = guard.shelf_verdict("run", "", "", BUILD, lambda: running, 90, sleep, lambda: now[0])
+        self.assertFalse(ok)
+        self.assertIn("still running", line)
+
+    def test_an_unreadable_run_refuses(self):
+        def broken():
+            raise RuntimeError("HTTP 502")
+        ok, line = guard.shelf_verdict("run", "", "", BUILD, broken, 60, lambda s: None, lambda: 0.0)
+        self.assertFalse(ok)
+        self.assertIn("HTTP 502", line)
+
+
 class GateTests(unittest.TestCase):
     """publish-nightly's real Final publication gate, with NIGHTLY_NEXT_WRITER=mac read from a fake gh."""
 
-    def run_gate(self, *, check: str = "success", checked: str = BUILD, pairs: list | None = None):
+    def run_gate(self, *, check: str = "success", checked: str = BUILD, pairs: list | None = None,
+                 shelf: str = "success", shelf_sha: str = BUILD, gates: str = ""):
         gate = next(s for s in jobs()["publish-nightly"]["steps"] if s.get("name") == "Final publication gate")
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -205,6 +256,8 @@ class GateTests(unittest.TestCase):
                        CHANNEL_RELEASE_TAG="nightly-next", GITHUB_OUTPUT=str(output),
                        GITHUB_STEP_SUMMARY=str(work / "summary"), RUNNER_TEMP=str(work),
                        PUBLISH_TOOLING=str(ROOT / "scripts"), WEBVIEW_CHECK=check, WEBVIEW_CHECK_SHA=checked,
+                       SHELF_CHECK=shelf, SHELF_CHECK_SHA=shelf_sha,
+                       NIGHTLY_COMPONENT_GATES=gates,
                        NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "list.json"), NIGHTLY_KNOWN_BAD_GIT_URL="")
             result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
             result.output = dict(l.split("=", 1) for l in output.read_text().splitlines() if "=" in l)  # type: ignore[attr-defined]
@@ -215,13 +268,30 @@ class GateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("refused", result.output, result.stdout)
 
-    def test_red_webview_checks_refuse_with_a_reason(self):
+    def test_red_webview_checks_warn_and_publish(self):
+        # Leo, 2026-11-25: "we need to make sure we can just have stuff be ok". A red webview check is a stale part.
         for check, checked in (("failure", ""), ("skipped", ""), ("success", "d" * 40)):
             with self.subTest(check=check):
                 result = self.run_gate(check=check, checked=checked)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("refused", result.output, result.stdout)
+                self.assertIn("Nightly stale part::webview-checks", result.stdout)
+
+    def test_red_webview_checks_refuse_under_block(self):
+        for check, checked in (("failure", ""), ("skipped", ""), ("success", "d" * 40)):
+            with self.subTest(check=check):
+                result = self.run_gate(check=check, checked=checked, gates="block")
+                self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.output.get("refused"), "true")
                 self.assertIn("webview checks", result.output.get("refusal_reason", ""))
+
+    def test_a_broken_app_store_shelf_does_not_hold_the_publish(self):
+        # Leo, 2026-11-25: the shelf is advisory; report-nightly-shelf-red files its red after the fact.
+        for shelf, sha in (("failure", ""), ("skipped", ""), ("", ""), ("success", "d" * 40)):
+            with self.subTest(shelf=shelf, sha=sha):
+                result = self.run_gate(shelf=shelf, shelf_sha=sha)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("refused", result.output, result.stdout)
 
     def test_a_listed_commit_is_held_without_a_failure(self):
         # The build commit itself is listed as bad; the fix's ancestry comes from the (fake) compare API.
@@ -238,19 +308,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job["name"], guard.WEBVIEW_JOB)
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"],
                          "beside build-nightly-app, never after it")
-        checkout = job["steps"][0]
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
-        self.assertIn("fast_gate_webviews_checks.py", job["steps"][-1]["run"])
-        self.assertNotIn("--base", job["steps"][-1]["run"], "every red counts on the build commit")
+        checks = job["steps"][step_index(job, "Webview checks on the build commit")]
+        self.assertIn("fast_gate_webviews_checks.py", checks["run"])
+        self.assertNotIn("--base", checks["run"], "every red counts on the build commit")
         self.assertIn("needs.resolve-nightly-cmux-tui-client.outputs.build_sha", job["outputs"]["sha"])
 
-    def test_publish_nightly_gates_on_it_before_any_upload(self):
+    def test_publish_nightly_reads_it_only_under_block_before_any_upload(self):
         job = jobs()["publish-nightly"]
-        self.assertIn("check-nightly-webviews", job["needs"])
+        self.assertNotIn("check-nightly-webviews", job["needs"], "publish blocks on four things (Leo, 2026-11-25)")
         gate_at = step_index(job, "Final publication gate")
         env = job["steps"][gate_at]["env"]
-        self.assertEqual(env["WEBVIEW_CHECK"], "${{ needs.check-nightly-webviews.result }}")
-        self.assertEqual(env["WEBVIEW_CHECK_SHA"], "${{ needs.check-nightly-webviews.outputs.sha }}")
+        self.assertNotIn("WEBVIEW_CHECK", env)
+        self.assertEqual(env["WEBVIEW_RUN_ID"], "${{ github.run_id }}")
+        self.assertEqual(env["NIGHTLY_COMPONENT_GATES"], "${{ vars.NIGHTLY_COMPONENT_GATES }}")
         self.assertIn("nightly_publish_guard.py\" webview-verdict", job["steps"][gate_at]["run"])
         self.assertIn("nightly_publish_guard.py\" known-bad", job["steps"][gate_at]["run"])
         for i, step in enumerate(job["steps"]):
@@ -261,6 +333,38 @@ class WorkflowTests(unittest.TestCase):
                     self.assertIn("steps.gate.outputs.refused != 'true'", step["if"])
         # A failed check never skips the job (its gate refuses with a reason instead).
         self.assertNotIn("check-nightly-webviews.result", job["if"])
+
+    def test_the_shelf_job_checks_the_build_commit_beside_the_build(self):
+        job = jobs()["check-nightly-app-store-shelf"]
+        self.assertEqual(job["name"], guard.SHELF_JOB)
+        self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"],
+                         "beside the build, never after it")
+        self.assertNotIn("one_job", job["if"], "it runs in both publishing modes")
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
+        shelf = job["steps"][step_index(job, "Every Discover listing installs and shows something, on the build commit")]
+        self.assertIn("scripts/ci/app-store-shelf-check.sh", shelf["run"])
+        self.assertIn("needs.resolve-nightly-cmux-tui-client.outputs.build_sha", job["outputs"]["sha"])
+        # The App Store shelf workflow runs the same script, so the PR check and the nightly gate never drift.
+        shelf_workflow = (ROOT / ".github/workflows/app-store-shelf.yml").read_text()
+        self.assertIn("bash scripts/ci/app-store-shelf-check.sh", shelf_workflow)
+        script = (ROOT / "scripts/ci/app-store-shelf-check.sh").read_text()
+        for test in ("every_shipped_store_listing_installs_and_has_something_to_open",
+                     "a_command_only_store_listing_has_nothing_to_open_after_install"):
+            self.assertIn(test, script)
+
+    def test_neither_publisher_waits_on_the_shelf(self):
+        publish = jobs()["publish-nightly"]
+        self.assertNotIn("check-nightly-app-store-shelf", publish["needs"])
+        for name in ("publish-nightly", "nightly-next-one"):
+            env = jobs()[name]["steps"][step_index(jobs()[name], "Final publication gate")]["env"]
+            with self.subTest(job=name):
+                self.assertFalse({"SHELF_CHECK", "SHELF_CHECK_SHA", "SHELF_SOURCE", "SHELF_RUN_ID"} & set(env))
+        gate = (ROOT / "scripts/ci/nightly-steps/publish-final-gate.sh").read_text()
+        self.assertNotIn("shelf-verdict", gate)
+        report = jobs()["report-nightly-shelf-red"]
+        self.assertIn("check-nightly-app-store-shelf", report["needs"])
+        self.assertIn("needs.check-nightly-app-store-shelf.result == 'failure'", report["if"])
 
     def test_the_legacy_order_step_skips_a_held_build(self):
         script = ROOT / "scripts/ci/nightly-steps/legacy-identity-publish-skip-published.sh"

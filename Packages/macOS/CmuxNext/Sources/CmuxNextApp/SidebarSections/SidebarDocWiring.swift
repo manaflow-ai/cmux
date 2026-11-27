@@ -50,9 +50,9 @@ extension SidebarDocument {
             if let self, let store { self.docMachines.showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout?.docLayout = $0 } }
         }
         // An open tab's favicon address is stored on its link item (each window's rows draw it, `SidebarModel.itemFavicon`).
-        // The open tab favicons, by origin (`OpenTabFavicons`, main-thread-scheduling.md section 3, O4).
-        let openTabs = OpenTabFavicons()
-        openTabs.start(workspaces: { local.store.workspaces }, favicons: { [weak services] workspace in services?.openTabFavicons(of: workspace) ?? [] })
+        // The open tab favicons, by origin (`OpenTabFavicons`, main-thread-scheduling.md section 3, O4): the app's one
+        // table, which its icon questions read too (`AppServices.siteFaviconAddress`); started here or by the first of them.
+        let openTabs = services.openTabFaviconTable
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
                                           byOrigin: { openTabs.byOrigin }, faviconKey: BookmarkURL.faviconKey(for:))
         docMachines.follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
@@ -93,7 +93,7 @@ extension SidebarDocument {
                                  undoable: undoable)
         else { return false }
         // A pin is the home daemon's document; the workspace's own daemon (any session) gets the flag too.
-        if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(bridge.services.machines).mirror(ids.map(\.rawValue), pinned: pinned) }
+        if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(owner: bridge.services.machines.workspace(id:)).mirror(ids.map(\.rawValue), pinned: pinned) }
         return true
     }
 }

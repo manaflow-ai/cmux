@@ -42,6 +42,8 @@ private func report(_ cell: String, _ variant: String, _ fields: [String: Any]) 
     if let data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]),
        let text = String(data: data, encoding: .utf8) {
         print("MATRIX \(text)")
+        // The simulator route keeps attachments, not the runner's stdout.
+        Attachment.record("MATRIX \(text)\n", named: "MATRIX-\(cell)-\(variant).txt")
     }
 }
 
@@ -50,6 +52,19 @@ private struct World {
     /// Whether a dial started at `t` reaches the Mac, and how long it takes
     /// (a refused dial fails after its time too).
     var dial: (_ t: Duration) -> (ok: Bool, after: Duration, reason: String)
+    /// Whether a probe sent at `t` on the link already up gets through
+    /// (its path carries traffic again). Never, unless a cell says so.
+    var linkCarries: (_ t: Duration) -> Bool = { _ in false }
+    /// When the link already up closes on its own (the Rust link's
+    /// keepalive timeout after its path went silent), if it does.
+    var linkClosesAt: Duration? = nil
+    /// How long a probe sent at `t` on a path that carries takes to be
+    /// answered, or `nil` when it is lost (it times out). One clean round
+    /// trip unless a cell plays a link profile.
+    var probeAnswer: (_ t: Duration) -> Duration? = { _ in .milliseconds(50) }
+    /// The standby probe's timeout on this link (``MacLink/probeTimeout(floor:)``):
+    /// the floor unless a cell plays the Rust link's RTT scaling.
+    var standbyProbeTimeout: Duration = LinkController.standbyProbeTimeout
 }
 
 /// Runs a `LinkMachine` on virtual time: dials resolve by `world`, retries
@@ -60,6 +75,11 @@ private struct Timeline {
     var now: Duration = .zero
     var phases: [(at: Duration, phase: LinkMachine.Phase)] = []
     var dials = 0
+    /// Links made by a dial after the first: each one re-attaches every
+    /// channel (the coordinator sees `onLink(nil)` then a new link).
+    var newLinks = 0
+    /// Links resumed from standby: nothing re-attached.
+    var resumed = 0
     private var pending: [(at: Duration, event: LinkMachine.Event)] = []
 
     mutating func run(world: World, external: [(Duration, LinkMachine.Event)], until end: Duration) {
@@ -75,8 +95,15 @@ private struct Timeline {
     }
 
     private mutating func apply(_ event: LinkMachine.Event, world: World) {
+        var event = event
+        // A drop scripted before its link existed (`network_flaps`): the link up now.
+        if case .linkDropped(Self.currentLink, let reason) = event {
+            event = .linkDropped(generation: machine.generation, reason: reason)
+        }
+        let wasConnected = machine.phase.isConnected
         let effects = machine.handle(event)
         phases.append((now, machine.phase))
+        if case .dialSucceeded = event, !wasConnected, machine.phase.isConnected, dials > 1 { newLinks += 1 }
         for effect in effects {
             switch effect {
             case .dial(let generation, _, _):
@@ -88,11 +115,37 @@ private struct Timeline {
                 pending.append((now + outcome.after, result))
             case .scheduleRetry(let generation, let after):
                 pending.append((now + after, .retryDue(generation: generation)))
-            case .close, .probe, .quickProbe:
+            case .keepStandby:
+                guard let generation = machine.standby else { break }
+                pending.append(standbyOutcome(generation: generation, world: world))
+            case .promoteStandby:
+                resumed += 1
+            case .close, .probe, .quickProbe, .closeStandby, .park, .resumeParked:
                 break
             }
         }
     }
+
+    /// The standby probe loop of `LinkController.keepStandby()` on virtual
+    /// time: a probe that gets through answers in one round trip; one that
+    /// does not times out, then the next goes out after the gap. The link
+    /// closing on its own, or the standby limit, loses it.
+    private func standbyOutcome(generation: Int, world: World) -> (at: Duration, event: LinkMachine.Event) {
+        let limit = now + LinkController.standbyLimit
+        let closes = world.linkClosesAt.map { max($0, now) } ?? limit
+        var t = now
+        while t < min(limit, closes) {
+            if world.linkCarries(t), let rtt = world.probeAnswer(t), rtt <= world.standbyProbeTimeout {
+                let millis = UInt32(rtt.components.seconds * 1000 + rtt.components.attoseconds / 1_000_000_000_000_000)
+                return (t + rtt, .standbyAlive(generation: generation, path: .direct, rttMillis: millis))
+            }
+            t += world.standbyProbeTimeout + LinkController.standbyProbeEvery
+        }
+        return (min(limit, closes), .standbyLost(generation: generation))
+    }
+
+    /// A `linkDropped` generation meaning whichever link is up when it arrives.
+    static let currentLink = -1
 
     /// When the machine was first connected at or after `t`.
     func connected(after t: Duration) -> Duration? {
@@ -146,7 +199,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                 "outage_s": outage.seconds, "reconnect_ms": (reconnected?.seconds ?? -1) * 1000, "dials": timeline.dials,
             ])
             #expect(reconnected != nil && reconnected! <= .seconds(2), "\(variant): reconnected \(String(describing: reconnected)) after the network came back")
-            #expect(timeline.statusLines(from: lost, to: back) == ["Reconnecting…"], "\(variant): \(timeline.statusLines(from: lost, to: back))")
+            #expect(timeline.statusLines(from: lost, to: back).isEmpty, "\(variant): \(timeline.statusLines(from: lost, to: back))")
             // Retries back off: an 8 h outage is not a dial every second.
             #expect(Double(timeline.dials) <= outage.seconds / 15 + 10, "\(variant): \(timeline.dials) dials")
             results.append(reconnected ?? .seconds(3600))
@@ -210,6 +263,123 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         #expect(results[1] <= Duration.seconds(30) + dialTime)
     }
 
+    /// Leo, 11-25 (an elevator): "I feel like iOS doesn't retry connections aggressively
+    /// enough." 200 seeded flaps: the network goes for 3 s to 5 min (log-uniform), comes
+    /// back for 2 to 3 min. Half the returns bring a path change (Wi-Fi rejoined), half
+    /// none (cellular stayed "satisfied" through the outage). While down, 30% of dials
+    /// and presence attempts hang to their timeout (25 s, 10 s), the rest fail fast.
+    /// Presence notices the outage 0 to 20 s in (ping interval plus timeout) and retries
+    /// on ``PresenceTiming/retryDelay(afterFailures:)``; its hello after the outage
+    /// redials the links (`LiveCoordinator.presenceReturned`).
+    ///
+    /// `before`: the old backoff (1, 2, 4, 8, 15, 30) and no presence redial. `after`:
+    /// today's. Reports reconnect after the network is back, p50/p95/max per return kind.
+    @MainActor @Test func cellNetworkFlaps() {
+        let seed = TickRandom.seed(default: 0x464C_4150) // "FLAP"
+        var random = TickRandom(seed: seed)
+        var flaps: [(lost: Duration, back: Duration, path: Bool, detect: Duration)] = []
+        var t: Duration = .seconds(10)
+        for _ in 0..<200 {
+            let outage = random.logDuration(.seconds(3)...Duration.seconds(300))
+            flaps.append((t, t + outage, random.chance(0.5), random.duration(.zero...Duration.seconds(20))))
+            t += outage + random.duration(.seconds(120)...Duration.seconds(180))
+        }
+        let end = t
+        // The same coin for the same moment in both variants.
+        func hangs(_ t: Duration, _ salt: UInt64) -> Bool {
+            var coin = TickRandom(seed: seed ^ salt ^ UInt64(t.components.seconds * 1000 + t.components.attoseconds / 1_000_000_000_000_000))
+            return coin.chance(0.3)
+        }
+        func down(_ t: Duration) -> Duration? {
+            flaps.first { t >= $0.lost && t < $0.back }?.back
+        }
+        let world = World { t in
+            guard down(t) != nil else { return (true, dialTime, "") }
+            return hangs(t, 1) ? (false, .seconds(25), timeoutReason) : (false, .milliseconds(100), "network unreachable")
+        }
+        let helloTime: Duration = .milliseconds(300)
+
+        /// When presence's hello comes back after `flap`, and whether presence went down at all.
+        func presenceBack(_ flap: (lost: Duration, back: Duration, path: Bool, detect: Duration)) -> Duration? {
+            let noticed = flap.lost + flap.detect
+            guard noticed < flap.back else { return nil } // never noticed: never down
+            var failures = 1
+            var at = noticed + PresenceTiming.retryDelay(afterFailures: failures)
+            while at < flap.back {
+                at += hangs(at, 2) ? PresenceTiming.helloTimeout : .milliseconds(100)
+                failures += 1
+                at += PresenceTiming.retryDelay(afterFailures: failures)
+            }
+            let hello = at + helloTime
+            return hello - noticed >= PresenceTiming.outageMin ? hello : nil
+        }
+
+        /// When the network-return watch (Rust `net_return`, `LiveCoordinator.updateNetworkReturnWatch`)
+        /// sees `flap`'s network back: it starts as the link drops and connects to the service every
+        /// beat; the first beat at or after the return gets through one round trip later.
+        let returnBeat: Duration = .seconds(1)
+        let returnRTT: Duration = .milliseconds(100)
+        func probeBack(_ flap: (lost: Duration, back: Duration, path: Bool, detect: Duration)) -> Duration {
+            var beat = flap.lost
+            while beat < flap.back { beat += returnBeat }
+            return beat + returnRTT
+        }
+
+        var summary: [String: [String: Double]] = [:]
+        // before: the old backoff, no presence signal; after: today's backoff and presence's
+        // return; probe: that and the network-return watch.
+        for variant in ["before", "after", "probe"] {
+            var external: [(Duration, LinkMachine.Event)] = [(.zero, .target(studio))]
+            for flap in flaps {
+                external.append((flap.lost, .linkDropped(generation: Timeline.currentLink, reason: "network lost")))
+                if flap.path {
+                    external.append((flap.back + LinkController.networkSettle, .networkChanged))
+                    continue
+                }
+                let hello = variant == "before" ? nil : presenceBack(flap)
+                let probe = variant == "probe" ? probeBack(flap) : nil
+                if let first = [hello, probe].compactMap({ $0 }).min() {
+                    external.append((first, .networkChanged))
+                }
+            }
+            var timeline = Timeline()
+            if variant == "before" { timeline.machine.backoff = [1, 2, 4, 8, 15, 30] }
+            timeline.run(world: world, external: external, until: end)
+            var samples: [Bool: [Double]] = [true: [], false: []]
+            var unrecovered = 0
+            for (index, flap) in flaps.enumerated() {
+                let next = index + 1 < flaps.count ? flaps[index + 1].lost : end
+                guard let at = timeline.connected(after: flap.back), at < next else { unrecovered += 1; continue }
+                samples[flap.path, default: []].append((at - flap.back).seconds)
+            }
+            func pct(_ values: [Double], _ q: Double) -> Double {
+                let sorted = values.sorted()
+                return sorted.isEmpty ? -1 : sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * q).rounded()))]
+            }
+            var fields: [String: Any] = ["seed": seed, "flaps": flaps.count, "dials": timeline.dials, "unrecovered": unrecovered]
+            for (kind, values) in [("path", samples[true] ?? []), ("no_path", samples[false] ?? [])] {
+                let stats = ["p50_ms": pct(values, 0.5) * 1000, "p95_ms": pct(values, 0.95) * 1000, "max_ms": (values.max() ?? -1) * 1000, "n": Double(values.count)]
+                summary["\(variant)_\(kind)"] = stats
+                for (key, value) in stats { fields["\(kind)_\(key)"] = value }
+            }
+            report("network_flaps", variant, fields)
+            #expect(unrecovered == 0, "\(variant): \(unrecovered) flaps never reconnected before the next")
+            // Retries stay bounded over the whole run (about 23 h of virtual time).
+            #expect(Double(timeline.dials) <= end.seconds / 15 + 10 * Double(flaps.count), "\(variant): \(timeline.dials) dials")
+        }
+        let before = summary["before_no_path"] ?? [:], after = summary["after_no_path"] ?? [:]
+        let path = summary["after_path"] ?? [:]
+        #expect((path["max_ms"] ?? .infinity) <= 2000, "a path change reconnects within 2 s: \(path)")
+        #expect((after["p50_ms"] ?? .infinity) < (before["p50_ms"] ?? 0), "no path change, p50: after \(after) vs before \(before)")
+        #expect((after["p95_ms"] ?? .infinity) < (before["p95_ms"] ?? 0), "no path change, p95: after \(after) vs before \(before)")
+        #expect((after["max_ms"] ?? .infinity) <= 30_000, "no path change, worst: \(after)")
+        // The network-return watch: a return with no path change reconnects within a beat, a
+        // round trip and a dial, like a path change.
+        let probe = summary["probe_no_path"] ?? [:]
+        #expect((probe["max_ms"] ?? .infinity) <= 2000, "no path change with the return watch, worst: \(probe)")
+        #expect((probe["p95_ms"] ?? .infinity) < (after["p95_ms"] ?? 0), "return watch p95: \(probe) vs \(after)")
+    }
+
     /// Wi-Fi to cellular: the link drops when the old path dies; one redial
     /// on the new path. Reconnected within 1 s; never says "Offline".
     @Test func cellNetworkWifiToCellularHandoff() {
@@ -267,6 +437,45 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         #expect(withinGodBound(small: results[0], god: results[1]))
     }
 
+    /// A short background (another app for a few seconds; the Mac still
+    /// holds the link) or a long one (the link is gone). Before: the link was
+    /// closed on resume and redialed, so the chat waited a dial and re-attached
+    /// every channel. After: it is kept beside the redial; a live one answers
+    /// its first probe in one round trip and nothing re-attaches, a dead one
+    /// loses to the redial exactly as before.
+    @Test func cellAppShortBackgroundKeepsTheLink() {
+        for (variant, carries) in [("short-link-alive", true), ("long-link-gone", false)] {
+            var results: [String: Duration] = [:]
+            var reattached: [String: Int] = [:]
+            for (mode, keeps) in [("before", false), ("after", true)] {
+                let leave: Duration = .seconds(5)
+                let resume = leave + .seconds(8)
+                let world = World(dial: { _ in (true, dialTime, "") }, linkCarries: { t in carries || t < leave })
+                var timeline = Timeline()
+                timeline.machine.keepsStandby = keeps
+                timeline.run(world: world, external: [
+                    (.zero, .target(studio)),
+                    (leave, .background),
+                    (resume, .resume),
+                ], until: resume + .seconds(60))
+                let flowing = timeline.connected(after: resume + .milliseconds(1)).map { $0 - resume }
+                results[mode] = flowing ?? .seconds(3600)
+                reattached[mode] = timeline.newLinks
+                report("app_short_background", "\(variant)-\(mode)", [
+                    "flowing_after_resume_ms": (flowing?.seconds ?? -1) * 1000,
+                    "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed,
+                ])
+            }
+            #expect(results["after"]! <= results["before"]!, "\(variant): a kept link never slows the resume")
+            if carries {
+                #expect(results["after"]! <= .milliseconds(60), "\(variant): \(results["after"]!)")
+                #expect(reattached["after"] == 0)
+            } else {
+                #expect(results["after"]! == dialTime)
+            }
+        }
+    }
+
     /// Killed and relaunched: a fresh machine dials at once with no retry
     /// delay, and says "Reconnecting…" (never "Offline") until it is up.
     @Test func cellAppKilledAndRelaunched() {
@@ -276,7 +485,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let connected = timeline.connected(after: .zero)
         report("app_killed_and_relaunched", "small", ["connect_ms": (connected?.seconds ?? -1) * 1000])
         #expect(connected == dialTime)
-        #expect(timeline.statusLines(from: .zero, to: dialTime) == ["Reconnecting…"])
+        #expect(timeline.statusLines(from: .zero, to: dialTime).isEmpty)
     }
 
     /// A memory warning while connected gives memory back without touching
@@ -286,16 +495,167 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let controller = ScriptedDialer.controller(dialer)
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase.isConnected }
+        let generation = controller.dialGeneration
         let pressure = MemoryPressure(observesSystem: false)
         let owner = NSObject()
         var relieved = 0
         pressure.register(owner) { relieved += 1 }
         pressure.relieve()
-        try await Task.sleep(for: .milliseconds(50))
         report("app_memory_warning", "small", ["dials": dialer.dials, "relieved": relieved])
         #expect(relieved == 1)
         #expect(controller.phase.isConnected)
+        // No dial was started (a dial bumps the generation as it starts), and none was made.
+        #expect(controller.dialGeneration == generation)
         #expect(dialer.dials == 1)
+    }
+
+    /// The network goes dark for 8, 30 or 60 s with no path event (an
+    /// elevator, a dead cell, a 5G to LTE fall that keeps the interface).
+    /// The heartbeat finds the link silent within 5 s and redials; the
+    /// redial hangs on its 25 s dial timeout. Before: the old link is closed
+    /// at once, so recovery waits out that dial and every channel
+    /// re-attaches. After: the old link is kept beside the redial and probed;
+    /// the first probe through resumes it within 1.25 s plus a round trip of
+    /// the network being back, nothing re-attached. Bounded by when the old
+    /// link closes itself: the Rust link's 20 s keepalive today, 45 s with
+    /// it raised (the 60 s blackout is past both and redials).
+    @Test func cellNetworkBlackoutWithNoPathEvent() {
+        let lost: Duration = .seconds(5)
+        let detected = lost + LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace
+        for (blackout, keepalive) in [(8, 20), (30, 20), (30, 45), (60, 45)] {
+            let back = lost + .seconds(blackout)
+            let world = World(
+                dial: { t in t >= lost && t < back ? (false, .seconds(25), timeoutReason) : (true, dialTime, "") },
+                linkCarries: { t in t < lost || t >= back },
+                linkClosesAt: back <= lost + .seconds(keepalive) ? nil : lost + .seconds(keepalive)
+            )
+            var results: [String: Duration] = [:]
+            var reattached: [String: Int] = [:]
+            for (variant, keeps) in [("before", false), ("after", true)] {
+                var timeline = Timeline()
+                timeline.machine.keepsStandby = keeps
+                timeline.run(world: world, external: [
+                    (.zero, .target(studio)),
+                    (detected, .probeFailed(generation: 1, reason: timeoutReason)),
+                ], until: back + .seconds(120))
+                let resumed = timeline.connected(after: detected).map { $0 - back }
+                results[variant] = resumed ?? .seconds(3600)
+                reattached[variant] = timeline.newLinks
+                report("network_blackout_no_path_event", "\(blackout)s-keepalive\(keepalive)s-\(variant)", [
+                    "blackout_s": blackout, "rust_keepalive_s": keepalive,
+                    "flowing_after_back_ms": (resumed?.seconds ?? -1) * 1000,
+                    "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed, "dials": timeline.dials,
+                ])
+            }
+            let after = results["after"]!
+            if blackout < keepalive {
+                #expect(after <= LinkController.standbyProbeTimeout + LinkController.standbyProbeEvery + .milliseconds(50),
+                        "\(blackout)s: \(after) after the network was back")
+                #expect(reattached["after"] == 0, "\(blackout)s: re-attached channels")
+                #expect(reattached["before"] == 1)
+                #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the resume")
+            } else {
+                #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the redial")
+            }
+        }
+    }
+
+    /// `cellNetworkBlackoutWithNoPathEvent` with the link's numbers from a
+    /// phone link profile (cmux-fault's `link-profiles.json`: `lte`,
+    /// `lossy-3`, `lossy-10`), idle and under a long stream. A virtual-clock
+    /// model with the profile's parameters, not a shaped socket (the Rust
+    /// `duress_matrix` in cmux-mobile-link's `tests/roaming.rs` shapes real
+    /// tunnels):
+    /// - a probe is answered after the round trip plus a seeded jitter draw;
+    ///   idle, it is lost (times out) with the round trip's loss
+    ///   (1 - (1 - loss)^2);
+    /// - streaming (the Mac writing 2000 rows of 120 bytes a second, 20 rows
+    ///   a frame), any inbound frame answers it (the Rust probe counts any
+    ///   frame), so it is not lost: the next frame's one-way trip, jitter
+    ///   and serialization at the profile's rate (the in-flight frames were
+    ///   lost in the blackout, so no queue stands ahead of it yet);
+    /// - a dial takes 400 ms plus two round trips, plus WireGuard's 5 s
+    ///   handshake retry for each handshake message lost.
+    /// The inner TCP's retransmission backoff after a blackout is not
+    /// modeled here; the Rust run measures it.
+    @Test func cellNetworkBlackoutWithNoPathEventUnderLinkProfiles() {
+        struct Profile { let name: String; let rttMs: Int; let jitterMs: Int; let lossPercent: Double; let kbit: Int }
+        // link-profiles.json v1, as cmux#49310's UdpShaper plays them.
+        let profiles = [
+            Profile(name: "lte", rttMs: 70, jitterMs: 0, lossPercent: 0.5, kbit: 12_000),
+            Profile(name: "lossy-3", rttMs: 70, jitterMs: 300, lossPercent: 3, kbit: 12_000),
+            Profile(name: "lossy-10", rttMs: 1000, jitterMs: 300, lossPercent: 10, kbit: 1000),
+        ]
+        final class Draws { var random: TickRandom; init(seed: UInt64) { random = TickRandom(seed: seed) } }
+        let lost: Duration = .seconds(5)
+        let detected = lost + LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace
+        for profile in profiles {
+            let loss = profile.lossPercent / 100
+            let rtt: Duration = .milliseconds(profile.rttMs)
+            for streaming in [false, true] {
+                // One stream frame (20 rows) serialized at the profile's rate.
+                let frame: Duration = .microseconds(20 * 120 * 8 * 1000 / profile.kbit)
+                for (blackout, keepalive) in [(8, 20), (30, 20), (30, 45), (60, 45)] {
+                    let back = lost + .seconds(blackout)
+                    var reattached: [String: Int] = [:]
+                    // "before": no standby; "fixed-1s": the standby with a 1 s
+                    // probe timeout (#49327); "after": the Rust link's
+                    // RTT-scaled timeout, max(1 s, min(3 x RTT, 5 s)).
+                    let scaled = max(LinkController.standbyProbeTimeout, min(rtt * 3, .seconds(5)))
+                    for (variant, keeps, probeTimeout) in [
+                        ("before", false, LinkController.standbyProbeTimeout),
+                        ("fixed-1s", true, LinkController.standbyProbeTimeout),
+                        ("after", true, scaled),
+                    ] {
+                        let draws = Draws(seed: 0x4932_7000 &+ UInt64(blackout))
+                        let jitter = { () -> Duration in
+                            profile.jitterMs == 0 ? .zero : .milliseconds(Int(draws.random.next() % UInt64(profile.jitterMs + 1)))
+                        }
+                        let world = World(
+                            dial: { t in
+                                if t >= lost && t < back { return (false, .seconds(25), timeoutReason) }
+                                var after = dialTime + rtt * 2 + jitter()
+                                for _ in 0..<2 where draws.random.chance(loss) { after += .seconds(5) }
+                                return (true, after, "")
+                            },
+                            linkCarries: { t in t < lost || t >= back },
+                            linkClosesAt: back <= lost + .seconds(keepalive) ? nil : lost + .seconds(keepalive),
+                            probeAnswer: { _ in
+                                if streaming { return rtt / 2 + jitter() + frame }
+                                let answered = rtt + jitter()
+                                return draws.random.chance(1 - (1 - loss) * (1 - loss)) ? nil : answered
+                            },
+                            standbyProbeTimeout: probeTimeout
+                        )
+                        var timeline = Timeline()
+                        timeline.machine.keepsStandby = keeps
+                        timeline.run(world: world, external: [
+                            (.zero, .target(studio)),
+                            (detected, .probeFailed(generation: 1, reason: timeoutReason)),
+                        ], until: back + .seconds(120))
+                        let resumed = timeline.connected(after: detected).map { $0 - back }
+                        reattached[variant] = timeline.newLinks
+                        let load = streaming ? "stream" : "idle"
+                        report("network_blackout_no_path_event_profile",
+                               "\(profile.name)-\(load)-\(blackout)s-keepalive\(keepalive)s-\(variant)", [
+                            "profile": profile.name, "load": load, "model": "virtual-clock, profile parameters, not a shaped socket",
+                            "blackout_s": blackout, "rust_keepalive_s": keepalive,
+                            "flowing_after_back_ms": (resumed?.seconds ?? -1) * 1000,
+                            "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed,
+                            "dials": timeline.dials,
+                        ])
+                        #expect(resumed != nil, "\(profile.name) \(blackout)s \(variant): never connected again")
+                    }
+                    // A probe answered within its timeout resumes the kept link.
+                    // The RTT-scaled timeout fits every profile, lossy-10's 1 s
+                    // round trip included (with a fixed 1 s none could).
+                    let probeFits = streaming || rtt + .milliseconds(profile.jitterMs) < scaled
+                    if blackout < keepalive && probeFits {
+                        #expect(reattached["after"] == 0, "\(profile.name) \(blackout)s: re-attached channels")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Host side
@@ -396,7 +756,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// gone): minting a token fails with 401. The person must be asked to
     /// sign in again, not shown "Reconnecting…" forever.
     @MainActor @Test func cellPairingRevokedToken() async throws {
+        #if os(Linux)
+        struct RefusedToken: LinkServiceFailure { let status = 401 }
+        let failure = RefusedToken()
+        #else
         let failure = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #endif
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }
@@ -420,10 +785,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         #expect(dialer.forcedRefresh == [false, true], "the second dial must mint a fresh token")
+        let generation = controller.dialGeneration
         for event: LinkMachine.Event in [.foreground, .resume, .macSignaled, .networkChanged, .retryDue(generation: controller.dialGeneration)] {
             controller.send(event)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_at_dial", "small", ["dials": dialer.dials, "status": controller.phase.statusLine(macName: "Studio") ?? ""])
         #expect(dialer.dials == 2, "a signed-out session dialed \(dialer.dials) times")
         #expect(controller.phase == .signedOut)
@@ -439,8 +806,10 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         controller.send(.target(nil))
+        let generation = controller.dialGeneration
         controller.send(.target(.init(macID: "m1", name: "Studio", isOnline: true)))
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_idle_close", "small", ["dials": dialer.dials])
         #expect(dialer.dials == 2, "an idle close and reopen redialed a signed-out session")
         #expect(controller.phase == .signedOut)
@@ -511,7 +880,7 @@ private final class ScriptedDialer: MacLinkDialer, @unchecked Sendable {
 @MainActor
 private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
                         sourceLocation: SourceLocation = #_sourceLocation) async throws {
-    let deadline = ContinuousClock.now + within
-    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    var deadline = AwakeDeadline(within)
+    while !condition(), deadline.hasTimeLeft() { try await Task.sleep(for: .milliseconds(5)) }
     try #require(condition(), "timed out", sourceLocation: sourceLocation)
 }

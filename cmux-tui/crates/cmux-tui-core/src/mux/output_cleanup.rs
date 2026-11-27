@@ -249,78 +249,12 @@ fn run_output_cleanup(
     false
 }
 
-/// Background QoS on macOS; lowest CPU and idle IO priority for this thread
-/// on Linux. Elsewhere the thread keeps its default priority.
+/// Background QoS on macOS; lowest CPU and idle IO priority for this thread on Linux
+/// (`cmux-interactivity`'s `Maintenance` class, which is background whether or not the person interacts).
 fn lower_thread_priority() {
-    #[cfg(target_vendor = "apple")]
-    // SAFETY: sets the calling thread's own QoS class; no pointers.
-    unsafe {
-        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_BACKGROUND, 0);
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: plain syscalls on the calling thread's own id.
-    unsafe {
-        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 19);
-        // ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE).
-        libc::syscall(libc::SYS_ioprio_set, 1, tid, 3 << 13);
-    }
+    cmux_interactivity::lower_current_thread_for_life();
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
-        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
-        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
-        let thread = std::thread::spawn(move || {
-            let _exited = exited_sender;
-            // The final record waits on a lock a stalled journal commit holds.
-            drop(lock.lock().unwrap_or_else(PoisonError::into_inner));
-        });
-        OutputCleanupWorker { control, thread: Some(thread), exited }
-    }
-
-    #[test]
-    fn a_stop_returns_while_the_worker_waits_on_a_held_registry_lock() {
-        let lock = Arc::new(Mutex::new(()));
-        let held = lock.lock().unwrap();
-        let worker = worker_blocked_on(lock.clone());
-        let started = Instant::now();
-        worker.stop(Duration::from_millis(200));
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "a stop waited without a limit for a worker blocked on the registry lock"
-        );
-        drop(held);
-    }
-
-    /// Without the opt-in the owner schedules what it did before the
-    /// compaction existed: the output cleanup while that is not done, and
-    /// nothing after. The compaction is scheduled only with the opt-in, once.
-    #[test]
-    fn the_journal_compaction_is_scheduled_only_with_the_opt_in() {
-        use journal_compact::{requested, scheduled_mode};
-        use std::ffi::OsStr;
-        assert!(!requested(None), "the compaction is on without its variable");
-        for value in ["", "0", "true", "yes", "2"] {
-            assert!(!requested(Some(OsStr::new(value))), "{value:?} turns the compaction on");
-        }
-        assert!(requested(Some(OsStr::new("1"))));
-        for compact_done in [false, true] {
-            assert_eq!(scheduled_mode(false, compact_done, true), None);
-            assert_eq!(scheduled_mode(false, compact_done, false), Some(CleanupMode::Output));
-        }
-        assert_eq!(scheduled_mode(true, false, true), Some(CleanupMode::Compact));
-        assert_eq!(scheduled_mode(true, false, false), Some(CleanupMode::Compact));
-        assert_eq!(scheduled_mode(true, true, true), None, "the compaction runs once");
-        assert_eq!(scheduled_mode(true, true, false), Some(CleanupMode::Output));
-    }
-
-    #[test]
-    fn a_stop_joins_a_worker_that_ends() {
-        let worker = worker_blocked_on(Arc::new(Mutex::new(())));
-        worker.stop(Duration::from_secs(5));
-    }
-}
+#[path = "output_cleanup_tests.rs"]
+mod tests;

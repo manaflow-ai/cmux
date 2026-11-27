@@ -18,22 +18,22 @@ public struct MobileHostState: Sendable, Equatable {
         /// The owner removed this Mac from the account's devices: hostd stopped and stays
         /// stopped until the person allows iPhone connections again.
         case removed
+        /// The service refused this Mac's device id: another account registered it (`403 not_owner`).
+        /// hostd stopped; the iPhone host forgets that id for this account and starts with a new one.
+        case deviceIDTaken
     }
 
     public var phase: Phase = .off
+    /// The hostd that stopped for good (``Phase/deviceIDTaken``, ``Phase/removed``): its account and
+    /// device id. It may be an older account's hostd still running after a switch, so only that exact
+    /// id of that account may be forgotten.
+    public var stoppedDevice: MobileHostStoppedDevice?
     /// Connected phones, oldest first.
     public var phones: [MobileHostPhoneLink] = []
     /// The team the Mac registered in, once online.
     public var teamID: String?
     /// This Mac's mobile device id, once online.
     public var deviceID: String?
-    /// Rust-owned Remote Control policy, replayed with every Settings state update so a late app
-    /// observer cannot miss the initial or an acknowledgement state event.
-    public var sessionExposureConfigured = false
-    public var exposedSessionIDs: Set<String> = []
-    public var blockedSessionIDs: Set<String> = []
-    public var sessionExposureAvailable = false
-    public var sessionExposureKnown = false
 
     public init(phase: Phase = .off) {
         self.phase = phase
@@ -54,20 +54,11 @@ public struct MobileHostState: Sendable, Equatable {
         case .removed:
             phase = .removed
             phones = []
-            sessionExposureAvailable = false
-            sessionExposureKnown = false
-        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
+        case .deviceIDTaken:
+            phase = .deviceIDTaken
+            phones = []
+        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .pairAnswer, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
-        case let .sessionExposureState(available, configured, sessions, blockedSessions):
-            sessionExposureAvailable = available
-            sessionExposureConfigured = configured
-            exposedSessionIDs = Set(sessions)
-            blockedSessionIDs = Set(blockedSessions)
-            sessionExposureKnown = true
-        case .sessionExposureError:
-            // Rust has failed closed; stale allow/block sets must not keep the UI lit.
-            sessionExposureAvailable = false
-            sessionExposureKnown = true
         case .phoneUp(var link):
             link.since = now
             phones.removeAll { $0.sessionID == link.sessionID }
@@ -93,9 +84,19 @@ public struct MobileHostState: Sendable, Equatable {
 
     /// A new phase with no phones (the process stopped or exited).
     public mutating func reset(to phase: Phase) {
+        if phase != .deviceIDTaken, phase != .removed { stoppedDevice = nil }
         self.phase = phase
         phones = []
-        sessionExposureAvailable = false
-        sessionExposureKnown = false
+    }
+}
+
+/// Which hostd stopped for good: its account and the device id it registered.
+public struct MobileHostStoppedDevice: Sendable, Equatable {
+    public var owner: String
+    public var deviceID: String
+
+    public init(owner: String, deviceID: String) {
+        self.owner = owner
+        self.deviceID = deviceID
     }
 }

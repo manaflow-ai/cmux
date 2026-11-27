@@ -10,10 +10,11 @@
 //!
 //! Order: the person's (`connection_order` in `<acpmux home>/routes/bindings.json`) first, then
 //! the default order: the picker's default account of each family, then the other signed-in
-//! accounts, then keys, then the rest. `spread` (default on) lets the gateway move a thread to
+//! accounts, then keys, then the rest. `spread` (default off; the person turns it on) lets the gateway move a thread to
 //! the next connection that serves its model when one is out.
 //!
-//! Who may call: the list, also the local app; every change and every ChatGPT call, only the
+//! Who may call: the list, also the local app; every change, every ChatGPT call and every
+//! one-click Claude token call (`claude_token.*`, `crate::claude_token`), only the
 //! unix socket (the app's host calls them from a person's action; the gateway asks for tokens).
 //! Never Web or a peer. No secret is resolved here and no token is logged.
 
@@ -24,11 +25,13 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
 use crate::chatgpt;
 use crate::hub::Hub;
+use crate::key_check;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
 use crate::rpc::{RpcError, method};
 
@@ -38,11 +41,17 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_SPREAD_SET,
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
+    method::MUX_CONNECTIONS_KEY_CHECK,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+    method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
@@ -158,54 +167,15 @@ struct Facts {
     builtin: bool,
 }
 
-/// Whether a connection of `kind` always serves a Cloud chat (Revision 2: its credential goes to
-/// the machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. A Codex
-/// CLI login serves one only while it holds a ChatGPT token the machine can use
-/// ([`codex_login_serves_cloud`]); the Claude Code login and added Claude accounts serve local
-/// chats only.
+/// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
+/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
+/// CLI logins and added subscription accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "claude-token" => true,
         "api-key" => matches!(provider, "anthropic" | "openai"),
         _ => false,
     }
-}
-
-/// The Codex home of a Codex CLI login connection: the built-in `codex-login`'s is the Codex
-/// CLI's own (`CODEX_HOME`, else `~/.codex`) unless its route names one; an added Codex account's
-/// is its account home. None for any other connection.
-fn codex_login_folder(route: &Route) -> Option<PathBuf> {
-    let file = &route.file;
-    if file.kind != RouteKind::DirectSubscription || file.families != ["codex"] {
-        return None;
-    }
-    match file.account_home.as_deref() {
-        Some(folder) => Some(PathBuf::from(folder)),
-        None if route.id == routes::CODEX_LOGIN_ROUTE_ID => crate::route_shadow::codex_base(),
-        None => None,
-    }
-}
-
-/// The access a Cloud chat on Codex CLI login connection `route` gets now
-/// (`codex_login_access::read`: a ChatGPT sign-in's access token alone, with enough time left);
-/// None when it has none. Blocking file IO.
-fn codex_login_access(route: &Route) -> Option<crate::codex_login_access::Access> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    crate::codex_login_access::read(&codex_login_folder(route)?, now)
-}
-
-/// Whether a Codex CLI login connection serves a Cloud chat (cmux#45774): it is signed in with
-/// ChatGPT and its access token has time left. Its credential is that token alone
-/// (`codex_login_access.rs`); the machine's Codex sends it to the ChatGPT Codex backend. A person
-/// with a Sign in with ChatGPT connection keeps that one for Cloud ([`list`]): cmux refreshes it
-/// itself, which it never does for a CLI login.
-fn codex_login_serves_cloud(route: &Route, facts: &Facts) -> bool {
-    matches!(facts.kind, "codex-login" | "subscription")
-        && facts.signed_in
-        && codex_login_access(route).is_some()
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -221,8 +191,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
             .cloned()
             .collect()
     };
-    let serves_cloud =
-        serves_cloud(facts.kind, &facts.provider) || codex_login_serves_cloud(route, &facts);
+    let serves_cloud = serves_cloud(facts.kind, &facts.provider);
     Connection {
         id: route.id.clone(),
         kind: facts.kind,
@@ -241,22 +210,6 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
 /// Every connection, in the listing order the default order sorts (stably): the Codex CLI's
 /// login, the routes by id, the Claude Code login.
 pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connection> {
-    let mut out = listed(dir, home, b);
-    // A Codex CLI login serves Cloud only for a person with no Sign in with ChatGPT that does:
-    // the listing puts the CLI login first, and Cloud takes the first serving connection.
-    let plan_serves =
-        out.iter().any(|c| c.kind == "chatgpt-plan" && c.serves_cloud && c.enabled && c.signed_in);
-    if plan_serves {
-        for c in out.iter_mut().filter(|c| matches!(c.kind, "codex-login" | "subscription")) {
-            if c.families.iter().any(|f| f == "codex") {
-                c.serves_cloud = false;
-            }
-        }
-    }
-    out
-}
-
-fn listed(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connection> {
     let mut out = Vec::new();
     if let Ok(codex) = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID) {
         let folder = codex
@@ -419,7 +372,7 @@ pub(super) fn state(dir: Option<&Path>, home: &Path) -> Value {
     let connections = ordered(list(dir, home, &b), &b.connection_order);
     json!({
         "connections": connections,
-        "spread": b.spread.unwrap_or(true),
+        "spread": b.spread.unwrap_or(false),
         "order_explicit": !b.connection_order.is_empty(),
     })
 }
@@ -540,8 +493,7 @@ pub(super) fn add_claude_token(
 
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
-/// the daemon's own, `chatgpt::Service::token_lasting`), nor a Codex CLI login (its token is the
-/// login's own, [`codex_login_access`]): no reference for those.
+/// the daemon's own, `chatgpt::Service::token_lasting`).
 pub(super) fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
@@ -562,10 +514,7 @@ pub(super) fn credential_plan(
     let family = found.families.first().cloned().unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", crate::agent_credentials::CHATGPT_TOKEN, None));
-        }
-        ("codex-login" | "subscription", _) if family == "codex" => {
-            return Ok((family, found.kind, crate::agent_credentials::CODEX_LOGIN_TOKEN, None));
+            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
         }
         ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
         ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
@@ -585,6 +534,18 @@ fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
         .with_data(json!({"reason": "connections.not_cloud", "id": id})))
 }
 
+/// The value a connection of KIND sends: a Claude setup token with every whitespace character
+/// taken out, inner ones too (a terminal wraps `claude setup-token`'s long line and pads it, and a
+/// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
+/// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
+fn delivered(kind: &str, value: String) -> String {
+    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
+        value.chars().filter(|c| !c.is_whitespace()).collect()
+    } else {
+        value
+    }
+}
+
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
     routes::resolve_reference(reference).map_err(|why| {
@@ -594,12 +555,50 @@ fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("chatgpt", f)
+}
+
+/// A `claude_token` failure: reason `claude_token.CODE`.
+fn token_failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("claude_token", f)
+}
+
+fn failure_in(scope: &str, f: chatgpt::Failure) -> RpcError {
     let error = if f.code == "not_found" || f.code == "unknown_attempt" {
         RpcError::not_found(f.message)
     } else {
         RpcError::new(-32000, f.message)
     };
-    error.with_data(json!({"reason": format!("chatgpt.{}", f.code), "code": f.code}))
+    error.with_data(json!({"reason": format!("{scope}.{}", f.code), "code": f.code}))
+}
+
+/// `claude_token.wait`'s answer for `status`: the connection once done (as listed), the code once
+/// failed. Never the token: the attempt holds only the connection's id.
+fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -> Value {
+    let connection = match status {
+        chatgpt::Status::Done(id) => {
+            list(dir, home, &routes::bindings(home)).into_iter().find(|c| &c.id == id)
+        }
+        _ => None,
+    };
+    let error = match status {
+        chatgpt::Status::Failed(code) => Some(code.clone()),
+        _ => None,
+    };
+    json!({"status": status.as_str(), "connection": connection, "error": error})
+}
+
+/// What `claude_token.begin` adds the stored token as: a `claude-token` connection with
+/// `reference` (`keychain:cmux-model-key/claude-token-…`) and `label`; its id.
+fn add_token_reference(
+    dir: Option<&Path>,
+    home: &Path,
+    reference: &str,
+    label: Option<&str>,
+) -> Result<String, chatgpt::Failure> {
+    add_claude_token(dir, home, reference, label)
+        .map(|(id, _)| id)
+        .map_err(|e| chatgpt::Failure::new("add", e.message))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -626,6 +625,43 @@ pub(super) fn announce_later(hub: &Arc<Hub>) {
 fn announce_scope() -> &'static cmux_scope::Scope {
     static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
     SCOPE.get_or_init(|| cmux_scope::Scope::new("connections announce"))
+}
+
+/// `_acpmux/connections/chatgpt.import`: refused on any connection but the local socket (the
+/// remote relay and the web listener never reach a login file here) and unless the daemon's
+/// environment turned it on (`enabled`, [`chatgpt::CI_IMPORT_ENV`]); the connection's id.
+fn import_chatgpt(
+    origin: Origin,
+    enabled: bool,
+    dir: Option<PathBuf>,
+    home: PathBuf,
+    secret_file: &str,
+) -> Result<String, RpcError> {
+    if origin != Origin::Local {
+        return Err(RpcError::invalid_params(
+            "chatgpt.import is read from the local unix socket only, never a remote",
+        )
+        .with_data(json!({"reason": "chatgpt.import_local_only"})));
+    }
+    if !enabled {
+        return Err(RpcError::invalid_params(format!(
+            "chatgpt.import is a CI-only method: set {} in the daemon's environment",
+            chatgpt::CI_IMPORT_ENV
+        ))
+        .with_data(json!({"reason": "chatgpt.import_disabled"})));
+    }
+    chatgpt::import_codex_auth(
+        &chatgpt::Places { routes: dir, home },
+        std::path::Path::new(secret_file),
+    )
+    .map_err(failure)
+}
+
+/// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+    let b = routes::bindings(home);
+    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
+    Ok(json!({"connection": found}))
 }
 
 pub(super) async fn handle(
@@ -688,6 +724,26 @@ pub(super) async fn handle(
             .await??;
             announce_later(hub);
             Ok(state)
+        }
+        method::MUX_CONNECTIONS_KEY_CHECK => {
+            let provider = need("provider")?;
+            let secret = need("secret")?;
+            // The keychain may ask: off the runtime's threads. The key stays in this arm.
+            let key = Zeroizing::new(blocking(move || resolve("the key", &secret)).await??);
+            let verdict = key_check::check(&provider, &key, None, key_check::CHECK_TIMEOUT).await;
+            let (status, detail) = match &verdict {
+                key_check::Verdict::BadKey(code) => (Some(*code), None),
+                key_check::Verdict::Unreachable(why) => (None, Some(why.clone())),
+                _ => (None, None),
+            };
+            Ok(json!({
+                "provider": provider,
+                "result": verdict.as_str(),
+                "save": !verdict.rejects(),
+                "http_status": status,
+                "detail": detail,
+                "message": verdict.sentence(&provider),
+            }))
         }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
@@ -772,28 +828,48 @@ pub(super) async fn handle(
             announce_later(hub);
             Ok(state)
         }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN => {
+            let label = text("label").map(str::to_owned);
+            let announcer = hub.clone();
+            let begun = hub
+                .claude_token
+                .begin(
+                    move |reference| {
+                        add_token_reference(dir.as_deref(), &home, reference, label.as_deref())
+                    },
+                    move |status| {
+                        if matches!(status, chatgpt::Status::Done(_)) {
+                            announce_later(&announcer);
+                        }
+                    },
+                )
+                .await
+                .map_err(token_failure)?;
+            Ok(json!({"attempt": begun.attempt, "url": begun.url}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT => {
+            let attempt = need("attempt")?;
+            let status =
+                hub.claude_token.wait(&attempt, WAIT_LIMIT).await.map_err(token_failure)?;
+            blocking(move || token_wait_reply(dir.as_deref(), &home, &status)).await
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE => {
+            let attempt = need("attempt")?;
+            let code = params.get("code").and_then(Value::as_str).unwrap_or_default();
+            hub.claude_token.code(&attempt, code).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": "pending"}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL => {
+            let attempt = need("attempt")?;
+            let status = hub.claude_token.cancel(&attempt).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": status.as_str()}))
+        }
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
             let (family, kind, var, reference) =
                 blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
             let (value, expires_at) = match reference {
-                // A Codex CLI login: its access token now, read only (never refreshed here).
-                None if kind != "chatgpt-plan" => {
-                    let (d, i) = (dir.clone(), id.clone());
-                    let access = blocking(move || {
-                        routes::find(d.as_deref(), &i).ok().as_ref().and_then(codex_login_access)
-                    })
-                    .await?
-                    .ok_or_else(|| {
-                        RpcError::invalid_params(format!(
-                            "{id} has no ChatGPT sign-in with time left: run Codex on this Mac \
-                             (or `codex login`) to renew it"
-                        ))
-                        .with_data(json!({"reason": "connections.no_token", "id": id}))
-                    })?;
-                    (access.token, Some(access.expires_at))
-                }
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
@@ -803,11 +879,22 @@ pub(super) async fn handle(
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
-                Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
+                Some(reference) => {
+                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                }
             };
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
             )
+        }
+        method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
+            let secret_file = need("secret_file")?;
+            let enabled = chatgpt::ci_import_enabled();
+            let (d, h) = (dir.clone(), home.clone());
+            let id =
+                blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
+            announce_later(hub);
+            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;
@@ -820,436 +907,5 @@ pub(super) async fn handle(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn conn(id: &str, kind: &'static str, signed_in: bool, default_for: &[&str]) -> Connection {
-        Connection {
-            id: id.into(),
-            kind,
-            provider: "openai".into(),
-            families: vec!["codex".into()],
-            label: id.into(),
-            email: None,
-            plan: None,
-            signed_in,
-            enabled: true,
-            default_for: default_for.iter().map(|f| (*f).to_owned()).collect(),
-            serves_cloud: true,
-        }
-    }
-
-    fn ids(list: &[Connection]) -> Vec<&str> {
-        list.iter().map(|c| c.id.as_str()).collect()
-    }
-
-    #[test]
-    fn the_default_order_is_picker_defaults_then_signed_in_accounts_then_keys() {
-        let listed = vec![
-            conn("codex-login", "codex-login", true, &[]),
-            conn("openai-key", "api-key", true, &[]),
-            conn("chatgpt", "chatgpt-plan", true, &[]),
-            conn("work", "subscription", false, &[]),
-            conn("codex-2", "subscription", true, &["codex"]),
-            conn("claude-login", "claude-login", true, &["claude"]),
-        ];
-        assert_eq!(
-            ids(&ordered(listed.clone(), &[])),
-            ["codex-2", "claude-login", "codex-login", "chatgpt", "openai-key", "work"]
-        );
-        // The person's order first; ids that are gone are skipped; the rest keep the default.
-        let explicit = vec!["openai-key".to_owned(), "gone".to_owned(), "work".to_owned()];
-        assert_eq!(
-            ids(&ordered(listed, &explicit)),
-            ["openai-key", "work", "codex-2", "claude-login", "codex-login", "chatgpt"]
-        );
-    }
-
-    struct Dirs {
-        _root: tempfile::TempDir,
-        routes: PathBuf,
-        home: PathBuf,
-    }
-
-    fn dirs() -> Dirs {
-        let root = tempfile::tempdir().unwrap();
-        let (routes, home) = (root.path().join("routes"), root.path().join("home"));
-        std::fs::create_dir_all(&routes).unwrap();
-        Dirs { _root: root, routes, home }
-    }
-
-    fn state_ids(state: &Value) -> Vec<String> {
-        state["connections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|c| c["id"].as_str().unwrap().to_owned())
-            .collect()
-    }
-
-    #[test]
-    fn order_set_refuses_an_unknown_id_and_stores_a_known_order() {
-        let d = dirs();
-        let (_, _) =
-            add_key(Some(&d.routes), &d.home, "anthropic", "keychain:cmux-test-key", None).unwrap();
-        let error = set_order(Some(&d.routes), &d.home, &["nope".to_owned()]).unwrap_err();
-        assert_eq!(error.data.as_ref().unwrap()["reason"], "connections.unknown_id");
-        assert!(routes::bindings(&d.home).connection_order.is_empty(), "nothing stored");
-        let twice = vec!["anthropic-key".to_owned(), "anthropic-key".to_owned()];
-        assert!(set_order(Some(&d.routes), &d.home, &twice).is_err());
-
-        let state = set_order(Some(&d.routes), &d.home, &["anthropic-key".to_owned()]).unwrap();
-        assert_eq!(state["order_explicit"], true);
-        assert_eq!(state_ids(&state)[0], "anthropic-key");
-        let text = std::fs::read_to_string(d.home.join("routes/bindings.json")).unwrap();
-        assert!(text.contains("\"connection_order\""), "{text}");
-        // Removing the route drops it from the order.
-        routes::remove(Some(&d.routes), &d.home, "anthropic-key").unwrap();
-        assert!(routes::bindings(&d.home).connection_order.is_empty());
-    }
-
-    #[test]
-    fn spread_defaults_on_and_is_stored() {
-        let d = dirs();
-        assert_eq!(state(Some(&d.routes), &d.home)["spread"], true);
-        assert_eq!(set_spread(Some(&d.routes), &d.home, false).unwrap()["spread"], false);
-        assert_eq!(routes::bindings(&d.home).spread, Some(false));
-    }
-
-    #[test]
-    fn a_key_is_added_as_a_reference_and_listed_with_its_provider() {
-        let d = dirs();
-        let inline = add_key(Some(&d.routes), &d.home, "openrouter", "sk-or-v1-abc", None);
-        assert_eq!(inline.unwrap_err().data.unwrap()["reason"], "route.secret_inline");
-        assert!(add_key(Some(&d.routes), &d.home, "mistral", "keychain:x", None).is_err());
-        let (id, state) =
-            add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", Some("Mine"))
-                .unwrap();
-        assert_eq!(id, "openrouter-key");
-        let key = state["connections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|c| c["id"] == "openrouter-key")
-            .cloned()
-            .unwrap();
-        assert_eq!(key["kind"], "api-key");
-        assert_eq!(key["provider"], "openrouter");
-        assert_eq!(key["families"], json!(["claude", "codex"]));
-        assert_eq!(key["label"], "Mine");
-        assert_eq!(key["signed_in"], true);
-        assert_eq!(key["serves_cloud"], false, "Revision 2: only Anthropic and OpenAI keys");
-        let (second, _) =
-            add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or-2", None).unwrap();
-        assert_eq!(second, "openrouter-key-2");
-        let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
-        assert_eq!(route.file.secret.as_deref(), Some("keychain:cmux-or"));
-        assert_eq!(route.file.provider.as_deref(), Some("openrouter"));
-    }
-
-    fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
-        let path = d._root.path().join(name);
-        std::fs::write(&path, format!("{value}\n")).unwrap();
-        crate::router_socket::owner_only(&path);
-        format!("file:{}", path.display())
-    }
-
-    fn find<'a>(state: &'a Value, id: &str) -> &'a Value {
-        state["connections"].as_array().unwrap().iter().find(|c| c["id"] == id).unwrap()
-    }
-
-    #[test]
-    fn every_connection_kind_turns_off_and_a_disabled_one_gets_no_credential() {
-        let d = dirs();
-        let token = secret_file(&d, "t", "sk-ant-oat01-x");
-        add_claude_token(Some(&d.routes), &d.home, &token, None).unwrap();
-        let plan = RouteFile {
-            name: Some("ChatGPT plan".into()),
-            kind: RouteKind::ChatgptPlan,
-            families: vec!["codex".into()],
-            anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
-            auth: None,
-            secret: None,
-            headers: Default::default(),
-            health_url: None,
-            fallback: vec![],
-            auto_fallback: false,
-            notes: None,
-            account_home: None,
-            shadow_of: None,
-            disabled: false,
-            provider: Some("openai".into()),
-        };
-        routes::add(Some(&d.routes), "chatgpt", &plan, false).unwrap();
-        for id in ["claude-token", "chatgpt", "claude-login"] {
-            let answer = accounts::set_for_test(Some(&d.routes), &d.home, id, Some(false));
-            assert_eq!(answer.unwrap()["enabled"], false, "{id}");
-            let s = state(Some(&d.routes), &d.home);
-            let c = find(&s, id);
-            assert_eq!(c["enabled"], false, "{id}");
-            assert_eq!(c["default_for"], json!([]), "{id} is nobody's default when off");
-            assert_eq!(
-                state_ids(&s).last().map(String::as_str),
-                Some(id),
-                "{id}: a turned-off connection sorts last"
-            );
-            if id != "claude-login" {
-                let e = credential_plan(Some(&d.routes), &d.home, id).unwrap_err();
-                assert_eq!(e.data.unwrap()["reason"], "connections.disabled", "{id}");
-            }
-            accounts::set_for_test(Some(&d.routes), &d.home, id, Some(true)).unwrap();
-            assert_eq!(find(&state(Some(&d.routes), &d.home), id)["enabled"], true, "{id}");
-        }
-        assert!(routes::bindings(&d.home).disabled_connections.is_empty());
-        // The switch of claude-login lives in the bindings, not a route file.
-        assert!(routes::find(Some(&d.routes), "claude-login").is_err());
-    }
-
-    #[test]
-    fn which_connections_serve_cloud() {
-        for (kind, provider, cloud) in [
-            ("chatgpt-plan", "openai", true),
-            ("claude-token", "anthropic", true),
-            ("api-key", "anthropic", true),
-            ("api-key", "openai", true),
-            ("api-key", "openrouter", false),
-            ("api-key", "google", false),
-            ("api-key", "xai", false),
-            ("codex-login", "openai", false),
-            ("claude-login", "anthropic", false),
-            ("subscription", "openai", false),
-        ] {
-            assert_eq!(serves_cloud(kind, provider), cloud, "{kind} {provider}");
-        }
-        let d = dirs();
-        // A Codex CLI login with no sign-in (never this host's own `~/.codex`).
-        let empty = d._root.path().join("no-codex-login");
-        std::fs::create_dir_all(&empty).unwrap();
-        codex_login_route(&d, &empty);
-        let s = state(Some(&d.routes), &d.home);
-        assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
-        assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
-    }
-
-    /// A Codex CLI `auth.json` signed in with ChatGPT (0600, as Codex writes it), in a new folder
-    /// under `d`: an unsigned access token for account `acct-1234` that ends `left` seconds from now.
-    fn codex_login_folder(d: &Dirs, name: &str, left: i64) -> (PathBuf, String) {
-        use base64::Engine as _;
-        let b64 = |v: &Value| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
-        };
-        let now =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-                as i64;
-        let claims = json!({"exp": now + left,
-            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-1234"}});
-        let access = format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims));
-        let folder = d._root.path().join(name);
-        std::fs::create_dir_all(&folder).unwrap();
-        let auth = json!({"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {
-            "access_token": access, "account_id": "acct-1234",
-            "id_token": "the-id-token", "refresh_token": "the-refresh-token"}});
-        let path = folder.join("auth.json");
-        std::fs::write(&path, auth.to_string()).unwrap();
-        crate::router_socket::owner_only(&path);
-        (folder, access)
-    }
-
-    fn codex_login_route(d: &Dirs, folder: &Path) {
-        let mut file = routes::find(None, routes::CODEX_LOGIN_ROUTE_ID).unwrap().file;
-        file.account_home = Some(folder.display().to_string());
-        routes::add(Some(&d.routes), routes::CODEX_LOGIN_ROUTE_ID, &file, true).unwrap();
-    }
-
-    /// cmux#45774: the Mac's Codex CLI signed in with ChatGPT serves a Cloud chat. Cloud
-    /// multiplayer (#40159) listed it as This Mac only, so a person signed in to Codex with ChatGPT
-    /// got no Codex on a Cloud machine. Its credential is the access token alone: never the
-    /// refresh token, the ID token or `auth.json`.
-    #[cfg(unix)]
-    #[test]
-    fn a_codex_cli_chatgpt_login_serves_cloud_with_its_access_token_only() {
-        let d = dirs();
-        let (folder, _access) = codex_login_folder(&d, "codex-home", 3600);
-        codex_login_route(&d, &folder);
-        let s = state(Some(&d.routes), &d.home);
-        let c = find(&s, "codex-login");
-        assert_eq!(c["kind"], "codex-login");
-        assert_eq!(c["signed_in"], true);
-        assert_eq!(c["serves_cloud"], true, "{c}");
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap();
-        assert_eq!(
-            (family.as_str(), kind, var),
-            ("codex", "codex-login", "CMUX_CODEX_ACCESS_TOKEN")
-        );
-        assert!(secret.is_none(), "the login's own token, not a reference");
-        let route = routes::find(Some(&d.routes), "codex-login").unwrap();
-        let access = codex_login_access(&route).unwrap();
-        assert_eq!(access.token, _access, "the access token, as auth.json has it");
-        assert!(access.expires_at > 0);
-        let shown = format!("{access:?}");
-        assert!(!shown.contains(&access.token), "its Debug never shows the token");
-        let auth = std::fs::read_to_string(folder.join("auth.json")).unwrap();
-        assert!(auth.contains("the-refresh-token"), "auth.json is left as it was");
-
-        // A token about to end (under 5 min) does not serve: the Mac's own Codex renews it first.
-        let (soon, _) = codex_login_folder(&d, "codex-soon", 120);
-        codex_login_route(&d, &soon);
-        let s = state(Some(&d.routes), &d.home);
-        assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
-        let e = credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap_err();
-        assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud");
-        // An API key sign-in is not a ChatGPT one.
-        let (key, _) = codex_login_folder(&d, "codex-key", 3600);
-        std::fs::write(key.join("auth.json"), r#"{"OPENAI_API_KEY":"sk-proj-x"}"#).unwrap();
-        crate::router_socket::owner_only(&key.join("auth.json"));
-        codex_login_route(&d, &key);
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], false);
-
-        // An added account's shadow home links the base's config.toml: it still serves.
-        let (shadow, _) = codex_login_folder(&d, "codex-shadow", 3600);
-        let base_config = d._root.path().join("base-config.toml");
-        std::fs::write(
-            &base_config,
-            "model = \"x\"\n[profiles.p]\ncli_auth_credentials_store = \"keyring\"\n",
-        )
-        .unwrap();
-        std::os::unix::fs::symlink(&base_config, shadow.join("config.toml")).unwrap();
-        codex_login_route(&d, &shadow);
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], true);
-        // Keyring storage at the top level: the file may be stale, nothing is offered.
-        std::fs::write(&base_config, "cli_auth_credentials_store = \"keyring\"\n").unwrap();
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], false);
-        std::fs::write(&base_config, "").unwrap();
-
-        // A Sign in with ChatGPT connection keeps Cloud: the CLI login no longer serves it.
-        let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
-            sub: "user-1".into(),
-            refresh_token: "r".into(),
-            ..Default::default()
-        };
-        chatgpt::store::write(&d.home, "chatgpt", &record).unwrap();
-        let mut plan = routes::find(None, routes::CODEX_LOGIN_ROUTE_ID).unwrap().file;
-        plan.name = Some("ChatGPT plan".into());
-        plan.kind = RouteKind::ChatgptPlan;
-        plan.account_home = None;
-        plan.notes = None;
-        plan.openai_base_url = Some(chatgpt::RESOURCE.into());
-        plan.provider = Some("openai".into());
-        routes::add(Some(&d.routes), "chatgpt", &plan, false).unwrap();
-        let s = state(Some(&d.routes), &d.home);
-        assert_eq!(find(&s, "chatgpt")["serves_cloud"], true);
-        assert_eq!(find(&s, "codex-login")["serves_cloud"], false, "the plan connection wins");
-    }
-
-    #[test]
-    fn a_claude_token_is_added_as_a_reference_and_delivered_as_the_oauth_token() {
-        let d = dirs();
-        let inline = add_claude_token(Some(&d.routes), &d.home, "sk-ant-oat01-abc", None);
-        assert_eq!(inline.unwrap_err().data.unwrap()["reason"], "route.secret_inline");
-        let reference = secret_file(&d, "claude-token", "sk-ant-oat01-secret");
-        let (id, state) = add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
-        assert_eq!(id, "claude-token");
-        let c = find(&state, "claude-token");
-        assert_eq!(c["kind"], "claude-token");
-        assert_eq!(c["provider"], "anthropic");
-        assert_eq!(c["families"], json!(["claude"]));
-        assert_eq!(c["label"], "Claude Code token");
-        assert_eq!(c["signed_in"], true);
-        assert_eq!(c["serves_cloud"], true);
-        let route = routes::find(Some(&d.routes), "claude-token").unwrap();
-        assert_eq!(route.file.secret.as_deref(), Some(reference.as_str()), "only the reference");
-        assert!(matches!(
-            routes::env_for(&route, "claude", &d.home),
-            Err(routes::RouteError::Unavailable(_))
-        ));
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
-        assert_eq!(
-            (family.as_str(), kind, var),
-            ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
-        );
-        assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
-    }
-
-    #[test]
-    fn keys_are_delivered_in_their_providers_variable_and_logins_not_at_all() {
-        let d = dirs();
-        let anthropic = secret_file(&d, "a", "sk-ant-api-1");
-        let openai = secret_file(&d, "o", "sk-proj-1");
-        add_key(Some(&d.routes), &d.home, "anthropic", &anthropic, None).unwrap();
-        add_key(Some(&d.routes), &d.home, "openai", &openai, None).unwrap();
-        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
-        let empty = d._root.path().join("no-codex-login");
-        std::fs::create_dir_all(&empty).unwrap();
-        codex_login_route(&d, &empty);
-        let (family, kind, var, _) =
-            credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
-        assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
-        let (family, _, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
-        assert_eq!((family.as_str(), var), ("codex", "OPENAI_API_KEY"));
-        assert_eq!(resolve("openai-key", &secret.unwrap()).unwrap(), "sk-proj-1");
-        for id in ["openrouter-key", "codex-login", "claude-login"] {
-            let e = credential_plan(Some(&d.routes), &d.home, id).unwrap_err();
-            assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud", "{id}");
-        }
-        let e = credential_plan(Some(&d.routes), &d.home, "nope").unwrap_err();
-        assert_eq!(e.code, RpcError::not_found("").code);
-    }
-
-    #[test]
-    fn a_chatgpt_plan_route_is_listed_from_its_record() {
-        let d = dirs();
-        let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
-            sub: "user-1".into(),
-            email: Some("alex@example.com".into()),
-            plan: Some("plus".into()),
-            refresh_token: "r".into(),
-            ..Default::default()
-        };
-        chatgpt::store::write(&d.home, "chatgpt", &record).unwrap();
-        let file = RouteFile {
-            name: Some("ChatGPT plan".into()),
-            kind: RouteKind::ChatgptPlan,
-            families: vec!["codex".into()],
-            anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
-            auth: None,
-            secret: None,
-            headers: Default::default(),
-            health_url: None,
-            fallback: vec![],
-            auto_fallback: false,
-            notes: None,
-            account_home: None,
-            shadow_of: None,
-            disabled: false,
-            provider: Some("openai".into()),
-        };
-        routes::add(Some(&d.routes), "chatgpt", &file, false).unwrap();
-        let list = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
-        let plan = list.iter().find(|c| c.id == "chatgpt").unwrap();
-        assert_eq!(plan.kind, "chatgpt-plan");
-        assert!(plan.signed_in);
-        assert_eq!(plan.email.as_deref(), Some("alex@example.com"));
-        assert_eq!(plan.plan.as_deref(), Some("plus"));
-        assert!(plan.serves_cloud);
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
-        assert_eq!(
-            (family.as_str(), kind, var),
-            ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
-        );
-        assert!(secret.is_none(), "the daemon's own token, not a reference");
-        // A local chat never spawns on it.
-        let route = routes::find(Some(&d.routes), "chatgpt").unwrap();
-        assert!(matches!(
-            routes::env_for(&route, "codex", &d.home),
-            Err(routes::RouteError::Unavailable(_))
-        ));
-    }
-}
+#[path = "connections_tests.rs"]
+mod tests;

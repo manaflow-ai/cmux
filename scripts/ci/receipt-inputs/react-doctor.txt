@@ -1,0 +1,22 @@
+# Inputs of the React Doctor check (scripts/ci/receipt_input_key.py): UNIT KIND PATH.
+# UNIT `*` is read by every run; a project line is read when the gate scans that project.
+# Leaving out a path the scan reads lets a stale green stand: tests/test_receipt_input_key.py keeps the gate's
+# GATE_INPUTS and PROJECTS covered here. Outside paths are the ones the projects' configs point at.
+* blob scripts/ci/react_doctor_gate.py
+* blob scripts/ci/react-doctor-baseline.json
+* tree scripts/react-doctor
+* blob .github/workflows/cmux-next-react-doctor.yml
+* blob tests/test_react_doctor_gate.py
+* blob scripts/ci/bun-install.sh
+* blob scripts/ci/receipt_input_key.py
+* blob scripts/ci/receipt_signed.py
+* blob scripts/ci/receipt-inputs/react-doctor.txt
+webviews tree webviews
+webviews tree config/vite-plus
+agent-chat tree agent-chat
+backend tree backend
+backend tree clients/ts
+backend tree workers/cmux-vm/sdk
+web tree web
+cmux-tui/frontends/web tree cmux-tui/frontends/web
+cmux-tui/frontends/web tree config/vite-plus

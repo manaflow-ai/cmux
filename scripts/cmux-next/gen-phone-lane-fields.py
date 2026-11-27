@@ -35,6 +35,10 @@ REVIEWED_TYPES = {
     # holds, five plain strings and numbers; the daemon only compares them to its own.
     "ListWorkspacesKnown": ("the registry ids and revisions of the tree the client holds; the daemon only "
                             "compares them", "addc7ffa128980b5"),
+    # `list-workspaces` `since` (workspace-list-delta-v1): the cursor of the last reply the phone
+    # applied, one string and one number; the daemon only compares them to its own ring.
+    "ListWorkspacesSince": ("the epoch and seq of the last list the client applied; the daemon only "
+                            "compares them", "d45f59e95fcb70ca"),
     # `place` of a create request (tab-create-place-v1): where the new tab goes in the strip of its
     # pane. Two tab ids, the `transaction` of an earlier create request of the same connection and two
     # booleans; it names no program, directory or environment. On this lane `new-tab` keeps its own

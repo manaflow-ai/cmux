@@ -147,10 +147,12 @@ async fn the_retry_waits_for_claudes_own_turn() {
     assert_eq!(user_messages(&hub, &id)[1]["_meta"]["provenance"]["kind"], "subagent_retry");
 }
 
-/// Stop ends the wait, and the skipped retry never fires.
+/// Stop ends the wait, and the skipped retry never fires. The wait is a minute long, so the Stop
+/// always lands in it whatever the machine's load; Stop wakes it, and a woken wait that fired
+/// anyway would show within the 600 ms below.
 #[tokio::test]
 async fn stop_skips_the_wait() {
-    let (hub, mut c, id) = chat("agent-503", vec![300]).await;
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
     until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
     c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let got = until(&hub, &id, |o| o.len() >= 2).await;
@@ -199,12 +201,19 @@ async fn a_subagent_a_dropped_connection_failed_is_resumed() {
     assert_eq!(scheduled.msg["reason"], "transport", "{:?}", scheduled.msg);
 }
 
-/// A resume that fails on the 503 again waits for its next attempt, and after the configured
-/// attempts it is given up.
+/// Repeated dropped connections use the configured attempt budget. Capacity outages instead
+/// wait out the outage horizon, so they cannot stand in for this failure class.
+fn repeated_transport_failure() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
+        ("FAKE_CLAUDE_RESUME_ERROR".to_owned(), "agent-reset".to_owned()),
+    ])
+}
+
+/// A resume whose connection keeps dropping is given up after the configured attempts.
 #[tokio::test]
 async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], repeated_transport_failure()).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(
         got,
@@ -226,34 +235,72 @@ async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
     assert_eq!(given_up["retryable"], true, "{given_up}");
 }
 
+/// A capacity outage keeps retrying beyond the ordinary attempt budget, including failures
+/// emitted by the resumed agent through the real harness translator.
+#[tokio::test]
+async fn a_subagent_capacity_outage_is_retried_beyond_the_configured_attempts() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
+    let (hub, mut c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let got = until(&hub, &id, |o| o.iter().filter(|o| o.as_str() == "fired").count() >= 3).await;
+    assert!(got.iter().filter(|o| o.as_str() == "fired").count() >= 3, "{got:?}");
+    assert!(!got.iter().any(|o| o == "exhausted"), "{got:?}");
+    for event in records(&hub, &id)
+        .into_iter()
+        .filter(|e| e.kind == "subagent_retry" && e.msg["outcome"] == "scheduled")
+    {
+        assert_eq!(event.msg["reason"], "capacity", "{:?}", event.msg);
+    }
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+}
+
 /// A person's turn runs when the retry fires: its prompt waits in the queue behind that turn
-/// and runs after it, never steered into it.
+/// and runs after it, never steered into it. The subagent fails only once that turn runs (the
+/// fake fails it when the test writes `late`), so the retry is due inside the turn whatever the
+/// machine's load.
 #[tokio::test]
 async fn the_retry_queues_behind_a_running_turn() {
+    let late = std::env::temp_dir().join(format!("acpmux-a503-late-{}", uuid::Uuid::now_v7()));
     let gate = std::env::temp_dir().join(format!("acpmux-a503-hold-{}", uuid::Uuid::now_v7()));
-    let (hub, mut c, id) = chat("agent-503", vec![300]).await;
-    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    let (hub, mut c, id) = chat(&format!("agent-503-late: {}", late.display()), vec![20]).await;
     let hold = c
         .send(
             method::SESSION_PROMPT,
             prompt(&id, &format!("hold: {}", gate.display()), Some("p-hold")),
         )
         .await;
+    for _ in 0..400 {
+        if hub.resolve(&id).unwrap().turn().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the person's turn never started");
+    assert_eq!(outcomes(&hub, &id), Vec::<String>::new(), "failed before the person's turn");
+    std::fs::write(&late, "").unwrap();
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
     assert_eq!(got[..2], ["scheduled", "fired"], "{got:?}");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // "fired" is logged just before its prompt goes in: the queue takes it.
+    let queued_retry = |hub: &Hub| {
+        records(hub, &id)
+            .into_iter()
+            .filter(|e| e.kind == "queued")
+            .any(|e| e.msg["promptId"].as_str().is_some_and(|p| p.starts_with("subagent-retry-")))
+    };
+    for _ in 0..200 {
+        if queued_retry(&hub) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let queued: Vec<Value> =
         records(&hub, &id).into_iter().filter(|e| e.kind == "queued").map(|e| e.msg).collect();
-    assert!(
-        queued
-            .iter()
-            .any(|q| q["promptId"].as_str().is_some_and(|p| p.starts_with("subagent-retry-"))),
-        "{queued:?}"
-    );
+    assert!(queued_retry(&hub), "{queued:?}");
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the person's turn ended early");
     assert_eq!(user_messages(&hub, &id).len(), 2, "only the person's prompts ran so far");
     std::fs::write(&gate, "").unwrap();
     c.response(hold).await.0.unwrap();
     messages_until(&hub, &id, 3).await;
+    let _ = std::fs::remove_file(&late);
     let _ = std::fs::remove_file(&gate);
     let messages = user_messages(&hub, &id);
     assert_eq!(messages[1]["promptId"], "p-hold");
@@ -321,9 +368,9 @@ async fn close_after_stop_or_giving_up_is_not_retryable() {
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], false, "stopped, then closed");
 
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20], env).await;
-    until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20], repeated_transport_failure()).await;
+    let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    assert!(got.iter().any(|o| o == "exhausted"), "{got:?}");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], true);
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
@@ -358,11 +405,9 @@ async fn failures_past_the_limit_are_forgotten_after_a_stop_or_giving_up() {
 /// retried again, and given up after the attempts, as a remembered one is.
 #[tokio::test]
 async fn a_forgotten_agent_that_keeps_failing_is_given_up_after_the_attempts() {
-    let env = BTreeMap::from([
-        ("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned()),
-        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
-    ]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let mut env = repeated_transport_failure();
+    env.insert("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned());
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], env).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(got, ["scheduled", "fired", "scheduled", "fired", "exhausted"]);
     let last = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();

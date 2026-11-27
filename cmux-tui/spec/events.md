@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-scheduled-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -20,6 +20,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
+| Cloud machine state watch | Verified app `apps-machine-state-watch` with `apps-v1` | `apps-cloud-machine` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -46,16 +47,20 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `feed-reports-changed` | subscribe (owner clients) | none | capability `feed-client-v1` |
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
+| `apps-cloud-machine` | control (verified app's machine state watch) | `machine` | capability `apps-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
+| `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-scheduled-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-scheduled-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
 | `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
 | `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
+| `agent-session-share-changed` | subscribe | `session` | protocol 12 additive extension; capability `agent-session-share-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
@@ -497,6 +502,29 @@ as it sent it (`seq`, `index`, `tx`, `at`, `actor`, `origin`, `kind`,
 `{event:"tasks-changed", lost:true}`; the page then reads `tasks.snapshot`
 again. Only a page relay whose page lists it (the Tasks page) hears it.
 
+### computer-use-activity
+
+| Field | Value |
+| --- | --- |
+| event | `computer-use-activity` |
+| status | implemented |
+| since | capability `remote-host-v1` (macOS) |
+
+Published when what cmux Remote's Computer Use worker reports about its agent
+sessions changes (the host's `workers["computer-use"].activity`, which the
+worker updates at most every half second per session while it acts, and when
+a session's cursor goes away). The payload is
+`{event:"computer-use-activity", sessions:[{session:string, label:string,
+app?:{id:string, name:string}, last_action_ms:uint64, stopped?:bool}]}`, newest action first;
+an empty list when no session acted or the host is gone. `label` is the
+agent's name, `app` the app it acted on last when the worker knows it, and
+`last_action_ms` the wall-clock time of its last action on this machine;
+`stopped` is true while the person has stopped that agent's Computer Use from
+the menu bar (its calls are refused and do not count as actions). Only
+the person's own local Unix connections hear it (never a page relay or a
+remote device); the cmux app shows its menu bar badge and Computer Use row
+from it. `remote-host-status` carries the same list in `host.workers`.
+
 ### history-changed
 
 | Field | Value |
@@ -649,6 +677,21 @@ whose principal is `participant` (the person's own clients; an agent never
 sees the person's pins). Not a conversation change: it carries no `rev` and
 never reaches `conversation.events` or the remote relay.
 
+### conversation-scheduled-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-scheduled-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-scheduled-v1` |
+
+`object{event:"conversation-scheduled-changed", conversation:string, participant:string, scheduled?:object, removed?:{id, reason:"sent"|"cancelled", seq?}}`,
+published when one of `participant`'s Send Later messages is created,
+changed, failed, sent or cancelled (`conversation-scheduled-op` and the
+owner's sender), only to the connections whose principal is `participant`.
+A sent message's `conversation-changed` comes first. Never reaches
+`conversation.events` or the remote relay.
+
 ### conversation-run-changed
 
 | Field | Value |
@@ -716,6 +759,28 @@ reads the record with `chief.profile.get` or `chief.profile.list`. Home and
 the Channels page redraw their Chiefs on it instead of polling. Not a
 conversation change: it carries no conversation or `rev` and never reaches
 `conversation.events` or the remote relay.
+
+### agent-session-share-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-session-share-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-session-share-events-v1` |
+
+`object{event:"agent-session-share-changed", session:string}`: the link shares
+of acpmux session `session`'s chat read differently in `agent-session-share-list`
+than before. Published after a create, an invite, an uninvite, a redeem (a
+link guest's or an invitee's join), a kick, a revoke, an expiry (the timer or
+any verb that notices it), the room ending or refusing the share, a room
+answering a create, and the chat closing. A read, an invite or redeem asked
+again, and a room's own bookkeeping (a queued kick or `DELETE` acknowledged)
+publish nothing. It names only the chat, never an account or a guest: a client
+reads `agent-session-share-list {surface}` again. Only to the owner's own
+connections that may run the share verbs (same-user Unix, not bound by
+`agent-session-proxy-bind`, not a remote relay) and echoed
+`agent-session-share-events-v1` in `set-client-info`. The app's Invite People
+sheet re-reads its rows on it for as long as it is open, instead of polling.
 
 ### cloud-conversation-run-changed
 
@@ -1511,6 +1576,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### phone-open-link
+
+| Field | Value |
+| --- | --- |
+| event | `phone-open-link` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"phone-open-link",terminal_id:string,url:string}
+```
+
+Meaning: A program in terminal `terminal_id` asked a browser for `url` while this phone drove
+the terminal (`offer-link-to-phone`, [commands.md](commands.md#offer-link-to-phone)). Sent on the
+control queue of one connection of that phone that is attached to the terminal and declared
+`phone-open-link-v1` in `set-client-info`. The phone opens the page in its own browser; the
+Mac does not open it. Never replayed.
+
+Example:
+
+```json
+{"event":"phone-open-link","terminal_id":"term_0123456789abcdef0123456789abcdef","url":"https://github.com/login/device"}
+```
+
 ### device-setup-step
 
 | Field | Value |
@@ -1528,7 +1619,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:
@@ -1764,6 +1855,8 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
 Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
+`attach-frames-v1` (local Unix connections only; refused on a WebSocket and the remote entry): a connection that declared it in `set-client-info` gets each plain `output` of its byte attach and its snapshot viewer as a binary OUTPUT frame instead of this line, in the same order among the stream's JSON lines. A frame starts with byte `0xFF` (never the first byte of a JSON line) and a 16-byte little-endian header: `u8 0xFF`, `u8 kind` (1 = OUTPUT), `u16 stream` (0: the connection's only attach), `u32 len`, `u64 offset` (the terminal stream offset of the payload's first byte; a snapshot viewer's JSON `offset` is the end, so the first frame after a READY starts at the READY's `offset`), then `len` raw PTY bytes and no newline. `output` with `colors`, and every other event, stays a JSON line. Wire details: `plans/cmux-next/app-daemon-connection-DESIGN.md` section 3.2.
 
 Example:
 
@@ -2024,6 +2117,7 @@ Payload:
 object{
   event:"agent-changed",
   surface:Id,
+  terminal_id?:string,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
@@ -2036,7 +2130,8 @@ object{
 ```
 
 `last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
-`list-agents`). `agent_session_id` is the harness's own session id its hooks reported
+`list-agents`). `surface` and `terminal_id` are those of `list-agents`: the terminal's first
+tab placement and its public id. `agent_session_id` is the harness's own session id its hooks reported
 (see `list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the
@@ -2149,6 +2244,16 @@ Request:
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.
+
+## apps-cloud-machine
+
+A targeted event on the verified app connection whose `apps-machine-state-watch`
+names the machine. The daemon holds that machine's Cloud state socket:
+`{event:"apps-cloud-machine", machine:"…", kind:"record", record:{…}}` carries
+the platform's machine record; `kind:"live"` says the socket is up (the app stops
+reading the machine); `kind:"lost"` says it closed (the app reads the machine
+again until a later `live`). Nothing is sent after the list replaces or drops the
+machine, or after the connection closes. No bearer or raw frame is included.
 
 ## agent-inventory-changed
 

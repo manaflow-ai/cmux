@@ -679,6 +679,22 @@ pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::R
     replace_with(path, rewritten_mode(path), |file, tmp| fill(file, tmp, contents.as_ref()))
 }
 
+/// [`write`], made durable: the copy is synced before its rename and the folder after it. The
+/// copy's name is the file's and this process's (`.<name>.tmp-<pid>`), the same on every write,
+/// where a random name (`tempfile::NamedTempFile`) is one more path fseventsd keeps per write
+/// (`dead_temps`).
+pub(crate) fn write_durable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    let path = path.as_ref();
+    replace_with(path, rewritten_mode(path), |file, tmp| {
+        fill(file, tmp, contents.as_ref())?;
+        file.sync_all()
+    })?;
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => sync_dir(dir),
+        _ => Ok(()),
+    }
+}
+
 /// `std::fs::File::create(path)`: made 0600 (an existing file narrowed to the owner's bits on
 /// the open descriptor) before it is cut to nothing and handed back to be written.
 pub(crate) fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
@@ -1106,8 +1122,38 @@ mod unix {
             return std::fs::symlink_metadata(path);
         };
         // SAFETY: a valid descriptor and a NUL-terminated name.
-        let fd = owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) })?;
-        File::from(fd).metadata()
+        match owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) }) {
+            Ok(fd) => File::from(fd).metadata(),
+            // Apple's systems open no Unix socket (`EOPNOTSUPP`), even for events only: a socket
+            // an earlier daemon left (`share-host/device.sock`) then read as "nothing to remove",
+            // so the next bind failed and the app's device channel never came up. Its metadata is
+            // read by path and kept only when it is the file the held home's folder names (same
+            // device and inode), so a replacement at the same path still never answers.
+            Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => {
+                use std::os::unix::fs::MetadataExt as _;
+                // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+                let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+                // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
+                check(unsafe {
+                    libc::fstatat(
+                        dir.as_raw_fd(),
+                        at.name.as_ptr(),
+                        &mut stat,
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                })?;
+                let meta = std::fs::symlink_metadata(path)?;
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    reason = "st_dev and st_ino widths differ by system"
+                )]
+                let same = meta.dev() == u64::try_from(stat.st_dev).unwrap_or(u64::MAX)
+                    && meta.ino() == u64::from(stat.st_ino);
+                if same { Ok(meta) } else { Err(error) }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) fn read_dir(path: &Path) -> io::Result<Vec<super::DirEntry>> {
@@ -1314,3 +1360,7 @@ mod unix {
         done
     }
 }
+
+#[cfg(test)]
+#[path = "home_fs_stable_copy_name_tests.rs"]
+mod stable_copy_name_tests;

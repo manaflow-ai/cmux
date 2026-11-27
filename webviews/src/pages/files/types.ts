@@ -4,7 +4,8 @@
 export const FilesOps = {
   /** `{}` → `RootInfo`: the folder this tab shows. */
   root: "cmux.files.root",
-  /** `{path}` → `Listing`: one folder's children, as git sees them (ignored files hidden). */
+  /** `{path}` → `Listing`: one folder's children: in a git repository as git sees them (ignored
+   * files hidden), elsewhere from the disk. */
   list: "cmux.files.list",
   /** `{path}`: opens a file in the editor beside the tree. */
   open: "cmux.files.open",

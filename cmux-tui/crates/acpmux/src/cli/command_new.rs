@@ -18,6 +18,9 @@ pub struct NewArgs {
     /// `local` keeps it on this machine. `--host` still works.
     #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: Option<String>,
+    /// Compatibility spelling for `--machine local`.
+    #[arg(long, conflicts_with = "host")]
+    pub stay: bool,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
     /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
@@ -57,6 +60,9 @@ pub struct NewArgs {
     /// Do not open the TUI after creating.
     #[arg(long, short)]
     pub detach: bool,
+    /// Compatibility spelling that sends the first prompt and waits for its reply.
+    #[arg(long)]
+    pub wait: bool,
     /// With a prompt: print only the final reply (implied by `acpmux run`).
     #[arg(long, short)]
     pub quiet: bool,
@@ -132,3 +138,58 @@ pub struct NewArgs {
     #[arg(long, value_name = "SENDER", hide = true)]
     pub from: Option<String>,
 }
+
+impl NewArgs {
+    /// Normalize legacy spellings before launch preparation, so every later path sees the same
+    /// name, target, and wait behavior.
+    pub fn apply_compat(&mut self) -> Vec<&'static str> {
+        let mut notices = Vec::new();
+        // Only a word that reads as a session name: a quoted prompt with spaces stays a prompt.
+        // `-d` included: `acpmux new NAME -d` is how agents start a lane, and a lone word taken
+        // as its prompt left the session named after its agent ("codex"; Leo, 2026-11-21).
+        if self.name.is_none()
+            && self.prompt.len() == 1
+            && self.prompt.first().is_some_and(|word| looks_like_session_name(word))
+            && self.prompt_file.is_none()
+            && self.worktree.is_none()
+            && self.report_to.is_none()
+            && self.group.is_none()
+            && !self.reuse
+            && !self.quiet
+            && !self.ephemeral
+            && self.parent.is_none()
+        {
+            self.name = self.prompt.pop();
+            notices
+                .push("acpmux new: the lone positional is the session name, equivalent to --name (give -n NAME to send it as the first prompt)");
+        }
+        if self.stay {
+            self.host = Some("local".to_owned());
+            notices.push("acpmux new: --stay is a compatibility spelling for --machine local");
+        }
+        if self.wait {
+            let has_prompt = !self.prompt.join(" ").trim().is_empty() || self.prompt_file.is_some();
+            if has_prompt {
+                self.detach = false;
+                self.quiet = true;
+                notices.push("acpmux new: --wait sends the first prompt and waits for its reply");
+            } else {
+                self.detach = true;
+                notices.push(
+                    "acpmux new: --wait had no first prompt, so it created the session without a turn",
+                );
+            }
+        }
+        notices
+    }
+}
+
+/// A lone `new` word is a session name only when it could be one: non-empty, no whitespace,
+/// not an option-looking `-` word.
+fn looks_like_session_name(word: &str) -> bool {
+    !word.is_empty() && !word.starts_with('-') && !word.chars().any(char::is_whitespace)
+}
+
+#[cfg(test)]
+#[path = "command_new_tests.rs"]
+mod tests;

@@ -140,12 +140,13 @@ for (const fold of [undefined, "runs"] as const)
         for (const record of records) removed.push(...record.removedNodes);
       });
       watch.observe(before!.parentElement!, { childList: true });
-      // The agent reads it: the message joins the run's line while the turn runs too, as the Codex
-      // app folds a running turn's runs (Lucas, 2026-11-11), and the line is drawn in the run's frame.
+      // The agent reads it: the run it is still in stays open while the turn runs, the message in
+      // sight (messageRuns.ts `messageRunFoldLook`; Leo, 2026-11-21: "sometimes it does so too soon
+      // in the midst of a turn").
       const read = live(expanded);
-      expect(read.some((item) => item.kind === "messageRun")).toBe(true);
+      expect(read.some((item) => item.kind === "messageRun")).toBe(false);
       await render(read);
-      expect(host.querySelector("[data-message-run]")?.closest("article") === before).toBe(true);
+      expect(host.querySelector<HTMLElement>('[data-row-id="activity-1"]') === before).toBe(true);
       // The turn ends: the run and the message fold under one line. Under the default fold the line
       // is in the turn's "Worked for", held open as the turn's end holds the work in view
       // (turnEndHold.ts); the per-run fold draws it in the turn.

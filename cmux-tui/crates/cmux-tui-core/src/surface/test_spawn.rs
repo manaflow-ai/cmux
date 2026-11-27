@@ -173,10 +173,11 @@ impl Surface {
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
+                reader_detached: AtomicBool::new(false),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term), opts.scrollback),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 tail_pin: Default::default(),
@@ -191,6 +192,7 @@ impl Surface {
                 input_route: arc_swap::ArcSwapOption::empty(),
                 #[cfg(any(unix, windows))]
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

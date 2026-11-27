@@ -210,7 +210,7 @@ async fn a_stalled_peer_is_kept_as_stale_refused_clearly_and_picked_up_again() {
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let event = changes.recv().await.unwrap();
-            if event.remote.is_some_and(|row| row.summary["status"] == "unreachable") {
+            if event.remote.is_some_and(|row| row.summary.status() == Some("unreachable")) {
                 break;
             }
         }

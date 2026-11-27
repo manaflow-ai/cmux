@@ -95,7 +95,7 @@ AFTER_RUN_S = 60.0
 KEEP_SESSIONS = ("update", "sparkle-update")
 # What a person who keeps automatic updates has in their own file (downloadAutomatically is user-only over the
 # socket): post-update-hitches.py's settings.
-SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}}
+SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "automatic": "download"}}
 STAGE_S = 900.0
 PREWARM_S = 120.0
 INSTALL_S = 300.0
@@ -481,7 +481,7 @@ class Gamut:
         if state == "stream":
             # Still streaming: the reply grows over the next 2 s, then the turn is cancelled.
             before = assistant_text(app, chat).count("word")
-            time.sleep(2)
+            time.sleep(2)  # sleep-ok: the 2 s measurement window for stream_words_in_2s
             after = assistant_text(app, chat).count("word")
             row["stream_words_in_2s"] = after - before
             if after <= before:
@@ -549,10 +549,10 @@ class Gamut:
         if path == "after-run":
             # The condition is the app's age itself: it has run AFTER_RUN_S before it is quit.
             row["ran_s"] = round(max(AFTER_RUN_S, time.monotonic() - self.app.started_at), 1)
-            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))
+            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))  # sleep-ok: app age is the condition
         processes_before = set(smoke.own_pids(self.root))
         recorder = self.record_start(name)
-        time.sleep(0.5 if recorder else 0)
+        time.sleep(0.5 if recorder else 0)  # sleep-ok: the video's lead-in before the quit
         try:
             why, quit_ms = quit_app(self.app, path)
         except QuitFailed as error:
@@ -580,6 +580,8 @@ class Gamut:
         elif path == "loaded":
             load = startup.SyntheticLoad(self.root)
             row["load"] = load.start()
+        # The domain the reopen reads (this gamut's own, inside main's DefaultsAside): key names and snapshot paths.
+        row["defaults_before"] = smoke.defaults_before(smoke.bundle_info(self.app.bundle)[0])
         started = self.app.start()
         row["timeline"] = []
         settled_at = front_ms = None
@@ -616,7 +618,7 @@ class Gamut:
             if row["prior_chat_live_ms"] and row["warm_switch_ms"]:
                 row["live_over_warm_switch"] = round(row["prior_chat_live_ms"] / max(row["warm_switch_ms"], 1), 1)
         if recorder:
-            time.sleep(8)
+            time.sleep(8)  # sleep-ok: the video's recording tail after the quit
             recorder.terminate()
             try:
                 _, err = recorder.communicate(timeout=10)
@@ -625,6 +627,7 @@ class Gamut:
                 recorder.kill()
         row["first_window_ms"] = marks.get("first_window_frame_committed")
         row["settled_ms"] = settled_at
+        row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
         row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
                                                                        "launch_", "main_start", "connecting_"))}
@@ -800,7 +803,7 @@ class SparkleUpdate:
             row["installed_build"] = bundle_build(self.bundle)
             row["install_s"] = round(time.monotonic() - started, 1)
             row["prewarm_log"] = self.prewarm_lines()
-            time.sleep(3)  # harness: a relaunch by Sparkle would show by now
+            time.sleep(3)  # sleep-ok: an absence window; no relaunch by Sparkle within it is the check
             executable = str(self.bundle / "Contents" / "MacOS") + "/"
             ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20).stdout
             relaunched = [line.split()[0] for line in ps.splitlines() if line.strip().split(None, 1)[-1].startswith(executable)]
@@ -850,7 +853,14 @@ def table(rows: list[dict]) -> str:
                      + (f", first/second {json.dumps(ratio)}" if ratio else "") + (f"; {notes}" if notes else ""))
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
                      f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
+    lines += ["", DEFAULTS_NOTE]
     return "\n".join(lines) + "\n"
+
+
+# A new HOME is not enough: cfprefsd keeps the bundle's defaults in the account's real preferences.
+DEFAULTS_NOTE = ("Defaults: each row's `defaults_before` is the bundle's domain just before its launch (key names, and "
+                 "each cmuxNext.launchSnapshotPath.* value) and `launch_snapshot_applied` says whether the launch marked "
+                 "it; a fresh-install row fails when its domain held any key or the mark is there.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -906,14 +916,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.paths:
             bundle_id, _ = smoke.bundle_info(bundle)
             with smoke.DefaultsAside(bundle_id, root):
-                env = smoke.fresh_env(root, root / "s.sock", -1)
+                # Only the sparkle-update path keeps the app's own updater on (it stages a real update); every
+                # other path's copy must never download one (fresh_env's UPDATER_OFF_VARIABLE).
+                env = smoke.fresh_env(root, root / "s.sock", -1, updater="sparkle-update" in args.paths)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
-                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
-                folder.mkdir(parents=True, exist_ok=True)
-                (folder / f"{HARNESS}.toml").write_text(
-                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                # A DEV build's acpmux reads harnesses from its own build home, not ~/.config/cmux, unless the run
+                # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
+                # head=) answered "unknown harness" to every round.
+                env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
+                for name in l5.HARNESS_DIRS:  # NEXT's own `cmux-next`, and `cmux` for builds before #56195
+                    folder = Path(env["XDG_CONFIG_HOME"]) / name / "harnesses"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / f"{HARNESS}.toml").write_text(
+                        f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
+                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
                 gamut.boot(bundle, env)
                 gamut.app.cli("setup", "trust", str(gamut.work))
                 gamut.run(bundle, env, newer, previous)

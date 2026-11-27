@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileBilling
 import CmuxMobileSupport
+import CmuxSpinner
 import SwiftUI
 import StoreKit
 
@@ -12,6 +13,11 @@ import StoreKit
 /// through a team, or this build's purchases would grant no plan), the screen
 /// explains why and shows no purchase button and no link to web billing.
 ///
+/// In an app whose App Store record has no subscriptions
+/// (``BillingModel/offersPurchases`` false, cmux INTERNAL today) it shows the
+/// current plan read-only: no offers, prices, Restore Purchases, Manage
+/// Subscription or subscription terms, and no text about buying.
+///
 /// HIG: In-app purchase, and Lists and tables (inset-grouped sections).
 ///
 /// Reads ``BillingModel`` from the environment:
@@ -22,6 +28,7 @@ import StoreKit
 /// ```
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
+    @Environment(\.openURL) private var openURL
     @State private var showingManageSubscriptions = false
     /// The subscription the open refund sheet is for, fixed at the tap so a
     /// reload while the sheet is up cannot change or drop it.
@@ -89,8 +96,17 @@ public struct MobilePlansView: View {
                 )
                 .accessibilityIdentifier("BillingCurrentPlan")
             } footer: {
-                if let sourceText = sourceText(account.currentPlan.source) {
-                    Text(sourceText)
+                let sourceText = sourceText(account.currentPlan.source)
+                if billing.paymentPastDue || sourceText != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if billing.paymentPastDue {
+                            PaymentPastDueNotice()
+                                .accessibilityIdentifier("BillingPaymentPastDue")
+                        }
+                        if let sourceText {
+                            Text(sourceText)
+                        }
+                    }
                 }
             }
         }
@@ -102,7 +118,7 @@ public struct MobilePlansView: View {
         case .idle, .loading:
             Section {
                 HStack(spacing: 12) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text(L10n.string("mobile.billing.loading", defaultValue: "Loading plans"))
                         .foregroundStyle(.secondary)
                 }
@@ -118,13 +134,23 @@ public struct MobilePlansView: View {
             }
             .accessibilityIdentifier("BillingLoadFailed")
         case .loaded(let account):
-            if account.eligible {
+            if !billing.offersPurchases {
+                // Read-only: the current plan section above is the whole screen.
+                EmptyView()
+            } else if account.eligible {
                 offersSection(account)
             } else {
                 Section {
                     Text(ineligibleText(account.reason))
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("BillingIneligible")
+                }
+                // Nothing is on sale here, but the plans are still listed.
+                // visible-only: at most 3 distinct plan ids (Go, Pro, Max); a plan id is its own stable identity.
+                ForEach(account.catalogPlanIDs, id: \.self) { planID in
+                    Section {
+                        MobilePlanCatalogRow(planID: planID, isCurrent: planID == account.currentPlan.planID)
+                    }
                 }
             }
         }
@@ -144,7 +170,7 @@ public struct MobilePlansView: View {
                 .accessibilityIdentifier("BillingOffersUnavailable")
             } else {
                 Section {
-                    ProgressView()
+                    CmuxSpinner()
                 }
                 .accessibilityIdentifier("BillingOffersLoading")
             }
@@ -210,7 +236,7 @@ public struct MobilePlansView: View {
             Section {
                 HStack(spacing: 12) {
                     if billing.purchase.isPurchasing || billing.restore == .restoring {
-                        ProgressView()
+                        CmuxSpinner()
                     }
                     Text(message)
                         .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +248,7 @@ public struct MobilePlansView: View {
 
     @ViewBuilder
     private var actionsSection: some View {
-        if let account = billing.account.account {
+        if billing.offersPurchases, let account = billing.account.account {
             Section {
                 Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases")) {
                     Task { await billing.restorePurchases() }
@@ -231,7 +257,15 @@ public struct MobilePlansView: View {
                 .accessibilityIdentifier("BillingRestore")
                 if account.currentPlan.source == .apple {
                     Button(L10n.string("mobile.billing.manage", defaultValue: "Manage Subscription")) {
-                        showingManageSubscriptions = true
+                        switch BillingManageSubscriptionsRoute.route(isiOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac) {
+                        case .storeKitSheet:
+                            showingManageSubscriptions = true
+                        case .appStorePage(let url):
+                            openURL(url) { accepted in
+                                // No App Store handler took the link: the web page still works.
+                                if !accepted { openURL(BillingManageSubscriptionsRoute.webSubscriptionsURL) }
+                            }
+                        }
                     }
                     .accessibilityIdentifier("BillingManage")
                     if let productID = billing.currentAppleProductID,
@@ -247,7 +281,14 @@ public struct MobilePlansView: View {
         }
     }
 
+    @ViewBuilder
     private var legalSection: some View {
+        if billing.offersPurchases {
+            legalLinks
+        }
+    }
+
+    private var legalLinks: some View {
         Section {
             Link(L10n.string("mobile.billing.terms", defaultValue: "Terms of Use"), destination: Self.termsURL)
             Link(L10n.string("mobile.billing.privacy", defaultValue: "Privacy Policy"), destination: Self.privacyURL)
