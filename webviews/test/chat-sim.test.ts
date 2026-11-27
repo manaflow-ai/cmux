@@ -156,6 +156,7 @@ describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () =>
     "d-shift",
     "d-action-only",
     "d-steer-order",
+    "d-row-key",
     "b-",
   ])
     test(rule, () => expect(broken(whole, rule)).toEqual([]));

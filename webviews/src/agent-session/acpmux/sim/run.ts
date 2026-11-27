@@ -12,7 +12,13 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
-import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
+import {
+  layoutConversation,
+  type AcpmuxRow,
+  type AcpmuxSnapshot,
+  type ConversationLayout,
+  rowFrameKey,
+} from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
 import {
   MARK_STEP,
@@ -99,6 +105,7 @@ export type Violation = {
     | "d-started-lines"
     | "d-action-only"
     | "d-steer-order"
+    | "d-row-key"
     | IntegrityRule;
   step: number;
   at: number;
@@ -598,6 +605,17 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // MY STEER WENT UNDER IT".
     if (rows.length > 0) drewRows = true;
     else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    // (d) two rows the transcript draws under one React key (`rowFrameKey`): React keeps one element for
+    // both, and the other stays painted where it was placed before, over the rows that took its place
+    // (cmux#59809: a second "Worked for" of one background turn drawn across a bullet of the reply).
+    {
+      const keys = new Set<string>();
+      for (const row of rows) {
+        const key = rowFrameKey(row);
+        if (keys.has(key)) flag("d-row-key", row.id, `a second row under the key ${key}`);
+        keys.add(key);
+      }
+    }
     // A prepend (including the first turn's date line appearing after an hour) moves document
     // coordinates. VirtualTranscript holds the first visible row at its old viewport position.
     // Probe from the top so a change below that row still registers as movement.

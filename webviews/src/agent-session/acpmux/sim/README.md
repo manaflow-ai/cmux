@@ -289,7 +289,9 @@ the escape hatch for any record acpmux writes.
   `d-started-lines`: one start line a turn (later starts join it); `d-blank`: once rows are drawn, the chat
   never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its viewport position after the transcript anchors a prepend;
   `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
-  row of a steer's turn that came after the steer is drawn above it.
+  row of a steer's turn that came after the steer is drawn above it; `d-row-key`: no two drawn rows share a
+  React key (`rowFrameKey`): React keeps one element for both and the other stays painted where it was placed
+  (cmux#59809, a second "Worked for" of one background turn over a bullet of the reply).
 - **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step
   (Leo, 2026-11-22: "you also basically said the same thing", images/1157.png; "ok, well. this happened again",
   1158.png): `i-split-bubble`: two reply rows of one message (same `messageId`), or the first cut inside an
