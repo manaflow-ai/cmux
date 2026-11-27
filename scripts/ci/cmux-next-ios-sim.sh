@@ -47,6 +47,7 @@
 #           argument pattern has no spaces, so lists are comma-separated):
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (only= naming ResumeMatrixBenchTests or ResumeStagesBenchTests turns it on)
 #               (a suite, or TARGET/SUITE/test for an XCTest method).
 #               A filter naming TickHarnessCellsTests also sets
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
@@ -488,7 +489,8 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ ! -d cmux-next-ios/CmuxMobileKit/Tests || -d "cmux-next-ios/CmuxMobileKit/Tests/${item%%/*}" ]] ||
             { echo "cmux-next-ios-sim.sh: only= '$item': '${item%%/*}' is not a CmuxMobileKit test target (one of: $(ls cmux-next-ios/CmuxMobileKit/Tests | tr '\n' ' '); UI suites go in ui=)" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
-          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env+=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */Resume*BenchTests* ]] && kit_env+=(TEST_RUNNER_CMUX_RESUME_LIVE_BENCH=1)
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
