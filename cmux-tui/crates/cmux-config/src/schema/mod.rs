@@ -412,34 +412,39 @@ impl Schema {
         let base = text.as_ptr() as usize;
         let mut spans = Vec::new();
         let mut schema = Schema::parse_keeping(&text, |raw, _| {
-            let start = raw.as_ptr() as usize - base;
-            spans.push(start..start + raw.len());
+            // A row's text is a slice of `text`, so its address is never below `base`.
+            let start = (raw.as_ptr() as usize).saturating_sub(base);
+            spans.push(start..start.saturating_add(raw.len()));
             // An empty box does not allocate; the slice replaces it below.
             RowText::Owned(Box::default())
         })?;
         let mut bytes = text.into_bytes();
         let mut kept = Vec::with_capacity(spans.len());
-        let mut end = 0;
+        let mut end = 0usize;
         for (row, span) in schema.rows.iter_mut().zip(spans) {
-            let raw = std::str::from_utf8(&bytes[span.clone()]).map_err(|e| e.to_string())?;
+            let raw = bytes.get(span.clone()).ok_or("a schema row lies outside the document")?;
+            let raw = std::str::from_utf8(raw).map_err(|e| e.to_string())?;
             let value: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
             let compact = serde_json::to_string(&value).map_err(|e| e.to_string())?;
             // Rows come in document order, and compact JSON is no longer than
             // its source but for a float written short (`1e2`, kept `100.0`):
             // such a row keeps its own box.
-            if end + compact.len() > span.end {
+            let stop = end.checked_add(compact.len()).filter(|stop| *stop <= span.end);
+            let Some((stop, slot)) = stop.and_then(|stop| Some((stop, bytes.get_mut(end..stop)?)))
+            else {
                 row.raw = RowText::Owned(compact.into_boxed_str());
                 continue;
-            }
-            bytes[end..end + compact.len()].copy_from_slice(compact.as_bytes());
-            kept.push((row, end..end + compact.len()));
-            end += compact.len();
+            };
+            slot.copy_from_slice(compact.as_bytes());
+            kept.push((row, end..stop));
+            end = stop;
         }
         bytes.truncate(end);
         let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
         let text: &'static str = Box::leak(text.into_boxed_str());
         for (row, span) in kept {
-            row.raw = RowText::Embedded(&text[span]);
+            let raw = text.get(span).ok_or("a compact schema row lies outside the kept text")?;
+            row.raw = RowText::Embedded(raw);
         }
         Ok(schema)
     }
