@@ -217,10 +217,16 @@ fn send_presence(hub: &Hub, conn: &Conn, note: &serde_json::Value) {
     {
         return;
     }
-    let attached = note
-        .get("sessionId")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| opts.remote == remote));
+    let attached = note.get("sessionId").and_then(serde_json::Value::as_str).is_some_and(|chat| {
+        conn.sub_opts(chat).is_some_and(|opts| {
+            opts.remote == remote
+                && (!remote
+                    || opts.remote_peer.as_deref()
+                        == note
+                            .get(crate::hub::presence::REMOTE_MARKER)
+                            .and_then(serde_json::Value::as_str))
+        })
+    });
     if attached {
         let mut note = if super::view::a_link(conn) {
             hub.presence.shared_snapshot(note["sessionId"].as_str().unwrap_or_default())

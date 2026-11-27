@@ -855,9 +855,9 @@ async fn forward_inner(
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
                 let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
-                super::view::subscribe_remote(hub, conn, &id, Some(opts));
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, Some(opts));
             } else {
-                super::view::subscribe_remote(hub, conn, &id, None);
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, None);
             }
             first_attach = peer.mark_attached(&id);
             if first_attach && m != method::MUX_ATTACH {
@@ -1165,7 +1165,7 @@ async fn forward_inner(
         if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::view::subscribe_remote(hub, conn, new_id, None);
+            super::view::subscribe_remote(hub, conn, new_id, &peer.name, None);
             peer.mark_attached(new_id);
         }
         if purge {

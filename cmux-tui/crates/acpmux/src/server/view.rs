@@ -101,7 +101,13 @@ pub(super) fn a_link(conn: &Conn) -> bool {
 /// attachment here. `opts` replaces the options (an attach); None keeps them (a prompt, load,
 /// resume or fork). One raw id holds one subscription per connection: an attachment this
 /// connection held to this daemon's own chat of that id ends first, as a detach would.
-pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<SubOpts>) {
+pub(super) fn subscribe_remote(
+    hub: &Hub,
+    conn: &Conn,
+    id: &str,
+    peer: &str,
+    opts: Option<SubOpts>,
+) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     let before = subs.get(id).cloned();
     if let Some(local) = before.as_ref().filter(|b| !b.remote) {
@@ -120,6 +126,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
     }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
+    next.remote_peer = Some(peer.to_owned());
     next.idle = false;
     conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
@@ -145,6 +152,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             let at = conn.follows.to_local(&s.id).unwrap_or_else(|| s.meta().last_seq);
             conn.stream_cursors.start(&s.id, at);
             opts.remote = false;
+            opts.remote_peer = None;
             hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices
                 .lock()

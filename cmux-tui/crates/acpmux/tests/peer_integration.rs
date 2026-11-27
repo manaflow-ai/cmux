@@ -529,9 +529,71 @@ async fn shared_presence_over_peer(peer_auth: bool) {
         attached["presence"]["participants"], held["presence"]["participants"],
         "{attached}"
     );
+    let mut second = client(a.clone()).await;
+    second.call("_acpmux/attach", json!({"sessionId": key, "limit": 0})).await.unwrap();
+    second
+        .call(
+            "_acpmux/view",
+            json!({"sessionId": key, "visible": true,
+        "_meta": {"acpmux": {"author": author}}}),
+        )
+        .await
+        .unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"][0]["devices"] == 2).await;
     drop(ca);
+    let remaining =
+        watcher.wait("_acpmux/presence", |p| p["participants"][0]["devices"] == 1).await;
+    assert_eq!(remaining["participants"][0]["viewing"], true, "{remaining}");
+    assert_eq!(remaining["participants"][0]["typing"], false, "{remaining}");
+    second.call("_acpmux/live", json!({"live": false})).await.unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
+    assert_eq!(b.presence.snapshot(&remote_id)["participants"], json!([]));
+    second.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    second
+        .call(
+            "_acpmux/view",
+            json!({"sessionId": key, "visible": true,
+        "_meta": {"acpmux": {"author": author}}}),
+        )
+        .await
+        .unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"][0]["viewing"] == true).await;
+    drop(second);
     watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
     assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
+}
+
+/// Identical raw ids from different peers never mix their presence in a local client.
+#[tokio::test]
+async fn peer_presence_is_scoped_to_the_attached_source() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let sessions = vec![json!({"sessionId": "same-chat", "name": "twin"})];
+    for name in ["left", "right"] {
+        let port = lying_peer(Lying {
+            instance: json!(name),
+            sessions: sessions.clone(),
+            ..Lying::default()
+        })
+        .await;
+        a.add_peer(name, &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+            .await
+            .unwrap();
+    }
+    let mut watcher = client(a.clone()).await;
+    watcher.call("_acpmux/attach", json!({"sessionId": "right/twin", "limit": 0})).await.unwrap();
+    a.presence.publish_remote(
+        &json!({"sessionId": "same-chat", "participants": [{"id": "wrong"}]}),
+        "left",
+    );
+    a.presence.publish_remote(
+        &json!({"sessionId": "same-chat", "participants": [{"id": "right"}]}),
+        "right",
+    );
+    let first = watcher
+        .wait("_acpmux/presence", |p| !p["participants"].as_array().unwrap().is_empty())
+        .await;
+    assert_eq!(first["participants"][0]["id"], "right", "{first}");
+    assert!(first.get("_acpmuxPeer").is_none());
 }
 
 /// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
