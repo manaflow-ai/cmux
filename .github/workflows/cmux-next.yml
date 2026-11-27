@@ -3622,7 +3622,7 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      # Why: note-fast-tier-zig-cache
+      # Why: 2026-11-27-fast-tier-zig-cache.md
       - name: Keep the libghostty-vt zig build in Zig's global cache
         id: zig-local
         continue-on-error: true
