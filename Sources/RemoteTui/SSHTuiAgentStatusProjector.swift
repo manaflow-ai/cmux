@@ -21,6 +21,8 @@ final class SSHTuiAgentStatusProjector {
     private var appliedLifecycles: [UUID: [UUID: String]] = [:]
     /// Workspaces holding a status entry this projector wrote.
     private var workspacesWithStatus: Set<UUID> = []
+    /// Panels this projector marked as showing a remote agent, per workspace.
+    private var appliedAgentPanels: [UUID: Set<UUID>] = [:]
 
     init(catalog: SurfaceCatalog, workspaceLookup: @escaping @MainActor (UUID) -> Workspace? = SSHTuiAgentStatusProjector.workspace(id:)) {
         self.catalog = catalog
@@ -48,22 +50,30 @@ final class SSHTuiAgentStatusProjector {
         }
         var nextLifecycles: [UUID: [UUID: String]] = [:]
         var nextWorkspacesWithStatus: Set<UUID> = []
-        for workspaceID in workspacesWithStatus.union(appliedLifecycles.keys).union(desired.keys) {
+        var nextAgentPanels: [UUID: Set<UUID>] = [:]
+        for workspaceID in workspacesWithStatus.union(appliedLifecycles.keys).union(appliedAgentPanels.keys).union(desired.keys) {
             guard let workspace = workspaceLookup(workspaceID) else {
                 // Not reachable right now (moving between windows): keep what we
                 // own so a later pass can still clear it.
                 if let owned = appliedLifecycles[workspaceID] { nextLifecycles[workspaceID] = owned }
+                if let owned = appliedAgentPanels[workspaceID] { nextAgentPanels[workspaceID] = owned }
                 if workspacesWithStatus.contains(workspaceID) { nextWorkspacesWithStatus.insert(workspaceID) }
                 continue
             }
             let panels = desired[workspaceID] ?? [:]
             let lifecycles = applyLifecycles(panels, previous: appliedLifecycles[workspaceID] ?? [:], to: workspace)
             applyStatusEntries(RemoteAgentSidebarStatus.workspaceSlots(panels.values), to: workspace)
+            // Every agent row counts here, idle included: an idle agent's
+            // prompt can still hold a draft that `cmux send` must not type over.
+            let agentPanels = Set(panels.keys)
+            workspace.replaceRemoteAgentPanels(appliedAgentPanels[workspaceID] ?? [], with: agentPanels)
+            if !agentPanels.isEmpty { nextAgentPanels[workspaceID] = agentPanels }
             if !lifecycles.isEmpty { nextLifecycles[workspaceID] = lifecycles }
             if !panels.isEmpty { nextWorkspacesWithStatus.insert(workspaceID) }
         }
         appliedLifecycles = nextLifecycles
         workspacesWithStatus = nextWorkspacesWithStatus
+        appliedAgentPanels = nextAgentPanels
     }
 
     /// Returns the lifecycle slot now set per panel.

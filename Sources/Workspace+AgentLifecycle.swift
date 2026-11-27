@@ -544,7 +544,14 @@ extension Workspace {
     /// (that would make the panel eligible for hibernation), so the lifecycle
     /// map alone misses it.
     func panelRunsAgent(_ panelId: UUID) -> Bool {
-        agentLifecycleStatesByPanelId[panelId]?.isEmpty == false
+        agentLifecycleStatesByPanelId[panelId]?.isEmpty == false || remoteAgentPanelIds.contains(panelId)
+    }
+
+    /// Replaces the remote agent panels one projector reported. Each projector
+    /// passes back what it set last time, so it never clears another's panels.
+    func replaceRemoteAgentPanels(_ previous: Set<UUID>, with current: Set<UUID>) {
+        remoteAgentPanelIds.subtract(previous)
+        remoteAgentPanelIds.formUnion(current.filter { panels[$0] != nil })
     }
 
     func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
