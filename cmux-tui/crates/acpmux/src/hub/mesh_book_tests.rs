@@ -420,3 +420,79 @@ async fn a_resolve_before_the_first_book_read_waits_for_it() {
     assert!(gone.is_err(), "a read list that lacks it says so");
     assert!(began.elapsed() < std::time::Duration::from_secs(1), "no wait once read");
 }
+
+/// A hub row's `updatedAt` is when the chat last changed on its machine, as its heartbeat says,
+/// not when this daemon first saw it: a restarted reader lists the same time, so a fleet's rows do
+/// not all move to the restart's millisecond (2026-11-26: 1,675 of 1,866 rows read 22:59-23:00Z
+/// with nothing changed). A hub that sends none keeps the old reading.
+#[tokio::test]
+async fn a_hub_rows_updated_at_is_its_machines_not_the_readers_clock() {
+    let hub = hub();
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s1", "name": "worker", "harness": "fake",
+        "cwd": "/work/app", "status": "idle", "createdAt": 1, "updatedAt": 1_700_000_000_000u64,
+    }))
+    .expect("meta");
+    hub.store.save(&meta).expect("save");
+    let session = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    hub.update_live_session_index(&session);
+    let changed = session.meta.lock().unwrap().updated_at;
+    let rows = hub.mesh_rows().await;
+    let row = rows.iter().find(|r| r.session_id == "s1").expect("listed");
+    assert_eq!(row.updated_at, Some(changed));
+    assert_eq!(serde_json::to_value(row).expect("json")["updatedAt"], changed);
+
+    let at = 1_700_000_123_456u64;
+    let mut said = book();
+    said.sessions[1].updated_at = Some(at);
+    let updated = |hub: &Arc<Hub>| {
+        let all = hub.all_session_summaries();
+        all.iter().find(|s| s["sessionId"] == B_ID).expect("listed")["updatedAt"].clone()
+    };
+    hub.apply_mesh_book(said.clone(), "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), at);
+    let restarted = self::hub();
+    restarted.apply_mesh_book(said.clone(), "person-1", Some("d-a"));
+    assert_eq!(updated(&restarted), at, "a restarted reader lists the same time");
+
+    let mut events = hub.events.subscribe();
+    said.sessions[1].updated_at = Some(at + 1);
+    hub.apply_mesh_book(said, "person-1", Some("d-a"));
+    assert_eq!(notices(&mut events).len(), 1, "a real change is announced");
+    assert_eq!(updated(&hub), at + 1);
+
+    let before = crate::store::now_ms();
+    let silent = self::hub();
+    silent.apply_mesh_book(book(), "person-1", Some("d-a"));
+    assert!(updated(&silent).as_u64().expect("ms") >= before, "no time said: first seen here");
+}
+
+/// A row that leaves the book and comes back as it left keeps its `updatedAt`: a hub outage past
+/// a heartbeat's TTL empties the book until each machine heartbeats again, and that is no change
+/// to any chat (2026-11-27: 587 of 596 rows restamped at 00:14:38Z after a 503, none changed). One
+/// that comes back changed is stamped anew.
+#[tokio::test]
+async fn a_row_back_after_a_hub_outage_keeps_its_updated_at() {
+    let hub = hub();
+    let updated = |hub: &Arc<Hub>| {
+        let all = hub.all_session_summaries();
+        all.iter().find(|s| s["sessionId"] == B_ID).map(|s| s["updatedAt"].as_u64().expect("ms"))
+    };
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let first = updated(&hub).expect("listed");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let mut outage = book();
+    outage.sessions.clear();
+    hub.apply_mesh_book(outage, "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), None, "gone while the hub lists nothing");
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), Some(first), "back unchanged: no new time");
+
+    hub.set_mesh_book(Default::default(), Vec::new());
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let mut changed = book();
+    changed.sessions[1].state = "idle".into();
+    hub.apply_mesh_book(changed, "person-1", Some("d-a"));
+    assert!(updated(&hub).expect("listed") > first, "back changed: stamped anew");
+}
