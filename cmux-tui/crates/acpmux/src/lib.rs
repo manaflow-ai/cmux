@@ -93,6 +93,7 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
 pub mod complete;
+pub mod compose_wake;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
