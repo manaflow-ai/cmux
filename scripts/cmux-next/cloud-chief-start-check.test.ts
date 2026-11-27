@@ -30,6 +30,23 @@ test("sign-in failures still fail immediately", async () => {
 
 test("an unrelated message or quoted prompt cannot prove the turn", async () => {
   expect(await check(row("new", "Can't answer “Reply with only the word again” yet"))).toBeNull();
+  expect(await check(row("new", "again later"))).toBeNull();
+  expect(await check(row("new", "not-again"))).toBeNull();
+});
+
+test("a fresh echo can have punctuation or Markdown without becoming a different answer", async () => {
+  for (const text of ["again.", "**again**", "_again_", "`again`", "“again”", "\nagain!\n"]) {
+    expect((await check(row("new", text)))?.text).toBe(text);
+  }
+});
+
+test("the run-specific echo keeps its full identifier", async () => {
+  const expected = "pong-123-2";
+  for (const text of ["**pong-123-2**.", "pong-123-1", "pong-123-20", "Reply with only the word pong-123-2"]) {
+    const api = { read: async () => ({ rows: { rows: [row("new", text)] } }) };
+    const reply = await chiefReply(api, "conversation", "chief", new Set(), expected, 0);
+    expect(reply?.text ?? null).toBe(text === "**pong-123-2**." ? text : null);
+  }
 });
 
 test("only a fresh reply from the Chief proves the turn", async () => {
