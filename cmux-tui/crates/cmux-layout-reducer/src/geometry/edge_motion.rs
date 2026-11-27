@@ -40,6 +40,20 @@ impl SpringValue {
         );
     }
 
+    /// `SpringValue.advance(_:parameters:epsilon:)`: the velocity admitted toward the target, then
+    /// one step of the cmux-motion spring that settles inside `epsilon`. True while it still moves.
+    pub fn advance(&mut self, dt: f64, spring: Spring, epsilon: f64) -> bool {
+        self.velocity = spring.admitted(self.velocity, self.target - self.value);
+        advance_spring(
+            &mut self.value,
+            &mut self.velocity,
+            self.target,
+            dt,
+            SpringParameters::new(spring.response, spring.damping_fraction),
+            epsilon,
+        )
+    }
+
     fn snap_to(&mut self, target: f64) {
         self.target = target;
         self.value = target;
