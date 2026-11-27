@@ -3391,7 +3391,7 @@ jobs:
     name: report the nightly App Store shelf
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-app-store-shelf]
     if: "!cancelled() && needs.check-nightly-app-store-shelf.result == 'failure'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -6913,7 +6913,10 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     # Any failure leaves the outputs empty: nightly-next-one then takes the signer label alone and cmux15's group.
     continue-on-error: true
-    # No secret and no signing key: decide's runner.
+    # The signer picker mints the same read-only routing token as pick-nightly-sign-runner.
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 3
     permissions:
