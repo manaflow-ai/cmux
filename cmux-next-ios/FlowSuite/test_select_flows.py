@@ -98,6 +98,10 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["ios"])
         self.assertIn("pairing-mac-identity", r["flows"])
         self.assertEqual(r["swift"], [{"package": "Packages/macOS/CmuxNext", "filter": "MobileHostMacIdentityKeychainTests"}])
+        # `"pair_e2e": true` is a flag: a plain pair-e2e run, not a list to merge (it raised TypeError before).
+        self.assertTrue(r["pair"])
+        self.assertEqual(r["pair_e2e"], [])
+        self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e")
 
     def test_sim_args_shards_split_suites(self):
         r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyRow.swift")
