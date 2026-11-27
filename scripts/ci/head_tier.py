@@ -112,7 +112,8 @@ repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gi
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LABELLED_BASE_MERGE_SKIP=0 turns the labelled base merge rule
-off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
+off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_CONTENT_BASE_MERGE=0 counts a merge as a
+base merge by its message only again (same_change_as); CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
 """
