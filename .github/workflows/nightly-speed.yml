@@ -35,6 +35,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      pull-requests: read
     steps:
       # History for the landing times and the commit ranges: feat-cmux-next's first-parent line, no blobs. 9 days
       # covers the 40 kept records with room.
