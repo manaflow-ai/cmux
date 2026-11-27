@@ -146,10 +146,15 @@ class LaunchTTIUITests: XCTestCase {
 
     @MainActor
     static func makeApp() -> XCUIApplication {
+        _ = printLogEnvironment
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_LAUNCH_MARKS"] = "1"
         if profiles { app.launchEnvironment["CMUX_MOBILE_LAUNCH_PROFILE"] = "1" }
+        // The launch profile (run 46080256001) found the main thread waiting on dyld's lock in
+        // `_os_activity_stream_reflect` for 37% of launch: os_log mirrored to the test's console.
+        // A phone launched from its icon has no such stream; this turns the mirror off to measure that.
+        if noLogMirror { app.launchEnvironment["OS_ACTIVITY_DT_MODE"] = "NO" }
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "workspaces"
         app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = String(workspaceCount)
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
@@ -159,6 +164,12 @@ class LaunchTTIUITests: XCTestCase {
     }
 
     static let profiles = ProcessInfo.processInfo.environment["CMUX_MOBILE_LAUNCH_PROFILE"] == "1"
+    static let noLogMirror = ProcessInfo.processInfo.environment["CMUX_MOBILE_LAUNCH_NO_LOG_MIRROR"] == "1"
+    /// The runner's own log-mirroring settings (the app it launches inherits Xcode's), printed once.
+    static let printLogEnvironment: Void = {
+        let keys = ProcessInfo.processInfo.environment.filter { $0.key.hasPrefix("OS_ACTIVITY") || $0.key.hasPrefix("OS_LOG") || $0.key.hasPrefix("IDE") }
+        print("LAUNCHENV \(keys.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")) no_log_mirror=\(noLogMirror)")
+    }()
 
     static func round(_ value: Double) -> String { String(format: "%.1f", value) }
 }
