@@ -141,6 +141,29 @@ import Testing
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
     }
 
+    /// The DEV/staging guard remains authoritative even if a host accidentally supplies an on override.
+    /// Capture the preference in the factory so this proves the value before the updater is constructed.
+    @Test func developmentBundleOverrideCannotEnableAutomaticChecks() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let updater = FakeUpdater()
+        var valueAtFactory: Bool?
+        _ = UpdateController(
+            log: NoopUpdateLog(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true,
+            automaticChecksOverride: true,
+            updaterFactory: { _, _ in
+                valueAtFactory = defaults.bool(forKey: UpdateSettings.automaticChecksKey)
+                return updater
+            }
+        )
+        #expect(valueAtFactory == false)
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
+    }
+
     /// Builds a minimal valid `SUAppcastItem` for a version string (nested helper, not API).
     private func makeAppcastItem(version: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [

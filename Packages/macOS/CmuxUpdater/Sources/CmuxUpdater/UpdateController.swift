@@ -170,8 +170,7 @@ public final class UpdateController {
             // `automaticallyChecksForUpdates` guard. Foreground checks are gated separately by
             // `requestUpdateCheck(_:)`.
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
-        }
-        if let automaticChecksOverride {
+        } else if let automaticChecksOverride {
             // The host's resolved NEXT setting wins over the legacy migration, but is applied
             // before SPUUpdater reads the preference for its launch check and schedule.
             defaults.set(automaticChecksOverride, forKey: UpdateSettings.automaticChecksKey)

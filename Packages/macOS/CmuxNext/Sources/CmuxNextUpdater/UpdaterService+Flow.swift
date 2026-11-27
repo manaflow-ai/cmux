@@ -299,6 +299,13 @@ extension UpdaterService {
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
                           installWhenIdleMinutes: TimeInterval? = nil) {
         // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        // A shared classic opt-out is preserved for the launch and the first settings apply. If the
+        // person later turns the NEXT setting off and back on, that explicit choice clears the
+        // compatibility hold so Sparkle can schedule checks again.
+        if settingsApplied, checkAutomatically, lastConfiguredCheckAutomatically == false {
+            preservesSharedAutomaticChecksOptOut = false
+        }
+        lastConfiguredCheckAutomatically = checkAutomatically
         let paused = pausesAutomaticUpdates
         let checkAutomatically = checkAutomatically && !paused && !preservesSharedAutomaticChecksOptOut
         let downloadAutomatically = downloadAutomatically && !paused

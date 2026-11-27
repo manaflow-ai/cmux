@@ -525,11 +525,14 @@ def main():
             updated_id = plistlib.load(f).get("CFBundleIdentifier", "")
         checks = run("defaults", "read", updated_id, "SUEnableAutomaticChecks").stdout.strip()
         automatic = setting("updates.automatic")
+        valid_automatic = ("off", "notify", "download", "idle")
         expected = automatic in ("notify", "download", "idle")
         report["resolved_updates"] = {"automatic": automatic, "SUEnableAutomaticChecks": checks,
                                       "statusAutomaticChecks": status.get("automatic_checks")}
         record("the updated build applies its resolved automatic-check setting",
-               checks in (("1", "true") if expected else ("0", "false")) and status.get("automatic_checks") == expected,
+               automatic in valid_automatic
+               and checks in (("1", "true") if expected else ("0", "false"))
+               and status.get("automatic_checks") == expected,
                json.dumps(report["resolved_updates"]))
         time.sleep(3)
         topo = topology()

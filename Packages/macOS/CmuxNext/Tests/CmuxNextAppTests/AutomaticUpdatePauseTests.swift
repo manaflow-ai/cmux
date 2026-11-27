@@ -60,6 +60,18 @@ import Testing
         #expect(defaults.object(forKey: key) as? Bool == true)
     }
 
+    @Test func anExplicitNextOnAfterOffClearsTheCompatibilityHold() {
+        let nightly = "com.cmuxterm.app.nightly.cmux-next"
+        let defaults = UserDefaults(testSuiteName: "AutomaticUpdatePauseTests.\(UUID().uuidString)")!
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        let updater = Self.updater(paused: false, defaults: defaults, bundleIdentifier: nightly,
+                                   automaticChecksAtLaunch: true)
+        #expect(updater.preservesSharedAutomaticChecksOptOut)
+        updater.configure(checkAutomatically: false, checkInterval: 3600, downloadAutomatically: false)
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        #expect(!updater.preservesSharedAutomaticChecksOptOut)
+    }
+
     /// DEV and staging builds keep their automatic checks off (they never read the public appcast by themselves).
     @Test func aDevelopmentBuildKeepsItsChecksOff() {
         let defaults = UserDefaults(testSuiteName: "AutomaticUpdatePauseTests.\(UUID().uuidString)")!
