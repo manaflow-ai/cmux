@@ -227,5 +227,86 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertIn("cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi", got.stdout)
 
 
+
+def old_literal_prefix(glob: str) -> str:
+    """The per-segment walk literal_prefix replaced: the oracle for the one-search version."""
+    lead: list[str] = []
+    for part in glob.split("/"):
+        if any(ch in part for ch in "*?["):
+            return "/".join(lead)
+        lead.append(part)
+    return glob
+
+
+class ForPathsRunTest(unittest.TestCase):
+    """`for-paths --run`: only a measured over-budget result fails; a missing or failing bench, or a broken map,
+    warns and passes."""
+
+    @staticmethod
+    def area(run: str, budget_s: float | None = 1.0) -> str:
+        budget = f"budget_s = {budget_s}\n" if budget_s is not None else ""
+        return f'[[area]]\nname = "t"\npaths = ["zz-run"]\nrun = ["""{run}"""]\n{budget}'
+
+    def run_cli(self, map_text: str, *extra):
+        return ForPathsCliTest.run_cli(self, "--run", "--timeout", "20", *extra, "zz-run/x.py", map_text=map_text)
+
+    def test_over_budget_fails(self):
+        got = self.run_cli(self.area("echo bench_seconds=5.0", 1.0))
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("over-budget", got.stdout)
+        self.assertIn("over its 1 s budget", got.stderr)
+
+    def test_under_budget_passes_and_reports_the_bench_measurement(self):
+        got = self.run_cli(self.area("echo bench_seconds=0.25", 1.0), "--json")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn('"seconds": 0.25', got.stdout)
+        self.assertIn('"measured": "bench"', got.stdout)
+
+    def test_missing_bench_passes(self):
+        got = self.run_cli(self.area("no-such-bench-tool-zz --scale 10"))
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("missing", got.stdout)
+        self.assertIn("fail open", got.stderr)
+
+    def test_failing_bench_passes(self):
+        got = self.run_cli(self.area("echo bench_seconds=9; exit 3"))
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("error", got.stdout)
+
+    def test_no_budget_never_fails(self):
+        got = self.run_cli(self.area("echo bench_seconds=99", None))
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_broken_map_passes(self):
+        for text in ("[[area]]\nname = 1\n", self.area("true", -1), '[[area]]\nname = "t"\npaths = ["zz-run"]\nrun = "true"\n'):
+            got = self.run_cli(text)
+            self.assertEqual(got.returncode, 0, got.stderr)
+            self.assertIn("area default", got.stderr)
+
+    def test_one_run_per_command_under_the_tightest_budget(self):
+        rules = rel.parse('''
+[[area]]
+name = "a"
+paths = ["p"]
+run = ["b1"]
+budget_s = 3
+[[area]]
+name = "b"
+paths = ["p/q"]
+run = ["b1", "b2"]
+budget_s = 2
+''')
+        runs = rel.runs_for(rel.plan(rel.Index(rules), ["p/x", "p/q/y"]))
+        self.assertEqual([(r["cmd"], r["budget_s"]) for r in runs], [("b1", 2.0), ("b2", 2.0)])
+
+    def test_literal_prefix_matches_the_segment_walk(self):
+        globs = [g for r in rel.load().rules for g in r.globs] + ["*.rs", "**/x", "a/b*/c", "a/[x]/y", "a/b/"]
+        self.assertEqual([g for g in globs if rel.literal_prefix(g) != old_literal_prefix(g)], [])
+
+    def test_mapped_self_bench_runs_flat_at_ten_times_the_rules(self):
+        one, ten = (min(rel.self_bench(2000, k) for _ in range(2)) for k in (1, 10))
+        self.assertLess(ten, one * 3 + 0.1, f"self-bench: 10x rules {ten:.2f} s vs {one:.2f} s (want < 3x)")
+
+
 if __name__ == "__main__":
     unittest.main()
