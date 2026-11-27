@@ -13551,6 +13551,11 @@ export class AcpmuxDirectClient {
     this.unsentKept.delete(promptId);
     void this.unsentStore?.remove(kept.sessionId, promptId).catch(() => undefined);
   }
+  /// Whether the host's store keeps prompt `promptId` (unsentPrompts.ts): its chat, shown again,
+  /// drops it once acpmux has it, or draws it as not sent with Retry (lostPrompt.ts `leftForStore`).
+  keepsUnsentPrompt(promptId: string): boolean {
+    return this.unsentStore !== undefined && this.unsentKept.has(promptId);
+  }
   /// A lost prompt's sender (App.tsx, lostPrompt.ts keepLostPrompt) is done with the stored copy:
   /// the prompt showed on a later connection, or it went back into the composer, which keeps it.
   forgetUnsentPrompt(promptId: string): void {
@@ -14057,6 +14062,12 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
+  }
+  /// Unsettle chat `sessionId` (a settle toast's Undo, the home's Settled shelf): Unarchive by id,
+  /// which drops acpmux's `settled` reason too (hub/auto_settle.rs). The app's relay takes it only
+  /// for a chat in the pane's scope (AcpmuxPaneMethods `sessionScoped`) and refuses any other.
+  async unsettle(sessionId: string): Promise<void> {
+    await this.request("_acpmux/archive", { sessionId, archived: false });
   }
   /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
   /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
