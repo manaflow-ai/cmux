@@ -1,123 +1,25 @@
-//! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
-//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
-//! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`), the ports a
-//! workspace's hover card opens (`workspace_port_links`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
-//! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
-//! (`sidebar_row_layout`), the session tree's folds, hidden rows and pull
-//! request badge (`sidebar_session_tree`), the sections' window
-//! membership, pins, loose-row edits and workspace order
-//! (`sidebar_sections`), the pending sidebar changes' record writes
-//! (`sidebar_pending_records`), where a sidebar drop or keyboard move lands
-//! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
-//! what auto-archive reads off the records (`sidebar_archive_marks`), the
-//! session tree's chat history page and heights (`sidebar_chat_history`),
-//! the app sidebar
-//! bridge's decision rules (`sidebar_bridge`), the store's
-//! optimistic overlay rules (`optimistic`: where a pending split, column,
-//! row or dock shows, what a hidden pane leaves, where a moved tab or
-//! workspace lands),
-//! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
-//! and when to look again),
-//! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
-//! chats fold behind Settled, and what Archive Settled Chats archives),
-//! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
-//! are discarded or are kept),
-//! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
-//! `auto_name_hold_step`: one step of the state the app holds),
-//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
-//! link opens, and the one decision for every window Chromium wants to open),
-//! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
-//! hold off idle sleep and when to look again),
-//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
-//! from Browser's selection rules),
-//! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
-//! confirmed listing with the pending ops applied by the daemon's rules),
-//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
-//! the refusal, the account checks and the folder a start may copy;
-//! `cloud_folder_too_broad`, `cloud_vm_kind`;
-//! `cloud_agent_check`: whether the start's agent can run, before its lease;
-//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
-//! `cloud_sequence_*`: the start's one sequencer, its step order and times;
-//! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
-//! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
-//! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
-//! a Cloud machine reaches models through its edge, so no op decides a login copy),
-//! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
-//! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
-//! `cloud_identity_*`: the install identity's rules;
-//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
-//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
-//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
-//! cursor shape delivery);
-//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
-//! addresses, keysyms, security choice, version, authentication responses);
-//! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
-//! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
-//! Keychain items, each on a thread of Rust's within its deadline),
-//! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
-//! checks, decisions, result fields and answer text),
-//! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
-//! step per event, the saved list, a hand-off's status and times),
-//! the machine bootstrap, machine config and create retry rules
-//! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
-//! (`cloud_launch_*`),
-//! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
-//! and whether it earns an undo toast),
-//! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
-//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
-//! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
-//! the small Cloud API models (`cloud_model_*`),
-//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
-//! step of the reducer whose state the app holds; `empty_workspace_cause`),
-//! `cmux-window-rules`' right column rule and subagent pane tracker
-//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
-//! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
-//! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
-//! `focus_input_step`, `focus_debug_window`), the window focus machine
-//! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
-//! replies, no JSON), the close successor rules (`cmux_close_focus_*`,
-//! [`close_focus`]: typed, one call per close; `cmux_close_selection_*`,
-//! [`close_selection`]: the opener relations and the one rule for tabs and
-//! workspaces, a handle per kind; `cmux_window_close_selection_*`,
-//! [`window_close_selection`]: the whole close-selection state of every
-//! window's workspaces, one handle), agent cursor visibility for
-//! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
-//! per input event and per motion frame),
-//! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
-//! the sidebar's drop rules per drag (`cmux_sidebar_drag_*`,
-//! `cmux_sidebar_tab_drag_*`, `cmux_sidebar_base_y`, [`drag_handle`]: the rows
-//! cross once per drag, each move with numbers only),
-//! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
-//! requests and replies, no JSON), and the column scroll reducer
-//! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
-//! per scroll event and frame).
+//! Narrow C ABI for the app's pure Rust rules: one JSON channel
+//! (`cmux_layout_reducer_json`: an op name and a JSON request in, a JSON answer out) and typed
+//! C functions per handle (the sidebar document mirror below, and modules such as [`focus`],
+//! [`close_focus`], [`close_selection`], [`window_close_selection`], [`agent_cursor`],
+//! [`sidebar_face`], [`drag_handle`] and [`scroll`]).
+//!
+//! The JSON channel's ops: the few answered in `cmux_layout_reducer_json`'s own match
+//! (`cmux-layout-reducer`'s sidebar drop resolver and section layout reducer, the sidebar's
+//! other rules, `cmux-tasks-core`'s Tasks preview, the bookmark preview, the Cloud start's
+//! checks, `cmux-focus-core`'s per-key rules, `imessage`, `mobile_host`), and every other op,
+//! which belongs to an op module: a file in `src/` with `handles` and `respond`, whose own
+//! `//!` says which ops it answers and which crate's rules they are.
+//!
+//! Adding a module is adding its file: build.rs writes every module's `mod` line and the op
+//! modules' dispatch, so no list in this file grows (see build.rs).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-pub mod agent_cursor;
-pub mod close_focus;
-pub mod close_selection;
-pub mod closing_panes;
-pub mod drag_handle;
-pub mod focus;
-mod imessage;
-pub mod input;
-pub mod keychain;
-pub mod scroll;
-pub mod shown_resize;
-pub mod sidebar_caps;
-pub mod sidebar_face;
-pub mod sidebar_mirror;
-pub mod tab_drag;
-pub mod typed;
-pub mod window_close_selection;
-// The op modules' `mod` lines and dispatch (`respond_op_module`), from the files in src/: see build.rs.
+// Every module's `mod` line and the op modules' dispatch (`respond_op_module`), from the files
+// in src/: see build.rs.
 include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
 use sidebar_mirror::Mirror;
 
@@ -282,6 +184,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_item_info" => {
+                use cmux_layout_reducer::sidebar_item_info;
+                let request: sidebar_item_info::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_item_info::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_bridge" => {
                 let request: cmux_layout_reducer::sidebar_bridge::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -293,6 +202,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_feeds" => {
+                use cmux_layout_reducer::sidebar_feeds;
+                let request: sidebar_feeds::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_feeds::respond(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_list_rules" => {
                 use cmux_layout_reducer::sidebar_list_rules;
@@ -425,12 +340,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
             }
-            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer;
+            // a team whose backend refused the one call skips it for a while).
             b"cloud_approval_next" => {
                 use cmux_cloud_start_core::approval_answer;
                 let request: approval_answer::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
+                serde_json::to_vec(&approval_answer::next_remembered(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
