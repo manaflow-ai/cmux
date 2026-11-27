@@ -1,21 +1,22 @@
-import CmuxEgress
 public import CMUXAuthCore
+public import CmuxNextDaemon
 public import Foundation
 import CmuxNextCompat
-import CmuxNextDaemon
 import CmuxNextWakeups
 #if canImport(Network)
 import Network
 #endif
 
-/// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events;
-/// the access token is used only to mint a one-use ticket and never goes into the
-/// WebSocket subprotocol. Reconnects are event driven and back off after failure.
+/// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events; the bundled `cmux` mints its
+/// one-use ticket and opens it (`cmux cloud wire-watch`, cmux-tui `cli/cloud_wire_watch.rs`), the access token on its
+/// stdin, never in argv or the subprotocol. Swift decodes the frame lines; reconnects are event driven and back off
+/// after failure.
 ///
 /// The network decides too, as on the iPhone link (cmux-next-ios LinkMachine): when this Mac's path changes and is
-/// usable (Wi-Fi back, another network, a VPN), a socket waiting out its backoff dials at once, and a live one sends
-/// a ping that must answer within ``networkProbe`` or is dropped and redialed. Before, a socket that died with the
-/// old network waited up to 30 s of backoff, and one riding a dead route waited for TCP to give up.
+/// usable (Wi-Fi back, another network, a VPN), a socket waiting out its backoff dials at once, and a live one's
+/// `cmux` child is ended and redialed at once (the socket lives in the child, so Swift cannot ping it). Before, a
+/// socket that died with the old network waited up to 30 s of backoff, and one riding a dead route waited for TCP to
+/// give up.
 /// Leo, 2026-11-25: "I feel like iOS doesn't retry connections aggressively enough. Or like it isn't detecting when
 /// Wi-Fi is restored and all of that ... I mean likewise with all of our other connectivity things."
 @MainActor
@@ -25,18 +26,17 @@ public final class CloudMachineWire {
     private let team: @Sendable () async -> String?
     /// A tagged dev build's cloud data space, on the ticket request and the socket's upgrade; none for nightly; a misconfigured dev build opens none.
     private let buildSpace: CMUXBuildSpaceState
+    /// The bundled `cmux` that runs one connection (``CloudCLICall/lines(timeout:)``).
+    private let lines: CloudCLICall.Lines
     private var runner: Task<Void, Never>?
     private var generation = 0
-    /// Each socket loop's wake (its backoff wait ends on a network change) and its live socket's probe, by loop.
+    /// Each socket loop's wake (its backoff wait ends on a network change) and its live child's end, by loop.
     private var wakes: [Int: RetryWake] = [:]
     private var probes: [Int: @Sendable () -> Void] = [:]
     private var nextLoop = 0
     #if canImport(Network)
     private var pathMonitor: NWPathMonitor?
     #endif
-    /// How long a ping sent because the network changed may take to answer before the socket is redialed (the
-    /// machine link's and acpmux peers' bound too).
-    nonisolated static let networkProbe: Duration = .seconds(2)
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
     /// its machine id, for the login copy before any claim (Rust's `spare_warm` `ready` coalesces repeats).
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
@@ -49,18 +49,15 @@ public final class CloudMachineWire {
     public var teams: (@MainActor (String?) async -> [String]?)?
 
     public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
-                team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpaceState) {
-        self.apiBaseURL = apiBaseURL
-        self.token = token
-        self.team = team
-        self.buildSpace = buildSpace
+                team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpaceState, lines: @escaping CloudCLICall.Lines) {
+        (self.apiBaseURL, self.token, self.team, self.buildSpace, self.lines) = (apiBaseURL, token, team, buildSpace, lines)
     }
 
     /// `teams` and `onSpareReady`: as ``teams`` and ``onSpareReady``, set from the start.
-    public convenience init(apiBaseURL: URL, auth: CloudAuth, teams: (@MainActor (String?) async -> [String]?)?,
+    public convenience init(apiBaseURL: URL, auth: CloudAuth, cli: BundledExecutable, teams: (@MainActor (String?) async -> [String]?)?,
                             onSpareReady: @escaping @MainActor (String) -> Void) {
-        self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
-                  team: { await auth.teamID }, buildSpace: auth.configuration.buildSpace)
+        self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access }, team: { await auth.teamID },
+                  buildSpace: auth.configuration.buildSpace, lines: CloudCLICall(cli: cli).lines(timeout: .seconds(6 * 3600)))
         (self.teams, self.onSpareReady) = (teams, onSpareReady)
     }
 
@@ -100,8 +97,8 @@ public final class CloudMachineWire {
         #endif
     }
 
-    /// This Mac's network changed and is usable: every loop waiting out its backoff dials now, every live socket is
-    /// probed (a change that comes while a dial runs is kept and ends the next wait at once).
+    /// This Mac's network changed and is usable: every loop waiting out its backoff dials now, every live socket's
+    /// child is ended, so it redials at once (a change that comes while a dial runs is kept and ends the next wait at once).
     func networkChanged() {
         for wake in wakes.values { wake.fire() }
         for probe in probes.values { probe() }
@@ -168,30 +165,21 @@ public final class CloudMachineWire {
     private func session(_ generation: Int, loop: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
                          onSubscribed: () -> Void) async throws {
         let selectedTeam = if let only { only } else { await team() }
-        let access = try await token()
-        let ticket = try await mintTicket(access: access)
-        let request = try Self.socketRequest(apiBaseURL: apiBaseURL, ticket: ticket, team: selectedTeam,
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, buildSpace: buildSpace)
-        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextCloud.CloudMachineWire"), with: request, site: "CmuxNextCloud.CloudMachineWire")
-        task.maximumMessageSize = 8 << 20
-        task.resume()
-        probes[loop] = Self.probe(task)
-        defer { probes[loop] = nil; task.cancel(with: .goingAway, reason: nil) }
+        let stdin = try JSONSerialization.data(withJSONObject: ["api": apiBaseURL.absoluteString, "access": try await token(), "team": selectedTeam,
+            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String].compactMapValues { $0 })
+        _ = try buildSpace.headers() // a misconfigured dev build mints no ticket and opens no socket
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_BUILD_SPACE"] = buildSpace.childEnvironmentValue
+        let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256)) // the main actor drains each line as it comes
+        // task-owner: this session's one `cmux cloud wire-watch` child; cancelled on a network change, at the session's end and with its task.
+        let child = Task { [lines] in await Self.run(lines, stdin: stdin, environment: environment, into: continuation) }
+        probes[loop] = { child.cancel() }
+        defer { probes[loop] = nil; child.cancel() }
         try await withTaskCancellationHandler {
-            // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
-            while !Task.isCancelled {
-                let message = try await task.receive()
-                let data: Data
-                switch message {
-                case let .string(text): data = Data(text.utf8)
-                case let .data(bytes): data = bytes
-                @unknown default: continue
-                }
+            // wakeup-allow: each turn awaits the next frame line of the child; its exit ends the stream and the loop.
+            for await data in frames {
                 guard generation == self.generation else { throw CancellationError() }
-                guard let type = Self.frameType(data) else { continue }
-                switch type {
-                case "welcome":
-                    try await task.send(.string(#"{"t":"subscribe"}"#))
+                switch Self.frameType(data) {
                 case "snapshot":
                     onSubscribed()
                     // The spares the platform says still need the login (at subscribe and after each recheck): the same copy as the event, coalesced per spare.
@@ -204,68 +192,19 @@ public final class CloudMachineWire {
                     break
                 }
             }
-            throw CancellationError()
         } onCancel: {
-            task.cancel(with: .goingAway, reason: nil)
+            child.cancel()
         }
+        await child.value
+        try Task.checkCancellation()
+        throw CloudAPIError.transport("Cloud wire closed")
     }
 
-    /// A ping on `task` that must answer within ``networkProbe``, else the socket is cancelled (its receive throws and
-    /// the loop redials at once: the change that sent the probe is still pending on its wake).
-    nonisolated static func probe(_ task: URLSessionWebSocketTask) -> @Sendable () -> Void {
-        { [weak task] in
-            guard let task else { return }
-            let deadline = DemandTimer(owner: "cloud.machine.wire.probe")
-            deadline.schedule(after: networkProbe) { [weak task] in
-                task?.cancel(with: .goingAway, reason: nil)
-            }
-            task.sendPing { [weak task] error in
-                deadline.cancel()
-                if error != nil { task?.cancel(with: .goingAway, reason: nil) }
-            }
-        }
-    }
-
-    /// The `/v1/wire/cloud` socket's upgrade: the one-use ticket and the team in the subprotocol, the app version and
-    /// the build space, when there is one.
-    nonisolated static func socketRequest(apiBaseURL: URL, ticket: String, team: String?, version: String?,
-                                          buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
-        var components = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
-        components.scheme = components.scheme == "http" ? "ws" : "wss"
-        components.path = "/v1/wire/cloud"
-        guard let url = components.url else { throw CloudAPIError.transport("invalid Cloud wire URL") }
-        var request = URLRequest(url: url)
-        let teamProtocol = team.flatMap { $0.isEmpty ? nil : "team.\($0)" }
-        request.setValue(([
-            "cmux.wire.v1", "ticket.\(ticket)", teamProtocol,
-        ].compactMap { $0 }).joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        if let version { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
-        try buildSpace.apply(to: &request)
-        return request
-    }
-
-    /// `POST /v1/wire/ticket` for the cloud scope, with the person's session and the build space, when there is one.
-    nonisolated static func ticketRequest(apiBaseURL: URL, access: String, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent("v1/wire/ticket"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(#"{"scope":"cloud"}"#.utf8)
-        try buildSpace.apply(to: &request)
-        return request
-    }
-
-    private func mintTicket(access: String) async throws -> String {
-        let request = try Self.ticketRequest(apiBaseURL: apiBaseURL, access: access, buildSpace: buildSpace)
-        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextCloud.CloudMachineWire").data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw CloudAPIError.transport("Cloud wire ticket refused")
-        }
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let ticket = object["ticket"] as? String, !ticket.isEmpty else {
-            throw CloudAPIError.decoding("Cloud wire ticket response")
-        }
-        return ticket
+    /// One `cmux cloud wire-watch` child: each stdout line into `continuation`, finished when the child exits.
+    nonisolated private static func run(_ lines: CloudCLICall.Lines, stdin: Data, environment: [String: String],
+                                        into continuation: AsyncStream<Data>.Continuation) async {
+        await lines(["cloud", "wire-watch"], stdin, environment) { continuation.yield($0) }
+        continuation.finish()
     }
 
     /// The spares a `snapshot` of this socket's own team (`cloud:<team>`) names in `spares_needing_login`: the person's

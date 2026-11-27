@@ -113,48 +113,9 @@ struct CloudBuildSpaceTests {
         #expect(await owner.gitHubApp(team: "team_1") == .unknown)
     }
 
-    @Test("The wire ticket request and the /v1/wire/cloud upgrade carry the header with a build space, none without",
-          arguments: [true, false])
-    func machineWire(tagged: Bool) throws {
-        let space = Self.state(tagged)
-        let ticket = try CloudMachineWire.ticketRequest(apiBaseURL: Self.base, access: "access", buildSpace: space)
-        #expect(ticket.url?.absoluteString == "https://cloud-api-staging.cmux.dev/v1/wire/ticket")
-        #expect(ticket.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        let socket = try CloudMachineWire.socketRequest(apiBaseURL: Self.base, ticket: "t1", team: "team_1", version: "1.0",
-                                                        buildSpace: space)
-        #expect(socket.url?.absoluteString == "wss://cloud-api-staging.cmux.dev/v1/wire/cloud")
-        #expect(socket.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "cmux.wire.v1, ticket.t1, team.team_1")
-        #expect(socket.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-    }
-
-    @Test("A misconfigured dev build mints no wire ticket and opens no /v1/wire/cloud socket")
-    func machineWireRefuses() {
-        #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try CloudMachineWire.ticketRequest(apiBaseURL: Self.base, access: "access", buildSpace: Self.misconfigured)
-        }
-        #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try CloudMachineWire.socketRequest(apiBaseURL: Self.base, ticket: "t1", team: nil, version: nil,
-                                                   buildSpace: Self.misconfigured)
-        }
-    }
-
-    @Test("The install transport's POST and GET carry the header with a build space, none without", arguments: [true, false])
-    func installTransport(tagged: Bool) throws {
-        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.state(tagged))
-        let post = try transport.postRequest("v1/install/token", json: Data("{}".utf8), bearer: "b", headers: ["x-a": "1"])
-        let get = try transport.getRequest("v1/me?x=1", bearer: nil, headers: [:])
-        for request in [post, get] {
-            #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        }
-        #expect(post.value(forHTTPHeaderField: "x-a") == "1")
-        #expect(get.url?.absoluteString == "https://cloud-api-staging.cmux.dev/v1/me?x=1")
-    }
-
     @Test("The install transport and identity of a misconfigured dev build refuse: no request, no install token")
     func installRefuses() async throws {
-        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.misconfigured)
-        #expect(throws: CMUXBuildSpaceError.self) { _ = try transport.postRequest("v1/install/token", json: Data(), bearer: nil, headers: [:]) }
-        #expect(throws: CMUXBuildSpaceError.self) { _ = try transport.getRequest("v1/me", bearer: nil, headers: [:]) }
+        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.misconfigured, machineIO: nil)
         await #expect(throws: CMUXBuildSpaceError.self) { _ = try await transport.post("v1/install/token", json: Data(), bearer: nil, headers: [:]) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("build-space-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
