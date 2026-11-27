@@ -16,6 +16,10 @@
   cmux-bench for-paths FILE... | --diff BASE | --stdin [--json|--markdown]
                                                  the benches, targeted tests and check templates a change's paths
                                                  need (docs/benches/relevance-map.toml); an unmapped path warns
+  cmux-bench for-paths ... --run [--timeout S]     also run the benches the matched areas name (`run`), each
+                                                 once; exit 1 only when a measured result is over its area's
+                                                 `budget_s`; a missing or failing bench warns (fail open)
+  cmux-bench for-paths --self-bench N [--scale K] seconds for load + plan on N tracked paths, K times the rules
   cmux-bench for-paths --coverage [--days 7]     % of the paths merged in the last N days a mapping covers
   cmux-bench for-paths --write | --check         regenerate (or check) the map's [[unit]] section from the layout
 
@@ -340,7 +344,14 @@ def cmd_for_paths(argv: list[str]) -> int:
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--write", action="store_true")
     p.add_argument("--check", action="store_true")
+    p.add_argument("--run", action="store_true", help="run the selected areas' bench commands against budget_s")
+    p.add_argument("--timeout", type=float, default=120, help="seconds one bench command may take (--run)")
+    p.add_argument("--self-bench", type=int, metavar="N", help="time load + plan on N tracked paths")
+    p.add_argument("--scale", type=int, default=1, help="--self-bench: K times the map's rules")
     a = p.parse_args(argv)
+    if a.self_bench:
+        print(f"bench_seconds={relevance.self_bench(a.self_bench, max(1, a.scale)):.4f}")
+        return 0
     if a.write or a.check:
         before = a.map.read_text(encoding="utf-8")
         changed = relevance.rewrite(a.map)
@@ -397,7 +408,34 @@ def cmd_for_paths(argv: list[str]) -> int:
         print(_render_plan(plan, a.markdown))
     for d in plan["defaults"]:
         print(f"cmux-bench: for-paths: warning: {d} has no mapping; add one to {a.map.name}", file=sys.stderr)
-    return 0
+    if not a.run:
+        return 0
+    return _report_runs(relevance.run_benches(plan, a.timeout), a.markdown, a.json)
+
+
+def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
+    """Print each bench run; 1 only for a measured over-budget result, so a missing tool never blocks."""
+    from benchlib import relevance
+
+    over = [r for r in results if r["status"] == relevance.OVER]
+    if as_json:
+        print(json.dumps({"schema": "cmux-bench/for-paths-run/v1", "runs": results, "over_budget": len(over)},
+                         indent=2, ensure_ascii=False))
+    else:
+        print(("### " if markdown else "") + f"Bench runs: {len(results)} selected, {len(over)} over budget")
+        for r in results:
+            took = f"{r['seconds']:.3f} s" if r["seconds"] is not None else "-"
+            budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
+            line = f"{r['status']:12s} {took}{budget}  {r['cmd']}" + (f"  ({r['detail']})" if r["detail"] else "")
+            print(("- " if markdown else "  ") + line)
+    for r in results:
+        if r["status"] in (relevance.MISSING, relevance.ERROR, relevance.TIMEOUT):
+            print(f"cmux-bench: for-paths: warning: bench {r['status']}, fail open: {r['cmd']}: {r['detail']}",
+                  file=sys.stderr)
+        elif r["status"] == relevance.OVER:
+            print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} s, over its {r['budget_s']:g} s budget "
+                  f"({', '.join(r['areas'])})", file=sys.stderr)
+    return 1 if over else 0
 
 
 def main(argv: list[str]) -> int:
