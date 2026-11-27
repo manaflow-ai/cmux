@@ -186,6 +186,8 @@ extension MacScreenPages {
         row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
         row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
         row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
+        // Frames macOS never put on the glass (no presented time): left out of the two above.
+        row["unpresented_frames"] = frames.map { .number(Double($0.unpresented)) } ?? .null
         return .object(row)
     }
 

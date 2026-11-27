@@ -182,6 +182,7 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+cmux-vault-e2e.workspace = true
 # `cmux link sync pull` merges a text file both sides changed by line.
 diffy.workspace = true
 uuid.workspace = true
