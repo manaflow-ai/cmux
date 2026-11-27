@@ -93,6 +93,7 @@
     "CmuxNextChiefMemory": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextResources": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextUpdater": {"layer": "ui", "mixes": ["service", "domain"]},
+    "CmuxNextQuit": {"layer": "ui", "mixes": ["domain"], "plan": "domain once window ordering (Design) and the updater's flow (Updater) reach it through BackgroundReadyHost"},
     "CmuxNextAppCore": {"layer": "ui", "mixes": ["service", "domain"], "note": "the app's seam protocols (AppServicesProviding, window snapshots, daemon routing, WorkspaceSpawn/Close) that feature modules use without the App target; its public interface names AgentPane and Sidebar (ui) types, so it is ui, below CmuxNextApp, which alone imports it today"},
     "CmuxNextSessionTransfer": {"layer": "ui", "mixes": ["core"], "note": "Move Sessions from Another cmux Build: Sendable transfer values and the picker as data (no state); its public interface returns a CmuxNextDesign CmuxDialogSpec, so it is ui; only CmuxNextApp imports it"},
     "CmuxNextUiLayerPreview": {"layer": "ui", "note": "Debug-only (CMUX_UI_LAYER_PREVIEW) SwiftUI preview leaf on Design and Icons; sample data, no daemon models"},

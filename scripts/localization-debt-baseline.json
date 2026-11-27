@@ -201,7 +201,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Phone.xcstrings": {
       "needs_review": 16
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Quit.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextQuit/Resources/Quit.xcstrings": {
       "needs_review": 207,
       "other": 2
     },

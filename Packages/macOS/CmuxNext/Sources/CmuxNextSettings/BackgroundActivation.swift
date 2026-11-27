@@ -18,7 +18,9 @@ import CmuxNextDesign
 /// process's own services (`AppProcessRoot`), so services a test builds leave
 /// the test process alone; no window is open; cmux is not quitting; and
 /// `app.hideDockIconWithoutWindows` is on (false keeps the old behavior:
-/// regular with no window).
+/// regular with no window). A ``BackgroundStay`` that holds the app hidden
+/// (the background ready copy, `app.backgroundReady`) enters it too, and the
+/// first window to appear tells it to bring back what it hid.
 @MainActor
 public final class BackgroundActivation {
     private let registry: ActionRegistry
@@ -30,6 +32,8 @@ public final class BackgroundActivation {
     /// The menu bar item while in background mode, nil while ``MenuBarExtra``'s stands in.
     private var item: NSStatusItem?
     private var entered = false
+    /// The background ready copy, while the App has one: it may hold the app here with its windows kept.
+    public weak var stay: (any BackgroundStay)?
     private var settlePending = false
 
     /// `icon` is the menu bar item's image; its accessibility label is the app's name.
@@ -66,6 +70,16 @@ public final class BackgroundActivation {
     /// for a window opened behind (automation without view change).
     public func windowWillAppear(activates: Bool) {
         guard isBackground else { return }
+        leave(activates: activates)
+        stay?.backgroundDidLeave()
+    }
+
+    /// Enters background mode now, not at the end of this turn, when it may (a launch that starts hidden).
+    public func enterNow() {
+        settle()
+    }
+
+    private func leave(activates: Bool) {
         entered = false
         hideItem()
         guard NSApp.activationPolicy() == .accessory else { return }
@@ -82,7 +96,7 @@ public final class BackgroundActivation {
 
     private func settle() {
         settlePending = false
-        guard !isBackground, mayEnter(), NSApp.activationPolicy() == .regular else { return }
+        guard !isBackground, stay?.holdsBackground == true || mayEnter(), NSApp.activationPolicy() == .regular else { return }
         NSApp.setActivationPolicy(.accessory)
         entered = true
         if !menuBarItemShown() { showItem() }
@@ -99,7 +113,7 @@ public final class BackgroundActivation {
             if let entry = registry.makeMenuItem(for: id) { menu.addItem(entry) }
         }
         menu.addItem(.separator())
-        if let quit = registry.makeMenuItem(for: "quit") { menu.addItem(quit) }
+        for id in stay?.quitItems ?? ["quit"] { if let quit = registry.makeMenuItem(for: id) { menu.addItem(quit) } }
         statusItem.menu = menu
         item = statusItem
     }
