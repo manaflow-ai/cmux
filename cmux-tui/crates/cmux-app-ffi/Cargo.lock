@@ -247,7 +247,9 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-screenshots",
  "cmux-sdk-ffi",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-prediction",
+ "cmux-update-prewarm-core",
  "cmux-url-input",
  "cmux-wallpaper",
  "serde",
@@ -720,6 +722,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-tab-discard"
 version = "0.1.0"
 dependencies = [
@@ -755,6 +764,14 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

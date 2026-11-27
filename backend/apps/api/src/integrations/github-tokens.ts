@@ -4,7 +4,7 @@ import type { Connection } from "@cmux/protocol"
 import { githubCovers, githubInstallationOf, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
-import { installationConfigureUrl } from "./github-connect.ts"
+import { appRequestedPermissions, installationConfigureUrl, installationPage, permissionsShort, type InstallationPage } from "./github-connect.ts"
 import { rateLimitMessage, rateLimitWait } from "./provider-core.ts"
 import { forgetInstallationToken, github, installationToken, InstallationTokenRefused, logGithubHeadroom, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
 
@@ -488,6 +488,10 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
       // that "does not exist or is not accessible to the parent installation".
       const said = String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "")
       const permissions = /permissions?\b.*\bnot granted/i.test(said)
+      if (permissions && picked.c.account) {
+        const pending = await permissionsPendingFor(h, picked.installation, picked.c.account.name, ask)
+        if (pending) return pending
+      }
       const page = picked.c.account ? await installationConfigureUrl(h.sql, h.env, h.http, picked.installation, picked.c.account.name, Date.now()) : null
       const refusal = permissions
         ? deny("permissions_not_granted", `GitHub refused: the installation does not grant ${Object.entries(ask.permissions).map(([k, v]) => `${k}: ${v}`).join(", ")} on ${ask.repo}`)
@@ -553,6 +557,24 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   })
   console.log(JSON.stringify({ msg: "github.token.minted", team: h.team, principal_kind: kind, install: row.install, repo: ask.repo, token_id: tokenId, label: ask.label ?? null }))
   return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: { ...minted.permissions }, token_id: tokenId } }
+}
+
+/** The code of a mint GitHub refused because the installation has not accepted the App's updated permissions. */
+export const GITHUB_PERMISSIONS_PENDING = "github.permissions_pending"
+
+/**
+ * A mint GitHub refused for permissions ("not granted to this installation") that the App now requests but the
+ * installation has not accepted yet: `github.permissions_pending` with the installation's settings page, where an
+ * owner of `account` accepts the update. Read fresh (the refusal is the moment the cached grant may be stale). Null
+ * when the App does not request the asked access either (then it is `permissions_not_granted`) or GitHub's answer
+ * is not known.
+ */
+const permissionsPendingFor = async (h: LedgerHost, installation: number, account: string, ask: TokenAsk): Promise<TokenFail | null> => {
+  const page: InstallationPage | null = await installationPage(h.sql, h.env, h.http, installation, account, Date.now(), true).catch(() => null)
+  if (!page?.url || !page.granted) return null
+  const requested = await appRequestedPermissions(h.sql, h.env, h.http, Date.now()).catch(() => null)
+  if (!requested || permissionsShort(requested, ask.permissions) || !permissionsShort(page.granted, ask.permissions)) return null
+  return { ...fail(403, GITHUB_PERMISSIONS_PENDING, `GitHub needs you to accept cmux's updated permissions for ${account}.`), configure_url: page.url }
 }
 
 const expireRows = (sql: SqlStorage, now: number) =>
@@ -637,16 +659,20 @@ export const githubStatusConnection = (state: ConnectionsState, p: Principal): C
 /**
  * GET /v1/integrations/github/status: whether the App is configured, and the connection this principal would use.
  * `configure_url` is that connection's installation page on GitHub, where repositories are added ("Add more
- * repositories"), or null when it is not known (github-connect.ts installationConfigureUrl).
+ * repositories"), or null when it is not known (github-connect.ts installationConfigureUrl). `permissions_pending`: the
+ * App now requests permissions the installation has not accepted (a write token is refused until it is), and
+ * `accept_url` is then the same settings page, where an owner of the account accepts them; null otherwise.
  */
-export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, appSlug: string | null = env.GITHUB_APP_SLUG ?? null) => {
+export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, appSlug: string | null = env.GITHUB_APP_SLUG ?? null, permissionsPending = false) => {
   const c = githubStatusConnection(state, p)
+  // A pending permission update: the installation's settings page is where an owner accepts it.
+  const pending = permissionsPending && configureUrl !== null
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
     // The slug GitHub names the App now (providers.ts githubAppSlug), so clients build its install URL after a rename.
     app_slug: appSlug,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
-    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null
+    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl, permissions_pending: pending, accept_url: pending ? configureUrl : null } : null
   }
 }
