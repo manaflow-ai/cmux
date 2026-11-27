@@ -737,6 +737,43 @@ def gates_queues(gates: Mapping[str, Any] | None, *, now: dt.datetime
     return as_of, found
 
 
+# The share of the Freestyle rung's started jobs that ended cancelled (GitHub reports a job's own timeout-minutes as
+# cancelled) above which the rung is marked dead, once at least CUT_MIN_FINISHED of them finished in the window.
+# cmuxterm-hq's ci_dash counts them beside the rung's queue in CI_FLEET_GATES ("queues" row: finished,
+# cancelled_after_start, window_s; ci_dash.pool_cuts(), every fsr-* runner whatever label its job asked), the way
+# build-fleet/data/ci_per_pr.py counts useless runner-hours. 2026-11-26 06Z..11-27 06Z: 989 runner-h/day were
+# cancelled after start, 295 h of it on fsr-* runners, 720 of 2,943 jobs (24%); cmux-next fast tier (cargo) there:
+# 5 success / 255 cancelled / 127 failure of 387, at its 30 min timeout (median 14 min on cmux-runner-pool-*). The GCP
+# pool's runners cancelled 2.1% (564 of 27,379, the 4 h to 11-27 09:1xZ, superseded pushes mostly), Freestyle 10.5% in
+# those 4 h once the 08:31Z queue-wait mark had moved the pools off it. Nothing marked the rung dead for its jobs timing
+# out, only a queue wait did. Leo: "fix that today, not in a writeup". The mark is label_evidence()'s full mark: a
+# start does not clear it, it renews while the share holds, and it expires DEAD_TTL after the share falls.
+CUT_SHARE_DEAD = 0.15
+CUT_MIN_FINISHED = 40
+
+
+def cut_share_dead(gates: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[str, str]:
+    """owned lead label -> why, for each "queues" row of a fresh CI_FLEET_GATES reading (gates_queues()'s freshness) that
+    shows at least CUT_MIN_FINISHED finished jobs of which at least CUT_SHARE_DEAD ended cancelled after start."""
+    if gates_queues(gates, now=now)[0] is None:
+        return {}
+    found: dict[str, str] = {}
+    for label, row in (gates.get("queues") or {}).items():
+        if not (isinstance(label, str) and owned_lead(label) and isinstance(row, Mapping)):
+            continue
+        try:
+            finished = int(row.get("finished") or 0)
+            cut = int(row.get("cancelled_after_start") or 0)
+            window = int(row.get("window_s") or 0)
+        except (TypeError, ValueError):
+            continue
+        if finished >= CUT_MIN_FINISHED and 0 <= cut <= finished and cut >= CUT_SHARE_DEAD * finished:
+            found[label] = (f"{label}: {cut} of {finished} jobs started there in the last {window / 3600:g} h ended "
+                            f"cancelled ({100 * cut / finished:.0f}%, mark at {CUT_SHARE_DEAD:.0%}) in "
+                            f"{FLEET_GATES_VARIABLE}; dead")
+    return found
+
+
 def _gates(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
     """CI_FLEET_GATES: live through the API when a client can read it, else the job's env (as _health())."""
     raw = None
@@ -867,6 +904,11 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 notes.append(f"{label}: {queued} queued, oldest {oldest:.1f} min in {FLEET_GATES_VARIABLE} "
                              f"({iso(as_of)}), newer than the snapshot; not full")
                 full.discard(label)
+    # A rung whose started jobs keep ending cancelled (their timeout) is dead however fast it starts them
+    # (cut_share_dead()); after the queue rule, so a short wait never clears it.
+    for label, why in sorted(cut_share_dead(gates, now=now).items()):
+        notes.append(why)
+        full.add(label)
     if stalls - started:
         notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
                      "dead size from a full vCPU cap; no new dead mark")

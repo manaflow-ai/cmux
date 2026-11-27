@@ -43,6 +43,10 @@ on:
     # 37 h). The six-hourly tick above stays the canary that finds the login's quota again after a reset.
     - cron: "47 1-5,7-11,13-17,19-23 * * *"
     - cron: "7,22,37,52 * * * *"
+    # Codex real on its own minute, not the Claude canary's :47: the two claimed one warm spare at once, so one of
+    # them created cold every six hours (2026-11-27 06:51Z: codex claimed in 4983 ms, claude made one in 17165 ms).
+    # :29 is the widest gap between the other claims (:22 and :37 Codex stub), so the pool has refilled before it.
+    - cron: "29 */6 * * *"
   workflow_dispatch:
     inputs:
       model:
@@ -101,7 +105,7 @@ jobs:
             crons: ["47 */6 * * *", "47 1-5,7-11,13-17,19-23 * * *"]
           - agent: codex
             model: real
-            crons: ["47 */6 * * *"]
+            crons: ["29 */6 * * *"]
           # Codex on the stub every 15 minutes: a fresh machine's Codex must have its code-mode host and make the
           # stub's tool call (2026-11-25: every Cloud Codex tool call failed to spawn the host).
           - agent: codex
