@@ -10,6 +10,8 @@
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`input`]: the browser automation's input rules: a driver key's AppKit key event
+//!   (`KeyStroke`, `DOMKeyCodes`) and a driver mouse call's event type (`MouseEventPlan`).
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
@@ -18,6 +20,7 @@
 
 pub mod address;
 pub mod calculator;
+pub mod input;
 pub mod links;
 pub mod ops;
 pub mod tab_state;
@@ -26,6 +29,8 @@ pub mod tab_state;
 mod address_tests;
 #[cfg(test)]
 mod calculator_tests;
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]

@@ -74,6 +74,26 @@ fn browser_rules_tab_state_apply_ignores_a_superseded_loads_late_failure() {
 }
 
 #[test]
+fn browser_rules_input_key_stroke_gives_a_meta_shortcut_its_editing_command() {
+    let request = json!({"key": "z", "code": "KeyZ", "modifiers": ["Meta", "Shift"]});
+    let (code, body) =
+        call("browser_rules_input_key_stroke", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["keyCode"], json!(6));
+    assert_eq!(body["modifierFlags"], json!((1u64 << 20) | (1u64 << 17)));
+    assert_eq!(body["editingCommand"], json!("redo:"));
+}
+
+#[test]
+fn browser_rules_input_mouse_event_drags_while_a_button_is_held() {
+    let request = json!({"held": ["left"], "type": "move", "button": "left"});
+    let (code, body) =
+        call("browser_rules_input_mouse_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"eventType": "leftMouseDragged", "held": ["left"]}));
+}
+
+#[test]
 fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
