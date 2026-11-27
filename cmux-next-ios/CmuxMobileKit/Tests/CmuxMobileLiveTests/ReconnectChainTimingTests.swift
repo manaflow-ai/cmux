@@ -990,7 +990,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 }
 
 /// One typed key's send; `failed` once it threw (no-link), so the bench sends it again.
-@MainActor private final class KeyAttempt { var failed = false; var lost = false; var counted = false }
+@MainActor private final class KeyAttempt { var failed = false; var lost = false; var counted = false; var typedAt: Double? }
 
 /// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
 @MainActor
@@ -1178,6 +1178,11 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     /// 20 runs a cell ran past the 30 min limit on a simulator with no cell finished (2026-11-23); 8 is the next try.
     static let runs = 8
     static let oneWayMillis = 40.0
+    /// `CMUX_RESUME_MATRIX_CELLS=30s/notification_tap,300s/app_switcher`: only those cells run
+    /// (a stage question answered in minutes, not the whole matrix's half hour); unset runs all.
+    static let onlyCells: Set<String>? = ProcessInfo.processInfo.environment["CMUX_RESUME_MATRIX_CELLS"]
+        .map { Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }) }
+        .flatMap { $0.isEmpty ? nil : $0 }
 
     enum Away: CaseIterable {
         case s1, s5, s30, s300, coldKill, eviction
@@ -1255,7 +1260,10 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     static let summary = AgentSessionSummary(id: "s1", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
                                              workspaceTitle: "w", macName: "Studio")
 
-    @Test func resumeMatrix() async throws {
+    @Test func resumeMatrix() async throws { try await run(cells: Self.onlyCells) }
+
+    /// Runs the matrix's cells, or only those in `cells` (`AWAY/REENTRY`) when it is set.
+    func run(cells: Set<String>?) async throws {
         let clock = LinkTestClock()
         // The coordinator's clock follows wall time, so heartbeats beat and a dead link's probe times out.
         let pump = Task.detached(priority: .high) {
@@ -1299,11 +1307,14 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         }
         let fmt = ReconnectChainTimingTests.fmt
         let pct = ReconnectChainTimingTests.percentile
+        // A stage's p50 over the runs that reached it, `null` when none did (a kept link).
+        func stage(_ values: [Double]) -> String { values.isEmpty ? "null" : fmt(pct(values, 0.5)) }
         var keyP95: [String: Double] = [:]
         var reconnectsAt: [String: Int] = [:]
 
         for away in Away.allCases { for reentry in Reentry.allCases {
             let cell = #""away":"\#(away.name)","reentry":"\#(reentry.name)""#
+            if let only = cells, !only.contains(away.name + "/" + reentry.name) { continue }
             if let why = Self.notModeled(away, reentry) {
                 emit(#"RESUME_MATRIX {\#(cell),"not_modeled":"\#(why)"}"#)
                 continue
@@ -1319,6 +1330,13 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             var held = 0
             var doubled = 0
             var blanked = 0
+            // Where a redial's first key spends its time, from the return: the new link served,
+            // workspaces bound on it (the terminal's daemon), the chats' hub ready, the key that
+            // landed typed. A kept link has no new link: those runs add nothing to the first three.
+            var servedAt: [Double] = []
+            var daemonAt: [Double] = []
+            var chatsAt: [Double] = []
+            var typedAt: [Double] = []
             for _ in 0..<Self.runs {
                 try await waitFor("the link to settle before a switch") { settled() }
                 try await Task.sleep(for: .milliseconds(200)) // test: lets the last switch's probe and replies drain
@@ -1331,6 +1349,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 }
                 try await Task.sleep(for: .milliseconds(50)) // test: the stream runs before the switch
                 mac.resetKey()
+                let linkBefore = session.servedLink
                 let dialsBefore = mac.dials
                 let bytesBefore = mac.bytesDown
                 let start: ContinuousClock.Instant
@@ -1366,9 +1385,16 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 var relaunched: MacSession? = away.seconds == nil ? nil : session
                 var openChat: AgentChatStore? = away.seconds == nil ? nil : chat
                 var attempt: KeyAttempt?
+                var served: Double?, daemon: Double?, chats: Double?
                 var watchdog = AwakeDeadline(.seconds(20))
                 while (mac.keyArrived == nil || paint == nil), watchdog.hasTimeLeft() {
                     if relaunched == nil { relaunched = live.session(macID: macID) }
+                    if let s = relaunched, let link = s.servedLink, link !== linkBefore {
+                        let now = Self.millis(ContinuousClock.now - start)
+                        if served == nil { served = now }
+                        if daemon == nil, s.workspaces.daemon != nil { daemon = now }
+                        if chats == nil, s.acpmux.isReady { chats = now }
+                    }
                     if openChat == nil, let s = relaunched, s.acpmux.isReady {
                         openChat = AgentChatStore(source: s.acpmux.source(sessionID: "s1", summary: Self.summary))
                     }
@@ -1382,6 +1408,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                         if let attempt, attempt.failed, attempt.lost, !attempt.counted { attempt.counted = true; lost += 1 }
                         if attempt == nil || attempt!.failed {
                             let next = KeyAttempt()
+                            next.typedAt = Self.millis(ContinuousClock.now - start)
                             attempt = next
                             Task { @MainActor in
                                 guard let type = s.terminalFeed.type else { next.failed = true; return }
@@ -1401,6 +1428,10 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 if let attempt, !attempt.lost, landed - start > .seconds(3) { held += 1 } // delivered after being held
                 doubled += max(0, mac.keysWritten - 1) // one key typed once writes once
                 keys.append(Self.millis(landed - start))
+                if let served { servedAt.append(served) }
+                if let daemon { daemonAt.append(daemon) }
+                if let chats { chatsAt.append(chats) }
+                if let typed = attempt?.typedAt { typedAt.append(typed) }
                 paints.append(try #require(paint, "the chat never had content within 20 s (\(cell))"))
                 session = try #require(relaunched)
                 chat = try #require(openChat)
@@ -1412,7 +1443,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             }
             keyP95[away.name + "/" + reentry.name] = pct(keys, 0.95)
             reconnectsAt[away.name + "/" + reentry.name] = reconnects
-            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"keys_held_then_delivered":\#(held),"keys_doubled":\#(doubled),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"cell_wall_ms":\#(fmt(Self.millis(ContinuousClock.now - cellStart))),"model":"\#(Self.model(away, reentry))"}"#)
+            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"keys_held_then_delivered":\#(held),"keys_doubled":\#(doubled),"stage_p50_ms":{"link_served":\#(stage(servedAt)),"workspaces_bound":\#(stage(daemonAt)),"chats_ready":\#(stage(chatsAt)),"key_typed":\#(stage(typedAt))},"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"cell_wall_ms":\#(fmt(Self.millis(ContinuousClock.now - cellStart))),"model":"\#(Self.model(away, reentry))"}"#)
         } }
         // The cliff: the first away time (app switcher) whose reconnects go above 0, and its cost.
         let timed = Away.allCases.filter { $0.seconds != nil }
@@ -1424,6 +1455,20 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             emit(#"RESUME_MATRIX_CLIFF {"away":"none","reentry":"app_switcher","path_dies_after_s":\#(Self.pathDiesAfter)}"#)
         }
         Attachment.record(report.joined(separator: "\n"), named: "resume-matrix.txt")
+    }
+}
+
+/// The resume matrix's redial cells and a kept-link baseline, alone: where a redial's first key spends
+/// its time (`stage_p50_ms`), in minutes rather than the whole matrix's half hour. On the fleet:
+/// `--arg only=CmuxMobileLiveTests/ResumeStagesBenchTests` (scripts/ci/cmux-next-ios-sim.sh turns it on).
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(30)),
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1",
+                "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeStagesBenchTests {
+    static let cells: Set<String> = ["1s/app_switcher", "30s/app_switcher", "30s/notification_tap", "300s/app_switcher"]
+
+    @Test func resumeStages() async throws {
+        try await ResumeMatrixBenchTests().run(cells: ResumeMatrixBenchTests.onlyCells ?? Self.cells)
     }
 }
 #endif

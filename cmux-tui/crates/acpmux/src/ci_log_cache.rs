@@ -282,7 +282,7 @@ pub(crate) fn run_in(words: &[String], dir: &Path, gh_repo: Option<&str>) -> i32
         return run_through(gh, args);
     }
     let path = path_for(dir, &ask.key(attempt));
-    if let Ok(mut file) = std::fs::File::open(&path) {
+    if let Ok(mut file) = crate::home_fs::OpenOptions::new().read(true).open(&path) {
         let _ = file.set_modified(SystemTime::now());
         let mut stdout = std::io::stdout().lock();
         // A reader that stopped early is not an error of the cached log's.
@@ -296,18 +296,18 @@ pub(crate) fn run_in(words: &[String], dir: &Path, gh_repo: Option<&str>) -> i32
 /// Runs `gh` with stdout copied both to ours and into the cache, kept when it exits 0 with
 /// output.
 fn fill(gh: &str, args: &[String], dir: &Path, path: &Path) -> i32 {
-    if std::fs::create_dir_all(dir).is_err() {
+    if crate::home_fs::create_dirs(dir).is_err() {
         return run_through(gh, args);
     }
     let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     let tmp = dir.join(format!(".tmp-{}-{}", std::process::id(), nanos.as_nanos()));
-    let Ok(mut file) = std::fs::File::create(&tmp) else { return run_through(gh, args) };
+    let Ok(mut file) = crate::home_fs::create_file(&tmp) else { return run_through(gh, args) };
     let Ok(mut child) = Command::new(gh).args(args).stdout(Stdio::piped()).spawn() else {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         return 127;
     };
     let Some(mut out) = child.stdout.take() else {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         return match child.wait() {
             Ok(status) => status.code().unwrap_or(1),
             Err(_) => 1,
@@ -342,12 +342,12 @@ fn fill(gh: &str, args: &[String], dir: &Path, path: &Path) -> i32 {
         Err(_) => 1,
     };
     if stored && code == 0 && bytes > 0 && file.sync_all().is_ok() {
-        if std::fs::rename(&tmp, path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        if crate::home_fs::rename(&tmp, path).is_err() {
+            let _ = crate::home_fs::remove_file(&tmp);
         }
         evict(dir, SystemTime::now(), KEEP_FOR, KEEP_BYTES);
     } else {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     code
 }
@@ -372,23 +372,26 @@ fn run_through(gh: &str, args: &[String]) -> i32 {
 
 /// Drops logs older than `keep_for` and the oldest past `keep_bytes`, and a stale temp file.
 pub(crate) fn evict(dir: &Path, now: SystemTime, keep_for: Duration, keep_bytes: u64) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = crate::home_fs::read_dir(dir) else { return };
     let mut logs: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
-    for e in entries.flatten() {
-        let Ok(meta) = e.metadata() else { continue };
+    for e in entries {
+        if !e.is_file {
+            continue;
+        }
+        let path = dir.join(&e.name);
+        let Ok(meta) = crate::home_fs::symlink_metadata(&path) else { continue };
         let at = meta.modified().unwrap_or(now);
         let age = now.duration_since(at).unwrap_or_default();
-        let name = e.file_name();
-        let name = name.to_string_lossy();
+        let name = e.name.to_string_lossy();
         if name.starts_with(".tmp-") {
             if age > TMP_STALE {
-                let _ = std::fs::remove_file(e.path());
+                let _ = crate::home_fs::remove_file(&path);
             }
         } else if name.ends_with(".log") {
             if age > keep_for {
-                let _ = std::fs::remove_file(e.path());
+                let _ = crate::home_fs::remove_file(&path);
             } else {
-                logs.push((at, meta.len(), e.path()));
+                logs.push((at, meta.len(), path));
             }
         }
     }
@@ -397,7 +400,7 @@ pub(crate) fn evict(dir: &Path, now: SystemTime, keep_for: Duration, keep_bytes:
     for (_, len, path) in logs {
         total += len;
         if total > keep_bytes {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
