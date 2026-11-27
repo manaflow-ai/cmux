@@ -42,7 +42,9 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. }
+            | SignalPayload::WgRelay { .. }
+            | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -165,6 +167,12 @@ pub struct DialOptions {
     /// after nothing reached it. On by default; off dials as a build before
     /// relay-first did (tests of the older join rules).
     pub relay_first: bool,
+    /// The phone joins the relay right after its early `wg-relay` (PROTOCOL.md "Early
+    /// join"), with its Bearer token, so the join runs beside the gather and the signaling
+    /// round trip. Needs [`Self::relay_first`] and a Mac that offers `first` too (else the
+    /// join ends unused). On by default; off dials as a build before it did (the phone
+    /// joins as its tunnel starts on the Mac's answer).
+    pub relay_join_early: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -334,6 +342,7 @@ impl Default for DialOptions {
             relay: None,
             force_relay: false,
             relay_first: true,
+            relay_join_early: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
@@ -577,9 +586,16 @@ pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
     peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
-/// Whether both sides support the input lane.
+/// Whether both sides open the input lane: both offered it, and they did not
+/// agree on the reliable link, which carries input on its main carrier.
+/// Both sides decide it from the same two offers, so the phone never opens a
+/// lane the Mac does not take: on WireGuard the Mac's listener then reads
+/// the next connection as a resumed link, which ends the live one
+/// (2026-11-26: every reliable WireGuard link closed on its first send).
 pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
-    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+    options.input_lane
+        && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+        && !reliable_agreed(options, peer_lanes)
 }
 
 /// Attach the lane to `link` when it opens, or fall back when it fails.
@@ -941,8 +957,14 @@ pub async fn answer(
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: error.to_string() });
+            // No bye for an early cue that no `wg-init` followed.
+            if !matches!(&error, DialError::Bye(reason) if reason == wireguard::EARLY_CUE_STALE) {
+                let _ = signaling.send_signal(
+                    &peer,
+                    &session_id,
+                    SignalPayload::Bye { reason: error.to_string() },
+                );
+            }
             return Err(error);
         }
         Err(_) => {
@@ -1065,6 +1087,37 @@ mod tests {
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    /// The phone and the Mac decide the input lane from the same two offers,
+    /// for every mix of input lane and reliable link: a lane one side opens
+    /// and the other does not take is read as a resumed link on WireGuard.
+    #[test]
+    fn both_sides_agree_on_the_input_lane() {
+        for phone_lane in [false, true] {
+            for mac_lane in [false, true] {
+                for phone_reliable in [false, true] {
+                    for mac_reliable in [false, true] {
+                        let phone = DialOptions {
+                            input_lane: phone_lane,
+                            reliable: phone_reliable,
+                            ..DialOptions::default()
+                        };
+                        let mac = DialOptions {
+                            input_lane: mac_lane,
+                            reliable: mac_reliable,
+                            ..DialOptions::default()
+                        };
+                        let phone_says = input_lane_agreed(&phone, &offered_lanes(&mac, false, false));
+                        let mac_says = input_lane_agreed(&mac, &offered_lanes(&phone, false, false));
+                        let case = (phone_lane, mac_lane, phone_reliable, mac_reliable);
+                        assert_eq!(phone_says, mac_says, "{case:?}");
+                        let reliable = phone_reliable && mac_reliable;
+                        assert_eq!(phone_says, phone_lane && mac_lane && !reliable, "{case:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

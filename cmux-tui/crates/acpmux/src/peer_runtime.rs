@@ -76,6 +76,7 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            list_baseline_missing: AtomicBool::new(false),
             rows_link: AtomicU64::new(0),
             listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
@@ -116,6 +117,7 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -136,6 +138,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            quality: StdMutex::default(),
             replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
@@ -187,6 +190,40 @@ impl Peer {
     pub(super) fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
         let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
         f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
+    pub(super) fn with_quality<T>(
+        &self,
+        f: impl FnOnce(&mut crate::peer_link_quality::LinkQuality) -> T,
+    ) -> T {
+        f(&mut self.quality.lock_or_recover())
+    }
+
+    /// How long a ping sent to check a silent link waits for an answer: what the silence budget's
+    /// measured round trip asks for (`SilenceBudget::probe_wait`), and not under `NETWORK_PROBE`
+    /// scaled to the link quality's round trip (`peer_link_quality::probe_wait`).
+    pub(super) fn probe_wait(&self) -> Duration {
+        let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
+        if !self.timings.rtt_adaptive {
+            return wait;
+        }
+        wait.max(self.with_quality(|q| {
+            crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE)
+        }))
+    }
+
+    /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
+    /// its round trip asks for (`peer_link_quality::silence_floor`). A fixed
+    /// `ACPMUX_PEER_PING_SECS` keeps it as set.
+    pub(super) fn silence_for(&self, learned: Duration) -> Duration {
+        let t = &self.timings;
+        if !t.rtt_adaptive || t.fixed_silence {
+            return learned;
+        }
+        let floor = self.with_quality(|q| {
+            crate::peer_link_quality::silence_floor(q.rtt(), t.ping_every, t.silence_budget())
+        });
+        learned.max(floor)
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -751,12 +788,41 @@ impl Peer {
         self.watch_active.store(active, Ordering::Release);
     }
 
+    pub(crate) fn coalesce_lists(&self) {
+        self.notices.coalesce_lists();
+    }
+
+    pub(crate) fn take_waiting_list(&self, number: u64) -> Option<Vec<Arc<str>>> {
+        let rows = self.notices.take_waiting_list(number);
+        self.list_baseline_missing.store(rows.is_none(), Ordering::SeqCst);
+        if rows.is_none() {
+            self.rows_ready.store(false, Ordering::SeqCst);
+            self.rows_link.store(0, Ordering::SeqCst);
+        }
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queue_notice_for_test(
+        &self,
+        notice: PeerNotice,
+    ) -> Result<(), crate::peer_notice_outbox::Closed> {
+        if matches!(notice, PeerNotice::Listed) {
+            self.listed_links.lock_or_recover().push_back(self.link_epoch());
+        }
+        self.notices.send((self.name.clone(), self.generation, notice)).await
+    }
+
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
     /// last. A notice no link queued (a test's) stands for the live link.
-    pub(crate) fn note_rows_applied(&self) {
+    pub(crate) fn note_rows_applied(&self) -> bool {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
+        if self.list_baseline_missing.load(Ordering::SeqCst) {
+            return false;
+        }
         self.rows_link.store(link + 1, Ordering::SeqCst);
+        link == self.link_epoch()
     }
 
     /// The link is ready and the hub applied the session list this link read (`Listed`), so
@@ -806,6 +872,8 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // The ping bar: null while the link is down or before its first pong.
+            "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
             "received": self.received.split(),
         })
     }
@@ -870,7 +938,8 @@ impl Peer {
                         marks.remove(id);
                     }
                 }
-                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+                let class = attach_failure_class(e);
+                tracing::warn!(peer = %self.name, session = %id, refused, class = %class, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
         }
         attached
@@ -904,11 +973,22 @@ impl Peer {
                         }
                         break;
                     }
-                    Err(e) if refuses_attach(&e) => break,
-                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
-                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    // A refusal is not tried again (its class is `gap_too_old`: the chat is
+                    // gone there, or `unknown`: the peer takes no such attach). Every other
+                    // class is, after each of `ATTACH_RETRY_AFTER`: that schedule is its bound.
+                    Err(e) if refuses_attach(&e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::info!(peer = %me.name, session = %id, class = %class, "the peer refused the chat's attach; it is not tried again");
+                        break;
                     }
-                    Err(_) => {}
+                    Err(e) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        let class = attach_failure_class(&e);
+                        tracing::warn!(peer = %me.name, session = %id, class = %class, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::debug!(peer = %me.name, session = %id, class = %class, attempt = n + 1, "the peer's chat was not attached; trying again");
+                    }
                 }
             }
             me.attach_retries.lock_or_recover().remove(&id);

@@ -235,7 +235,7 @@ async fn machine_start(args: &Value) -> Value {
     };
     let cmux = std::env::var_os(crate::hosted_mcp::CMUX_BIN_ENV).unwrap_or_else(|| "cmux".into());
     let mut command = cmux_process::Command::new(cmux);
-    command.args(&argv);
+    command.args(&argv).envs(crate::tool_env::scoped());
     match run_bounded(command, "cmux", &argv, None, CLI_WAIT).await {
         Ok(out) => {
             let record = serde_json::from_str::<Value>(out.trim()).unwrap_or(json!({}));
@@ -271,7 +271,21 @@ async fn run_acpmux(
 ) -> Result<String, CliError> {
     let me = crate::self_command::SelfCommand::current()
         .map_err(|e| CliError::Failed(format!("{e}")))?;
-    run_bounded(me.process_command(argv), "acpmux", argv, stdin, wait).await
+    run_cli(&me, argv, stdin, wait).await
+}
+
+/// [`run_bounded`] on `me` with `argv`.
+async fn run_cli(
+    me: &crate::self_command::SelfCommand,
+    argv: &[String],
+    stdin: Option<&str>,
+    wait: Duration,
+) -> Result<String, CliError> {
+    // The chat's env, caller token included, as its own shell's `acpmux` would have: in the
+    // daemon's gateway it is the request's scope, which a child does not inherit.
+    let mut command = me.process_command(argv);
+    command.envs(crate::tool_env::scoped());
+    run_bounded(command, "acpmux", argv, stdin, wait).await
 }
 
 #[cfg(test)]

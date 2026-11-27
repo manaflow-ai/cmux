@@ -24,6 +24,7 @@ import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartCompos
 import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
 import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
 import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
+import { sendDrawsFirst } from "../agent-session/acpmux/sendDrawsFirst.experiment";
 import { waitSpinnerDelay } from "../agent-session/acpmux/waitSpinnerDelay.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
@@ -72,6 +73,7 @@ import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCar
 import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
 import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
+import { cloudLastSeenLook } from "../agent-session/acpmux/cloudLastSeen.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
@@ -87,6 +89,7 @@ import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experime
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
 import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
+import { hatLineLook } from "../agent-session/acpmux/subagents/hatLine.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
@@ -138,6 +141,7 @@ import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
+import { composerPlace } from "../agent-session/acpmux/composerPlace.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
@@ -195,6 +199,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   settingsAskCard,
   capacityWaitLook,
   pausedMachineResume,
+  cloudLastSeenLook,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
@@ -236,6 +241,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatOpenLook,
   subagentForkChipsLook,
   hatHeaderLook,
+  hatLineLook,
   goalHatPlace,
   customizeBarPlace,
   hatDoneLook,
@@ -262,6 +268,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerFooterFacts,
   composerMachineAtRest,
   cloudStartJustGo,
+  sendDrawsFirst,
   waitSpinnerDelay,
   cmuxLinkLook,
   sentPasteJoin,
@@ -289,6 +296,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatPillPlace,
   dockBand,
   draftFoot,
+  composerPlace,
   outcomeAsk,
   glassToolbarLook,
   composerV2Look,

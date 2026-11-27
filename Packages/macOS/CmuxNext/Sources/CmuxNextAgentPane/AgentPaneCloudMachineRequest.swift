@@ -6,7 +6,8 @@ public import Foundation
 /// state, and the person can resume or open it from there. Fixed param keys (any other is
 /// refused); a machine id is checked here and again by the App against the machines it loaded.
 ///
-/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}]}`, read-only.
+/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}], lastSeenAt?}`, read-only.
+///   `lastSeenAt` (epoch ms) marks a list kept from an earlier launch, shown before the first fresh one lands.
 ///   `cloudMachine.list {fresh: true}` (``freshList``) reads the Cloud plan again, past the kept read: a Send the plan
 ///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
@@ -184,9 +185,12 @@ public final class AgentPaneCloudMachines {
         public var teams: [Team]
         /// The Cloud plan as the server answered it (``Plan``); `unknown` when nothing was read.
         public var plan: Plan
+        /// When `machines` is the list kept from an earlier launch (cmux-cloud-machine `last_seen`), the time
+        /// the server answered it: the page marks those rows last seen until a fresh list lands. Nil for a fresh list.
+        public var lastSeenAt: Date?
         public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false,
-                    team: Team? = nil, teams: [Team] = [], plan: Plan = .unknown) {
-            (self.account, self.complete, self.team, self.teams, self.plan) = (account, complete, team, teams, plan)
+                    team: Team? = nil, teams: [Team] = [], plan: Plan = .unknown, lastSeenAt: Date? = nil) {
+            (self.account, self.complete, self.team, self.teams, self.plan, self.lastSeenAt) = (account, complete, team, teams, plan, lastSeenAt)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
         }
     }
@@ -355,6 +359,8 @@ extension AgentPaneCloudMachineRequest {
             if inventory.signedIn, let team = inventory.team { value["team"] = team.reply }
             if inventory.signedIn, !inventory.teams.isEmpty { value["teams"] = inventory.teams.map(\.reply) }
             value["plan"] = (inventory.signedIn ? inventory.plan : .unknown).reply
+            // Epoch ms (cloudMachines.ts `lastSeenAt`); a kept list is never complete.
+            if let lastSeenAt = inventory.lastSeenAt { value["lastSeenAt"] = (lastSeenAt.timeIntervalSince1970 * 1000).rounded(); value["complete"] = false }
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines?.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)

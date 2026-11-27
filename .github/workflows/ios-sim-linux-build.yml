@@ -59,7 +59,10 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || { echo "::error title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME"; exit 1; }
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME"
+            exit 1
+          fi
           out="$RUNNER_TEMP/out"
           status=0
           "$client" ios-build --what sim-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?

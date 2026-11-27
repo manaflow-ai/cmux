@@ -71,6 +71,12 @@
     "Packages/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
+    "cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json",
+    "cmux-next-ios/verify/agent-cli-hybrid/**",
+    "schemas/deeplinks/agent-link.json",
+    "schemas/notice-timing/notice-timing.json",
+    "design/icons/source/**",
     "scripts/ci/swift-linux-packages.txt",
     "scripts/ci/swift-linux-targets.txt",
     "scripts/ci/swift_linux_targets.py",
@@ -105,6 +111,12 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
+    "cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json",
+    "cmux-next-ios/verify/agent-cli-hybrid/**",
+    "schemas/deeplinks/agent-link.json",
+    "schemas/notice-timing/notice-timing.json",
+    "design/icons/source/**",
     "scripts/ci/swift-linux-packages.txt",
     "scripts/ci/swift-linux-targets.txt",
     "scripts/ci/swift_linux_targets.py",
@@ -121,7 +133,7 @@
     "cmux-tui/Cargo.lock",
     ".github/workflows/swift-linux-packages.yml"
    ],
-   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9. The ios-kit group also reads the connection contract fixture (rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json, cmux-next-ios/contract/README.md): a Rust change to it must run the Swift side. Every file outside the kit its listed test targets read (the Rust fixtures, schemas/deeplinks, schemas/notice-timing, design/icons/source, verify/agent-cli-hybrid) is in EXTRA_INPUTS of scripts/ci/swift_linux_reach.py, which routes it to the ios-kit group and the kit's listed row; before 11-27 the planner sent the fixture to no group, so the Swift side never ran on a Rust-only change (tests/test_swift_linux_reach.py finds every such read)."
   },
   "pr-pipeline.yml": {
    "types": [
@@ -188,6 +200,17 @@
     ".github/workflows/ios-link-ffi-linux.yml"
    ],
    "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
+  },
+  "cmux-next-compile-preflight.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "labeled"
+   ],
+   "draft": true,
+   "affects_why": "No path filter, and its caller job in pr-router.yml has no `start` gate: the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build."
   },
   "cmux-next-fast-gates.yml": {
    "types": [

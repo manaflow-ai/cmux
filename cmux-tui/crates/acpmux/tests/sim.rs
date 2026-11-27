@@ -131,9 +131,16 @@ fn seeds_hold_the_delivery_invariants() {
     let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+    // The latest answer after its deadline, and its seed: the data the liveness budget is set on.
+    let mut latest: Option<(std::time::Duration, u64)> = None;
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         simulated += run.simulated;
+        for (_, late) in invariants::answer_lateness(&run.faulty) {
+            if latest.is_none_or(|(l, _)| late > l) {
+                latest = Some((late, seed));
+            }
+        }
         if let Err(failure) = invariants::check(&run) {
             let known =
                 if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
@@ -155,6 +162,14 @@ fn seeds_hold_the_delivery_invariants() {
         world::human(simulated),
         simulated.as_secs_f64() / wall.as_secs_f64().max(1e-9),
     );
+    if let Some((late, seed)) = latest {
+        eprintln!(
+            "sim: latest answer after heal: {} ({} ms, seed {seed}; budget {})",
+            world::human(late),
+            late.as_millis(),
+            world::human(invariants::LIVENESS_BUDGET)
+        );
+    }
     eprintln!("sim: not checked yet: {}", invariants::NOT_CHECKED.join("; "));
     for (gap, hit) in &shown {
         eprintln!(
@@ -277,6 +292,11 @@ const MUTATIONS: &[Mutation] = &[
             let g = calm.given[0].clone();
             calm.given.push(g);
         },
+    },
+    Mutation {
+        invariant: "every send is answered within the liveness budget once faults heal",
+        what: "the first send's answer came just before the app gave up",
+        apply: |run| run.faulty.app.items[0].1.answered_at = Some(app::GIVE_UP),
     },
 ];
 

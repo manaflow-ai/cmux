@@ -11,6 +11,8 @@
 //! - `screen_demand_report|fit`: viewer demand ([`crate::demand`]).
 //! - `screen_cursor_caps|shape|drawable|prepare|finish`: the cursor shape
 //!   delivery ([`crate::cursor_shape`]).
+//! - `screen_quality_encoding`: a preset's frame rate and sender encoding
+//!   ([`crate::quality`]).
 
 use std::fmt;
 
@@ -21,6 +23,7 @@ use crate::cursor_shape::{self, CursorShape, CursorShapeDelivery};
 use crate::demand::{self, Quality, ViewerDemand};
 use crate::focus::{FocusGeometry, FocusProducer, FocusSample};
 use crate::geometry::{Rect, Size};
+use crate::quality;
 use crate::ticket::{self, Signal, TicketSignaling};
 
 /// The prefix every op of [`respond`] carries.
@@ -255,6 +258,26 @@ pub fn respond(operation: &str, request: &[u8]) -> Result<Value, JsonError> {
             let mut delivery = r.delivery;
             let shape = delivery.finish(r.delivered);
             json!({ "delivery": delivery, "shape": shape })
+        }
+        // The frame rate both displays agree on and the screen sender's encoding at it.
+        "screen_quality_encoding" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                quality: Quality,
+                #[serde(default)]
+                source_width: i64,
+                #[serde(default)]
+                source_height: i64,
+                #[serde(default)]
+                host_maximum: Option<i64>,
+                #[serde(default)]
+                viewer_maximum: Option<i64>,
+            }
+            let r: Request = read(request)?;
+            let fps = quality::frame_rate(r.quality, r.host_maximum, r.viewer_maximum);
+            let encoding = quality::encoding(r.quality, r.source_width, r.source_height, fps);
+            json!({ "frameRate": fps, "encoding": encoding })
         }
         _ => return Err(JsonError::UnknownOperation(operation.to_owned())),
     };

@@ -895,6 +895,8 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // Its loop's timers outlived the daemon that heard them (`agent_timer.rs`).
+        super::agent_timer::note_adopted_goal(session);
         // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
         // while no daemon reached it) does not run on (`policy_mode.rs`).
         if self.refuse_unheld(session).await {
@@ -1195,7 +1197,11 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        if s.route_switch.load(Ordering::SeqCst)
+                            && !hub.restart_waits_for_work_below(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the

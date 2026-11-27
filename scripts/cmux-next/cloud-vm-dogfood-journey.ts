@@ -51,7 +51,9 @@
  * --paused-reads adds the paused-read leg (cmuxterm-hq RFD 0144 piece 2, RFD 0163 pick 1: "publish resume p95 and
  * paused-read p95"): before the pause it writes a 10 x 20 file tree, and while the VM is paused it times, through the
  * files routes and with no resume, a folder listing (GET files/entries) and a file open (GET files/content), n = 30
- * each, and a whole-tree search (list every folder, read every file, find the one needle), n = 5. The VM must still
+ * each, and a whole-tree search, n = 5: one GET files/search answered from the replica the worker seeds right after
+ * the pause (POST files/replica, timed once), beside one search the old way for the before (list every folder, read
+ * every file, find the one needle; about 211 reads). The VM must still
  * be paused after every batch and the resume after it must answer 200 (a VM that woke answers 409), so a run that
  * passes woke it 0 times. A key without vm:files is a note and the leg is skipped.
  *
@@ -450,6 +452,8 @@ async function cliJson(args: string[], what: string): Promise<unknown> {
 const PAUSED_TREE = { dirs: 10, files: 20 } as const;
 const PAUSED_READ_N = 30;
 const PAUSED_SEARCH_N = 5;
+/** Searches the old way, one files read per folder and file: the before beside files/search's after. */
+const PAUSED_CLIENT_WALK_N = 1;
 const PAUSED_SEARCH_CONCURRENCY = 8;
 
 const percentile = (samples: number[], p: number): number => {
@@ -535,11 +539,46 @@ async function pausedReadsLeg(id: string, tree: { root: string; needle: string }
   });
   states.push(await pausedState(id));
 
+  // The server search (RFD 0144 piece 2): seed the replica once, then each search is one request.
   const search: number[] = [];
+  const sources: string[] = [];
   let hits: string[] = [];
+  const seed = await timed("pausedSeed", async () => {
+    const startedAt = performance.now();
+    const reply = await call("POST", `${vmPath(id)}/files/replica?path=${encodeURIComponent(tree.root)}`, undefined, {}, 3 * 60_000);
+    return { ms: performance.now() - startedAt, reply };
+  });
+  const seeded = seed.reply.status !== 404;
+  if (seeded) {
+    const body = expectStatus(seed.reply, [200], "POST files/replica (paused)") as Record<string, unknown>;
+    out["seed"] = { ms: Math.round(seed.ms), files: body["files"], bytes: body["bytes"], complete: body["complete"], seedMs: body["seedMs"] };
+    states.push(await pausedState(id));
+    await timed("pausedSearch", async () => {
+      for (let round = 0; round < PAUSED_SEARCH_N; round += 1) {
+        const startedAt = performance.now();
+        let reply: Reply;
+        for (;;) {
+          reply = await call("GET", `${vmPath(id)}/files/search?path=${encodeURIComponent(tree.root)}&query=${encodeURIComponent(tree.needle)}`);
+          if (reply.status !== 429) break;
+          counts.rateLimited += 1;
+          await sleep(2_000);
+        }
+        search.push(performance.now() - startedAt);
+        const body = expectStatus(reply, [200], "GET files/search (paused)") as Record<string, unknown>;
+        sources.push(String(body["source"]));
+        hits = [...new Set((body["matches"] as Array<{ path: string }>).map((m) => m.path.slice(tree.root.length + 1)))];
+      }
+    });
+  } else {
+    note("this cmux-vm has no files/replica (404): the search was timed the old way only");
+  }
+  states.push(await pausedState(id));
+
+  const walk: number[] = [];
+  let walkHits: string[] = [];
   let requests = 0;
-  await timed("pausedSearch", async () => {
-    for (let round = 0; round < PAUSED_SEARCH_N; round += 1) {
+  await timed("pausedSearchClientWalk", async () => {
+    for (let round = 0; round < (seeded ? PAUSED_CLIENT_WALK_N : PAUSED_SEARCH_N); round += 1) {
       const startedAt = performance.now();
       const found: string[] = [];
       const files: string[] = [];
@@ -566,15 +605,26 @@ async function pausedReadsLeg(id: string, tree: { root: string; needle: string }
         expectStatus(reply, [200], "GET files/content (search)");
         if (reply.text.includes(tree.needle)) found.push(f.slice(tree.root.length + 1));
       });
-      search.push(performance.now() - startedAt);
-      hits = found;
+      walk.push(performance.now() - startedAt);
+      walkHits = found;
     }
   });
   states.push(await pausedState(id));
 
   out["listing"] = stats(listing);
   out["open"] = stats(open);
-  out["search"] = { ...stats(search), files: PAUSED_TREE.dirs * PAUSED_TREE.files, requestsPerSearch: Math.round(requests / PAUSED_SEARCH_N), concurrency: PAUSED_SEARCH_CONCURRENCY, hits };
+  const files = PAUSED_TREE.dirs * PAUSED_TREE.files;
+  const clientWalk = { ...stats(walk), files, requestsPerSearch: Math.round(requests / Math.max(1, walk.length)), concurrency: PAUSED_SEARCH_CONCURRENCY, hits: walkHits };
+  if (seeded) {
+    out["search"] = { ...stats(search), files, requestsPerSearch: 1, sources, hits };
+    out["searchClientWalk"] = clientWalk;
+    // Every search after the seed must be the replica's: one from the disk means the seed did not hold.
+    if (!sources.every((source) => source === "replica")) failed.push("pausedSearchNotReplica");
+    if (walkHits.length !== 1) failed.push("pausedSearchHits");
+  } else {
+    out["search"] = clientWalk;
+    hits = walkHits;
+  }
   out["rateLimited"] = counts.rateLimited;
   out["statesDuring"] = states;
   out["stayedPaused"] = states.every((s) => s === "paused");
@@ -881,7 +931,7 @@ async function npmBenchVm(kind: "locked" | "unlocked"): Promise<string> {
       "/v1/vms",
       {
         displayName: `npm bench ${kind} ${runId}`.slice(0, 100),
-        idleTimeoutSeconds: 600,
+        idleTimeoutSeconds: 300, // dev/test VMs cap idle at 300s; exec traffic keeps it awake
         autoDeleteSeconds: 3600,
         initialNetwork,
         labels: { purpose: "npm-bench", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },

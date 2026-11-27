@@ -178,6 +178,33 @@ struct PaneResizeGestureTests {
         #expect(harness.provider.follower.heard == [true, false], "an end with no start told the follower")
     }
 
+    /// The sidebar's width motion resizes the content area in every frame as a window live resize does: the layout takes
+    /// that resize's mode (frame notices held, out-of-view panes once at the end) without telling the drag followers, whose
+    /// content keeps what it does in a spring; a person's live resize already under way keeps its own end.
+    @Test func theSidebarMotionTakesTheLiveResizeModeWithoutFollowers() throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let screen = try #require(harness.root.screenViews["s"])
+        harness.root.contentAreaMotionDidChange(active: true)
+        #expect(screen.paneFrameNotices.isHolding)
+        #expect(screen.windowResizeListeners?.isEmpty == true)
+        for step in 1...10 {
+            harness.window.setContentSize(NSSize(width: 1200 + step * 10, height: 800))
+            harness.root.layoutSubtreeIfNeeded()
+        }
+        harness.root.contentAreaMotionDidChange(active: false)
+        #expect(harness.provider.follower.heard.isEmpty, "the sidebar's motion told a drag follower")
+        #expect(screen.windowResizeListeners == nil)
+        #expect(!screen.paneFrameNotices.isHolding)
+
+        screen.windowLiveResizeBegan()
+        harness.root.contentAreaMotionDidChange(active: true)
+        harness.root.contentAreaMotionDidChange(active: false)
+        #expect(screen.windowResizeListeners != nil, "the sidebar's landing ended a person's live resize")
+        screen.windowLiveResizeEnded()
+        #expect(harness.provider.follower.heard == [true, false])
+    }
+
     /// #50672: in a person's live resize of the window only the panes that show lay out each tick. A column scrolled past
     /// the screen's edge keeps its old size out of sight and lays out once at the end, before its contents hear the end.
     @Test func aWindowLiveResizeLaysOutAPaneOutOfViewOnceAtTheEnd() throws {

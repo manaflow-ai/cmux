@@ -211,3 +211,29 @@ test("a wait whose timer fires past the deadline starts no further try", async (
   expect(tries).toBe(1);
   expect((error as { code?: string }).code).toBe("native.not_connected");
 });
+
+// Leo, 2026-11-24: "it should just fix itself automtically". Which failed sends go again by
+// themselves (the way there failed) and which say why in one line (the same refusal would come back).
+test("a send whose way there failed goes again by itself; a refusal that would repeat does not", async () => {
+  const { sendRetriesItself } = await import("./sendFailure");
+  for (const fields of [
+    { code: "timeout" },
+    { code: "native.not_connected" },
+    { code: "native.timed_out" },
+    { code: "transport.closed" },
+    { error: "WebSocket is not open: readyState 3 (CLOSED)" },
+    { code: "-32000", reason: "provider.overloaded" },
+    { code: "rate_limit_exceeded" },
+  ])
+    expect(sendRetriesItself(fields), JSON.stringify(fields)).toBe(true);
+  for (const fields of [
+    { reason: "trust.pending" },
+    { reason: "trust.untrusted" },
+    { reason: "message.too_large" },
+    { code: "transport.intent_invalid" },
+    { code: "transport.gesture_required" },
+    { code: "-32000", reason: "agent.refused", error: "the agent refused this prompt" },
+    undefined,
+  ])
+    expect(sendRetriesItself(fields), JSON.stringify(fields)).toBe(false);
+});

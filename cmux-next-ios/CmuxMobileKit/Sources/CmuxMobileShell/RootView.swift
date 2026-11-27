@@ -698,6 +698,8 @@ struct ShellView: View {
         .modifier(BillingDemoSheet(billing: billing))
         #endif
         .cmuxMobileToast($shell.toast)
+        // Shake anywhere: copy this launch's log and open the bug report form (ShakeToReport).
+        .shakeToReportBug()
         .modifier(LiveCallHost(shell: shell))
         #if canImport(CmuxMobileLinkFFI)
         // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
@@ -709,7 +711,7 @@ struct ShellView: View {
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.cloudChats) { item in
-            CloudChatsScreen(shell: shell, attention: item.attention)
+            CloudChatsScreen(shell: shell, attention: item.attention, task: item.task)
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }

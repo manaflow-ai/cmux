@@ -1,6 +1,6 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
-// prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
+// prompt summary (FeedPromptSummary) and the list that keeps only the rows in view (FeedRowsView).
 import { memo, useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { sameJson } from "../../agent-session/acpmux/sameJson";
 import { ConnectionChip } from "../../ui/ConnectionChip";
@@ -22,7 +22,6 @@ import {
   metaLine,
   posterLabel,
   relativeTime,
-  VIRTUALIZE_AFTER,
   type FeedLine,
 } from "./model";
 import { plain, type AnswerState } from "./context";
@@ -88,6 +87,9 @@ export interface RowProps {
    * as it was renders no row. */
   time: string;
   style?: CSSProperties;
+  /** The row's place in the list's grid (1-based, group titles counted), for a screen reader: only
+   * the rows in view are in the document. None: a row outside a list (the Inbox detail's thread). */
+  rowIndex?: number;
   /** The list's handlers, called with the row's item id: the same functions for every row. */
   onSelect: (id: string) => void;
   onOpen: (id: string) => void;
@@ -106,6 +108,7 @@ export const FeedRow = memo(function FeedRow({
   strings,
   time,
   style,
+  rowIndex,
   onSelect,
   onOpen,
   compact = false,
@@ -123,6 +126,7 @@ export const FeedRow = memo(function FeedRow({
       role="row"
       tabIndex={-1}
       id={`feed-row-${line.id}`}
+      aria-rowindex={rowIndex}
       aria-selected={line.selected}
       aria-label={[
         label ? `${label}: ${row.headline}` : row.headline,
@@ -179,6 +183,7 @@ function sameRow(a: RowProps, b: RowProps): boolean {
     a.onSelect === b.onSelect &&
     a.onOpen === b.onOpen &&
     sameStyle(a.style, b.style) &&
+    a.rowIndex === b.rowIndex &&
     sameLine(a.line, b.line)
   );
 }
@@ -203,10 +208,20 @@ function sameStyle(a: CSSProperties | undefined, b: CSSProperties | undefined): 
   return keys.every((key) => a[key] === b[key]);
 }
 
-export function GroupHeader({ title, count, style }: { title: string; count: number; style?: CSSProperties }) {
+export const GroupHeader = memo(function GroupHeader({
+  title,
+  count,
+  style,
+  rowIndex,
+}: {
+  title: string;
+  count: number;
+  style?: CSSProperties;
+  rowIndex?: number;
+}) {
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a group title row inside the grid
-    <div className="feed-group-header" role="row" aria-label={title} style={style}>
+    <div className="feed-group-header" role="row" aria-label={title} aria-rowindex={rowIndex} style={style}>
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the title row's one cell */}
       <span className="feed-group-cell" role="rowheader">
         <span className="feed-group-title">{title}</span>
@@ -214,7 +229,7 @@ export function GroupHeader({ title, count, style }: { title: string; count: num
       </span>
     </div>
   );
-}
+});
 
 // MARK: - The list
 
@@ -232,8 +247,11 @@ export interface LinesProps {
   onKeyDown: (event: KeyboardEvent) => void;
 }
 
-/** Rows and group titles at fixed heights; past VIRTUALIZE_AFTER lines only the rows near the
- * viewport are in the document, so a long feed costs what the window shows. */
+/** Rows and group titles at fixed heights, at any length only the rows near the viewport (and the
+ * selected row, so Up and Down and `aria-selected` always find it) are in the document: a feed costs
+ * what the window shows. Each row carries its place (`aria-rowindex`) for a screen reader. Find (Cmd-F)
+ * is the filter, which the daemon runs over the whole feed (main.tsx), and the rows are not selectable
+ * (desktop.css), so neither depends on which rows are in the document. */
 export function FeedLines({
   lines,
   strings,
@@ -245,9 +263,10 @@ export function FeedLines({
   onOpen,
   onKeyDown,
 }: LinesProps) {
-  const draw = (line: FeedLine, style?: CSSProperties) =>
-    line.type === "header" ? (
-      <GroupHeader key={line.id} title={line.title} count={line.count} style={style} />
+  const draw = (index: number, style: CSSProperties) => {
+    const line = lines[index]!;
+    return line.type === "header" ? (
+      <GroupHeader key={line.id} title={line.title} count={line.count} style={style} rowIndex={index + 1} />
     ) : (
       <FeedRow
         key={line.id}
@@ -255,33 +274,28 @@ export function FeedLines({
         strings={strings}
         time={relativeTime(line.entry.item.created_at, now, strings.language)}
         style={style}
+        rowIndex={index + 1}
         compact={compact}
         onSelect={onSelect}
         onOpen={onOpen}
       />
     );
+  };
   const active = lines.findIndex((line) => line.type === "row" && line.selected);
-  if (lines.length > VIRTUALIZE_AFTER) {
-    return (
-      // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
-      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex
-      <div className="feed-lines" tabIndex={0} onKeyDown={onKeyDown}>
-        <VirtualList
-          className="feed-lines-virtual"
-          count={lines.length}
-          estimateSize={(index) => (compact && lines[index]!.type === "row" ? 48 : lineHeight(lines[index]!))}
-          activeIndex={active >= 0 ? active : undefined}
-          renderRow={(index, style) => draw(lines[index]!, style)}
-          label={label}
-          role="grid"
-          scrollParent={scrollParent}
-        />
-      </div>
-    );
-  }
   return (
-    <div className="feed-lines" role="grid" aria-label={label} tabIndex={0} onKeyDown={onKeyDown}>
-      {lines.map((line) => draw(line))}
+    // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex
+    <div className="feed-lines" tabIndex={0} onKeyDown={onKeyDown}>
+      <VirtualList
+        className="feed-lines-virtual"
+        count={lines.length}
+        estimateSize={(index) => (compact && lines[index]!.type === "row" ? 48 : lineHeight(lines[index]!))}
+        activeIndex={active >= 0 ? active : undefined}
+        renderRow={draw}
+        label={label}
+        role="grid"
+        scrollParent={scrollParent}
+      />
     </div>
   );
 }

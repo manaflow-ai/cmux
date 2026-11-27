@@ -109,6 +109,17 @@ pub(super) async fn handle(
     if conn.origin != Origin::Local {
         return Err(crate::hub::outbox::local_only());
     }
+    queue(hub, conn, params, false).await
+}
+
+/// A send's queueing, after its caller was checked: a local `send_queue`, or a peer's one-hop
+/// relay (`hop_in`, `send_hop.rs`), which never hops again.
+pub(super) async fn queue(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    hop_in: bool,
+) -> Result<Value, RpcError> {
     let mut request =
         params.get("request").filter(|r| r.is_object()).cloned().ok_or_else(|| {
             RpcError::invalid_params("request (the session/prompt params) is required")
@@ -160,6 +171,16 @@ pub(super) async fn handle(
         // refusal (`Hub::mesh_may_route`).
         // A hub that fails in a way that passes (a 503 from overload, no answer) never fails the
         // send: it is kept here and the outbox posts it again (RFD 0049 R1).
+        // HOST/NAME on a host this daemon does not peer: one hop through a peer that does and
+        // takes hops (`send_hop.rs`); the refusal names the route it tried.
+        let mut hop_tried: Vec<Value> = vec![];
+        if !hop_in {
+            match super::send_hop::try_hop(hub, conn, &request, &target).await {
+                super::send_hop::Hop::Sent(answer) => return Ok(answer),
+                super::send_hop::Hop::Failed(e) => return Err(e),
+                super::send_hop::Hop::NoRoute(tried) => hop_tried = tried,
+            }
+        }
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
@@ -170,7 +191,8 @@ pub(super) async fn handle(
         } else {
             // The machine is reachable and has no such session: refused now, never queued,
             // with the closest names there so the sender can pick one (`hub/no_session.rs`).
-            let (text, data) = hub.no_session_text(&target);
+            let (mut text, mut data) = hub.no_session_text(&target);
+            super::send_hop::note_route(&mut text, &mut data, &hop_tried);
             return Err(
                 RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
             );
@@ -651,6 +673,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     // When it first found its chat mid-move (`Next::Moving`).
     let mut moving_since: Option<std::time::Instant> = None;
     loop {
+        let Ok(permit) = hub.outbox_attempts.acquire().await else { return };
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
             return;
@@ -689,6 +712,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         tokio::pin!(changed);
         changed.as_mut().enable();
         if delivery.waits_behind(&hub.outbox).is_some() {
+            drop(permit);
             let _ = tokio::time::timeout(AFTER_RECHECK, changed).await;
             continue;
         }
@@ -889,7 +913,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     // Moved to a sibling daemon here: its outbox takes the delivery over. A
                     // daemon that does not answer is tried again on the back-off.
                     Next::MovedToSocket { socket, session } => {
-                        match hand_to_socket(&delivery, &socket, &session).await {
+                        let handoff = hand_to_socket(&delivery, &socket, &session);
+                        match tokio::time::timeout(ATTEMPT_WAIT, handoff).await.unwrap_or_else(
+                            |_| {
+                                Err(format!(
+                                    "the daemon at {socket} did not answer within {} s",
+                                    ATTEMPT_WAIT.as_secs()
+                                ))
+                            },
+                        ) {
                             // Its attachment files stay: the request the sibling took may name
                             // them, and the settled sweep removes them with the record.
                             Ok(accepted) => {
@@ -916,6 +948,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                                 d.error = Some(error.clone());
                             }
                         });
+                        drop(permit);
                         tokio::time::sleep(MOVING_RETRY).await;
                         continue;
                     }
@@ -980,6 +1013,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
                     None => own,
                 };
+                drop(permit);
                 let sleep = tokio::time::sleep(wait);
                 tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
@@ -1007,9 +1041,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                             // missed.
                             ready.set(hub.outbox.peer_ready.notified());
                             ready.as_mut().enable();
-                            if own_ready_since(&hub.outbox, ready_seen.as_ref())
-                                && hub.peer_down_for(&delivery.target).is_none()
-                            {
+                            if !own_ready_since(&hub.outbox, ready_seen.as_ref()) {
+                                continue;
+                            }
+                            let Ok(_permit) = hub.outbox_attempts.acquire().await else { return };
+                            if hub.peer_down_for(&delivery.target).is_none() {
                                 break;
                             }
                         }
@@ -1071,7 +1107,16 @@ pub(crate) fn redeliver_open(
         let one = |d: Delivery| {
             let (hub, peer, ends, since) = (hub.clone(), peer.clone(), &ends, &since);
             async move {
-                redeliver_one(&hub, &d, link, (ends, since)).await;
+                let Ok(_permit) = hub.outbox_attempts.acquire().await else { return };
+                if !hub.peer_on_link(&peer, link) {
+                    return;
+                }
+                if let Some(live) = hub.outbox.get(&d.id)
+                    && live.open_on_peer
+                    && live.pin == d.pin
+                {
+                    redeliver_one(&hub, &live, link, (ends, since)).await;
+                }
                 cursor(&hub).insert(peer, (d.created_at, d.id.clone()));
             }
         };
@@ -1144,7 +1189,8 @@ async fn redeliver_one(
     let Some(pin) = d.pin.clone() else { return };
     let mut step = od::step_after_restore(d, (now, link), (ends, since), hub.at_27f3());
     if step == Step::Check {
-        step = od::checked(hub.proof_held(d, link).await);
+        let held = tokio::time::timeout(ATTEMPT_WAIT, hub.proof_held(d, link)).await;
+        step = od::checked(held.unwrap_or(None));
     }
     match step {
         Step::Lapse => {
@@ -1240,7 +1286,7 @@ fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
 /// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
 fn expired(delivery: &Delivery, now: u64) -> bool {
-    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
+    delivery.past_retry_window(now)
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
@@ -1391,6 +1437,17 @@ pub(super) async fn attempt_once(
     request: Value,
     origin: Origin,
 ) -> Result<Value, (String, Next)> {
+    attempt(hub, caller, request, origin).await
+}
+
+/// Waking the machine is bounded by ATTEMPT_WAIT on the wall clock; the answer after it ends on
+/// silence (`IdleDeadline`), not a wall clock (#55012), so a long answer that keeps arriving runs.
+async fn attempt(
+    hub: &Arc<Hub>,
+    caller: Option<Caller<'_>>,
+    request: Value,
+    origin: Origin,
+) -> Result<Value, (String, Next)> {
     let target = request.get("sessionId").and_then(Value::as_str).unwrap_or_default();
     let summary = hub
         .resolve(target)
@@ -1399,10 +1456,21 @@ pub(super) async fn attempt_once(
         .or_else(|| hub.resolve_remote(target).map(|(_, _, summary)| summary));
     if let Some(summary) = summary {
         let config = hub.config.read().await.machine_wake.clone();
-        if let Some(config) = config
-            && let Err(error) = crate::machine_wake::wake(&config, &summary).await
-        {
-            return Err((format!("machine wake failed: {error}"), Next::Retry));
+        if let Some(config) = config {
+            match tokio::time::timeout(ATTEMPT_WAIT, crate::machine_wake::wake(&config, &summary))
+                .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => {
+                    return Err((format!("machine wake failed: {error}"), Next::Retry));
+                }
+                Err(_) => {
+                    return Err((
+                        format!("machine wake did not finish within {} s", ATTEMPT_WAIT.as_secs()),
+                        Next::Retry,
+                    ));
+                }
+            }
         }
     }
     let prompt_id = request
@@ -1547,7 +1615,7 @@ async fn hand_to_socket(delivery: &Delivery, socket: &str, session: &str) -> Res
     let path = std::path::Path::new(socket);
     let own = crate::config::socket_path();
     let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
-    if canonical(path) == canonical(&own) {
+    if crate::qos::off_worker(|| canonical(path) == canonical(&own)) {
         return Err("the chat's move names this daemon's own socket".into());
     }
     let client = crate::client::Client::connect_without_caller(path)

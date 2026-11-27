@@ -7,6 +7,7 @@ it was a new red on 9 of 40 sampled red pull request runs (2026-10-30). The hist
 so guards_new_reds.py --flaky keeps it a warning, while a test a push really broke stays the change's.
 """
 import io
+import os
 import itertools
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 import zipfile
@@ -260,6 +262,44 @@ class Known(unittest.TestCase):
         pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class HeldRedFiles(unittest.TestCase):
+    """A pull request's shards leave files red on the base for a day to the batch runs (ci-web.yml, held-red-files)."""
+
+    def pushes(self, *verdicts, start=0, step=3600 * 6):
+        out = []
+        for i, verdict in enumerate(verdicts):
+            out = history.record(out, f"sha{i}", start + i * step, {TEST: False} if verdict is False else {FILE: True}, f"k{i}")
+        return out
+
+    def test_a_file_red_on_every_push_for_a_day_is_held(self):
+        pushes = self.pushes(True, False, False, False, False, False)  # red from 6 h to 30 h
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24),
+                         [{"file": FILE, "first": "sha1", "hours": 24.0}])
+        # Under a day red, a green on the newest push, off (0 h), or the change edits the file: it runs.
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 25), [])
+        self.assertEqual(history.held_red_files(self.pushes(False, False, False, False, False, True), 30 * 3600, 24), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 0), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24, {FILE}), [])
+
+    def test_a_history_older_than_the_hours_holds_nothing(self):
+        pushes = self.pushes(False, False, False, False, False, False)
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600 + 25 * 3600, 24), [])
+        # Pushes newer than the merge parent are not read.
+        self.assertEqual(history.held_red_files(pushes, 3 * 3600, 24), [])
+
+    def test_the_command_writes_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, changed = Path(tmp) / "h.json", Path(tmp) / "held", Path(tmp) / "changed"
+            path.write_text(json.dumps({"runs": self.pushes(True, False, False, False, False, False)}), encoding="utf-8")
+            changed.write_text("src/other.ts\n", encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "held-red-files", str(path), "--before", str(30 * 3600),
+                                   "--hours", "24", "--changed", str(changed), "--out", str(out)],
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(encoding="utf-8"), FILE + "\n")
+            self.assertIn(f"HELD RED {FILE} since sha1", done.stdout)
 
 
 class KnownHeldRed(unittest.TestCase):
@@ -1117,6 +1157,26 @@ class Workflow(unittest.TestCase):
         start = text.index(f"\n  {name}:\n") + 1
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
+
+    def test_a_pull_request_shard_stopped_before_its_results_is_red(self):
+        """A SIGTERM'd test step under continue-on-error left the shard green, so a failed-job rerun never retried it
+        and the base check failed on every attempt (cmux#49337, run 44955291325). The gate step fails it."""
+        shard = self.job("react-apps-check-shard")
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}", gate)
+        script = gate[gate.index("run: |") + len("run: |"):]
+        script = textwrap.dedent(script.split("\n      - name: ")[0])
+        script = script[:script.index("for gate in")] + 'exit "$failed"\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "webviews-head-results.json"
+            def run(event, outcome):
+                env = dict(os.environ, GITHUB_EVENT_NAME=event, WEBVIEW_TESTS=outcome, HEAD_RESULTS=str(results))
+                return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True).returncode
+            self.assertEqual(run("pull_request", "failure"), 1)
+            self.assertEqual(run("push", "failure"), 0)
+            self.assertEqual(run("pull_request", "success"), 0)
+            results.write_text("{}")
+            self.assertEqual(run("pull_request", "failure"), 0)
 
     def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
         import yaml

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
 use cmux_migrate::ledger::{Ledger, Load};
+use cmux_migrate::preview::Preview;
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -22,7 +23,7 @@ use super::cloud_start_chat::{Ran, Runner, SelfRunner, shell_quote, step_result}
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-usage: cmux migrate plan SOURCE [--json] [--out FILE]
+usage: cmux migrate plan SOURCE [--json] [--out FILE] [--preview]
        cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--headless [--backend B]]
        cmux migrate undo SOURCE_ID --yes
        cmux migrate status
@@ -132,9 +133,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Command {
-    Plan { source: String, out: Option<PathBuf> },
-    Apply { from: String, only: Vec<String>, dry_run: bool, headless: Option<String> },
-    Undo { source_id: String },
+    /// `preview`: print what a confirmation shows (cmux_migrate::preview) instead of the plan.
+    Plan {
+        source: String,
+        out: Option<PathBuf>,
+        preview: bool,
+    },
+    Apply {
+        from: String,
+        only: Vec<String>,
+        dry_run: bool,
+        headless: Option<String>,
+    },
+    Undo {
+        source_id: String,
+    },
     Status,
     Routes,
 }
@@ -142,8 +155,8 @@ pub(super) enum Command {
 pub(super) fn parse(words: &[String]) -> Result<Command, String> {
     let (verb, rest) = words.split_first().ok_or("a verb: plan, apply, undo, status, routes")?;
     let mut positional = Vec::new();
-    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes) =
-        (None, Vec::new(), false, false, None::<String>, false);
+    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes, mut preview) =
+        (None, Vec::new(), false, false, None::<String>, false, false);
     let mut it = rest.iter();
     while let Some(word) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or(format!("{flag} needs a value"));
@@ -154,6 +167,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             "--dry-run" => dry_run = true,
             "--headless" => headless = true,
             "--yes" => yes = true,
+            "--preview" => preview = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => positional.push(word.clone()),
         }
@@ -170,7 +184,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
         }
     };
     match verb.as_str() {
-        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out }),
+        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out, preview }),
         "apply" => Ok(Command::Apply {
             from: one("PLAN.json or SOURCE")?,
             only,
@@ -203,7 +217,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             });
             Ok(0)
         }
-        Command::Plan { source, out } => {
+        Command::Plan { source, out, preview } => {
             if let Some(product) = product_named(&source)
                 && !matches!(product, Product::Codespaces | Product::Coder | Product::Gitpod)
             {
@@ -216,6 +230,20 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             if let Some(out) = out {
                 std::fs::write(&out, format!("{text}\n"))
                     .map_err(|e| format!("{}: {e}", out.display()))?;
+            }
+            if preview {
+                let preview = Preview::of(&plan, &load_ledger()?);
+                print_answer(
+                    output,
+                    &serde_json::to_value(&preview).unwrap_or(Value::Null),
+                    || {
+                        format!(
+                            "{} project(s) to move, {} already moved",
+                            preview.moving, preview.already
+                        )
+                    },
+                );
+                return Ok(0);
             }
             print_answer(output, &serde_json::to_value(&plan).unwrap_or(Value::Null), || {
                 plan_words(&plan)

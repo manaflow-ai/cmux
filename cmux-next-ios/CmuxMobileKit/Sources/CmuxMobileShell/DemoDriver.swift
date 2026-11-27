@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
+    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "resume-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-attach", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -132,6 +132,31 @@ struct DemoDriver {
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
+        case "retry-empty-mac-first-load", "retry-empty-mac-redial":
+            // One online Mac with no workspaces (cmux#57410). First load: dialing, no answer yet,
+            // the placeholder rows. Redial: it answered empty, then its link drops and redials
+            // every 0.7 s, as a153's phone did; the page stays on "No workspaces".
+            shell.store.teams = shell.store.teams.map { team in
+                var team = team
+                team.macs = team.macs.filter { $0.id == "mac-studio" }.map { var mac = $0; mac.isOnline = true; return mac }
+                return team
+            }
+            shell.store.workspaces = []
+            shell.store.tracksMacData = true
+            shell.store.teamDataState = .loaded
+            shell.tab = .workspaces
+            shell.store.handleMacData(.connecting, macID: "mac-studio")
+            shell.store.macConnection["mac-studio"] = .connecting
+            guard name == "retry-empty-mac-redial" else { break }
+            shell.store.handleMacData(.received(count: 0), macID: "mac-studio")
+            shell.store.macConnection["mac-studio"] = .connected
+            for _ in 0..<90 {
+                await pause(0.5)
+                shell.store.handleMacData(.disconnected(at: Date()), macID: "mac-studio")
+                shell.store.handleMacData(.connecting, macID: "mac-studio")
+                await pause(0.2)
+                shell.store.handleMacData(.received(count: 0), macID: "mac-studio")
+            }
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
             shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
@@ -242,6 +267,19 @@ struct DemoDriver {
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
             }
+        case "ws-terminal-cancel-send":
+            // The zsh tab with a draft and a large video whose upload moves at a fixed
+            // pace (CMUX_MOBILE_DEMO_UPLOAD_SECONDS, default 12), so Stop lands partway
+            // through the send (TerminalCancelMidSendUITests).
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(0.6)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.0)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            let seconds = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_UPLOAD_SECONDS"].flatMap(Double.init) ?? 12
+            model.demoSlowVideoSend(seconds: seconds)
         case "ws-terminal-kbd-toggles": await workspaceTerminalKeyboardToggles()
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the
@@ -264,6 +302,7 @@ struct DemoDriver {
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
         case "live-terminal": await liveTerminal()
+        case "live-attach": await liveAttach()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -310,6 +349,18 @@ struct DemoDriver {
                 var summary = summary
                 summary.status = .idle
                 return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "resume-chat":
+            // The chat's link drops when the app goes to the background and comes back 12 s after it
+            // returns, past the old 10 s notice bound (ResumeNoConnectionChromeUITests): the chat
+            // shows its kept rows and takes a send, and says nothing about the link.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return DroppingOnBackgroundSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                                  backAfter: .seconds(12))
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -821,6 +872,65 @@ struct DemoDriver {
         let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
         step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
+    }
+
+    /// Live end to end (real Mac), the pair-e2e rig's attachment leg: a big video picked into the
+    /// first terminal's composer (`-CmuxMobileAttachE2EFile PATH`) uploads to the Mac with progress on
+    /// its tile; the rig screenshots at each `demo step: live-attach ...` line. Then the tile is removed
+    /// after Stop preserves the draft. The driver sends fresh text and reads its output from the terminal.
+    private func liveAttach() async {
+        step("live-attach start")
+        guard let path = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2EFile") else { return step("live-attach no file") }
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-attach no link") }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-attach no terminal") }
+        shell.store.requestOpen(tabID: tab.id, in: ws.id)
+        shell.workspacesPath = [ws]
+        await pause(2)
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
+              let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-attach no model") }
+        await until(30) { model.connectionState.isAttached }
+        await pause(1.5)
+        step("live-attach ready")
+        model.demoAttachVideo(at: URL(fileURLWithPath: path))
+        step("live-attach tile added: \(model.attachments.count) attachment(s), \(model.demoUploadState())")
+        guard await until(180, { model.demoUploadAcked }) else {
+            return step("live-attach no progress: \(model.demoUploadState())")
+        }
+        step("live-attach progress \(model.demoUploadState())")
+        await pause(4)
+        step("live-attach progress-later \(model.demoUploadState())")
+        await pause(2)
+        guard model.demoUploadAcked else { return step("live-attach no in-flight upload to stop") }
+        let t0 = ContinuousClock.now
+        let draft = "Pending attachment"
+        model.composerText = draft
+        model.send()
+        guard model.isUploading else { return step("live-attach no pending send") }
+        model.cancelSend()
+        guard !model.isUploading, model.composerText == draft, model.attachments.count == 1,
+              model.demoUploadState() == "none" else { return step("live-attach no cancelled draft") }
+        model.demoRemoveFirstAttachment()
+        let nonce = String(UUID().uuidString.prefix(8))
+        let marker = "attach-\(nonce)"
+        // The echoed command line never contains the output marker, even when it wraps.
+        model.composerText = "echo attach-'\(nonce)'"
+        let free = model.attachments.isEmpty && !model.isUploading
+        model.send()
+        let ms = (ContinuousClock.now - t0).components.attoseconds / 1_000_000_000_000_000
+        guard await until(15, {
+            model.rowsForSaving()?.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespaces) == marker
+            } == true
+        }) else { return step("live-attach no terminal-readback") }
+        step("live-attach cancelled-and-sent readback=\(marker) attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
+        await pause(3)
+        step("live-attach after-cancel \(model.demoUploadState())")
+        await pause(3)
+        step("live-attach shown")
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's
@@ -1422,6 +1532,70 @@ final class CatchingUpSource: AgentSessionSource {
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }
+}
+
+/// A chat whose link drops while the app is in the background and comes back `backAfter` once it
+/// returns, as a real link after a long background (`-cmux-mobile-demo resume-chat`). It says what
+/// the real source says (disconnected, catching up) and holds what is sent meanwhile.
+@MainActor
+final class DroppingOnBackgroundSource: AgentSessionSource {
+    let inner: MockAgentSession
+    let backAfter: Duration
+    private var down = false
+    private var held: [AgentClientIntent] = []
+    private var continuation: AsyncStream<AgentSessionEvent>.Continuation?
+    private var observers: [NSObjectProtocol] = []
+
+    init(inner: MockAgentSession, backAfter: Duration) {
+        self.inner = inner
+        self.backAfter = backAfter
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+    var loadsHistory: Bool { true }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        self.continuation = continuation
+        let inner = inner
+        Task { @MainActor in
+            for await event in inner.events() { continuation.yield(event) }
+            continuation.finish()
+        }
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drop() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.comeBackLater() }
+        })
+        return stream
+    }
+
+    private func drop() {
+        down = true
+        continuation?.yield(.status(.disconnected))
+        continuation?.yield(.historyLoading(true))
+    }
+
+    private func comeBackLater() {
+        let wait = backAfter
+        Task { @MainActor [weak self] in
+            // Demo only: stands in for a link that takes this long to come back.
+            try? await Task.sleep(for: wait)
+            guard let self, self.down else { return }
+            self.down = false
+            self.continuation?.yield(.status(.idle))
+            self.continuation?.yield(.historyLoading(false))
+            let held = self.held
+            self.held = []
+            for intent in held { self.inner.send(intent) }
+        }
+    }
+
+    func send(_ intent: AgentClientIntent) {
+        if down { held.append(intent) } else { inner.send(intent) }
+    }
 }
 /// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
 /// with Retry and Retry with another model (the mock offers three models).

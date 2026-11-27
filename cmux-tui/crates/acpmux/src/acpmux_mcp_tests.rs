@@ -5,7 +5,7 @@ use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
-async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
+pub(super) async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut harnesses = BTreeMap::new();
     harnesses.insert(
@@ -36,7 +36,7 @@ async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestD
     (hub, client, dir)
 }
 
-async fn session(client: &Arc<Client>, name: &str) -> String {
+pub(super) async fn session(client: &Arc<Client>, name: &str) -> String {
     let s = client
         .request(
             method::SESSION_NEW,
@@ -90,6 +90,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "goal_set",
             "goal_update",
             "goal_get",
+            "chat_history",
             "watch_add",
             "watch_ls",
             "watch_rm",
@@ -1381,6 +1382,31 @@ fn goal_tools_are_listed_with_their_instruction() {
     assert!(text.contains("call goal_set with the objective and a checkable done-when"), "{text}");
 }
 
+/// `chat_history` is listed with its bounds stated, says when to use it, and builds one request
+/// from its arguments; a range with a seq is refused before the daemon.
+#[test]
+fn chat_history_is_listed_with_its_bounds_and_builds_its_request() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "chat_history"));
+    let tool = super::history::tool();
+    let described = tool["description"].as_str().unwrap();
+    for bound in ["200 turns", "32 KiB", "64 KiB", "600 bytes", "first 160 bytes"] {
+        assert!(described.contains(bound), "{bound}: {described}");
+    }
+    assert!(instructions(&all).unwrap_or_default().contains("call chat_history with a range"));
+    let range = "s@3-9";
+    assert_eq!(
+        super::history::request("s", &json!({"range": range, "limit": null})).unwrap(),
+        json!({"sessionId": "s", "range": range})
+    );
+    assert_eq!(
+        super::history::request("s", &json!({"seq": 7, "offset": 100})).unwrap(),
+        json!({"sessionId": "s", "seq": 7, "offset": 100})
+    );
+    assert!(super::history::request("s", &json!({"range": range, "seq": 7})).is_err());
+    assert!(super::history::request("s", &json!("x")).is_err());
+}
+
 /// The watch tools are listed with their instruction and build the CLI's requests; a malformed
 /// call is refused before it reaches the daemon.
 #[test]
@@ -1565,8 +1591,11 @@ async fn census_replay_wrap_up_run_wait_inbox_reply() {
     }
 }
 
+/// Only the tools in `ALWAYS_LOADED` carry `anthropic/alwaysLoad`; every other one is deferred
+/// behind ToolSearch. Today none qualifies by its cost rule, so every tool is deferred and still
+/// listed.
 #[test]
-fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+fn only_the_always_loaded_tools_skip_toolsearch() {
     let tools = super::tools();
     let list = tools.as_array().unwrap();
     for name in super::ALWAYS_LOADED {
@@ -1577,6 +1606,9 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
     assert!(rest.clone().count() > 5);
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+    for name in ["wrap_up", "bg_start", "bg_output", "who_else", "inbox_read", "inbox_reply"] {
+        assert!(list.iter().any(|t| t["name"] == name), "{name} is still listed");
+    }
 }
 
 /// Why the bloat was possible: nothing measured what a tool costs, so a description, a field
