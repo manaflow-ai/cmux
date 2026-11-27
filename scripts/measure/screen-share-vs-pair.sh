@@ -19,7 +19,7 @@
 # profile=    standard|ultra is --encode-profile (default: none sent, the host runs standard); with
 #             profile=ultra each leg's label gains `-ultra`, so a first p50 from any two reachable Macs
 #             reads as not-the-wired-pair unless the pair is cmux20 -> cmux17.
-# inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll
+# inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll,clipboard (clipboard: copy-paste round trips, cap clipboard.text)
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
 # host=nightly  the shared Mac serves from the NIGHTLY's Screen Sharing helper (its
@@ -89,7 +89,7 @@ done
 [[ "$loss" =~ ^[0-9]{1,2}([.][0-9]{1,3})?$ ]] || { echo "loss= is a percentage below 100" >&2; exit 2; }
 [[ "$fps_trials" =~ ^[0-9]{1,2}$ && "$trials" =~ ^[0-9]{1,3}$ && "$samples" =~ ^[0-9]{1,3}$ ]] \
   || { echo "fps-trials=, trials= and samples= are counts" >&2; exit 2; }
-[[ "$inputs" =~ ^(key|click|scroll)(,(key|click|scroll))*$ ]] || { echo "inputs= lists key, click and scroll" >&2; exit 2; }
+[[ "$inputs" =~ ^(key|click|scroll|clipboard)(,(key|click|scroll|clipboard))*$ ]] || { echo "inputs= lists key, click, scroll and clipboard" >&2; exit 2; }
 # The synthetic sources exist only in bench builds (cmux-rd-host lib.rs: "macOS bench builds"); the NIGHTLY's
 # helper is a release build, so its `serve --source synthetic-still` prints no key, every trial sends the viewer
 # `peer_key: null` and fails "answer line: invalid type: null", and the run ends with no sample at all.

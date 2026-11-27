@@ -149,7 +149,10 @@ impl Hub {
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
-                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                let before = tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                if before == tap_session.prompt_heard.load(Ordering::SeqCst) {
+                    tap_hub.model_answered(&tap_session);
+                }
                 if !tap_session.loading.load(Ordering::Relaxed) {
                     crate::send_trace::first_update(&tap_session.id);
                 }
