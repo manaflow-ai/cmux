@@ -209,7 +209,7 @@ export type WakeEchoDeps = {
   pause: () => Promise<PauseResult>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
   wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
-  status: () => Promise<string>;
+  status: (timeoutMs?: number) => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
   failStreak?: number;
@@ -245,7 +245,15 @@ export async function pauseWithReconciliation(
     const detail = short(JSON.stringify(answer.body?.error ?? answer.body));
     throw new Error(`cloud.machine.pause: HTTP ${answer.status} ${detail}`);
   }
-  const pausedMs = await awaitPaused(status, startedAt, deadlineMs, now, wait);
+  let pausedMs: number;
+  try {
+    pausedMs = await awaitPaused(status, startedAt, deadlineMs, now, wait);
+  } catch (e) {
+    if (indeterminate) {
+      throw new Error(`${(e as Error).message} (pause response mutation.indeterminate; status reconciliation failed)`);
+    }
+    throw e;
+  }
   return indeterminate
     ? { pausedMs, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] }
     : { pausedMs };
@@ -323,14 +331,15 @@ async function execAnswered(d: WakeEchoDeps, command: string, deadlineMs: number
 }
 
 /** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
-export async function settle(status: () => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
+export async function settle(status: (timeoutMs?: number) => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
   const end = now() + deadlineMs;
   let last = "unread";
   for (;;) {
-    last = await status().catch((e: Error) => `unread (${e.message})`);
+    last = await status(Math.max(1, end - now())).catch((e: Error) => `unread (${e.message})`);
     if (STEADY.has(last)) return last;
-    if (now() >= end) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
-    await sleep(500);
+    const remaining = end - now();
+    if (remaining <= 0) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
+    await sleep(Math.min(500, remaining));
   }
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { awaitPaused, causeOf, pauseWithReconciliation, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, pauseWithReconciliation, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -125,6 +125,30 @@ test("pause reconciliation does not accept a paused read after the original dead
     () => now,
     async () => {},
   )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation rejects a paused read that crosses the deadline", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => { now = 1001; return "paused"; },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation keeps indeterminate evidence when status readback fails", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }),
+    async () => { now = 1001; throw new Error("owner unreachable"); },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/mutation\.indeterminate.*status reconciliation failed/);
 });
 
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {

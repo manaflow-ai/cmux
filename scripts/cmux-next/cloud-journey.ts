@@ -5999,7 +5999,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
     machineExec = exec;
     if (wakeEchoN > 0) {
-      const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+      const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
       const log = (line: string) => console.log(scrub(line, J.secrets));
       let cycles: WakeCycle[] = [];
       const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
@@ -6028,7 +6028,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         cycles = await runWakeEcho({
           exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
-          status: async () => String((await row())?.status ?? "unread"),
+          status: async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
           pause: async () => {
             await resignIfOld();
             const t0 = Date.now();
@@ -6036,7 +6036,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const key = `${tag}-we-pause-${k++}`;
             return pauseWithReconciliation(
               () => api.raw("POST", "/v1/ops", { op: "cloud.machine.pause", params: { machine: created.id }, idempotency_key: key }, Math.max(1, deadlineAt - Date.now())),
-              async () => String((await row())?.status ?? "unread"),
+              async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
               t0,
               180_000,
             );
@@ -6054,7 +6054,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               return r;
             },
             () => `${tag}-we-start-${k++}`,
-            async () => String((await row())?.status ?? "unread"),
+            async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
             180_000,
             (ms) => new Promise<void>((r) => setTimeout(r, ms)),
           ),
@@ -7151,7 +7151,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // Written after every sample and stop, so a run cut short (a step timeout, a cancel) still uploads what it had.
         let sofar: ResumeSample[] = [];
         let stops: ResumeStop[] = [];
-        const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+        const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
         const first = await row();
         // The machine's provider as the API names it; staging's machines are VM API machines, with no client sessions.
         const provider = String(first?.provider ?? first?.platform ?? first?.transport ?? "unnamed (cloud.machine.get names none)");
@@ -7194,7 +7194,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           platformResume: platformStart,
           resumeRoute,
           platformSync: () => syncRunning(
-            async () => String((await row())?.status ?? "unread"),
+            async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
             platformStart,
             () => waitMachine(api, created.id, (x) => x.status === "running", 180_000),
           ),
@@ -7205,7 +7205,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             J.secrets.push(v.token);
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
-          status: async () => String((await row())?.status ?? "unread"),
+          status: async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
           provider,
           fillPct: resumeFill,
           deadlineAt: resumeDeadlineAt,
