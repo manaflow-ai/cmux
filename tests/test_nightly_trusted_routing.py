@@ -39,7 +39,7 @@ SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
-    'report-nightly-failure', 'close-nightly-failure-issue',
+    'report-nightly-failure', 'close-nightly-failure-issue', 'report-nightly-shelf-red',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
@@ -112,7 +112,6 @@ OWNED_SECRET_JOBS = {
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'keep-published-dsyms': "release credentials, short; the signer's label",
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
-    'visual-gate-nightly': "the GhosttyKit cache's R2 read keys; the GUI Mac route-visual-gate-nightly picks",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
@@ -634,6 +633,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                                     self.assertEqual(evaluate(parse_expression(source), {
                                         **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), JIT_LABEL)
         self.assertGreater(checked, 20)
+
+    def test_visual_gate_only_reads_public_cache_on_the_session_runner(self):
+        self.assertFalse(workflow_jobs.secret_names(DOC['jobs']['visual-gate-nightly']))
 
     def test_every_secret_job_is_hosted_or_named_owned(self):
         # HOSTED_SECRET_JOBS is a route choice, so a new secret job must be named in it or in OWNED_SECRET_JOBS
