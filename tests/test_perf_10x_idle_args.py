@@ -6,7 +6,6 @@ built-in uBlock Origin's first-launch writes from the app's own (goal idle-gpu-d
 """
 import json
 from pathlib import Path
-import re
 import subprocess
 import unittest
 
@@ -31,11 +30,26 @@ class Args(unittest.TestCase):
         self.assertEqual(done.returncode, 2)
         self.assertIn("unknown argument adblock=on", done.stderr)
 
-    def test_adblock_off_config_turns_the_built_in_blocker_off(self):
-        line = next(l for l in SCRIPT.read_text().splitlines() if l.strip().startswith("adblock=off)"))
-        config = json.loads(re.search(r"--config '([^']+)'", line).group(1))
-        self.assertEqual(config, {"browser": {"builtInAdBlocker": False}})
+    def settings(self, *args):
+        done = self.run_args(*args, "print_settings=1")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
 
+    def test_adblock_off_config_turns_the_built_in_blocker_off(self):
+        self.assertEqual(self.settings("adblock=off"), {"browser": {"builtInAdBlocker": False}})
+
+    def test_no_settings_launches_with_none(self):
+        self.assertEqual(self.settings(), {})
+
+    def test_adblock_off_merges_with_settings_in_either_order(self):
+        want = {"browser": {"hibernation": 1, "builtInAdBlocker": False}, "appearance": {"x": 1}}
+        given = 'settings={"browser":{"hibernation":1},"appearance":{"x":1}}'
+        self.assertEqual(self.settings(given, "adblock=off"), want)
+        self.assertEqual(self.settings("adblock=off", given), want)
+
+    def test_settings_alone_pass_through(self):
+        self.assertEqual(self.settings('settings={"browser":{"builtInAdBlocker":true}}'),
+                         {"browser": {"builtInAdBlocker": True}})
 
 if __name__ == "__main__":
     unittest.main()
