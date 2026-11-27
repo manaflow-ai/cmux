@@ -186,7 +186,6 @@ pub(crate) fn backing_off(failed: Option<std::time::Instant>, now: std::time::In
 mod linux {
     use super::*;
     use crate::no_panic::LockExt;
-    use crate::session_budget::TaskClass;
     use std::process::Stdio;
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -236,16 +235,15 @@ mod linux {
     /// Move the host `pid` this process just started, and has not reaped
     /// (its pid cannot be reused), into its own scope. Never fails the spawn.
     pub(crate) async fn place(pid: u32) {
-        place_in(pid, None, TaskClass::Task).await;
+        place_in(pid, None).await;
     }
 
-    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`]. `class`
-    /// is the task's CPU class (a filler task at `CPUWeight=idle` under CPU classes).
-    pub(crate) async fn place_in(pid: u32, slice: Option<String>, class: TaskClass) {
+    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`].
+    pub(crate) async fn place_in(pid: u32, slice: Option<String>) {
         if enabled() {
             let slice = slice.as_deref().unwrap_or(HOST_SLICE);
             let placed = match tag() {
-                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice, class).await,
+                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice).await,
                 Err(e) => Err(e),
             };
             report(pid, placed);
@@ -262,7 +260,7 @@ mod linux {
         );
     }
 
-    async fn try_place(unit: &str, host: u32, slice: &str, class: TaskClass) -> Result<(), String> {
+    async fn try_place(unit: &str, host: u32, slice: &str) -> Result<(), String> {
         let busctl = BUSCTL
             .iter()
             .find(|p| std::path::Path::new(p).is_file())
@@ -285,7 +283,7 @@ mod linux {
                 .kill_on_drop(true)
                 .output()
         };
-        let budget = crate::session_budget::task_budget(class).0.bus_properties();
+        let budget = crate::session_budget::task_budget().0.bus_properties();
         let output = tokio::time::timeout(PLACEMENT_WAIT, call(budget))
             .await
             .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?
@@ -338,12 +336,7 @@ pub(crate) async fn place(_pid: u32) {}
 
 /// Hosts move into scopes only under a Linux user manager.
 #[cfg(not(target_os = "linux"))]
-pub(crate) async fn place_in(
-    _pid: u32,
-    _slice: Option<String>,
-    _class: crate::session_budget::TaskClass,
-) {
-}
+pub(crate) async fn place_in(_pid: u32, _slice: Option<String>) {}
 
 /// Whether hosts and tasks move into scopes here (a user manager's service unit, or a scope of it
 /// under a memory ceiling; moves on).
