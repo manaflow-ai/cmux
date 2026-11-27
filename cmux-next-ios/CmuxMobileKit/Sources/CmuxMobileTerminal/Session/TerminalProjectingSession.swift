@@ -28,11 +28,13 @@ import os
 @MainActor
 public final class TerminalProjectingSession: TerminalSession {
     /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
-    public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
+    public static var isEnabled: Bool { CmuxMobilePreferences.terminalPhoneProjection() && !CmuxMobilePreferences.terminalFitToPhone() }
 
     /// Whether a new page of `program` projects: its own Fit to Phone choice
     /// (the page menu), else the global setting (`TerminalFitToPhoneMemory`).
-    public static func isEnabled(for program: String) -> Bool { !TerminalFitToPhoneMemory().fitToPhone(for: program) }
+    public static func isEnabled(for program: String) -> Bool {
+        CmuxMobilePreferences.terminalPhoneProjection() && !TerminalFitToPhoneMemory().fitToPhone(for: program)
+    }
 
     /// The Mac's session.
     public let inner: any TerminalSession

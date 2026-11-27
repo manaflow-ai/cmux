@@ -817,6 +817,12 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The phone projects this terminal (``TerminalProjectingSession``).
     private var projectsLocally = false
+    private var preservesHostGrid = false
+
+    public func setPreservesHostGrid(_ preserves: Bool) {
+        preservesHostGrid = preserves
+        if preserves { setClaimsSize(false) }
+    }
 
     public func setProjectsLocally(_ projects: Bool) {
         projectsLocally = projects
@@ -828,6 +834,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
+        let claims = claims && !preservesHostGrid
         guard claims != claimsSize else { return }
         claimsSize = claims
         claimGeneration &+= 1
@@ -2037,7 +2044,7 @@ public final class DaemonTerminalSession: TerminalSession {
         // nothing to hold back. A hidden full-screen app still waits for the
         // phone's grid, so a return never shows it stretched.
         let projectsPrimary = projectsLocally && !isAlternateScreen
-        var claims = claimsSize || projectsPrimary
+        var claims = claimsSize || projectsPrimary || preservesHostGrid
         var unwanted = false
         if case .hostGrid(let columns, let rows) = event, let phoneGrid {
             if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {

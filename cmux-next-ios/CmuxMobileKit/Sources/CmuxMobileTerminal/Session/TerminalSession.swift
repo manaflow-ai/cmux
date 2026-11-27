@@ -270,6 +270,8 @@ public protocol TerminalSession: AnyObject {
     /// Mac's own grid back from the screen while the primary screen shows.
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
+    /// Render the host grid unchanged, without claiming the phone's dimensions.
+    func setPreservesHostGrid(_ preserves: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
     /// A projection keeps those lines when it re-wraps at a new width.
@@ -387,6 +389,7 @@ extension TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
+    public func setPreservesHostGrid(_ preserves: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 

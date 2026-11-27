@@ -59,8 +59,8 @@ public enum TerminalSessionChoice {
     ) -> any TerminalSession {
         if let live {
             #if os(iOS)
-            // The phone re-wraps the Mac's terminal at its own width; the Mac
-            // keeps its size (Fit to Phone, per program or in Settings → Terminal, resizes it).
+            // Both phone re-wrap and a Mac resize require an explicit setting.
+            live.setPreservesHostGrid(!TerminalFitToPhoneMemory().fitToPhone(for: live.programName))
             if TerminalProjectingSession.isEnabled(for: live.programName) { return TerminalProjectingSession(inner: live) }
             #endif
             return live
