@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 /// The machine's platform edge (cmux-platform `PLATFORM_EDGE_DOMAIN`).
 pub const EDGE_ORIGIN: &str = "https://platform.cmux.internal";
 /// One post's whole bound.
+// timeout: a best-effort trace post; past it the trace is dropped and the send goes on.
 const POST_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most prompts waiting on their first update at once; a fuller map drops the oldest.
 const MAX_PENDING: usize = 256;
@@ -205,7 +206,11 @@ pub fn spans_url(trace_id: &str) -> String {
 
 async fn post(trace_id: String, body: Value) {
     static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
-        reqwest::Client::builder().timeout(POST_TIMEOUT).connect_timeout(POST_TIMEOUT).build().ok()
+        cmux_egress::client_builder("acpmux::send_trace")
+            .timeout(POST_TIMEOUT)
+            .connect_timeout(POST_TIMEOUT)
+            .build()
+            .ok()
     });
     let Some(client) = CLIENT.as_ref() else { return };
     let span = tracing::info_span!("send_trace.post", trace_id = %trace_id);

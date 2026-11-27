@@ -9,7 +9,7 @@
     "settings.get": {
       "source": "local",
       "class": "read",
-      "digest": "1b78c919c9f3fe17"
+      "digest": "025f1864d0bee679"
     },
     "settings.history": {
       "source": "local",
@@ -24,7 +24,7 @@
     "settings.reset": {
       "source": "local",
       "class": "mutation",
-      "digest": "e2b821eac3351ae2"
+      "digest": "53662c076ba82a1b"
     },
     "settings.reset_all": {
       "source": "local",
@@ -49,7 +49,7 @@
     "settings.set": {
       "source": "local",
       "class": "mutation",
-      "digest": "809a517d2e4d13f8"
+      "digest": "765d638f648c03b3"
     },
     "settings.snapshot": {
       "source": "local",

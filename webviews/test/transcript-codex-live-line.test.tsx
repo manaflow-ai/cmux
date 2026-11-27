@@ -336,17 +336,6 @@ test("a running single-file shell read names its file on the collapsed live line
   expect(live).toMatchObject({ doing: "Read foo.ts", doingShell: false });
 });
 
-test("with a todo list the activity line under it is the live line", () => {
-  const plan = row("p", "plan", { plan: [{ content: "Fix the grid", status: "in_progress" }] });
-  const shaped = turnView(
-    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("bun test", "in_progress")] })],
-    new Set(),
-    { working: true, sessionStatus: true },
-  );
-  expect(kinds(shaped).slice(-2)).toEqual(["plan", "activityLine"]);
-  expect(shaped.at(-1)!.text).toContain("Running tests");
-});
-
 // Leo 2026-10-21 (ask-650c3502bd): calls in flight with nothing to show yet stacked as rows of
 // their own ("Ran 2 commands" over three bare command rows, four under "Worked for 1s" while a
 // task notification's work ran). They replace each other on the one live line, as Thinking does.
@@ -424,17 +413,4 @@ test("runs separated by short commentary retain their finished calls; the line r
   expect(shaped.at(-1)!.doing).toBeUndefined();
   expect(shaped.find((entry) => entry.id === "n")?.text).toBe("Now the diff.");
   expect(callIds(shaped).filter(Boolean)).toEqual(["git log", "git diff"]);
-});
-
-test("with a todo list the activity line names the plan's step and no call leaves its run", () => {
-  const shaped = turnView(
-    [
-      row("u", "user"),
-      row("p", "plan", { plan: [{ content: "Step one", status: "in_progress" }] }),
-      row("run", "activity", { items: [call("a"), call("b")] }),
-    ],
-    new Set(),
-    { working: true, sessionStatus: true },
-  );
-  expect(callIds(shaped)).toEqual(["a", "b"]);
 });

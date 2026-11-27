@@ -138,8 +138,15 @@ pub fn cloud_reply(answer: &Value, id: &Value) -> Result<Value, String> {
 async fn cloud_call(socket: &std::path::Path, message: &Value) -> Result<Value, String> {
     let unreachable = || "this machine's cmux Cloud agent is not reachable".to_owned();
     let exchange = async {
+        #[cfg(unix)]
         let mut stream =
             tokio::net::UnixStream::connect(socket).await.map_err(|_| unreachable())?;
+        // The Cloud agent's socket is a unix socket, on a Cloud machine: none elsewhere.
+        #[cfg(not(unix))]
+        let mut stream: tokio::io::DuplexStream = {
+            let _ = socket;
+            return Err(unreachable());
+        };
         let mut line =
             json!({ (cmux_host::cloud::mcp_call::CALL_KEY): { "body": message } }).to_string();
         line.push('\n');
@@ -207,9 +214,7 @@ impl std::fmt::Debug for Minted {
 /// The person-facing reason a mint gave no token, from the CLI's error `code`.
 pub fn refusal_text(code: Option<&str>) -> String {
     match code {
-        Some("not_signed_in") => {
-            "Not signed in to cmux: sign in in the cmux app, then try again.".to_owned()
-        }
+        Some("not_signed_in") => "Not signed in to cmux: sign in in the cmux app.".to_owned(),
         Some("no_team") => "No cmux team is chosen: choose one in the cmux app.".to_owned(),
         Some("app.unreachable" | "app.not_found" | "socket.unreachable" | "socket.no_app") => {
             "The cmux app is not reachable from this chat, so it cannot sign the request."
@@ -270,8 +275,7 @@ pub fn parse_minted(stdout: &[u8], origin: Option<&str>, now: Instant) -> Result
 /// (`cmux auth token` through [`CMUX_BIN_ENV`]): `install_share.rs` sends the person's choice
 /// with it. The same rules as this server's: only to its issuer's platform, never stored.
 pub async fn person_token() -> Result<(Arc<Zeroizing<String>>, String), String> {
-    let cmux =
-        std::env::var_os(CMUX_BIN_ENV).filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let cmux = crate::login_env::cmux_cli();
     let minted = mint(&cmux, None).await?;
     let origin = minted.mcp_url.strip_suffix("/mcp").unwrap_or(&minted.mcp_url).to_owned();
     Ok((minted.token, origin))
@@ -373,9 +377,31 @@ enum Sent {
     Unauthorized,
 }
 
+/// The one HTTP client of every chat's bridge in this process, made at the first request.
+/// The gateway makes a chat's servers at each connect and again after an idle stop; a client
+/// made there (its TLS roots read, its resolver and pool set up) was most of a connect's cost,
+/// spent for every chat although most never call a hosted tool (`benches/icount.rs`
+/// `mcp_connect`, 3.7x its baseline). Its settings are the process's own (the build space is
+/// read once per process), so one client serves every bridge and shares its connections.
+fn http() -> Result<&'static reqwest::Client, String> {
+    static HTTP: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    HTTP.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(CALL_TIMEOUT)
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| "could not start an HTTP client".to_owned())
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
 /// The bridge: the held token and the hosted server's session.
 pub struct Bridge {
-    http: reqwest::Client,
     cmux: std::ffi::OsString,
     origin: Option<String>,
     held: Option<Minted>,
@@ -390,17 +416,9 @@ pub struct Bridge {
 
 impl Bridge {
     pub fn new(cmux: std::ffi::OsString, origin: Option<String>) -> Result<Self, String> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = crate::happy_dial::http_client()
-            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(CALL_TIMEOUT)
-            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "could not start an HTTP client".to_owned())?;
+        // A process that must not call the cloud has no bridge, as before the client was shared.
+        cmux_build_space::process().map_err(|e| e.to_string())?;
         Ok(Self {
-            http,
             cmux,
             origin,
             held: None,
@@ -420,15 +438,13 @@ impl Bridge {
 
     /// From this process's env, or the chat's where the daemon's gateway serves it
     /// ([`crate::tool_env`]): the Cloud agent socket on a cmux Cloud machine, else (`CMUX_BIN`,
-    /// else `cmux` on PATH) to mint the person's token.
+    /// else the app's bundled CLI, else `cmux` on PATH) to mint the person's token.
     pub fn from_env() -> Result<Self, String> {
         if let Some(socket) = cloud_socket() {
             return Self::cloud(socket);
         }
-        let cmux = crate::tool_env::var(CMUX_BIN_ENV)
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "cmux".into());
-        Self::new(cmux.into(), crate::tool_env::var(ORIGIN_ENV))
+        let cmux = crate::login_env::cmux_cli_or(crate::tool_env::var(CMUX_BIN_ENV));
+        Self::new(cmux, crate::tool_env::var(ORIGIN_ENV))
     }
 
     async fn token(&mut self, fresh: bool) -> Result<(Arc<Zeroizing<String>>, String), String> {
@@ -463,8 +479,7 @@ impl Bridge {
         body: &Value,
         id: Option<&Value>,
     ) -> Result<Sent, String> {
-        let mut request = self
-            .http
+        let mut request = http()?
             .post(url)
             .bearer_auth(token)
             .header("accept", "application/json, text/event-stream")

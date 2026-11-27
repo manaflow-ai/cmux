@@ -75,6 +75,10 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
+    # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
+    # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
+    # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
+    "chat-open-perf-report.yml": "its seconds-long changed job diffs against the previous head; report cancels",
     # Debounce runs supersede themselves and exit 0 (next_batch.py
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
@@ -95,7 +99,8 @@ CLOSED_TWINS = {
     "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
     "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
     # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
-    "ci-pr-closed-cancel.yml": "ci.yml",
+    # The retained dispatcher joins ci.yml on closed events.
+    "ci-pr-superseded-cancel.yml": "ci.yml",
 }
 
 
@@ -498,7 +503,10 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION: dict[str, str] = {}
+READS_DESCRIPTION: dict[str, str] = {
+    "private-names.yml": "its checker (fetched from the private ops repository) reads the title and body over the API; "
+                         "an edit run re-checks the whole pull request at its head, so cancelling the push run loses nothing",
+}
 
 
 # Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
@@ -663,8 +671,8 @@ def twin_problem(twin: dict, target: dict) -> str | None:
         return "the twin or its target has no workflow concurrency block"
     trigger = triggers(twin).get("pull_request")
     types = trigger.get("types") if isinstance(trigger, dict) else None
-    if list(types or []) != ["closed"]:
-        return f"the twin must run only on pull_request closed, not {types!r}"
+    if "closed" not in list(types or []):
+        return f"the twin must include pull_request closed, not {types!r}"
     try:
         closed = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, [])))
         kept = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, ["no-janitor"])))

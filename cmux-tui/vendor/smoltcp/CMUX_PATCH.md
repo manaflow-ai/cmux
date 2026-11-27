@@ -185,10 +185,50 @@ any peer works. The detectors are
 `test_remote_keep_alive_deferral_survives_a_crossing_ack` and
 `test_remote_keep_alive_leaves_the_active_sides_beat`.
 
+An ACK that arrives while our receive window is closed counts for the user
+timeout. Upstream dropped every segment past a zero window whole: a data
+segment got an ACK back, a pure ACK off the window edge got a challenge ACK,
+and neither refreshed `remote_last_ts`, so a peer that kept acknowledging our
+data while we could not take its data was reset at the user timeout with
+bytes still being acknowledged. Now such a segment (in a synchronized state,
+with an ACK, not a SYN, FIN or RST) is processed for its ACK and window with
+its payload trimmed, as RFC 9293 3.10.7.4 asks ("special allowance should be
+made to accept valid ACKs"), and gets the same reply as before. The timeout
+itself stays an idle timer: 60 s with nothing heard is still 60 s. The
+detectors are `test_timeout_is_not_a_cap_on_an_acked_transfer` and
+`test_timeout_counts_acks_past_a_zero_window`.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs`,
 `src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked
 `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
+
+## Data on the SYN
+
+`Socket::set_syn_data(true)`, off by default, carries data on the SYN both
+ways. cmux-wg turns it on for tunnel TCP with `CMUX_WG_SYN_DATA=1`; both
+ends of the tunnel run this stack, so the phone's first request rides on its
+SYN and the Mac replies from SYN-RECEIVED, a round trip before the
+handshake's last ACK.
+
+Connecting, bytes written before the SYN goes out ride on it, up to one
+segment less 40 bytes of options. `set_syn_data_hold(d)` holds the SYN up to
+`d` for that first write; zero sends it at once. A peer that takes the data
+acknowledges it in its SYN|ACK. One that ignores it acknowledges only the
+SYN, and the data is sent again as ordinary data after the handshake: each
+byte is delivered once either way.
+
+Listening, data on a peer's SYN is kept in the receive buffer and
+acknowledged by the SYN|ACK. It becomes readable, and replies may be sent,
+only once that SYN|ACK has gone out (`syn_data_acked()`). An RST then closes
+the socket instead of returning it to LISTEN, since the data was accepted.
+There is no TCP Fast Open cookie (RFC 7413): the tunnel underneath
+authenticates the peer. The detectors are
+`test_syn_data_peer_ignores_it_falls_back_without_double_delivery`,
+`test_syn_data_peer_takes_it_and_replies_before_the_last_ack`,
+`test_syn_data_hold_waits_for_the_first_write`,
+`test_syn_data_hold_ends_with_a_bare_syn` and
+`test_syn_data_off_keeps_the_plain_handshake`.
 
 ## Taken from upstream main
 

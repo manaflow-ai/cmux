@@ -9,7 +9,11 @@
 //! `ACPMUX_IDLE_CHILD_SECS`; 30 s for background work while the sr2 model pool sheds,
 //! `pool_pressure.rs`). A client attached to it, the open chat on screen
 //! included, does not keep it awake: the chat stays where it is and only the
-//! agent goes. Its harness is then stopped through `detach_child`: the record
+//! agent goes. Neither does looking at it: only a person's client arriving
+//! to show it, or letting go of it, starts the period again (`seen.rs`
+//! `attach_count_from`); an agent's CLI or tool reading it, a peer daemon's
+//! link, and the bookkeeping records a look or a restart writes do not
+//! ([`bookkeeping`]). Its harness is then stopped through `detach_child`: the record
 //! and the agent session id stay, so the next prompt resumes it
 //! (`session/load`, `claude --resume`). It is stopped only while nothing but
 //! its MCP servers runs under it (`idle_census.rs`): a stop ends its group and
@@ -47,6 +51,18 @@
 use super::*;
 use cmux_json::JsonSet as _;
 use futures::StreamExt as _;
+
+/// Whether a record is bookkeeping, which never starts a chat's idle period again (`Hub::append`):
+/// what its harness spent (`usage_view.rs`), a restarted daemon taking its agent's host back
+/// (`hosts.rs`), and a read mark (`seen.rs` `mark_seen`), written when any client shows the chat,
+/// an agent reading it included. Each such record used to give the harness a full idle period
+/// again, so a chat that was only read, or whose daemon restarted, never slept.
+pub(super) fn bookkeeping(dir: &str, kind: &str, msg: &Value) -> bool {
+    dir == "mux"
+        && (kind == super::usage_view::RECORD_KIND
+            || kind == "host_adopted"
+            || (kind == "status" && msg.get("read") == Some(&Value::Bool(true))))
+}
 
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
 const IDLE_EXITS_AT_ONCE: usize = 16;
@@ -125,6 +141,28 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// What under `session` keeps its harness up at its idle deadline. `static`: all of
+    /// [`Self::holds_work_below`]. `adaptive-v1`: only what the harness's exit would end, its own
+    /// processes and background subagents. An open sub-session child runs in its own harness and
+    /// outlives its parent's: a parent whose turn ended while only its children work sleeps
+    /// through their work, and whatever reaches it from them (a report, a question, a send) is a
+    /// prompt, which wakes it as any prompt does. Nothing prompts a parent when a child's turn
+    /// ends (`subsession_results.rs`), awake or not, so its agent loses nothing by sleeping.
+    fn idle_holds_work(&self, session: &Session) -> bool {
+        match self.idle_policy() {
+            IdlePolicyKind::Static => self.holds_work_below(session),
+            IdlePolicyKind::AdaptiveV1 => {
+                self.any_process_running(session)
+                    || session
+                        .subagents
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .background_running()
+                        > 0
+            }
+        }
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         self.eligible(session, false)
     }
@@ -149,7 +187,7 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && (session.queued() == 0 || sleeps_held)
             && session.pending_permissions().is_empty()
-            && !self.holds_work_below(session)
+            && !self.idle_holds_work(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
@@ -303,6 +341,7 @@ impl Hub {
             }
             hub.stop_idle_children().await;
             hub.evict_idle_chats();
+            hub.evict_over_cap();
         }
     }
 

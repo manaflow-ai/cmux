@@ -262,6 +262,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
 const BEGIN_TOKEN_FILE: &str = "begin-token";
 
@@ -525,7 +527,7 @@ impl Hub {
             let deadline = tokio::time::Instant::now() + wait;
             let busy = || {
                 let why = format!(
-                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                     wait.as_secs()
                 );
                 transfer_error("busy", why)
@@ -662,26 +664,7 @@ impl Hub {
             } else {
                 super::auto_resume::Cut::Move
             };
-            carried = self.log_continuation(session, &running, how);
-            // Its place at the head, as a record of its own: a guarded target drops the
-            // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
-            if let Some(id) = &carried {
-                let order: Vec<String> = std::iter::once(id.clone())
-                    .chain(
-                        session
-                            .queue
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .iter()
-                            .map(|q| q.prompt_id.clone()),
-                    )
-                    .collect();
-                self.append(session, "mux", "queue_order", json!({"promptId": id, "order": order}));
-            }
-            match &carried {
-                Some(id) => self.cancel_turn_for_replacement(session, &running, id).await,
-                None => self.cancel_turn(session, &running).await,
-            }
+            carried = self.cut_turn_to_move(session, &running, how).await;
         }
         let carried = carried.as_deref();
         let guard = match early {
@@ -921,6 +904,7 @@ impl Hub {
         }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
+        super::transfer_watch::note_paged(&dir);
         super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
@@ -992,6 +976,7 @@ impl Hub {
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
+        self.forget_draft_attachments(session);
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
@@ -1069,7 +1054,7 @@ impl Hub {
     /// (`transfer_begin`) joins the queue here, at its head, and runs, as it would have where
     /// the chat was going. Only that prompt is taken from the log, once: the rest of the live
     /// queue (an inbox digest's messages included) stays as it is.
-    fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
+    pub(super) fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         self.restore_queue_only(session, Some(prompt_id));
         self.reword_unmoved(session, prompt_id);
         let _ = self.move_queued(session, prompt_id, 0, None);

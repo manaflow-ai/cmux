@@ -63,7 +63,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
 
 /// Records navigation of a frontend-rendered browser tab. Emits
 /// `title-changed` (title) and `tab-changed`.
-public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
+extension UpdateFrontendBrowserTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var url: String
@@ -74,28 +74,6 @@ public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
             case surface, url, title, changed
             case faviconURL = "favicon_url"
         }
-    }
-    public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
-    public var surface: SurfaceID
-    public var url: String?
-    public var title: String?
-    public var faviconURL: FieldUpdate<String>
-
-    public init(surface: SurfaceID, url: String? = nil, title: String? = nil, faviconURL: FieldUpdate<String> = .unchanged) {
-        self.surface = surface
-        self.url = url
-        self.title = title
-        self.faviconURL = faviconURL
-    }
-
-    enum CodingKeys: String, CodingKey { case surface, url, title, faviconURL }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(surface, forKey: .surface)
-        try c.encodeIfPresent(url, forKey: .url)
-        try c.encodeIfPresent(title, forKey: .title)
-        try c.encode(faviconURL, forKey: .faviconURL)
     }
 }
 

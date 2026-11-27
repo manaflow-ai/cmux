@@ -13,7 +13,7 @@ describe("the person's own devices", () => {
     expect((await viewer.call("GET", `/v1/permissions?host=${host.id}`)).json.permissions).toEqual([{ viewerId: viewer.id, scope: "full" }]);
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(res.json.session).toMatchObject({ state: "approved", scope: "full" });
+    expect(res.json.session).toMatchObject({ state: "approved", scope: "full", hubApproval: "permission" });
     const sid = res.json.session.id as string;
     const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
     // The host decides "own" from this, which the hub writes, never from the viewer.
@@ -26,7 +26,7 @@ describe("the person's own devices", () => {
     const { host, viewer } = await setup();
     await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
-    expect(res.json.session.state).toBe("pending");
+    expect(res.json.session).toMatchObject({ state: "pending", hubApproval: "requested" });
     const req = await host.user!.next((f) => f.type === "session.request");
     expect(req.session).toMatchObject({ id: res.json.session.id, viewerId: viewer.id });
   });
