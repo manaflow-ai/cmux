@@ -233,6 +233,8 @@ export interface ShareEvidence {
   streamingMs: number | null
   /** From the viewer's start to its stop with a frame decoded: the first frame came within this. */
   firstFrameWithinMs: number | null
+  /** How the hub admitted the viewer's request. */
+  hubApproval: "permission" | "requested" | null
   view: ViewStats | null
   /** The viewer was told to wait for the host's person. */
   hostPrompted: boolean
@@ -257,6 +259,9 @@ export interface ViewStats {
   width: number | null
   height: number | null
   encoder: string | null
+  firstFrameMs: number | null
+  lumaVariance: number | null
+  hubApproval: "permission" | "requested" | null
 }
 
 /** A plain short string (no token shape), else null. */
@@ -287,7 +292,10 @@ export function viewStats(text: string): ViewStats | null {
       mbitPerS: num(r.mbit_per_s),
       width: num(r.welcome?.width),
       height: num(r.welcome?.height),
-      encoder: plainWord(r.welcome?.encoder)
+      encoder: plainWord(r.welcome?.encoder),
+      firstFrameMs: num(r.first_frame_ms),
+      lumaVariance: num(r.luma_variance),
+      hubApproval: r.hub_approval === "permission" || r.hub_approval === "requested" ? r.hub_approval : null
     }
   }
   return null
@@ -872,6 +880,7 @@ export async function runE2E(
       deviceOnlineMs: null,
       streamingMs: null,
       firstFrameWithinMs: null,
+      hubApproval: null,
       view: null,
       hostPrompted: false,
       requestsEmpty: null,
@@ -1022,6 +1031,7 @@ export async function runE2E(
       live()
       const stats = await deps.run(asViewerIn(sh, sh.viewerHome, ["cat", "--", statsFile]), { env: childEnv, timeoutMs: 10_000 })
       ev.view = viewStats(stats.code === 0 ? stats.stdout : "") ?? viewStats(out?.stderr ?? "")
+      ev.hubApproval = ev.view?.hubApproval ?? null
       const decoded = (ev.view?.decoded ?? 0) >= 1
       if (decoded && streamingAt !== null) ev.firstFrameWithinMs = stoppedAt - startedAt
       if (ev.view) say(`view: streaming after ${ev.streamingMs} ms, ${ev.view.decoded} frame(s) decoded, ${ev.view.mbitPerS} Mbit/s, ${ev.view.width}x${ev.view.height}, path ${ev.view.path}`)
@@ -1032,6 +1042,8 @@ export async function runE2E(
       expect(!ev.hostPrompted, "share: the request waited for a person on the host")
       expect(ev.streamingMs !== null, `share: the viewer did not stream within ${SHARE_FRAME_LIMIT_MS / 1000} s${ended && streamingAt === null ? ` (it ended: ${lastLine(out)})` : ""}`)
       expect(ev.firstFrameWithinMs !== null && ev.firstFrameWithinMs <= SHARE_FRAME_LIMIT_MS, `share: no frame decoded within ${SHARE_FRAME_LIMIT_MS / 1000} s of the request`)
+      expect(ev.hubApproval === "permission", "share: the hub did not approve the own-account request by permission")
+      expect((ev.view?.lumaVariance ?? 0) > 0, "share: the first decoded frame has blank luma")
       expect(ev.requestsEmpty, "share: linux-host requests on the host is not empty")
 
       // The guest: another account neither sees the machine nor reaches it by its device id.

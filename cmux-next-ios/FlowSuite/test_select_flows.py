@@ -21,8 +21,12 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_regression_row_has_a_flow(self):
         rows = {s for f in MANIFEST["flows"] for s in f["source"]}
-        for n in range(1, 13):
+        for n in list(range(1, 13)) + [21]:
             self.assertIn(f"regression:{n}", rows)
+
+    def test_composer_layout_change_runs_its_tests(self):
+        r = fs.select(MANIFEST, ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift"])
+        self.assertIn("composer-grow-and-controls", [f["id"] if isinstance(f, dict) else f for f in r["flows"]])
 
 
 class SelectTests(unittest.TestCase):
