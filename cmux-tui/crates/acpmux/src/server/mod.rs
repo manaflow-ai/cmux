@@ -47,6 +47,7 @@ mod app_reply;
 mod attach_latency_bench;
 mod auto_gate;
 mod autocloud_enroll;
+pub(crate) mod bg_rearm;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
