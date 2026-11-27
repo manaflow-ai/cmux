@@ -5,7 +5,7 @@ use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
-async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
+pub(super) async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut harnesses = BTreeMap::new();
     harnesses.insert(
@@ -36,7 +36,7 @@ async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestD
     (hub, client, dir)
 }
 
-async fn session(client: &Arc<Client>, name: &str) -> String {
+pub(super) async fn session(client: &Arc<Client>, name: &str) -> String {
     let s = client
         .request(
             method::SESSION_NEW,
