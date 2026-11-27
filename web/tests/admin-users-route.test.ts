@@ -347,6 +347,25 @@ describe("admin users route", () => {
     expect(teamBody.teams[0]).toMatchObject({ id: "t2", isTeam: true, manualPlanId: "team", memberCount: 2 });
   });
 
+  test("GET leaves out empty probe teams unless showTestTeams=1, and rejects a malformed teams cursor", async () => {
+    const probe = stackTeam({ id: "probe", displayName: "cmux prod smoke's Team" });
+    probe.listUsers = async () => [];
+    teamDirectory = [probe, stackTeam({ id: "company", displayName: "cmux" })];
+    const hidden = (await (await GET(getRequest("cmux"))).json()) as Record<string, unknown>;
+    expect((hidden.teams as Array<{ id: string }>).map((team) => team.id)).toEqual(["company"]);
+    expect(hidden.hiddenTestTeams).toBe(1);
+    expect(hidden.teamsNextCursor).toBeNull();
+
+    const shown = (await (await GET(new NextRequest("https://cmux.com/api/admin/users?q=cmux&showTestTeams=1"))).json()) as {
+      teams: Array<{ id: string; isTestTeam: boolean }>;
+    };
+    expect(shown.teams.map((team) => [team.id, team.isTestTeam])).toEqual([["probe", true], ["company", false]]);
+
+    const bad = await GET(new NextRequest("https://cmux.com/api/admin/users?q=cmux&teamsCursor=%3Cscript%3E"));
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: "invalid_cursor" });
+  });
+
   test("POST rejects cross-site browser mutations before touching auth", async () => {
     const response = await POST(
       postRequest({ userId: "u1", plan: "pro" }, { "sec-fetch-site": "cross-site", origin: "https://evil.example" }),
@@ -381,6 +400,59 @@ describe("admin users route", () => {
       byUserId: "admin-1",
       byEmail: "admin@manaflow.ai",
     });
+  });
+
+  test("POST grants and removes a cmux NEXT plan in its own slot", async () => {
+    const granted = await POST(postRequest({ userId: "u1", plan: "next_pro" }));
+    expect(granted.status).toBe(200);
+    const body = (await granted.json()) as { user: Record<string, unknown> };
+    expect(body.user).toMatchObject({ id: "u1", isPro: false, manualPlanId: null, nextManualPlanId: "next_pro" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
+    expect(directory[0]?.serverMetadata.cmuxAdminNextPlanGrant).toMatchObject({ plan: "next_pro" });
+    expect(directory[0]?.serverMetadata.cmuxAdminPlanGrant).toBeUndefined();
+
+    // A removal without `slot` targets the classic slot and leaves NEXT (and its mirror) alone.
+    expect((await POST(postRequest({ userId: "u1", plan: null }))).status).toBe(200);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
+
+    const removed = await POST(postRequest({ userId: "u1", plan: null, slot: "next" }));
+    expect(removed.status).toBe(200);
+    expect(((await removed.json()) as { user: Record<string, unknown> }).user)
+      .toMatchObject({ nextManualPlanId: null, lastNextGrant: { plan: null } });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("POST keeps a classic grant and a cmux NEXT grant side by side", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "pro" };
+    const toNext = await POST(postRequest({ userId: "u1", plan: "next_max" }));
+    expect(toNext.status).toBe(200);
+    expect(((await toNext.json()) as { user: Record<string, unknown> }).user)
+      .toMatchObject({ isPro: true, manualPlanId: "pro", nextManualPlanId: "next_max" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_max" });
+
+    expect((await POST(postRequest({ userId: "u1", plan: "founders" }))).status).toBe(200);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "founders", cmuxNextVmPlan: "next_max" });
+
+    expect((await POST(postRequest({ userId: "u1", plan: null, slot: "next" }))).status).toBe(200);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "founders" });
+  });
+
+  test("POST moves a legacy cmux NEXT grant out of cmuxVmPlan on a classic grant", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "next_pro" };
+    const response = await POST(postRequest({ userId: "u1", plan: "pro" }));
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { user: Record<string, unknown> }).user)
+      .toMatchObject({ manualPlanId: "pro", nextManualPlanId: "next_pro" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_pro" });
+  });
+
+  test("POST refuses slot next with a classic plan and validates slot", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxNextVmPlan: "next_pro" };
+    const refused = await POST(postRequest({ userId: "u1", plan: "pro", slot: "next" }));
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "slot_plan_mismatch" });
+    expect((await POST(postRequest({ userId: "u1", plan: null, slot: "both" }))).status).toBe(400);
+    expect(directory[0]?.updates).toEqual([]);
   });
 
   test("POST removes a grant", async () => {
@@ -447,6 +519,35 @@ describe("admin email grants route", () => {
       manualPlanId: "founders",
     });
     expect(pendingGrantRows).toEqual([]);
+  });
+
+  test("grants a cmux NEXT plan by email, directly or pending", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "pro" };
+    const direct = await POST_EMAIL_GRANTS(
+      postRequest({ email: "pat@example.com", plan: "next_max" }, {}, "/api/admin/email-grants"),
+    );
+    expect(direct.status).toBe(200);
+    expect(((await direct.json()) as { user: Record<string, unknown> }).user).toMatchObject({
+      id: "u1",
+      manualPlanId: "pro",
+      nextManualPlanId: "next_max",
+    });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro", cmuxNextVmPlan: "next_max" });
+    const pending = await POST_EMAIL_GRANTS(
+      postRequest({ email: "later@example.com", plan: "next_pro" }, {}, "/api/admin/email-grants"),
+    );
+    expect(pending.status).toBe(200);
+    expect(((await pending.json()) as { pendingGrant: Record<string, unknown> }).pendingGrant)
+      .toMatchObject({ email: "later@example.com", plan: "next_pro" });
+  });
+
+  test("a classic email grant to an account with a cmux NEXT grant keeps both", async () => {
+    directory[0]!.clientReadOnlyMetadata = { cmuxVmPlan: "next_max" };
+    const response = await POST_EMAIL_GRANTS(
+      postRequest({ email: "pat@example.com", plan: "founders" }, {}, "/api/admin/email-grants"),
+    );
+    expect(response.status).toBe(200);
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "founders", cmuxNextVmPlan: "next_max" });
   });
 
   test("keeps the grant pending when the only matching account is unverified", async () => {

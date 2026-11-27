@@ -128,6 +128,13 @@ command -v asc >/dev/null || die "asc CLI is required. Install/authenticate asc,
 [[ -s "$REVIEW_NOTES" ]] || die "missing review notes: $REVIEW_NOTES"
 [[ -s "$CHECKLIST" ]] || die "missing metadata/screenshots checklist: $CHECKLIST"
 
+# asc 5 names the build selector --build-id; the Homebrew asc 2.x bottle CI
+# runners install still names it --build. Ask the installed CLI.
+build_flag="--build"
+if asc versions attach-build --help 2>&1 | grep -q -- '--build-id'; then
+  build_flag="--build-id"
+fi
+
 selector_args=()
 if [[ -n "$BUILD_ID" ]]; then
   selector_args=(--build-id "$BUILD_ID")
@@ -180,7 +187,7 @@ if [[ "$PREPARE_SUBMISSION" -eq 1 ]]; then
   note "attaching build $BUILD_ID to App Store version $VERSION"
   asc versions attach-build \
     --version-id "$VERSION_ID" \
-    --build-id "$BUILD_ID"
+    "$build_flag" "$BUILD_ID"
 fi
 
 validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output table)
@@ -215,7 +222,7 @@ fi
 
 if [[ "$STAGE_DRY_RUN" -eq 1 ]]; then
   [[ -n "$BUILD_ID" ]] || die "--stage-dry-run requires --build-id or --build-number"
-  stage_args=(release stage --app "$APP" --version "$VERSION" --build-id "$BUILD_ID" --dry-run --platform IOS --output table)
+  stage_args=(release stage --app "$APP" --version "$VERSION" "$build_flag" "$BUILD_ID" --dry-run --platform IOS --output table)
   if [[ -d "$METADATA_DIR" ]]; then
     stage_args+=(--metadata-dir "$METADATA_DIR")
   elif [[ -n "$COPY_METADATA_FROM" ]]; then
@@ -230,7 +237,7 @@ fi
 
 if [[ "$SUBMIT_DRY_RUN" -eq 1 || "$SUBMIT_REQUESTED" -eq 1 ]]; then
   [[ -n "$BUILD_ID" ]] || die "review submission requires --build-id or --build-number"
-  submit_args=(review submit --app "$APP" --version "$VERSION" --build-id "$BUILD_ID" --platform IOS --output table)
+  submit_args=(review submit --app "$APP" --version "$VERSION" "$build_flag" "$BUILD_ID" --platform IOS --output table)
   if [[ "$SUBMIT_DRY_RUN" -eq 1 ]]; then
     submit_args+=(--dry-run)
     note "previewing App Store review submission"

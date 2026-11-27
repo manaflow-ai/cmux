@@ -21,6 +21,8 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let currentUser: typeof proUser | null = null;
+/** Server-side teams (with server metadata) the Stack server app returns from getTeam. */
+let serverTeams = new Map<string, unknown>();
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
@@ -78,7 +80,7 @@ mock.module("next-intl", () => ({
 const realStack = await import("../app/lib/stack");
 mock.module("../app/lib/stack", () => ({
   ...realStack,
-  getStackServerApp: () => ({ getUser: async () => currentUser }),
+  getStackServerApp: () => ({ getUser: async () => currentUser, getTeam: async (teamId: string) => serverTeams.get(teamId) ?? null }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
 }));
@@ -109,6 +111,7 @@ const { sessionQuery } = await import("../dashboard-app/lib/session");
 function resetFixtures() {
   stackConfigured = true;
   currentUser = proUser;
+  serverTeams = new Map();
   subscriptionRows = [];
   subscriptionResults = [];
   customerRows = [];
@@ -225,6 +228,75 @@ describe("dashboard.teams.billing", () => {
     expect(html).toContain("6 of 4 used");
     expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("/api/billing/portal");
+  });
+});
+
+describe("dashboard.teams.billing enterprise deal", () => {
+  beforeEach(resetFixtures);
+
+  function enterpriseTeam() {
+    const team = teamWithMembers("team-ent", "Tecorien", 8, {
+      cmuxVmPlan: "team",
+      cmuxEntitlementOverride: { maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 640 * 1024, maxMemoryMb: 65536 },
+    });
+    serverTeams.set("team-ent", {
+      ...team,
+      serverMetadata: { cmuxEntitlementDealTerms: { planLabel: null, monthlyPriceCents: 80_000 } },
+    });
+    mockImplementation(proUser.listTeams, async () => [team]);
+  }
+
+  async function renderTeamPanel() {
+    const response = await teamBillingGET(
+      new Request("https://cmux.test/api/teams/team-ent/billing"),
+      { params: Promise.resolve({ teamId: "team-ent" }) },
+    );
+    const body = await response.json();
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(teamBillingQuery("team-ent").queryKey, body);
+    const html = await renderDashboardScreen({
+      url: "/dashboard/teams/team-ent/billing",
+      queryClient,
+      render: () => <TeamPanelFromQuery teamId="team-ent" />,
+    });
+    return { body, html };
+  }
+
+  test("an admin sees the Enterprise plan, its price and its limits instead of the Team picker", async () => {
+    enterpriseTeam();
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise).toEqual({
+      label: "Enterprise",
+      monthlyPriceUsd: 800,
+      maxActiveVms: 40,
+      poolVcpus: 320,
+      poolMemoryMb: 640 * 1024,
+      maxMemoryMb: 65536,
+      maxVcpus: 32,
+    });
+    expect(html).toContain("Enterprise");
+    expect(html).toContain("$800/month");
+    expect(html).toContain("320 vCPU / 640 GB");
+    expect(html).toContain("32 vCPU / 64 GB");
+    expect(html).not.toContain("Upgrade this team");
+  });
+
+  test("a member sees the plan and limits but not the price", async () => {
+    enterpriseTeam();
+    mockImplementation(proUser.hasPermission, async () => false);
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise.monthlyPriceUsd).toBeNull();
+    expect(html).toContain("Enterprise");
+    expect(html).not.toContain("$800");
+  });
+
+  test("a team without a deal keeps the Team plan view", async () => {
+    const team = teamWithMembers("team-ent", "Plain", 2, { cmuxVmPlan: "team" });
+    serverTeams.set("team-ent", { ...team, serverMetadata: {} });
+    mockImplementation(proUser.listTeams, async () => [team]);
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise).toBeNull();
+    expect(html).not.toContain("Enterprise");
   });
 });
 
@@ -620,6 +692,125 @@ describe("dashboard billing screen", () => {
       expect(html).toContain(message);
     });
   }
+});
+
+describe("cmux NEXT Cloud on Plan & billing", () => {
+  beforeEach(() => {
+    resetFixtures();
+    delete process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY;
+    delete process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY;
+    delete process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY;
+  });
+
+  async function billingBody() {
+    return await (await dashboardBillingGET(new Request("https://cmux.test/api/dashboard/billing"))).json();
+  }
+
+  test("the procedure reports the NEXT plan, its source, and which plans checkout can sell", async () => {
+    expect((await billingBody()).next).toEqual({
+      planId: null,
+      source: null,
+      checkoutAvailable: { next_plus: false, next_pro: false, next_max: false },
+    });
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "next_max", cmuxPlan: "pro" };
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    expect((await billingBody()).next).toEqual({
+      planId: "next_max",
+      source: "grant",
+      checkoutAvailable: { next_plus: false, next_pro: true, next_max: false },
+    });
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "pro", cmuxNextPlan: "next_pro" };
+    const body = await billingBody();
+    expect(body.next).toMatchObject({ planId: "next_pro", source: "subscription" });
+    // The configured Price id itself never reaches the wire.
+    expect(JSON.stringify(body)).not.toContain("price_configured_pro");
+  });
+
+  test("with no Price configured every plan shows its terms and Coming soon", async () => {
+    const html = await renderBillingPage();
+
+    expect(html).toContain('data-testid="next-cloud-plans"');
+    expect(html).toContain("Current cmux NEXT plan: None");
+    expect(html).toContain("cmux NEXT Plus");
+    expect(html).toContain("cmux NEXT Pro");
+    expect(html).toContain("cmux NEXT Max");
+    expect(html).toMatch(/data-next-plan="next_plus"[\s\S]*?\$20[\s\S]*?30,000 machine minutes included each month[\s\S]*?Up to 8 machines running at once[\s\S]*?Up to 20 machines kept, running or paused[\s\S]*?Up to 20 saved snapshots[\s\S]*?4 vCPU and 16 GiB RAM[\s\S]*?64 GiB per machine[\s\S]*?data-next-plan="next_pro"/);
+    expect(html).toMatch(/data-next-plan="next_pro"[\s\S]*?\$50[\s\S]*?75,000 machine minutes included each month[\s\S]*?Up to 32 machines running at once[\s\S]*?Up to 50 machines kept, running or paused[\s\S]*?Up to 50 saved snapshots[\s\S]*?8 vCPU and 32 GiB RAM[\s\S]*?128 GiB per machine/);
+    expect(html).toMatch(/data-next-plan="next_max"[\s\S]*?\$200[\s\S]*?300,000 machine minutes included each month[\s\S]*?Up to 64 machines running at once[\s\S]*?Up to 300 machines kept[\s\S]*?Up to 300 saved snapshots[\s\S]*?32 vCPU and 64 GiB RAM[\s\S]*?256 GiB per machine/);
+    expect(html.match(/<button[^>]*disabled[^>]*>Coming soon<\/button>/g)).toHaveLength(3);
+    expect(html).toContain("A machine minute is one vCPU for one minute while a machine is awake");
+    // People see machine minutes, not the dollar figure behind them.
+    expect(html).not.toContain("$92.50");
+    expect(html).not.toContain("$92.5");
+    expect(html).not.toContain("$370");
+    expect(html).not.toContain("plan=next_");
+    // The classic picker is unchanged.
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+  });
+
+  test("with Prices configured a team with no plan can subscribe to either plan", async () => {
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY = "price_configured_max";
+    const html = await renderBillingPage();
+
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=next_pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;returnTo=%2Fdashboard%2Fbilling"',
+    );
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=next_max&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;returnTo=%2Fdashboard%2Fbilling"',
+    );
+    expect(html).toContain("Subscribe to cmux NEXT Pro");
+    expect(html).toContain("Subscribe to cmux NEXT Max");
+    // NEXT Plus has no Price configured here: it alone is not for sale.
+    expect(html.match(/<button[^>]*disabled[^>]*>Coming soon<\/button>/g)).toHaveLength(1);
+    expect(html).not.toContain("plan=next_plus");
+  });
+
+  test("with its Price configured NEXT Plus can be subscribed to, and a subscriber upgrades from it", async () => {
+    process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY = "price_configured_plus";
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    const html = await renderBillingPage();
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=next_plus&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;returnTo=%2Fdashboard%2Fbilling"',
+    );
+    expect(html).toContain("Subscribe to cmux NEXT Plus");
+
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "next_plus", cmuxNextPlan: "next_plus" };
+    const subscribed = await renderBillingPage();
+    expect(subscribed).toContain("Current cmux NEXT plan: cmux NEXT Plus");
+    expect(subscribed).toMatch(/data-next-plan="next_plus"[^>]*aria-current="true"/);
+    expect(subscribed).toContain("Upgrade to cmux NEXT Pro");
+    expect(subscribed).not.toContain("plan=next_plus");
+  });
+
+  test("a NEXT Pro subscriber sees it current and can upgrade to Max, while classic stays Free", async () => {
+    process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY = "price_configured_max";
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "next_pro", cmuxNextPlan: "next_pro" };
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Current cmux NEXT plan: cmux NEXT Pro");
+    expect(html).toMatch(/data-next-plan="next_pro"[^>]*aria-current="true"/);
+    expect(html).toContain("Upgrade to cmux NEXT Max");
+    expect(html).toContain("plan=next_max");
+    expect(html).not.toContain("plan=next_pro");
+    expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
+  });
+
+  test("a NEXT Max grant has nothing to buy and says it was granted", async () => {
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY = "price_configured_max";
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "next_max" };
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Current cmux NEXT plan: cmux NEXT Max (granted by cmux)");
+    expect(html).toMatch(/data-next-plan="next_max"[^>]*aria-current="true"/);
+    expect(html).not.toContain("plan=next_");
+  });
+
+  test("renders the plan_unavailable banner a NEXT checkout returns with", async () => {
+    const html = await renderBillingPage({ billing: "plan_unavailable" });
+    expect(html).toContain("That plan is not available yet.");
+  });
 });
 
 function appleMaxRow() {

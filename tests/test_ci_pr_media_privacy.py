@@ -525,7 +525,7 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/pr-media.yml", ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
-                    "scripts/ci/prune_pr_media.py", ".github/workflows/pr-media-prune.yml"}
+                    "scripts/ci/prune_pr_media.py"}
     # Names the files for CI routing; writes nothing.
     NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
@@ -833,6 +833,33 @@ class TesseractToolTests(unittest.TestCase):
         self.assertIn("OMP_THREAD_LIMIT=1", done.stdout)
 
 
+@unittest.skipUnless(shutil.which("ffmpeg"), "needs a real ffmpeg (the scan job installs it)")
+class GifFrameCoverageTests(unittest.TestCase):
+    """A GIF frame shown for 100 ms between two others is still read: every distinct GIF frame, not one a second."""
+
+    def test_every_distinct_gif_frame_is_read(self) -> None:
+        tool = load_script("pr_media_ocr_tesseract_frames", TESSERACT_TOOL)
+        with tempfile.TemporaryDirectory(prefix="cmux-pr-media-gif-test-") as scratch:
+            root = Path(scratch)
+            for index, color in enumerate(("black", "red", "black")):
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+                                f"color=c={color}:s=16x16:d=0.1:r=10", "-frames:v", "1", str(root / f"in{index}.png")],
+                               check=True, timeout=60)
+            gif = root / "flash.gif"
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-framerate", "10", "-i", str(root / "in%d.png"),
+                            str(gif)], check=True, timeout=60)
+            out = root / "frames"
+            out.mkdir()
+            pictures = tool.frames(gif, out)
+            reds = 0
+            for picture in pictures:
+                pixel = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(picture), "-vf", "scale=1:1",
+                                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True,
+                                       timeout=60).stdout
+                reds += pixel[0] > 128 and pixel[1] < 64
+            self.assertEqual(reds, 1, f"the red frame was not read ({len(pictures)} frames)")
+
+
 @unittest.skipUnless(shutil.which("tesseract"), "needs a real tesseract (the publishing action installs it)")
 class SeededTermEndToEndTests(GatedWriterCase):
     """Real tesseract, the real check and pr-media.py's real put_file with a fake gh:
@@ -881,8 +908,13 @@ class PublishWorkflowTests(unittest.TestCase):
 
     # workflow -> job id -> the script its publishing step runs
     WRITER_JOBS = {".github/workflows/pr-media.yml": {"publish": "scripts/ci/pr_media.py"}}
-    # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {".github/workflows/pr-media-prune.yml", ".github/workflows/pr-media-privacy.yml"}
+    # Removal jobs rewrite the branch but do not capture media. Keep this exception
+    # job-scoped so another writer added to the shared maintenance workflow cannot
+    # bypass the publishing action checks.
+    REMOVES_ONLY_JOBS = {
+        (".github/workflows/storage-maintenance.yml", "pr-media"),
+        (".github/workflows/pr-media-privacy.yml", "scan"),
+    }
     # The 10-minute Vision rescan reads the repository's copy of the terms secret.
     RESCAN = (".github/workflows/pr-media-privacy.yml", "scan")
     ACTION_USE = "./.github/actions/pr-media-publish"
@@ -973,9 +1005,9 @@ class PublishWorkflowTests(unittest.TestCase):
     def test_every_job_that_writes_pr_media_publishes_through_the_action(self) -> None:
         found = {}
         for workflow, loaded in self.workflows():
-            if workflow in self.REMOVES_ONLY:
-                continue
             for job_id, job in (loaded.get("jobs") or {}).items():
+                if (workflow, job_id) in self.REMOVES_ONLY_JOBS:
+                    continue
                 if not self.writes_pr_media(job):
                     continue
                 found.setdefault(workflow, set()).add(job_id)

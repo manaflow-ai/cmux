@@ -12,6 +12,9 @@ from .models import *
 
 class GeneratedClientMixin:
 
+    def ack_tab_notifications(self, surface: Id) -> JsonValue:
+        return self._invoke_command('ack-tab-notifications', AckTabNotificationsRequest(surface=surface))
+
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
@@ -367,6 +370,7 @@ class GeneratedClientMixin:
         return self._invoke_command('zoom-pane', ZoomPaneRequest(pane=pane, mode=mode))
 
 
+GeneratedClientMixin.ack_tab_notifications.__cmux_command__ = COMMANDS['ack-tab-notifications']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activate']

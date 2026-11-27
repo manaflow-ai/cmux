@@ -10,6 +10,9 @@ struct OnboardingConnectionView: View {
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     var keepAwakeOffer: OnboardingKeepAwakeOffer?
     var onSetKeepAwake: (Bool) async -> Void = { _ in }
+    /// `false` for the App Review demonstration account, which has no
+    /// Tailscale network to choose.
+    var offersConnectionMethodChoice = true
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// Names the minimum Mac version for this app version in the connect
     /// copy. Optional so previews without the app root keep versionless copy.
@@ -37,7 +40,7 @@ struct OnboardingConnectionView: View {
     /// successful automatic connection is not a commitment to Iroh; people
     /// may still switch to Tailscale before leaving onboarding.
     private var showsMethodPicker: Bool {
-        true
+        offersConnectionMethodChoice
     }
 
     /// The Keep Mac Awake ask appears once the Mac is connected and its state
@@ -60,12 +63,14 @@ struct OnboardingConnectionView: View {
                 HStack(alignment: .center, spacing: density.sectionSpacing) {
                     OnboardingConnectionPreview(phase: phase, density: density)
                         .frame(maxWidth: .infinity)
-                    OnboardingConnectionMethodPicker(
-                        method: connectionMethod,
-                        density: density,
-                        onSelect: onSelectConnectionMethod
-                    )
-                    .frame(maxWidth: .infinity)
+                    if showsMethodPicker {
+                        OnboardingConnectionMethodPicker(
+                            method: connectionMethod,
+                            density: density,
+                            onSelect: onSelectConnectionMethod
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 }
                 if let visibleKeepAwakeOffer {
                     OnboardingKeepAwakeCard(

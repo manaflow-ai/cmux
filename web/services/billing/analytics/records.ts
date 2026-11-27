@@ -7,7 +7,7 @@
 // gross price in USD. Every metric is a question about which intervals cover
 // a moment in time.
 
-import { APPLE_USD_LIST_PRICE, appleUsdListPrice } from "../apple/config";
+import { appleUsdListPrice, isApplePlanId } from "../apple/config";
 import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../plans";
 import { toUsd } from "./fx";
 
@@ -126,8 +126,8 @@ export function applePriceUsd(
   /** Months the charge covers; 11 or more is a yearly product's list price. */
   intervalMonths = 1,
 ): ApplePrice {
-  const listPrice = planId in APPLE_USD_LIST_PRICE
-    ? appleUsdListPrice(planId as keyof typeof APPLE_USD_LIST_PRICE, intervalMonths >= 11 ? "yearly" : "monthly")
+  const listPrice = isApplePlanId(planId)
+    ? appleUsdListPrice(planId, intervalMonths >= 11 ? "yearly" : "monthly")
     : 0;
   if (priceMilliunits === null) return { usd: listPrice, fallback: true, paid: true };
   if (priceMilliunits <= 0) return { usd: 0, fallback: false, paid: false };

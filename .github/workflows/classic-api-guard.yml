@@ -14,8 +14,10 @@ name: classic API guard
 # therefore not edit the check into a no-op (a plain pull_request run would use its own copy).
 # NEVER check out the pull request's head or run anything from it here (no head ref, no
 # head sha, no merge ref, no scripts from the head): pull_request_target runs with the base
-# repository's token and runners, so head code here would run trusted. Keep the token
-# read-only and pass no secrets. feat-cmux-next keeps its own warn-only pull_request copy.
+# repository's token and runners, so head code here would run trusted. Keep every token
+# read-only. The one secret is the cmux-bot App key, and it reaches only the pinned mint action,
+# never a run step (as in cla-policy-guard.yml). feat-cmux-next keeps its own warn-only
+# pull_request copy.
 on:
   pull_request_target:
     branches: [main]
@@ -27,18 +29,22 @@ concurrency:
   group: classic-api-guard-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   classic-api:
     name: classic-api-guard
     # Every edit re-runs it (a skipped run would read as a pass and replace a failing one).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target runs for forks too; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: pull_request_target runs for forks too
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     steps:
       - name: Check out the guard from the base commit (never the head)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -48,9 +54,31 @@ jobs:
             scripts/ci/classic-auto-deploy.json
           sparse-checkout-cone-mode: false
 
+      # The files listing goes on the cmux-bot App's own budget: on github.token, the repository's
+      # pool that every workflow shares, it failed with "API rate limit exceeded for installation"
+      # (run 44033322032), and merge_hold cannot excuse that red, since this never runs on main. The
+      # token is read-only and scoped to this repository; a skipped or failed mint leaves
+      # github.token, and the guard asks a refused read once more on it (GH_FALLBACK_TOKEN).
+      # pull_request_target gives a fork's pull request this base workflow's secrets too, and
+      # runs none of its code.
+      - name: Mint the cmux-bot read token
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Check the changed paths against classic's auto-deploys
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           BASE: ${{ github.event.pull_request.base.ref }}
@@ -64,7 +92,14 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          # One record per changed file; a rename's old path also counts as changed, but not as a record.
+          if grep -q -- '"--pr"' scripts/ci/classic_api_guard.py; then
+            # The guard lists the files itself: GH_TOKEN first, GH_FALLBACK_TOKEN once on a refusal.
+            python3 scripts/ci/classic_api_guard.py --base "$BASE" --body-file "$RUNNER_TEMP/body.md" \
+              --pr "$PR" --repository "$REPOSITORY" --expected-files "$CHANGED_FILES"
+            exit
+          fi
+          # A base from before the guard listed files: one record per changed file; a rename's old
+          # path also counts as changed, but not as a record.
           gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
             --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
           records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')

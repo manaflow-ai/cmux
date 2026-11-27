@@ -138,6 +138,47 @@ class Prune(unittest.TestCase):
             prune.prune(api, NOW, delete=True, max_deletes=10)
         self.assertEqual(api.deleted, [])
 
+    def test_a_github_server_error_on_one_name_skips_it_and_prunes_the_rest(self):
+        api = FakeAPI([art(1, "npm-packages", 10), art(2, "pypi-wheels", 10)])
+        real_pages = api.artifact_pages
+
+        def pages(name, size=2):
+            if name == "npm-packages":
+                raise prune.Unavailable("GET /actions/artifacts: HTTP 500")
+            return real_pages(name, size)
+
+        api.artifact_pages = pages
+        summary = prune.prune(api, NOW, delete=True, max_deletes=10)
+        self.assertEqual(api.deleted, [2])
+        self.assertEqual(summary["skipped"], ["npm-packages: GET /actions/artifacts: HTTP 500"])
+
+    def test_an_unreadable_release_list_from_github_degrades_to_no_deletes(self):
+        api = FakeAPI([art(1, "npm-packages", 10)])
+
+        def runs_since(workflow, since):
+            raise prune.SlowDown("GET /actions/workflows/cmux-tui-release.yml/runs: HTTP 403")
+
+        api.runs_since = runs_since
+        summary = prune.prune(api, NOW, delete=True, max_deletes=10)
+        self.assertEqual(api.deleted, [])
+        self.assertTrue(summary["skipped"])
+
+    def test_a_5xx_is_unavailable_and_a_degraded_run_exits_0_with_a_warning(self):
+        github = prune.GitHub("o/r", "t")
+        down = urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
+        with mock.patch.object(prune.urllib.request, "urlopen", side_effect=down):
+            with self.assertRaises(prune.Unavailable):
+                github.request("GET", "/actions/artifacts")
+        summary = {"skipped": ["npm-packages: HTTP 500"], "capped": False}
+        with mock.patch.object(prune, "prune", return_value={**summary, **{k: 0 for k in (
+                "protected_runs", "candidates", "candidate_bytes", "deleted", "deleted_bytes", "kept_release")},
+                "by_name": {}}), mock.patch.dict(prune.os.environ, {"GITHUB_TOKEN": "t"}), \
+                mock.patch("builtins.print") as out:
+            self.assertEqual(prune.main(["--repo", "o/r", "--delete"]), 0)
+        printed = "\n".join(str(c.args[0]) for c in out.call_args_list)
+        self.assertIn("::warning", printed)
+        self.assertIn("npm-packages: HTTP 500", printed)
+
     def test_the_rules_cover_every_build_package_upload(self):
         names = prune.rules()
         self.assertEqual(len([n for n in names if n.startswith("cmux-tui-")]), 5)
@@ -150,12 +191,34 @@ class Prune(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_storage_dispatch_routes_preserve_each_task_frequency(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
+        routes = {
+            "actions-artifacts": ("37 * * * *", "actions-artifacts"),
+            "r2-cache": ("23 5 * * *", "r2-cache"),
+            "r2-binaries": ("53 7 * * *", "r2-binaries"),
+            "r2-census-binaries": ("41 6 * * 1", "r2-census"),
+            "r2-census-cef": ("41 6 * * 1", "r2-census"),
+            "r2-census-ci-cache": ("41 6 * * 1", "r2-census"),
+            "pr-media": ("41 6 * * 1", "pr-media"),
+        }
+        self.assertEqual(set(workflow["jobs"]), set(routes))
+        for job_id, (cron, task) in routes.items():
+            guard = "github.ref == 'refs/heads/main'"
+            if job_id == "pr-media":
+                guard = "github.repository_owner == 'manaflow-ai' && " + guard
+            expected = ("${{ (" + guard + ") && ((github.event_name == 'schedule' && "
+                        "github.event.schedule == '" + cron + "') || "
+                        "(github.event_name == 'workflow_dispatch' && inputs.task == '" + task + "')) }}")
+            with self.subTest(job=job_id):
+                self.assertEqual(workflow["jobs"][job_id]["if"], expected)
+
     def test_only_main_prunes_and_only_on_an_explicit_opt_in(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/actions-artifact-prune.yml").read_text())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
         triggers = workflow.get("on", workflow.get(True))
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
         self.assertEqual(workflow["permissions"], {})
-        job = workflow["jobs"]["prune"]
+        job = workflow["jobs"]["actions-artifacts"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read", "actions": "write"})
         run = next(step for step in job["steps"] if "actions_artifact_prune.py" in str(step.get("run", "")))

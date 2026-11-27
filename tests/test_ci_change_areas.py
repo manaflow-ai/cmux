@@ -636,8 +636,8 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        " && 'ubuntu-24.04'"
+        " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -938,7 +938,7 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    assert "LINUX_RUNNER" in admission["runs-on"]
+    assert admission["runs-on"].endswith("'cmux-linux' }}")
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -1576,7 +1576,7 @@ def test_guard_only_tests_skip_macos() -> None:
     # Referenced only by Linux jobs in the CI caller or reusable guard workflow.
     assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
     assert_areas(
-        [".github/workflows/ios-testflight.yml", "tests/test_ios_testflight_main_push_filter.py"],
+        [".github/workflows/ios-appstore-upload.yml", "tests/test_ios_appstore_upload_marker.py"],
         macos=False,
         web=False,
     )
@@ -2451,6 +2451,8 @@ def run_detect_step_for_paths(
             # The package-test lane's own inputs, which the router reads to
             # decide whether that lane is worth a macOS runner.
             ROOT / "scripts" / "ci" / "select_package_tests.py",
+            # The lane's PACKAGES list, which the router reads to name them.
+            ROOT / "scripts" / "ci" / "package-test-lane.sh",
             # The trusted base router reads the cmux-cli target from these.
             ROOT / "cmux.xcodeproj" / "project.pbxproj",
             *sorted(ROOT.glob("Packages/*/*/Package.swift")),
@@ -2597,6 +2599,19 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
     assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=true"]
 
 
+def test_a_package_edit_selects_the_package_lane_on_the_normal_and_trusted_router() -> None:
+    # The trusted base router read the package lane's PACKAGES list from
+    # scripts/ci/package-test-lane.sh, a file its checkout did not copy: a pull
+    # request that edited any scripts/ci file next to a package skipped that
+    # package's tests (cmux#44963: "Could not read scripts/ci/package-test-lane.sh",
+    # swift_packages=false for a CmuxHomeCore test edit).
+    package_test = "Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/ManualClock.swift"
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        result, outputs = run_detect_step_for_paths([package_test, *policy_change])
+        assert "swift_packages=true" in outputs, (policy_change, result.stdout, result.stderr)
+        assert "Could not read scripts/ci/package-test-lane.sh" not in result.stderr, result.stderr
+
+
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/download-run-artifact.py"])
 
@@ -2719,6 +2734,15 @@ def test_helper_named_only_in_the_warm_sources_table_is_not_run() -> None:
     assert helper_areas(table) == areas()
     # Any other unplaced file that names the helper still fails open.
     assert helper_areas({".github/other.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
+
+
+def test_helper_named_only_in_a_test_data_fixture_is_not_run() -> None:
+    # cmux#50036's web/tests/fixtures/vercel-ignore-replay.json lists changed
+    # paths; its test reads it, nothing executes it.
+    fixture = {"web/tests/fixtures/replay.json": '{"paths": ["scripts/ci/helper.py"]}\n'}
+    assert helper_areas(fixture) == areas()
+    # A JSON file outside a tests/fixtures/ directory still fails open.
+    assert helper_areas({"web/fixtures-config.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
 
 
 def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run() -> None:
@@ -4859,6 +4883,16 @@ def late_placement_route(workflow: dict, name: str, runs_on: str) -> str:
     return runs_on.replace(prefix.removeprefix("${{ "), "", 1)
 
 
+# The Mac grant (cmuxterm-hq#16502): with scripts/ci/mac-grants.json on, the producer and every
+# consumer take the same `cmux-<run_id>-<run_attempt>-mac` label and Xcode label (the producer's
+# CMUX_PRODUCT_RUNNER restates its first item), so the routes compare without it.
+MAC_GRANT = "github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)"
+
+
+def without_mac_grant(runs_on: str) -> str:
+    return runs_on.replace(MAC_GRANT + "[0] || ", "").replace(MAC_GRANT + " || ", "")
+
+
 def product_consumer_route_violations(workflow: dict) -> list[str]:
     """Consumers of the admission product whose pool or Xcode can differ from it.
 
@@ -4868,9 +4902,10 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     overflow's MACOS_RUNNER_DISPLAY in place of MACOS_RUNNER_15.
     """
     producer = workflow["jobs"]["macos-compile-admission"]
+    producer_runs_on = without_mac_grant(producer["runs-on"])
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
+    if without_mac_grant(producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer_runs_on:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4878,7 +4913,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
         violations.append("macos-compile-admission: missing xcode_app output")
     for name, job in app_host_product_consumers(workflow).items():
-        runs_on = late_placement_route(workflow, name, job.get("runs-on", ""))
+        runs_on = without_mac_grant(late_placement_route(workflow, name, job.get("runs-on", "")))
         xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
         if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
                 and xcode == PRODUCT_XCODE_OUTPUT:
@@ -4890,7 +4925,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
             # pr_gui_runner is the gui label of admission's own pick (same Xcode).
             and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15").replace(
                 "' lag '", "' admission '").replace("inputs.pr_gui_runner || ", "")
-            == admission_route(producer["runs-on"])
+            == admission_route(producer_runs_on)
             and xcode == producer["env"]["CMUX_CI_XCODE_APP"]
         ):
             continue
@@ -4912,7 +4947,7 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
     # The app-host shards read the outputs, so a route added to the admission
     # moves them without an edit here.
     shards = workflow["jobs"]["app-host-unit-tests"]
-    assert late_placement_route(workflow, "app-host-unit-tests", shards["runs-on"]) == PRODUCT_RUNNER_OUTPUT
+    assert without_mac_grant(late_placement_route(workflow, "app-host-unit-tests", shards["runs-on"])) == PRODUCT_RUNNER_OUTPUT
     assert shards["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
 
 
@@ -5669,7 +5704,7 @@ def test_ci_status_requires_the_suite_coverage_gate() -> None:
     gate = workflow_job_block("suite-coverage")
     assert "needs.changes.outputs.coverage_gap == 'true'" in gate
     # A Linux job, so refusing a run never costs a macOS runner.
-    assert "vars.LINUX_RUNNER" in gate
+    assert "'cmux-linux' }}" in gate
     assert "exit 1" in gate
 
 
@@ -6653,7 +6688,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
-    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
+    # release-build derives the SDK major from the Xcode it selects (Xcode 27.2
+    # on the macOS 26 lane), so it requires SDK 27 there and 26 otherwise.
+    assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(" in release_block
+    assert "'Xcode_27') && '27' || '26' }}" in release_block
 
 
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:

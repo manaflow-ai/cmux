@@ -8,6 +8,11 @@ mod content;
 mod effects;
 mod session;
 mod topology;
+mod wait_text;
+
+#[cfg(test)]
+mod screen_focus_tests;
+pub(crate) use wait_text::WaitText;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -1258,6 +1263,12 @@ fn finish_notification_effect(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+            );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -1300,16 +1311,19 @@ fn execute_notification_effect(
     if let Some(terminal_id) = terminal_id.as_ref().filter(|_| surface.is_none()) {
         let error = ResourceError::not_found("terminal", terminal_id.as_str());
         let outcome = ResourceEffectOutcome::Failure(error.clone());
-        if mux
-            .commit_resource_effect(
+        if let Err(commit_error) = mux.commit_resource_effect(
+            idempotency_key,
+            "notification.create",
+            fingerprint,
+            &outcome,
+            None,
+        ) {
+            effects::report_indeterminate_cause(
+                mux,
                 idempotency_key,
                 "notification.create",
-                fingerprint,
-                &outcome,
-                None,
-            )
-            .is_err()
-        {
+                &format!("the failure outcome commit failed: {commit_error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
@@ -1395,7 +1409,13 @@ fn execute_notification_effect(
         Some(&deltas),
     ) {
         Ok(revision) => revision,
-        Err(_) => {
+        Err(error) => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }

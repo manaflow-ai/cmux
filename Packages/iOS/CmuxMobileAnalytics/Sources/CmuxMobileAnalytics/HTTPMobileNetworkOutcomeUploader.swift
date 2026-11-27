@@ -1,6 +1,14 @@
 import CMUXMobileCore
 public import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
+#if canImport(os)
 internal import OSLog
+#endif
 
 private let networkOutcomeUploadLog = Logger(
     subsystem: "dev.cmux.ios",
@@ -144,7 +152,10 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 15
+        #if !canImport(FoundationNetworking)
+        // swift-corelibs-foundation exposes this as get-only (always false).
         configuration.waitsForConnectivity = false
+        #endif
         return URLSession(configuration: configuration)
     }
 

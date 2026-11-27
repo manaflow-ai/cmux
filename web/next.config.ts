@@ -6,7 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { isPlatformDownloadAvailable } from "./app/lib/download";
 import {
+  docsZoneSelfRewrites,
   isDocsZoneDeployment,
   nightlyDocsOrigin as configuredNightlyDocsOrigin,
   releaseDocsOrigin as configuredReleaseDocsOrigin,
@@ -18,6 +20,12 @@ const docsChannel = process.env.CMUX_DOCS_CHANNEL;
 const isDocsZone = isDocsZoneDeployment();
 const releaseDocsOrigin = configuredReleaseDocsOrigin();
 const nightlyDocsOrigin = configuredNightlyDocsOrigin();
+// Where GET /api/models/v1 is served from (read at build time, like every rewrite): production
+// cloud-api unless the build names the staging one. Any other value falls back to production.
+const MODEL_CATALOG_ORIGINS = ["https://cloud-api.cmux.dev", "https://cloud-api-staging.cmux.dev"];
+const modelCatalogOrigin = MODEL_CATALOG_ORIGINS.includes(process.env.CMUX_MODEL_CATALOG_ORIGIN ?? "")
+  ? process.env.CMUX_MODEL_CATALOG_ORIGIN!
+  : MODEL_CATALOG_ORIGINS[0]!;
 // The embedded browser reaches a dev server through its per-instance
 // Tailscale Serve hostname. Published development VMs also use generated
 // `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
@@ -51,6 +59,12 @@ const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
     permanent: false,
   },
 ]);
+const nextDocsNightlyMoves = [
+  { source: "/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/en/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+  { source: "/en/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+];
 const tuiInstallerHeaderRules = [
   {
     source: "/tui/install.sh",
@@ -110,11 +124,19 @@ const nextConfig: NextConfig = {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
           },
+          ...docsZoneSelfRewrites(docsChannel === "nightly" ? "nightly" : "release"),
         ],
       };
     }
     return {
       beforeFiles: [
+        // The live model catalog (one source of truth: cloud-api's ModelCatalogDO, fed by the
+        // models-scout automation). Proxied, not redirected: acpmux follows no redirects, and older
+        // nightlies read only this URL. ETag, 304 and Cache-Control pass through from cloud-api.
+        {
+          source: "/api/models/v1",
+          destination: `${modelCatalogOrigin}/v1/models/catalog`,
+        },
         // Universal links for the cmux iOS app (app/api/apple-app-site-association).
         {
           source: "/.well-known/apple-app-site-association",
@@ -191,7 +213,25 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    // While Linux is waitlist-only, /linux (linked from older posts and the
+    // cmux Browser README) is a real 307 to /browser, whose Linux card takes
+    // waitlist signups. Temporary, so it lifts when Linux ships again.
+    const linuxWaitlistRedirects = isPlatformDownloadAvailable("linux")
+      ? []
+      : exts.flatMap((ext) => [
+          { source: `/linux${ext}`, destination: "/browser", permanent: false },
+          { source: `/en/linux${ext}`, destination: "/browser", permanent: false },
+          {
+            source: `/${localePrefix}/linux${ext}`,
+            destination: "/:locale/browser",
+            permanent: false,
+          },
+        ]);
+    return [
+      ...(isDocsZone ? [] : [...baseNightlyMoves, ...nextDocsNightlyMoves]),
+      ...agentRedirects,
+      ...(isDocsZone ? [] : linuxWaitlistRedirects),
+    ];
   },
   async headers() {
     const channelSecurityHeaders =
@@ -224,6 +264,8 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // The extension and setup social card reads the logo with fs at request time.
+    "/extensions/og.png": ["./public/logo.png"],
     // Changelog versions outside generateStaticParams render at request time
     // and read the copy that tools/sync-changelog.ts writes before the build.
     "**/docs/changelog": ["./CHANGELOG.md"],

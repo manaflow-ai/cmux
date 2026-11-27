@@ -69,6 +69,21 @@ describe("Iroh build compatibility", () => {
     expect(canIOSBindingUseMac(ios, stagingMac)).toBe(true);
   });
 
+  test("cmux CLASSIC gets the official default-lane reach", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "default",
+      clientNamespace: "dev.cmux.app.classic",
+    });
+    const stableMac = binding({ platform: "mac", tag: "default", clientNamespace: "mac:com.cmuxterm.app" });
+    const nightlyMac = binding({ platform: "mac", tag: "nightly", clientNamespace: "mac:com.cmuxterm.app.nightly" });
+    const rcMac = binding({ platform: "mac", tag: "rc", clientNamespace: "mac:com.cmuxterm.app.rc" });
+
+    expect(canIOSBindingUseMac(ios, stableMac)).toBe(true);
+    expect(canIOSBindingUseMac(ios, nightlyMac)).toBe(true);
+    expect(canIOSBindingUseMac(ios, rcMac)).toBe(false);
+  });
+
   test("a tagged DEV iOS build may discover every tagged DEV Mac build", () => {
     const ios = binding({
       platform: "ios",

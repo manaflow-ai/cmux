@@ -43,6 +43,18 @@ HEAD = "a" * 40
 os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait before the status comment's check
 
 
+# feat-cmux-next's ci.yml skips the PR tier for pull requests into it. #51240 (2026-11-22) widened that
+# skip to stacked `feat-cmux-next-*` bases with startsWith; either form is the skip.
+FEAT_CMUX_NEXT_SKIPS = (
+    "github.event.pull_request.base.ref != 'feat-cmux-next'",
+    "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+)
+
+
+def skips_feat_cmux_next_prs(condition: str) -> bool:
+    return any(skip in condition for skip in FEAT_CMUX_NEXT_SKIPS)
+
+
 class CountingGitHub:
     """classify_failures' GitHub with every read recorded."""
 
@@ -76,6 +88,10 @@ class CountingGitHub:
             return []
         if "pulls?state=" in path:
             return []
+        if "/check-runs?" in path:
+            return {"check_runs": []}
+        if "/status?" in path:
+            return {"statuses": []}
         raise AssertionError(f"unexpected read {path}")
 
     def request(self, method: str, path: str, body: object = None) -> dict:
@@ -129,7 +145,11 @@ class FailureAttributionCalls(unittest.TestCase):
         act(gh, report([], conclusion="success"))
         # The comments are read once before the write, and once after it: the status comment's
         # other lines belong to other jobs, so a write is checked (scripts/ci/pr_status.py).
-        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])
+        # Before "passes", a green run reads the head's other checks (one page of check runs and the
+        # combined status): #50275's green ci.yml stood over a red cmux-next/compile.
+        self.assertEqual(gh.reads, ["comments 7", "pull 7",
+                                    f"repos/{REPO}/commits/{HEAD}/check-runs?filter=latest&per_page=100&page=1",
+                                    f"repos/{REPO}/commits/{HEAD}/status?per_page=100", "comments 7"])
         self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
 
     def test_a_green_run_with_a_comment_on_a_moved_head_marks_it_pending(self) -> None:
@@ -289,7 +309,7 @@ class FailureAttributionCalls(unittest.TestCase):
             self.skipTest("origin/feat-cmux-next is not fetched")
         jobs = yaml.safe_load(shown.stdout)["jobs"]
         static = next(name for name, job in jobs.items() if job.get("name") == cf.STATIC_CHECKS_JOB)
-        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", jobs[static]["if"])
+        self.assertTrue(skips_feat_cmux_next_prs(jobs[static]["if"]), jobs[static]["if"])
         self.assertIn(f"needs.{static}.result == 'success'", jobs["macos"]["if"])
 
 
@@ -307,7 +327,7 @@ class FeatCmuxNextSkips(unittest.TestCase):
         if shown.returncode:
             self.skipTest("origin/feat-cmux-next is not fetched")
         guards = yaml.safe_load(shown.stdout)["jobs"]["fast-guards"]
-        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", guards["if"])
+        self.assertTrue(skips_feat_cmux_next_prs(guards["if"]), guards["if"])
 
 
 class ReadTokenRouting(unittest.TestCase):
@@ -572,7 +592,8 @@ class HostedQueueRescueCalls(StepHarness):
 
     def test_reads_use_the_read_token_and_the_rerun_the_workflow_token(self) -> None:
         self.assertEqual(self.STEP["env"]["READ_TOKEN"],
-                         "${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}")
+                         # The spread mint's token first: it is whichever App has more left.
+                         "${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}")
         with tempfile.TemporaryDirectory() as tmp:
             tokens = Path(tmp) / "tokens"
             self.run_step(self.STEP["run"], {**self.ENV, "READ_TOKEN": "app", "FAKE_GH_TOKEN_LOG": str(tokens)},
@@ -732,7 +753,8 @@ class RiskTierCalls(unittest.TestCase):
         for name in ("Grade the pull request", "Set the risk label"):
             with self.subTest(step=name):
                 _, step = workflow_step("risk-tier.yml", "evidence", name)
-                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["READ_TOKEN"],
+                                 "${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}")
                 self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
         self.assertTrue(mint["continue-on-error"])

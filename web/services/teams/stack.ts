@@ -32,6 +32,8 @@ export type StackTeam = {
   readonly displayName: string;
   readonly profileImageUrl: string | null;
   readonly clientReadOnlyMetadata?: unknown;
+  /** Server-only metadata; the server app's team carries it. */
+  readonly serverMetadata?: unknown;
   listUsers(): Promise<readonly StackTeamMember[]>;
   addUser(userId: string): Promise<void>;
   removeUser(userId: string): Promise<void>;

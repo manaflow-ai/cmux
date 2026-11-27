@@ -6715,8 +6715,13 @@ struct CMUXCLI {
             return
         }
 
+        if command == "left-sidebar" {
+            let parsed = try parseSidebarCLIArguments(commandArgs, for: .left)
+            _ = try leftSidebarSocketArguments(from: parsed)
+        }
+
         if command == "right-sidebar" {
-            let parsed = try parseRightSidebarCLIArguments(commandArgs)
+            let parsed = try parseSidebarCLIArguments(commandArgs, for: .right)
             _ = try rightSidebarSocketArguments(from: parsed)
         }
 
@@ -9771,11 +9776,21 @@ struct CMUXCLI {
                 windowOverride: windowId,
                 jsonOutput: jsonOutput
             )
-        case "right-sidebar":
-            try forwardRightSidebarCommand(
+        case "left-sidebar":
+            try forwardSidebarCommand(
+                .left,
                 commandArgs: commandArgs,
                 client: client,
-                windowOverride: windowId
+                windowOverride: windowId,
+                socketArguments: leftSidebarSocketArguments(from:)
+            )
+        case "right-sidebar":
+            try forwardSidebarCommand(
+                .right,
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId,
+                socketArguments: rightSidebarSocketArguments(from:)
             )
         case "sidebar":
             try runSidebarCommand(
@@ -13924,7 +13939,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let invocation = try RemoteTmuxInvocation.parse(commandArgs)
+        let invocation = try RemoteTmuxInvocation.parse(
+            commandArgs,
+            localizationBundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
         if case .list = invocation.action {
             try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
             return
@@ -13951,6 +13969,7 @@ struct CMUXCLI {
         if let transportPort { params["transport_port"] = transportPort }
         if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
         if let broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if case let .attach(session) = invocation.action {
             params["session"] = session
@@ -14033,6 +14052,7 @@ struct CMUXCLI {
         if let transportPort = invocation.transportPort { params["transport_port"] = transportPort }
         if let helperPath = invocation.transportHelperPath { params["transport_helper_path"] = helperPath }
         if let broker = invocation.broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
 
         if !jsonOutput {
             print(localizedFormat(
@@ -14575,7 +14595,16 @@ struct CMUXCLI {
             cliDebugLog(
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
-            if didCreateWorkspace {
+            // Roll back only when the app answered with an error. A dropped
+            // connection or a missing reply says nothing about whether the
+            // request ran, and the new terminal may already be connecting, so
+            // the workspace stays open and keeps its launcher (#21405).
+            if didCreateWorkspace,
+               (error as? CLIError)?.isStructuredProtocolResponse != true {
+                launchScripts.handOff()
+                let note = "Note: workspace \(workspaceId) stays open; cmux did not answer its setup request\n"
+                cliWriteStderr(Data(note.utf8))
+            } else if didCreateWorkspace {
                 do {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
@@ -22364,7 +22393,15 @@ struct CMUXCLI {
                 localized: "cli.help.ssh-tmux.helperPath",
                 defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let socketNameHelp = String(
+                localized: "cli.help.ssh-tmux.socketName",
+                defaultValue: """
+                --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-' or be '.' or '..'.
+                  cmux ssh-tmux dev@my-host --socket-name alpha
+                """,
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            )
+            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(socketNameHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":
@@ -23372,6 +23409,30 @@ struct CMUXCLI {
             """
         case "pr":
             return Self.pullRequestUsage
+        case "left-sidebar":
+            return String(localized: "cli.leftSidebar.usage", defaultValue: """
+            Usage: cmux left-sidebar <command> [flags]
+
+            Control the left (workspace) sidebar from the CLI.
+
+            Commands:
+              toggle                         Toggle left sidebar visibility
+              show                           Show the left sidebar
+              hide                           Hide the left sidebar
+              focus                          Show the left sidebar and focus its workspace list
+              mode                           Print {"visible":bool}
+
+            Flags:
+              --workspace <id|ref|index>     Target the window containing a workspace
+              --window <id|ref|index>        Target a window
+
+            Only focus moves keyboard focus or brings the window forward.
+
+            Examples:
+              cmux left-sidebar hide
+              cmux left-sidebar show --window window:2
+              cmux left-sidebar mode
+            """)
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -23969,22 +24030,60 @@ struct CMUXCLI {
         return try sendV1Command(command, client: client)
     }
 
-    private struct RightSidebarCLIArguments {
+    private struct SidebarCLIArguments {
         let positional: [String]
         let workspace: String?
         let window: String?
         let noFocus: Bool
     }
 
-    private func forwardRightSidebarCommand(
+    /// What differs between the sidebar commands in the shared flag parsing
+    /// and forwarding below: the socket command name, whether `--no-focus` is
+    /// accepted, and the sidebar's own error messages. Each sidebar command
+    /// has one static value; checking the subcommand stays with each sidebar.
+    private struct SidebarCLICommand {
+        let socketCommand: String
+        let acceptsNoFocus: Bool
+        let workspaceRequiresValue: String
+        let windowRequiresValue: String
+        let unknownFlag: (String) -> String
+
+        static var left: SidebarCLICommand {
+            SidebarCLICommand(
+                socketCommand: "left_sidebar",
+                acceptsNoFocus: false,
+                workspaceRequiresValue: String(localized: "cli.leftSidebar.error.workspaceRequiresValue", defaultValue: "left-sidebar: --workspace requires an id"),
+                windowRequiresValue: String(localized: "cli.leftSidebar.error.windowRequiresValue", defaultValue: "left-sidebar: --window requires an id"),
+                unknownFlag: { flag in
+                    String(localized: "cli.leftSidebar.error.unknownFlag", defaultValue: "left-sidebar: unknown flag '\(flag)'")
+                }
+            )
+        }
+
+        static var right: SidebarCLICommand {
+            SidebarCLICommand(
+                socketCommand: "right_sidebar",
+                acceptsNoFocus: true,
+                workspaceRequiresValue: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"),
+                windowRequiresValue: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"),
+                unknownFlag: { flag in
+                    String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(flag)'")
+                }
+            )
+        }
+    }
+
+    private func forwardSidebarCommand(
+        _ sidebar: SidebarCLICommand,
         commandArgs: [String],
         client: SocketClient,
-        windowOverride: String?
+        windowOverride: String?,
+        socketArguments: (SidebarCLIArguments) throws -> [String]
     ) throws {
-        let parsed = try parseRightSidebarCLIArguments(commandArgs)
-        let socketArgs = try rightSidebarSocketArguments(from: parsed)
-        let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
-        let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
+        let parsed = try parseSidebarCLIArguments(commandArgs, for: sidebar)
+        let socketArgs = try socketArguments(parsed)
+        let windowId = try resolveSidebarWindowId(parsed.window ?? windowOverride, client: client)
+        let workspaceId = try resolveSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
 
         var forwardedArgs = socketArgs
         if let workspaceId {
@@ -23994,7 +24093,7 @@ struct CMUXCLI {
             forwardedArgs.append("--window=\(windowId)")
         }
 
-        let command = (["right_sidebar"] + forwardedArgs)
+        let command = ([sidebar.socketCommand] + forwardedArgs)
             .map(shellQuote)
             .joined(separator: " ")
         let response = try sendV1Command(command, client: client)
@@ -24305,7 +24404,10 @@ struct CMUXCLI {
         Self.boolValue(raw)
     }
 
-    private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
+    private func parseSidebarCLIArguments(
+        _ args: [String],
+        for sidebar: SidebarCLICommand
+    ) throws -> SidebarCLIArguments {
         var positional: [String] = []
         var workspace: String?
         var window: String?
@@ -24317,17 +24419,17 @@ struct CMUXCLI {
             switch arg {
             case "--workspace":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
+                    throw CLIError(message: sidebar.workspaceRequiresValue)
                 }
                 workspace = args[index + 1]
                 index += 2
             case "--window":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"))
+                    throw CLIError(message: sidebar.windowRequiresValue)
                 }
                 window = args[index + 1]
                 index += 2
-            case "--no-focus":
+            case "--no-focus" where sidebar.acceptsNoFocus:
                 noFocus = true
                 index += 1
             default:
@@ -24338,21 +24440,42 @@ struct CMUXCLI {
                     window = String(arg.dropFirst("--window=".count))
                     index += 1
                 } else if arg.hasPrefix("--") {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'"))
+                    throw CLIError(message: sidebar.unknownFlag(arg))
                 } else {
                     positional.append(arg)
                     index += 1
                 }
             }
         }
-        return RightSidebarCLIArguments(
+        // A target flag with a blank value is a mistake, not "no target".
+        if let workspace, workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: sidebar.workspaceRequiresValue)
+        }
+        if let window, window.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: sidebar.windowRequiresValue)
+        }
+        return SidebarCLIArguments(
             positional: positional,
             workspace: workspace,
             window: window,
             noFocus: noFocus
         )
     }
-    private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
+    /// The left sidebar has no modes, so the socket command is just the action.
+    private func leftSidebarSocketArguments(from parsed: SidebarCLIArguments) throws -> [String] {
+        guard let action = parsed.positional.first?.lowercased() else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.missingCommand", defaultValue: "left-sidebar requires a subcommand: toggle, show, hide, focus, or mode"))
+        }
+        guard ["toggle", "show", "hide", "focus", "mode"].contains(action) else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.unknownCommand", defaultValue: "Unknown left-sidebar command '\(action)'"))
+        }
+        guard parsed.positional.count == 1 else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.unexpectedArguments", defaultValue: "left-sidebar \(action) received unexpected arguments"))
+        }
+        return [action]
+    }
+
+    private func rightSidebarSocketArguments(from parsed: SidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
         }
@@ -24410,10 +24533,10 @@ struct CMUXCLI {
         }
     }
 
-    private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
+    private func resolveSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
         guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalized.isEmpty else { return nil }
-        return try resolvedRightSidebarHandleID(
+        return try resolvedSidebarHandleID(
             normalized,
             expectedRefKind: "window",
             invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
@@ -24424,7 +24547,7 @@ struct CMUXCLI {
         )
     }
 
-    private func resolveRightSidebarWorkspaceId(
+    private func resolveSidebarWorkspaceId(
         _ raw: String?,
         windowId: String?,
         client: SocketClient
@@ -24435,7 +24558,7 @@ struct CMUXCLI {
         if let windowId {
             params["window_id"] = windowId
         }
-        return try resolvedRightSidebarHandleID(
+        return try resolvedSidebarHandleID(
             normalized,
             expectedRefKind: "workspace",
             invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
@@ -24447,7 +24570,7 @@ struct CMUXCLI {
         )
     }
 
-    private func resolvedRightSidebarHandleID(
+    private func resolvedSidebarHandleID(
         _ handle: String,
         expectedRefKind: String,
         invalidMessage: String,
@@ -31489,7 +31612,9 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     isSubagent: suppressVisibleMutations,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    detail: isClearSessionStart ? "clear-session-start" : nil,
+                    detail: isClearSessionStart
+                        ? "clear-session-start"
+                        : (isClaudeCompactSessionStart(parsedInput) ? AgentJournalEventDraft.compactSessionStartDetail : nil),
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
@@ -32878,6 +33003,13 @@ struct CMUXCLI {
             )
             return false
         }
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "compact"
     }
 
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {

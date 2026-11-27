@@ -48,6 +48,7 @@ extension ControlCommandCoordinator {
         switch command {
         case "sidebar_state": return sidebarState(args)
         case "reset_sidebar": return sidebarReset(args)
+        case "left_sidebar": return sidebarLeftSidebar(args)
         case "right_sidebar": return sidebarRightSidebar(args)
         case "list_panes": return sidebarListPanes()
         case "list_pane_surfaces": return sidebarListPaneSurfaces(args)
