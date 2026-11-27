@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::io::Read as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError, mpsc};
 
@@ -121,6 +120,22 @@ fn add(total: &mut u64, n: u64) {
     *total = total.saturating_add(n);
 }
 
+/// Return the platform's stable file identity and allocated-byte count when available.
+///
+/// Unix exposes inode and block counts through `MetadataExt`; Windows does not expose
+/// those fields in `std::fs::Metadata`, so the portable fallback counts apparent bytes
+/// for each file and skips hardlink de-duplication.
+#[cfg(unix)]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (Some((meta.dev(), meta.ino())), meta.blocks().saturating_mul(512))
+}
+
+#[cfg(not(unix))]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    (None, meta.len())
+}
+
 fn walk(root: &Path, out: &mut dyn FnMut(PathBuf, std::fs::Metadata)) {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -194,8 +209,14 @@ fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &O
     let size = meta.len();
     add(&mut st.totals.files, 1);
     add(&mut st.totals.logical, size);
-    if st.inodes.insert((meta.dev(), meta.ino()), ()).is_none() {
-        add(&mut st.totals.allocated, meta.blocks().saturating_mul(512));
+    let (identity, allocated) = allocation(meta);
+    match identity {
+        Some(identity) => {
+            if st.inodes.insert(identity, ()).is_none() {
+                add(&mut st.totals.allocated, allocated);
+            }
+        }
+        None => add(&mut st.totals.allocated, allocated),
     }
     if let Entry::Vacant(e) = st.files.entry(whole) {
         e.insert(size);
