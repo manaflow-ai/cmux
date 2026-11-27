@@ -189,8 +189,8 @@ impl Hub {
         }
         // No count cap: a chat runs as many tasks as it starts (Leo, 2026-11-22: "shouldn't have
         // these arbitrary caps yo"). Each costs a constant: its own runner process, a spool of at
-        // most two segments (`bg_run::SEGMENT`), and with `notify` one daemon watch thread
-        // (`bg_notify.rs`, a small stack) holding one descriptor. A start reads no other task.
+        // most two segments (`bg_run::SEGMENT`), and one descriptor in the daemon's lock watch
+        // (`bg_notify.rs`, which sends a notice only when `notify` asked for one). A start reads no other task.
         let mut env = self.bg_env(session, &meta).await?;
         let word = |key: &str| subagent.as_ref()?.get(key)?.as_str();
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
@@ -249,9 +249,10 @@ impl Hub {
         }
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        if record.notify {
-            self.bg_watch(&dir, &record);
-        }
+        // Its registry row (`bg_processes.rs`), which the composer hat reads; every task is
+        // watched, so its end reaches the row whether or not its agent asked for a notice.
+        self.note_bg_task(session, &record);
+        self.bg_watch(&dir, &record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
@@ -713,7 +714,7 @@ const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
 /// probed proves nothing, so it never counts.
-fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
+pub(super) fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
     #[cfg(unix)]
     {
         matches!(

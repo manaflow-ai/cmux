@@ -72,6 +72,12 @@ impl Hub {
         watcher().watch(lock, owner, record.session_id.clone(), alive, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
+                    // Its registry row shows the end first (`bg_processes.rs`), notice or not.
+                    if let (Some(chat), Some(record)) =
+                        (hub.session_get(&session), bg_run::read_record(&dir, &id))
+                    {
+                        hub.note_bg_task(&chat, &record);
+                    }
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });

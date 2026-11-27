@@ -159,6 +159,14 @@ mod process_workflow_tests;
 #[path = "process_preview.rs"]
 mod preview;
 
+#[path = "bg_processes.rs"]
+mod bg_processes;
+pub(super) use bg_processes::DAEMON_TASK;
+
+#[cfg(test)]
+#[path = "bg_processes_tests.rs"]
+mod bg_processes_tests;
+
 #[cfg(test)]
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
@@ -473,10 +481,16 @@ impl ProcessTable {
     /// `logged`: their `process_update` is written now.
     fn lose_running(&mut self, at: u64, reason: &str, logged: bool) -> Vec<Process> {
         let mut lost = Vec::new();
+        let mut kept = std::collections::BTreeSet::new();
         // The ordered slots retain the original oldest-first notification order.
         for index in std::mem::take(&mut self.running) {
             // A running slot always names a row (`insert`); a missing one has nothing to end.
             let Some(p) = self.processes.get_mut(index) else { continue };
+            // A daemon task (`bg_processes.rs`) runs on without the harness: its end is its own.
+            if p.origin == DAEMON_TASK {
+                kept.insert(index);
+                continue;
+            }
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
@@ -485,6 +499,7 @@ impl ProcessTable {
             p.logged = logged;
             lost.push(p.clone());
         }
+        self.running = kept;
         lost
     }
 }
@@ -1024,7 +1039,10 @@ impl Hub {
     /// size read and are serialized: its cost is the reply's, however long the history.
     pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
         let mut processes: Vec<Process> = match session {
-            Some(session) => self.process_table(session).snapshot(),
+            Some(session) => {
+                self.bg_rows_settle(session);
+                self.process_table(session).snapshot()
+            }
             None => self
                 .sessions()
                 .iter()
@@ -1054,6 +1072,7 @@ impl Hub {
         recent: usize,
         ended_within: Option<u64>,
     ) -> Result<Value, RpcError> {
+        self.bg_rows_settle(session);
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
         let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
@@ -1064,6 +1083,7 @@ impl Hub {
     /// calls its transcript shows, so a shell the transcript names is the registry's record there
     /// and its counts stay the whole history's.
     pub(crate) fn list_call_processes(&self, session: &Session, calls: &[String]) -> Value {
+        self.bg_rows_settle(session);
         let found = self.process_table(session).call_snapshot(calls);
         call_values(found, PROCESS_PAGE_BUDGET, output_len)
     }
@@ -1131,6 +1151,28 @@ impl Hub {
     pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);
         let session = self.process_session(id)?;
+        // A daemon task (`bg_processes.rs`): `_acpmux/bg/stop` stops it, whatever the harness.
+        if let Some(task) = self.bg_row_task(&session, id) {
+            self.bg_rows_settle(&session);
+            let running = {
+                let mut table = self.process_table(&session);
+                let running = table.find_id(id).is_some_and(|p| p.state == ProcessState::Running);
+                if running {
+                    table.stopping.insert(id.to_owned());
+                }
+                running
+            };
+            if !running {
+                return Ok(json!({}));
+            }
+            let stopped = self.bg_stop(&session, &task).await;
+            let dir = self.bg_dir(&session);
+            match crate::bg_run::read_record(&dir, &task) {
+                Some(record) => self.note_bg_task(&session, &record),
+                None => self.bg_rows_settle(&session),
+            }
+            return stopped.map(|_| json!({}));
+        }
         let harness = session.meta().harness;
         let (claude, codex) = match self.config.read().await.profile(&harness) {
             Some(p) => (
