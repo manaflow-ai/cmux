@@ -92,6 +92,7 @@ jobs:
             Cargo.toml
             rust-toolchain.toml
             .cargo
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Set up pinned Rust

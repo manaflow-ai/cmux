@@ -38,6 +38,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/
+            /.gitmodules
           submodules: false
       - name: Route the change
         id: route

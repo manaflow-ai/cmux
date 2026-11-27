@@ -582,6 +582,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
+            .gitmodules
       - name: Checkout the gate's files
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -592,6 +593,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
+            .gitmodules
       - name: Build on the build fleet
         id: build
         env:
@@ -1193,6 +1195,7 @@ jobs:
             scripts/ci/ios_gate_screen_diff.py
             scripts/ci/deadline_http.py
             cmux-tui/
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Fetch the legs' stills
         continue-on-error: true

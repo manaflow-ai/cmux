@@ -542,6 +542,7 @@ jobs:
             scripts/ci/proof_record.py
             scripts/ci/ci_steps.py
             ci/steps.toml
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Post the verdict
@@ -600,6 +601,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Post the verdict
