@@ -766,7 +766,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: [&str; 62] = [
+const KNOWN_CODES: [&str; 63] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -781,6 +781,7 @@ const KNOWN_CODES: [&str; 62] = [
     "policy.refused",
     "validation.invalid",
     "machine.not_found",
+    "machine.unauthorized",
     "machines.not_found",
     "machine.revoked",
     "join.expired",
