@@ -131,11 +131,20 @@ def discovery_filters(output: str) -> list[str]:
     return sorted(filters)
 
 
+def require_discovery_filters(output: str, requested: list[str]) -> None:
+    discovery_filters(output)
+    identifiers = [line.strip() for line in output.splitlines() if line.strip()]
+    for requested_filter in requested:
+        if not any(re.search(requested_filter, identifier) for identifier in identifiers):
+            raise ValueError(f"no discovered test matches {requested_filter!r}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--log", type=Path)
     source.add_argument("--list-filters", type=Path)
+    parser.add_argument("--require-filter", action="append", default=[])
     parser.add_argument("--skip-report", type=Path,
                         help="with --log: write 'RAN SKIPPED', then the skipped suites and the skips by reason")
     args = parser.parse_args()
@@ -150,7 +159,9 @@ def main() -> int:
             else:
                 print(execution_count(output))
         else:
-            print("\n".join(discovery_filters(args.list_filters.read_text(encoding="utf-8"))))
+            output = args.list_filters.read_text(encoding="utf-8")
+            require_discovery_filters(output, args.require_filter)
+            print("\n".join(discovery_filters(output)))
     except (OSError, ValueError) as error:
         print(f"Swift test execution guard: {error}", file=sys.stderr)
         return 1
