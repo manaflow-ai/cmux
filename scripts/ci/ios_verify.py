@@ -55,6 +55,27 @@ GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
+XCODE_PINS = REPO_ROOT / "scripts" / "ci" / "xcode-pins.txt"
+
+
+def xcode_label(pins: Path = XCODE_PINS) -> str | None:
+    """The worker label naming the Xcode cmux-next-ios-sim.sh will select: the pin of the newest macOS row in
+    xcode-pins.txt (the simulator pool runs the newest macOS). Without it the controller may move a step pinned to a
+    warm worker onto any simulator host, and one without that Xcode exits 3 ("no Xcode at ..."): cmux#38805's proof
+    went from cmux22 to a host that advertised simulator but no xcode-27.2."""
+    rows = []
+    for line in pins.read_text().splitlines() if pins.is_file() else []:
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 2 and parts[0].isdigit():
+            rows.append((int(parts[0]), parts[1]))
+    return f"xcode-{max(rows)[1]}" if rows else None
+
+
+def step_key(pr: int, head: str, step: dict, strict: bool) -> str:
+    """The controller's step_key: one per (PR, head, mode, worker, pin mode). A key without the head or the pin mode
+    names an earlier step, so a rerun with --pin-strict at the same head was refused (HTTP 409, "step_key already
+    names a different step")."""
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{step['worker']}" + ("-strict" if strict else "")
 
 
 def now() -> str:
@@ -113,9 +134,12 @@ def delegated(selection: dict) -> list[dict]:
 
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(pr, head, step, strict), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
+    label = xcode_label()
+    if label:
+        cmd += ["--label", label]
     if strict:
         cmd.append("--pin-strict")
     for a in step["args"]:

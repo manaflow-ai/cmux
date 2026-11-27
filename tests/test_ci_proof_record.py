@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -265,6 +266,42 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            return type("P", (), {"returncode": 0, "stdout": "step: abcdef123456", "stderr": ""})()
+
+        real = ios_verify.subprocess.run
+        ios_verify.subprocess.run = fake_run
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.subprocess.run = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22"}
+        loose, strict = ios_verify.step_key(7, HEAD, step, False), ios_verify.step_key(7, HEAD, step, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(7, OTHER, step, False))
+        self.assertIn(HEAD[:12], loose)
 
 
 if __name__ == "__main__":
