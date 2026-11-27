@@ -529,10 +529,12 @@ impl Drop for DeleteGuard {
         let shares = shares(&mux);
         shares.release_room_delete(&self.share_id);
         shares.rearm();
-        // A late PUT that found this worker in flight wrote its host token after the worker's
-        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        // A late PUT or the expiry timer may have tried to start cleanup while this worker
+        // still held the claim. Check both after releasing it.
         if self.tokenless
-            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+            && view(&mux, &self.share_id).is_some_and(|v| {
+                v.delete && (v.host_token.is_some() || shares.now() >= v.expires_at)
+            })
         {
             delete(&mux, &self.share_id, None);
         }
@@ -680,7 +682,7 @@ fn delete_after(
 }
 
 /// Starts the share's host socket, or has the running one reconcile.
-fn host(mux: &Arc<Mux>, share_id: &str) {
+pub(super) fn host(mux: &Arc<Mux>, share_id: &str) {
     let bridge = &shares(mux).bridge;
     let mut hosts = bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
     if hosts.get(share_id).is_some_and(|(_, host)| host.send(Cmd::Reconcile).is_ok()) {
@@ -1072,6 +1074,7 @@ impl Guests {
                 }
                 ask
             }
+            "guest_cancel" => relay::Ask::Cancel,
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
@@ -1109,7 +1112,8 @@ impl Guests {
         tries: u32,
     ) {
         self.waiting.remove(guest);
-        if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
+        let Some(view) = view(mux, share_id) else { return };
+        if !view.active.iter().any(|g| g == guest) {
             return;
         }
         let bridge = &shares(mux).bridge;
@@ -1212,7 +1216,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
-                secret: field("secret"),
+                // A null secret is no secret (an account-only accept), never an empty one to check.
+                secret: frame.get("secret").filter(|v| !v.is_null()).map(|_| field("secret")),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
                 // The account the room signed in: an invitee's (no secret then), or a signed-in
@@ -1355,3 +1360,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_room_seeded_tests.rs"]
+mod seeded_tests;

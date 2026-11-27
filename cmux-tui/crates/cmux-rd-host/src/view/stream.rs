@@ -47,6 +47,7 @@ pub struct Config {
     pub control: bool,
     pub viewer_id: String,
     pub stats_file: Option<PathBuf>,
+    pub hub_approval: Option<String>,
 }
 
 pub struct Ended {
@@ -204,6 +205,8 @@ struct Stats {
     bytes: u64,
     decode_ms: Vec<f64>,
     started_ns: u64,
+    first_frame_ms: Option<f64>,
+    luma_variance: Option<f64>,
 }
 
 /// Runs the session until it ends: the link's events, the hub's messages and the window's input.
@@ -247,6 +250,8 @@ pub fn run(
         bytes: 0,
         decode_ms: Vec::new(),
         started_ns: now_ns(),
+        first_frame_ms: None,
+        luma_variance: None,
     };
     let (mut last_feedback_ns, mut released_since_feedback) = (0u64, false);
     let mut last_input_send_ns = 0u64;
@@ -288,6 +293,10 @@ pub fn run(
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
                     kind: Some(k), rtt_us, ..
                 }) => {
+                    // A current path again: the host learns it is back from the first
+                    // feedback after the silence (D12), so that goes now, not at the
+                    // next keepalive.
+                    last_feedback_ns = 0;
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
@@ -411,6 +420,9 @@ pub fn run(
             "decode_errors": stats.decode_errors,
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
+            "first_frame_ms": stats.first_frame_ms,
+            "luma_variance": stats.luma_variance,
+            "hub_approval": config.hub_approval,
             "presented": window_report.presented,
             "replaced_before_present": replaced,
             "present_ms": pct(&mut window_report.present_ms.clone()),
@@ -425,6 +437,22 @@ pub fn run(
         std::fs::write(path, format!("{report}\n"))?;
     }
     Ok(Ended { reason: ended, connected })
+}
+
+fn luma_variance(y: &[u8]) -> f64 {
+    if y.is_empty() {
+        return 0.0;
+    }
+    let count = y.len() as f64;
+    let sum: f64 = y.iter().map(|&sample| f64::from(sample)).sum();
+    let sum_squared: f64 = y
+        .iter()
+        .map(|&sample| {
+            let sample = f64::from(sample);
+            sample * sample
+        })
+        .sum();
+    (sum_squared / count - (sum / count).powi(2)).max(0.0)
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -497,6 +525,10 @@ fn on_datagram(
                         let t1 = now_ns();
                         stats.decode_ms.push((t1 - t0) as f64 / 1e6);
                         stats.decoded += 1;
+                        if stats.first_frame_ms.is_none() {
+                            stats.first_frame_ms = Some((t1 - stats.started_ns) as f64 / 1e6);
+                            stats.luma_variance = Some(luma_variance(&current.y));
+                        }
                         if i == last {
                             hand_off(mailbox, current, decoder.color(), now, t1);
                             present_waker.wake();
@@ -589,6 +621,7 @@ fn maybe_feedback(
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
+        acked_ltr_tokens: Vec::new(),
     });
     *last_feedback_ns = now;
     *released_since_feedback = false;
@@ -604,65 +637,5 @@ pub fn pct(xs: &mut [f64]) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn picture(w: usize, h: usize, fill: u8) -> I420 {
-        let mut p = I420::new(w, h);
-        p.y.fill(fill);
-        p
-    }
-
-    #[test]
-    fn the_newest_picture_wins_and_replacements_are_counted() {
-        let mailbox: SharedMailbox = Arc::default();
-        let mut current = picture(4, 2, 1);
-        hand_off(&mailbox, &mut current, Yuv::SCREEN, 10, 11);
-        current = picture(4, 2, 2);
-        hand_off(&mailbox, &mut current, Yuv::SCREEN, 20, 21);
-        let mut slot = mailbox.lock().unwrap();
-        assert_eq!(slot.replaced, 1);
-        let shown = slot.ready.take().unwrap();
-        assert_eq!((shown.image.y[0], shown.complete_ns, shown.height()), (2, 20, 2));
-        assert_eq!(current.y[0], 1, "the replaced buffer comes back for the next decode");
-        assert!(slot.ready.is_none());
-    }
-
-    #[test]
-    fn a_waker_wakes_a_wait_and_drains() {
-        let w = Waker::new().unwrap();
-        w.wake();
-        let t = now_ns();
-        wait_readable(&[w.fd()], Some(1_000_000_000)).unwrap();
-        assert!(now_ns() - t < 500_000_000);
-        w.drain();
-        let t = now_ns();
-        wait_readable(&[w.fd()], Some(20_000_000)).unwrap();
-        assert!(now_ns() - t >= 15_000_000, "drained pipe is not readable");
-    }
-
-    #[test]
-    fn percentiles_of_samples() {
-        let mut xs = vec![5.0, 1.0, 3.0, 2.0, 4.0];
-        let p = pct(&mut xs);
-        assert_eq!(
-            (p["p50"].as_f64(), p["max"].as_f64(), p["n"].as_u64()),
-            (Some(3.0), Some(5.0), Some(5))
-        );
-        assert!(pct(&mut []).is_null());
-    }
-
-    #[test]
-    fn ctrl_c_wakes_the_session_loop_and_marks_it_interrupted() {
-        let w = Waker::new().unwrap();
-        INTERRUPT_FD.store(w.0.write, Ordering::SeqCst);
-        assert!(!interrupted());
-        on_interrupt(libc::SIGINT);
-        assert!(interrupted());
-        wait_readable(&[w.fd()], Some(1_000_000_000)).unwrap();
-        let mut buf = [0u8; 4];
-        // SAFETY: a read into our buffer from our own non-blocking pipe.
-        assert_eq!(unsafe { libc::read(w.fd(), buf.as_mut_ptr().cast(), 4) }, 1);
-        INTERRUPT_FD.store(-1, Ordering::SeqCst);
-    }
-}
+#[path = "stream_tests.rs"]
+mod tests;

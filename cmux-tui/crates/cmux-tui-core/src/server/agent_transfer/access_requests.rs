@@ -7,15 +7,20 @@
 //! requests: it never reaches the Mac and nothing here grants anything.
 //!
 //! - `access-request {kind:"file", path, session?, reason?}` or
-//!   `{kind:"secret", name, session?, reason?}`: answers `{request_id}`.
+//!   `{kind:"secret", name, session?, reason?}`: answers `{request_id,
+//!   read_token}`. `read_token` goes to the asking connection only (never
+//!   listed): a secret's value is answered only to a status read that brings
+//!   it, so another chat's agent that lists the requests cannot take it.
 //!   `path` is the absolute path on the Mac the agent asks for, `name` the
 //!   secret's name (plain, at most 128 bytes), `session` the asking chat's
 //!   agent session (`CMUX_AGENT_SESSION`), `reason` a line for the person.
-//! - `access-request-status {request_id}`: `{state, path?, value?, reason?}`,
+//! - `access-request-status {request_id, read_token?}`: `{state, path?, value?, reason?}`,
 //!   where `state` is `pending`, `delivered` (with the `path` on this machine
 //!   the Mac put the file at, or a secret's `value`) or `denied` (with the
 //!   Mac's `reason`, if any). A secret's value is answered to the first
-//!   status read only, then wiped here (`{state:"delivered", taken:true}`).
+//!   status read with the request's `read_token` only, then wiped here
+//!   (`{state:"delivered", taken:true}`). A read without the token (or with
+//!   another) learns the state, never the value, and takes nothing.
 //! - `access-request-list {}`: the pending requests, oldest first, as
 //!   `{requests:[{request_id, kind, path, name, session, reason, age_ms}]}`.
 //! - `access-request-answer {request_id, outcome:"delivered", path}` (a
@@ -79,6 +84,9 @@ struct Request {
     name: Option<String>,
     session: Option<String>,
     reason: Option<String>,
+    /// The asker's capability to read a secret's value: answered to the
+    /// `access-request` call only, never listed.
+    read_token: Zeroizing<String>,
     made: Instant,
     /// When it was answered, and how.
     answer: Option<(Instant, Answer)>,
@@ -213,6 +221,8 @@ fn handle(
                 return Err(Refusal::BadRequest);
             }
             let request_id = new_id().ok_or(Refusal::Limit)?;
+            let read_token = new_id().ok_or(Refusal::Limit)?;
+            let reply = json!({ "request_id": request_id, "read_token": read_token });
             kept.insert(
                 request_id.clone(),
                 Request {
@@ -221,22 +231,35 @@ fn handle(
                     name,
                     session: session.map(str::to_string),
                     reason: reason.map(str::to_string),
+                    read_token: Zeroizing::new(read_token),
                     made: now,
                     answer: None,
                 },
             );
-            Ok(json!({ "request_id": request_id }))
+            Ok(reply)
         }
         "access-request-status" => {
-            let params = Params::take(params, &["request_id"])?;
+            let params = Params::take(params, &["request_id", "read_token"])?;
             let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
             let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
+            let asker = params
+                .text("read_token")?
+                .is_some_and(|token| same_bytes(token.as_bytes(), request.read_token.as_bytes()));
             Ok(match &mut request.answer {
                 None => json!({"state": "pending"}),
                 Some((_, Answer::Delivered(path))) => json!({"state": "delivered", "path": path}),
                 // Only the first read gets the value; it is gone from here after.
                 // Moved, not copied, into the reply; the reply line itself is
                 // the one plain copy left, until it is written.
+                // Another chat's agent can list the requests and name this
+                // one, but not bring its token: it learns the state only.
+                Some((_, Answer::Secret(value))) if !asker => {
+                    if value.is_some() {
+                        json!({"state": "delivered"})
+                    } else {
+                        json!({"state": "delivered", "taken": true})
+                    }
+                }
                 Some((_, Answer::Secret(value))) => match value.take() {
                     Some(mut value) => {
                         let mut reply = json!({"state": "delivered"});
@@ -359,6 +382,12 @@ fn plain_session(session: &str) -> bool {
         && session.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
 }
 
+/// Whether `a` and `b` are equal, in time that does not depend on where they
+/// first differ.
+fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
 /// A new request id: 16 random bytes in hex.
 fn new_id() -> Option<String> {
     let mut bytes = [0u8; 16];
@@ -388,25 +417,5 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Refusa
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn requests_past_the_old_cap_of_64_are_kept_and_listed() {
-        let requests = AccessRequests::default();
-        let now = Instant::now();
-        for index in 0..200 {
-            let mut params = Map::new();
-            params.insert("kind".into(), json!("secret"));
-            params.insert("name".into(), json!(format!("SECRET_{index}")));
-            let Ok(answer) = handle(&requests, "access-request", params, now) else {
-                panic!("request {index} refused");
-            };
-            assert!(answer["request_id"].is_string(), "{answer}");
-        }
-        let Ok(listed) = handle(&requests, "access-request-list", Map::new(), now) else {
-            panic!("list refused");
-        };
-        assert_eq!(listed["requests"].as_array().map(Vec::len), Some(200));
-    }
-}
+#[path = "access_requests_tests.rs"]
+mod tests;

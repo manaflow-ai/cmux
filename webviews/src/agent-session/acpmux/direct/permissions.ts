@@ -62,6 +62,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
+    ...forkOfferFrom(envelope.forkOffer),
     // ACP v2's request title names the approval itself; a subject tool title is its operation fallback.
     title: raw.title ?? toolCall?.title,
     // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
@@ -145,4 +146,21 @@ export function permissionPlan(
         .trim()
     : "";
   return text || undefined;
+}
+
+/// A risky step's fork offer (acpmux fork_risky.rs `offer`), when the request carries one whole.
+function forkOfferFrom(value: unknown): { forkOffer?: AcpmuxPermission["forkOffer"] } {
+  const offer = objectValue(value);
+  const machine = stringValue(offer?.machine);
+  const reason = stringValue(offer?.reason);
+  const clientKey = stringValue(offer?.clientKey);
+  return machine && reason && clientKey ? { forkOffer: { machine, reason, clientKey } } : {};
+}
+
+/// The offer a "Fork first" answer carries from the card (`chat.permission`'s `forkFirst`), when it is one.
+export function forkFirstOffer(value: unknown): { machine: string; clientKey: string } | undefined {
+  const offer = objectValue(value);
+  const machine = stringValue(offer?.machine);
+  const clientKey = stringValue(offer?.clientKey);
+  return machine && clientKey ? { machine, clientKey } : undefined;
 }

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.look.help" : {
+      "comment" : "Help under the Sidebar Look setting.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行、見出し、ステータス表示を別のアプリのサイドバーのようにします。自分のサイドバー設定が引き続き優先されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صفوف وعناوين وعلامات حالة مثل الشريط الجانبي لتطبيق آخر. تبقى إعداداتك الخاصة للشريط الجانبي هي الغالبة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redovi, naslovi i oznake statusa kao u bočnoj traci druge aplikacije. Vaše postavke bočne trake i dalje imaju prednost."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rækker, overskrifter og statusmærker som i en anden apps sidepanel. Dine egne sidepanelindstillinger vinder stadig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeilen, Überschriften und Statusmarken wie in der Seitenleiste einer anderen App. Deine eigenen Seitenleisten-Einstellungen haben weiterhin Vorrang."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filas, encabezados y marcas de estado como en la barra lateral de otra app. Tus propios ajustes de la barra lateral siguen mandando."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lignes, en-têtes et marques d’état comme dans la barre latérale d’une autre app. Vos propres réglages de la barre latérale restent prioritaires."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Righe, intestazioni e indicatori di stato come nella barra laterale di un’altra app. Le tue impostazioni della barra laterale hanno sempre la precedenza."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជួរ ក្បាល និងសញ្ញាស្ថានភាពដូចរបារចំហៀងរបស់កម្មវិធីផ្សេង។ ការកំណត់របារចំហៀងផ្ទាល់ខ្លួនរបស់អ្នកនៅតែឈ្នះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 앱의 사이드바처럼 행, 머리글, 상태 표시를 보여 줍니다. 직접 정한 사이드바 설정이 계속 우선합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rader, overskrifter og statusmerker som i en annen apps sidepanel. Dine egne sidepanelinnstillinger gjelder fortsatt først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiersze, nagłówki i znaczniki stanu jak w pasku bocznym innej aplikacji. Twoje własne ustawienia paska bocznego nadal mają pierwszeństwo."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linhas, cabeçalhos e marcas de status como na barra lateral de outro app. Seus próprios ajustes da barra lateral continuam valendo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Строки, заголовки и значки статуса как в боковой панели другого приложения. Ваши собственные настройки боковой панели по-прежнему главнее."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แถว หัวข้อ และเครื่องหมายสถานะแบบแถบด้านข้างของแอปอื่น การตั้งค่าแถบด้านข้างของคุณเองยังคงมีผลก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satırlar, başlıklar ve durum işaretleri başka bir uygulamanın kenar çubuğu gibi. Kendi kenar çubuğu ayarlarınız yine önceliklidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рядки, заголовки й позначки стану як у бічній панелі іншої програми. Ваші власні налаштування бічної панелі й надалі мають перевагу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hàng, tiêu đề và dấu trạng thái giống thanh bên của một ứng dụng khác. Cài đặt thanh bên của riêng bạn vẫn được ưu tiên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行、标题和状态标记如同另一款应用的边栏。你自己的边栏设置仍然优先。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列、標題和狀態標記如同另一款 App 的側邊欄。你自己的側邊欄設定仍然優先。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

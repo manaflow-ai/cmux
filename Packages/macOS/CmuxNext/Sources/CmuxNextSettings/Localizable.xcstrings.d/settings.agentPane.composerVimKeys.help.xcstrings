@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.composerVimKeys.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc للوضع العادي وi للكتابة. h j k l وw b e و0 $ وx وdd وu للتحرير. Return يرسل دائمًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc za normalni način, i za pisanje. h j k l, w b e, 0 $, x, dd i u za uređivanje. Return i dalje šalje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc for normal tilstand, i for at skrive. h j k l, w b e, 0 $, x, dd og u redigerer. Retur sender stadig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc für den Normalmodus, i zum Tippen. h j k l, w b e, 0 $, x, dd und u bearbeiten. Return sendet weiterhin."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc para el modo normal, i para escribir. h j k l, w b e, 0 $, x, dd y u editan. Intro sigue enviando."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Échap pour le mode normal, i pour écrire. h j k l, w b e, 0 $, x, dd et u modifient. Retour envoie toujours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc per il modo normale, i per scrivere. h j k l, w b e, 0 $, x, dd e u modificano. Invio continua a inviare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc でノーマルモード、i で入力に戻ります。h j k l、w b e、0 $、x、dd、u で編集します。Return は引き続き送信します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc សម្រាប់ម៉ូដធម្មតា i ដើម្បីវាយ។ h j k l, w b e, 0 $, x, dd និង u សម្រាប់កែ។ Return នៅតែផ្ញើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc로 일반 모드, i로 입력합니다. h j k l, w b e, 0 $, x, dd, u로 편집합니다. Return은 계속 전송합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc for normalmodus, i for å skrive. h j k l, w b e, 0 $, x, dd og u redigerer. Retur sender fortsatt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc to tryb normalny, i to pisanie. h j k l, w b e, 0 $, x, dd i u edytują. Return nadal wysyła."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc para o modo normal, i para digitar. h j k l, w b e, 0 $, x, dd e u editam. Return continua enviando."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc включает обычный режим, i возвращает к вводу. h j k l, w b e, 0 $, x, dd и u редактируют. Return по-прежнему отправляет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc เข้าโหมดปกติ i เพื่อพิมพ์ h j k l, w b e, 0 $, x, dd และ u ใช้แก้ไข Return ยังคงส่งข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc normal kip, i yazma içindir. h j k l, w b e, 0 $, x, dd ve u düzenler. Return yine gönderir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc вмикає звичайний режим, i повертає до введення. h j k l, w b e, 0 $, x, dd і u редагують. Return, як і раніше, надсилає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc để vào chế độ thường, i để nhập. h j k l, w b e, 0 $, x, dd và u để chỉnh sửa. Return vẫn gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc 进入普通模式，i 继续输入。h j k l、w b e、0 $、x、dd 和 u 用于编辑。Return 仍然发送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esc 進入一般模式，i 繼續輸入。h j k l、w b e、0 $、x、dd 和 u 用於編輯。Return 仍然傳送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

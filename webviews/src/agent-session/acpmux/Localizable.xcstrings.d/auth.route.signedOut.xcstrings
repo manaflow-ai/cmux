@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "auth.route.signedOut" : {
+      "comment" : "Agent pane: the composer's notice when the chat's account route needs a new sign-in; {name} is the account's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يحتاج حساب {name} إلى تسجيل دخول جديد. سجّل الدخول إلى {name} للمتابعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaš {name} račun treba novu prijavu. Prijavite se u {name} da nastavite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din {name}-konto kræver et nyt login. Log ind på {name} for at fortsætte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein {name}-Konto braucht eine neue Anmeldung. Melde dich bei {name} an, um fortzufahren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your {name} account needs a new sign-in. Sign in to {name} to continue."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu cuenta de {name} necesita un nuevo inicio de sesión. Inicia sesión en {name} para continuar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre compte {name} doit être reconnecté. Connectez-vous à {name} pour continuer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il tuo account {name} richiede un nuovo accesso. Accedi a {name} per continuare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{name} アカウントに再サインインが必要です。続行するには {name} にサインインしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គណនី {name} របស់អ្នកត្រូវការចូលម្ដងទៀត។ ចូល {name} ដើម្បីបន្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{name} 계정에 다시 로그인해야 합니다. 계속하려면 {name}에 로그인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{name}-kontoen din trenger ny innlogging. Logg på {name} for å fortsette."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto {name} wymaga ponownego logowania. Zaloguj się do {name}, aby kontynuować."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua conta {name} precisa de um novo login. Entre no {name} para continuar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для аккаунта {name} нужно войти заново. Войдите в {name}, чтобы продолжить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บัญชี {name} ต้องลงชื่อเข้าใช้ใหม่ ลงชื่อเข้าใช้ {name} เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{name} hesabınız için yeniden giriş gerekiyor. Devam etmek için {name} hesabına giriş yapın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для облікового запису {name} потрібно увійти знову. Увійдіть у {name}, щоб продовжити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tài khoản {name} cần đăng nhập lại. Hãy đăng nhập {name} để tiếp tục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的 {name} 账户需要重新登录。请登录 {name} 以继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的 {name} 帳號需要重新登入。請登入 {name} 以繼續。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

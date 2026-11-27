@@ -77,18 +77,15 @@ struct SidebarAgentRowPresentationTests {
         #expect(turns.lastMessage(for: ref) == nil)
     }
 
-    @Test func aPromptDerivedLaneStepUsesActivityOrPlanStep() throws {
+    @Test func aPromptDerivedLaneStepUsesActivity() throws {
         let prompt = String(repeating: "Implement the adapter and report the result.\n", count: 8)
         let foldedPrompt = prompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let summary: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
             "lane": ["state": "working", "step": String(foldedPrompt.prefix(240)) + "…"],
-            "turn": ["prompt": prompt, "activity": "Running tests", "planStep": "Verify output"]]
+            "turn": ["prompt": prompt, "activity": "Running tests"]]
         let lane = try #require(AgentActivityLane.of(summary: summary))
         #expect(lane.turnPrompt == prompt)
         #expect(SidebarLaneStatus.step([lane]) == "Running tests")
-        let planOnly = summary.merging(["turn": ["prompt": prompt, "activity": NSNull(), "planStep": "Verify output"]]) { _, new in new }
-        let planLane = try #require(AgentActivityLane.of(summary: planOnly))
-        #expect(SidebarLaneStatus.step([planLane]) == "Verify output")
         let folded = summary.merging(["turn": ["prompt": prompt]]) { _, new in new }
         let foldedLane = try #require(AgentActivityLane.of(summary: folded))
         #expect(SidebarLaneStatus.step([foldedLane]) == nil)
@@ -108,6 +105,18 @@ struct SidebarAgentRowPresentationTests {
             workspaceNameSource: .user, sessionName: "peer/demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "peer/demo-lane", workspaceName: "peer/demo-lane",
             workspaceNameSource: .user, sessionName: "peer/demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
+    }
+
+    /// #56422: `agents chat new --name` names the workspace and the chat alike; the daemon pins the
+    /// workspace's (user, revision 1), so the chat's first-prompt title never replaces it.
+    @Test func anExplicitlyNamedChatWorkspaceKeepsItsName() {
+        let name = "56151: Plan bar icon alignment"
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: name, workspaceName: name, workspaceNameSource: .user, workspaceNameRevision: 1,
+                                             sessionName: name, chatTitle: "Fix GitHub issue https://github.com/manaflow-ai/cmux/issues/56151",
+                                             taskSummary: nil) == name)
+        // The same name as a starting name (auto) still follows the chat.
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: name, workspaceName: name, workspaceNameSource: .auto,
+                                             sessionName: name, chatTitle: "Fix the plan bar", taskSummary: nil) == "Fix the plan bar")
     }
 
     @Test func peerNamesUseTheSameResolverAndKeepRenames() throws {

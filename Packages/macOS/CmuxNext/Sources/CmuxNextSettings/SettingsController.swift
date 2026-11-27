@@ -72,6 +72,11 @@ public final class SettingsController {
     @ObservationIgnored var rootUnderThemeFile: JSONValue = .object([:])
     /// The active theme file's last text that parsed, which a save that does not parse keeps applying.
     @ObservationIgnored fileprivate var lastGoodThemeFile: SettingsLoadInputs.ThemeFile?
+    /// Resolves a theme file's `slots` (name, text) to slot id and variant id: the app asks the
+    /// daemon (`theme.slots.resolve`), which checks them. Nil leaves `DesignSettings.themeSlots` alone.
+    @ObservationIgnored public var resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])?
+    /// The theme file text the slots were last asked for, and the ask in flight.
+    @ObservationIgnored fileprivate var themeSlotsAsked: (input: SettingsLoadInputs.ThemeFile?, task: Task<Void, Never>?)?
 
     @ObservationIgnored let applier: SettingsApplier
     /// The active theme file's own font files, registered while it applies.
@@ -109,6 +114,7 @@ public final class SettingsController {
     }
 
     /// `writer` takes every write of the file (the app: the home daemon's settings owner); nil refuses them.
+    /// `resolveThemeSlots` sets ``resolveThemeSlots``.
     public init(
         writer: (any SettingsFileWriter)? = nil,
         registry: ActionRegistry,
@@ -117,9 +123,11 @@ public final class SettingsController {
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
         launch: LaunchRead? = nil,
-        buildDefaults: SettingsBuildDefaults? = nil
+        buildDefaults: SettingsBuildDefaults? = nil,
+        resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL, writer: writer)
+        self.resolveThemeSlots = resolveThemeSlots
         self.launchRead = launch
         self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
@@ -412,10 +420,13 @@ public final class SettingsController {
     /// preferences and the active theme file. The launch awaits it before its first window and passes it to
     /// ``appliedAtLaunch(_:)``, so the main thread reads no settings file before its first frame.
     public static func startLaunchRead(buildDefaults: SettingsBuildDefaults) -> Task<LaunchRead, Never> {
-        let (valid, reader) = (validValues, ManagedPreferenceLocation.defaultReader())
+        let valid = validValues
         // concurrency-allow: the launch's settings file read runs detached, off the main actor, while AppKit starts.
+        // The managed reader is made there too: `defaultReader()` lists every published key, and its first use builds
+        // `SettingsSchema.all` (a lazy static, ~41 ms), which this call, in AppDelegate's init, paid on the main thread
+        // before the Dock stops bouncing (CMUX-631).
         return Task.detached(priority: .userInitiated) {
-            launchRead(file: CmuxConfigFile.launchFile(), managedReader: reader, buildDefaults: buildDefaults, valid: valid)
+            launchRead(file: CmuxConfigFile.launchFile(), managedReader: ManagedPreferenceLocation.defaultReader(), buildDefaults: buildDefaults, valid: valid)
         }
     }
 
@@ -504,6 +515,7 @@ public final class SettingsController {
             appliedCount += 1
         }
         if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = SettingsLoadInputs.ThemeFile(name: name, source: good) }
+        passThemeSlots(loaded.themes.overlay.map { SettingsLoadInputs.ThemeFile(name: $0.name, source: loaded.themes.goodSource) })
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             appliedCount += 1
@@ -641,5 +653,23 @@ extension SettingsController {
         }
         watchers.forEach { $0.start(reportInitialChange: false) }
         themeWatchers = (name, watchers)
+    }
+
+    /// Hands the active theme file's text (nil: none) to ``resolveThemeSlots`` and its answer to
+    /// `DesignSettings.themeSlots` as is; the daemon reads and checks the slots.
+    fileprivate func passThemeSlots(_ input: SettingsLoadInputs.ThemeFile?) {
+        guard let resolve = resolveThemeSlots else { return }
+        if let asked = themeSlotsAsked, asked.input == input { return }
+        themeSlotsAsked?.task?.cancel()
+        let design = applier.design
+        guard let input, let text = input.source else {
+            themeSlotsAsked = (input, nil)
+            design.themeSlots = [:]
+            return
+        }
+        themeSlotsAsked = (input, Task { @MainActor in
+            let slots = await resolve(input.name, text)
+            if !Task.isCancelled { design.themeSlots = slots }
+        })
     }
 }

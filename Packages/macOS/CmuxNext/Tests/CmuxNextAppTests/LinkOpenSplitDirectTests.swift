@@ -89,6 +89,9 @@ import Testing
         #expect(direction == .right)
         #expect(provisional.tab?.kind == .browser)
         #expect(provisional.tab?.url == url.absoluteString)
+        // ask-08552f8ea0: the split's stand-in is app-rendered, so its page starts in the click's turn (never an empty pane until the reply).
+        #expect(provisional.tab?.browserRenderer == "frontend", "the split's stand-in has no page until the daemon replies")
+        #expect(provisional.tab?.browserEngine != nil)
         let screen = try #require(store.workspaces.first?.screens.first)
         #expect(screen.panes.count == 2, "the new split did not show at once")
         #expect(store.pane(PaneID(rawValue: 1))?.tabs.map(\.surface) == [SurfaceID(rawValue: 1)], "the link's tab showed in the source pane")

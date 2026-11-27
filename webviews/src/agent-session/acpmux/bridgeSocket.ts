@@ -8,6 +8,7 @@ import { postNative } from "./native";
 import { takeEarlyOpen } from "./chatSnapshot/earlyOpen";
 import { nativeTimedOut } from "./nativeError";
 import { AcpmuxRpcError } from "./handoff/protocol";
+import { inputPending, listenForInput } from "./inputPending";
 import { deliverQuestionKeyRequest, isQuestionKeyRequest, type QuestionKeyRequest } from "./question/keyReply";
 
 /// One host push: frames in arrival order, then at most once the close.
@@ -15,7 +16,12 @@ export type TransportEvent = {
   connection: number;
   frames?: string[];
   closed?: { code: number; reason: string; error?: string };
+  /// The push's number: the page acks it (`transport.ack`) once it applied the frames. Older hosts send none.
+  seq?: number;
 };
+
+/// The host's next push carries whether input waits (shared with the transcript: inputPending.ts).
+export { INPUT_RECENT_MS, inputPending } from "./inputPending";
 
 type Post = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -134,6 +140,7 @@ function recoverClosedQuestionKeyRefusal(event: TransportEvent): void {
 }
 
 function install(): void {
+  if (typeof window === "undefined") return;
   const w = window as { cmuxAcpmuxTransport?: { receive(event: TransportEvent): void } };
   if (w.cmuxAcpmuxTransport) return;
   w.cmuxAcpmuxTransport = { receive: receiveTransportEvent };
@@ -165,6 +172,7 @@ export class BridgeSocket {
     openTimeoutMs = TRANSPORT_OPEN_TIMEOUT_MS,
   ) {
     install();
+    listenForInput();
     this.openTimer = setTimeout(() => {
       this.openTimer = undefined;
       this.closeError = "transport.open_timed_out";
@@ -217,11 +225,17 @@ export class BridgeSocket {
     if (connection !== undefined) void this.post("transport.close", { connection }).catch(() => undefined);
   }
 
-  /// A host push for this connection.
+  /// A host push for this connection. Once its frames ran, the page acks the push's `seq`: the host
+  /// sends the next push only after the ack (or its deadline), so a slow page makes the host hold and
+  /// merge frames instead of queueing pushes, and while a key is pending the next push is small.
   receive(event: TransportEvent): void {
     for (const data of event.frames ?? []) {
       if (this.readyState !== OPEN) return;
       this.onmessage?.({ data });
+    }
+    if (typeof event.seq === "number" && !event.closed && this.connection !== undefined && this.readyState === OPEN) {
+      const ack = { connection: this.connection, seq: event.seq, inputPending: inputPending(), queued: 0 };
+      void this.post("transport.ack", ack).catch(() => undefined);
     }
     if (event.closed) {
       this.closeError = event.closed.error;

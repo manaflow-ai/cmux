@@ -63,7 +63,10 @@ import UIKit
             return (store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt, store.turns.count)
         }
 
-        // The first frame: what the screen holds when the run loop first draws it.
+        // The first frame: what the screen holds when the run loop first draws it. The store's
+        // reader task was queued at its init, ahead of this hop; give the main actor its turns
+        // (no timer: the count is bounded, not waited on) so it applies the kept batch first.
+        for _ in 0..<20 where !store.hasTurns { await Task.yield() }
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }

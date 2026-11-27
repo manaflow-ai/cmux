@@ -21,6 +21,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::UnsettleCmd { .. }
             | Command::Archive { .. }
             | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
@@ -46,6 +47,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Care(..)
             | Command::Fetch(..)
             | Command::Group(..)
             | Command::Account(..)
@@ -176,6 +178,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::UnsettleCmd { session } => {
+            orchestrate::unsettle(connect(true).await?, &session, json_out).await
         }
         Command::Archive { sessions } => {
             crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
@@ -436,9 +441,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
+            // `--ephemeral` is never such a launch: a throwaway's session goes once its
+            // reply is printed, and a detached one had nothing left to purge it. `acpmux
+            // run` and `exec` detach, and a prompt file made that a launch, so the
+            // condition-trigger evaluator's `run --ephemeral --prompt-file -` (no
+            // `--wait`) left 138 of its decision chats on a lane VM (2026-11-26).
             let one_shot = launch.first_prompt(&args, &Value::Null).is_some()
                 && (args.quiet || json_out || args.ephemeral)
-                && !(args.detach && launch.launches());
+                && !(args.detach && launch.launches() && !args.ephemeral);
             // Checked before the session exists, so a bad value leaves none behind.
             let on_permission = OnPermission::parse(&args.on_permission)?;
             // A route check an agent runs from its shell ("Reply with only: OK",
@@ -991,6 +1001,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // The fan-out note runs beside the send and is never waited on (`send_fanout.rs`).
             let fanout = Arc::new(std::sync::Mutex::new(None));
             let fanout_slot = fanout.clone();
+            // Set when the name resolved to a chat only the mesh hub reaches: the send goes
+            // through the hub even when a send relay is configured, as `last`, `info` and
+            // `look` reach it, never to the relay as mail for a name nothing resolves.
+            let hub_reached = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let hub_reached_slot = hub_reached.clone();
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
                 let note = note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref());
@@ -1047,6 +1062,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
                 // the hub as one to a name nobody here runs (below).
                 if read_through_hub(&info) {
+                    hub_reached_slot.store(true, std::sync::atomic::Ordering::SeqCst);
                     return Err(errors::AppError::no_session(&session).into());
                 }
                 announce_machine_wake_value(&info);
@@ -1113,8 +1129,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(line) = note.and_then(fanout_warning_if_known) {
                 eprintln!("{line}");
             }
+            let through_hub = hub_reached.load(std::sync::atomic::Ordering::SeqCst);
             match (sent, relay) {
-                (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
+                (Err(e), Some(relay))
+                    if crate::cli::send_relay::no_such_session(&e)
+                        && !hub_send_first(through_hub, no_wait, attaching) =>
+                {
                     crate::cli::send_relay::send_with_deadline(
                         &relay,
                         &relay_session,
@@ -1125,10 +1145,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         deadline,
                     )
                 }
-                (Err(e), None)
+                (Err(e), relay)
                     if !no_wait
                         && !attaching
                         && crate::cli::send_relay::no_such_session(&e)
+                        && (relay.is_none() || hub_send_first(through_hub, no_wait, attaching))
                         && crate::mesh_http::configured() =>
                 {
                     let client = before_deadline(deadline, &relay_session, connect(true)).await?;
@@ -1314,6 +1335,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         #[cfg(not(unix))]
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Care(cmd) => crate::cli::care::run(cmd, json_out),
         Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
@@ -1386,6 +1408,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            // Its CPU class now and the time it spent demoted (`hub/cpu_pressure.rs`).
+            if let Some(line) = cpu_class_line(&v) {
+                println!("cpu:       {line}");
+            }
             if let Some(line) = crate::hub::views::other_build_host_line(&v) {
                 println!("{line}");
             }
@@ -1669,15 +1695,23 @@ struct SendWait {
     agent: bool,
 }
 
-/// Whether the send goes to this daemon's outbox and returns once the message is on disk there,
-/// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
-/// classed one do unless the caller waits for the reply; the person's own send streams the
-/// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
+/// Whether a send that failed as "no such session" goes through the mesh hub ahead of a
+/// configured send relay: only when the name resolved to a chat the hub reaches
+/// (`read_through_hub`), so a moved chat's `HOST/NAME` gets the prompt in its own chat, not as
+/// relay mail. `--no-wait` and `--attach` sends never reach the hub check.
+fn hub_send_first(through_hub: bool, no_wait: bool, attaching: bool) -> bool {
+    through_hub && !no_wait && !attaching
+}
+
 /// Whether `info` is a session this daemon read through the mesh hub (`server/mesh_read.rs`).
 fn read_through_hub(info: &Value) -> bool {
     info.get("via").and_then(Value::as_str) == Some("hub")
 }
 
+/// Whether the send goes to this daemon's outbox and returns once the message is on disk there,
+/// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
+/// classed one do unless the caller waits for the reply; the person's own send streams the
+/// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
 fn send_queues(w: SendWait) -> bool {
     w.no_wait || (!w.wait && (w.classed || w.agent))
 }
@@ -1936,6 +1970,28 @@ fn print_listen(listen: &Value) {
     println!("{}\t{}\t{}\t{expires}", field("id"), field("teamAddress"), field("listener"));
 }
 
+/// `session info`'s CPU line from its `cpuClass`: the class asked for, the one it runs at now,
+/// and the time it spent demoted. None when the chat has no live harness.
+pub(crate) fn cpu_class_line(v: &Value) -> Option<String> {
+    let c = v.get("cpuClass").filter(|c| c.is_object())?;
+    let ms = c.get("demotedMs").and_then(Value::as_u64).unwrap_or(0);
+    let spells = c.get("demotions").and_then(Value::as_u64).unwrap_or(0);
+    let mut line = format!(
+        "{}, now {} (demoted {:.0} s in {spells} spell{})",
+        c.get("class").and_then(Value::as_str).unwrap_or("-"),
+        c.get("now").and_then(Value::as_str).unwrap_or("-"),
+        ms as f64 / 1000.0,
+        if spells == 1 { "" } else { "s" },
+    );
+    if c.get("waitedOn").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the person waits on its turn");
+    }
+    if c.pointer("/host/yielding").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the host is contended");
+    }
+    Some(line)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -2077,6 +2133,18 @@ mod tests {
         assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
         assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
         assert!(!read_through_hub(&json!({"sessionId": "s"})));
+    }
+
+    /// A waiting send to a chat the hub reaches goes through the hub even where a send relay is
+    /// configured (a lane VM's lane-gh): the prompt runs in that chat, as `last` reads it, not
+    /// as relay mail for a name nothing resolves (session-move-gcp, 2026-11-26).
+    #[test]
+    fn a_hub_reached_send_goes_through_the_hub_ahead_of_the_send_relay() {
+        use super::hub_send_first as first;
+        assert!(first(true, false, false));
+        assert!(!first(false, false, false), "a name nothing resolves keeps the relay");
+        assert!(!first(true, true, false), "--no-wait queues before the hub check");
+        assert!(!first(true, false, true), "--attach goes to the relay as before");
     }
 
     #[test]

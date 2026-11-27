@@ -935,6 +935,73 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    def test_a_retired_subscription_is_never_a_blocker(self) -> None:
+        # Readiness run 45748224089 (2026-11-26) counted the unused trial App
+        # Store Connect cannot delete as two blockers (no promotional image,
+        # READY_TO_SUBMIT); Go Monthly's READY_TO_SUBMIT stays one.
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps({"remediation": {"steps": [
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.images.recommended",
+             "message": "trial has no subscription promotional image", "resourceId": "6822947304"},
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
+             "message": "trial is READY_TO_SUBMIT", "resourceId": "6822947304"},
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
+             "message": "Go Monthly is READY_TO_SUBMIT", "resourceId": "6818445194"}]}}))
+        findings = gate.asc_findings(asc)
+        self.assertEqual([(f["where"], f["severity"]) for f in findings],
+                         [("6822947304", "info"), ("6822947304", "info"), ("6818445194", "blocker")])
+
+    def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
+        # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
+        # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
+        # gate made it a blocker for the whole review.
+        asc = self.root / "asc-validate.json"
+        for state, severity in (("WAITING_FOR_REVIEW", "info"), ("IN_REVIEW", "info"),
+                                ("PENDING_DEVELOPER_RELEASE", "info"), ("DEVELOPER_REJECTED", "blocker")):
+            asc.write_text(json.dumps({"remediation": {"steps": [
+                {"order": 1, "blocking": True, "severity": "error", "checkId": "version.state.editable",
+                 "message": f'version is in non-editable state "{state}"', "field": "appVersionState"}]}}))
+            findings = gate.asc_findings(asc)
+            self.assertEqual([f["severity"] for f in findings], [severity], state)
+
+    def test_asc_advice_and_a_locked_listing_do_not_block(self) -> None:
+        # Readiness run 45874464871 (2026-11-26) on 1.0.0 WAITING_FOR_REVIEW
+        # ranked 28 blockers: 3 missing promotional images and 7 keyword and
+        # subtitle overlaps (asc's advice, no App Review requirement) and 11
+        # locales' Terms of Use links on a listing App Store Connect locks
+        # during review. The subscriptions' missing review screenshots and
+        # metadata stay blockers: they are editable and App Review needs them.
+        def check(code: str, resource: str, message: str, severity: str = "warning") -> dict:
+            return {"id": code, "severity": severity, "resourceId": resource, "message": message}
+
+        def body(state: str) -> dict:
+            return {"versionString": "1.0.0", "checks": [
+                check("version.state.editable", "", f'version is in non-editable state "{state}"', "error"),
+                check("subscriptions.images.recommended", "6838160761", "no subscription promotional image"),
+                check("metadata.keywords.overlap_subtitle", "219cf75d", "keyword field repeats a subtitle term"),
+                check("legal.subscription.terms_of_use_link", "87553b21", "description is missing a Terms of Use link"),
+                check("subscriptions.diagnostics.review_screenshot_missing", "6838160761", "no App Review screenshot"),
+                check("subscriptions.review_readiness.needs_attention", "6838160761", "is MISSING_METADATA"),
+            ]}
+
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(body("WAITING_FOR_REVIEW")))
+        severities = {f["rule"]: f["severity"] for f in gate.asc_findings(asc)}
+        self.assertEqual(severities, {
+            "asc.version.state.editable": "info",
+            "asc.subscriptions.images.recommended": "warning",
+            "asc.metadata.keywords.overlap_subtitle": "warning",
+            "asc.legal.subscription.terms_of_use_link": "warning",
+            "asc.subscriptions.diagnostics.review_screenshot_missing": "blocker",
+            "asc.subscriptions.review_readiness.needs_attention": "blocker",
+        })
+        # An editable version's listing can be fixed before the submit: it blocks.
+        asc.write_text(json.dumps(body("DEVELOPER_REJECTED")))
+        severities = {f["rule"]: f["severity"] for f in gate.asc_findings(asc)}
+        self.assertEqual(severities["asc.legal.subscription.terms_of_use_link"], "blocker")
+        self.assertEqual(severities["asc.version.state.editable"], "blocker")
+        self.assertEqual(severities["asc.subscriptions.images.recommended"], "warning")
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
@@ -1302,6 +1369,23 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
+    def test_a_refused_package_fetch_never_ends_a_device_leg(self) -> None:
+        # Run 45746201444 lost both device legs to `swift-crypto.git: ... returned error: 403`
+        # inside build-for-testing, though the kept DerivedData slot held every clone.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+        steps = doc["jobs"]["reviewer-path"]["steps"]
+        names = [step.get("name") for step in steps]
+        resolve = steps[names.index("Resolve packages")]["run"]
+        build = steps[names.index("Build the app and the gate for testing")]["run"]
+        self.assertLess(names.index("Resolve packages"), names.index("Build the app and the gate for testing"))
+        self.assertIn("-resolvePackageDependencies", resolve)
+        self.assertIn("for wait_s in 0 30 90", resolve)
+        self.assertIn("resolve -skipPackageUpdates", resolve)
+        self.assertIn("-skipPackageUpdates", build)
+        self.assertNotIn("xcodegen generate", build)
+
     def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
         # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
         # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
@@ -1312,10 +1396,11 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
         on = doc.get("on", doc.get(True))
-        # A push runs the workflow; a feat-cmux-next pull request runs its tests as the ios-kit table step.
+        # A feat-cmux-next pull request and the post-merge batch (suite pr-pipeline-ios, `ci/run route` over the
+        # window's paths) both run the kit's tests as the ios-kit table step; the workflow's push names only itself.
+        self.assertEqual(on["push"]["paths"], [".github/workflows/cmux-next-ios-kit.yml"])
         kit = ci_steps.load().steps["ios-kit"]
-        matchers = {"push": lambda path: github_paths_match(on["push"]["paths"], path),
-                    "pull_request": lambda path: ci_steps.routed(kit, [path])}
+        matchers = {"table step": lambda path: ci_steps.routed(kit, [path])}
         for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
@@ -1329,7 +1414,6 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
                              "Packages/iOS/CmuxConversation/Sources/X.swift"):
                     self.assertTrue(matches(path), path)
-        self.assertTrue(matchers["push"](".github/workflows/cmux-next-ios-kit.yml"))
 
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
@@ -1613,7 +1697,12 @@ class InternalSubmissionTests(unittest.TestCase):
         asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
         self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
         declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
-        self.assertEqual(set(declared), asc_keys)
+        # The caller passes only the ASC key; the rest are declared for the gate's own
+        # push/PR runs (routing token, R2 cache save) and stay empty when called.
+        unpassed = {"GLAEDA_ROUTE_APP_KEY", "CI_CACHE_R2_ACCESS_KEY_ID",
+                    "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID"}
+        self.assertEqual(set(declared), asc_keys | unpassed)
+        self.assertFalse(set(gate_job["secrets"]) & unpassed)
         receipt_if = jobs["submission-receipt"]["if"]
         for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
                      "needs.review-gate.outputs.sha == inputs.sha"):
@@ -1637,6 +1726,21 @@ class InternalSubmissionTests(unittest.TestCase):
         submit = doc["jobs"]["submit"]["steps"][-1]["run"]
         self.assertIn('[ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit', submit)
         self.assertIn("mode=--dry-run", submit)
+
+    def test_api_submission_keeps_release_keys_on_isolated_linux(self) -> None:
+        job = self.workflow("ios-internal-submit.yml")["jobs"]["submit"]
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}")
+        self.assertEqual(job["environment"], "release")
+        self.assertEqual(job["needs"], "check")
+        steps = job["steps"]
+        installer = next(s["run"] for s in steps if s.get("name") == "Install pinned Linux asc")
+        self.assertIn("sha256sum --check --status", installer)
+        self.assertLess(installer.index("sha256sum"), installer.index('"$bin/asc" --version'))
+        self.assertIn("linux_$arch", installer)
+        all_runs = "\n".join(s.get("run", "") for s in steps)
+        self.assertNotIn("brew", all_runs)
+        self.assertNotIn("select-ci-xcode", all_runs)
+        self.assertIn('chmod 600 "$key_dir/AuthKey.p8"', all_runs)
 
     def test_the_submission_writes_cmux_internals_own_review_notes(self) -> None:
         # The INTERNAL record sells nothing: its submit writes review-notes-asc-internal.txt

@@ -226,7 +226,7 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
-    if let Some(reply) = super::task_list::dispatch(hub, conn, m, &params) {
+    if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
@@ -273,6 +273,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_SCORECARD {
         return scorecard::handle(hub, conn.origin, &params).await;
     }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
+    }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
         super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
@@ -287,8 +291,11 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TEAM_AUDIT {
         return team_audit::handle(conn.origin, &params).await;
     }
-    // A chat's route (`routes.rs`) is a session method, not the chat index.
-    if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
+    // A chat's route (`routes.rs`) and its move (`auto_gate.rs`) are session methods, not the
+    // chat index.
+    let of_a_session =
+        matches!(m, crate::rpc::method::MUX_CHAT_ROUTE_SET | crate::rpc::method::MUX_CHAT_MOVE);
+    if !m.starts_with(PREFIX) || of_a_session {
         return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {

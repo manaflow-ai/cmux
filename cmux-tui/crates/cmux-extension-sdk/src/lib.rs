@@ -40,6 +40,10 @@ pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 /// batch, so a tool can check a motion value exactly as cmux will.
 pub use cmux_app_host::motion;
 
+/// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`.
+pub use cmux_app_host::motion_profile;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -183,6 +187,12 @@ impl Manifest {
     pub fn section(self, export: &str, title: &str, symbol: &str, region: Region) -> Self {
         let options = json!({ "defaultRegion": region.as_str() });
         self.implement("cmux.section/1", export, title, symbol, Some(options))
+    }
+
+    /// The whole workspace list (`cmux.sidebar/1`) drawn by the script's `export`, in place of
+    /// the built-in list once the person names this extension in `sidebar.workspaceListApp`.
+    pub fn sidebar(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.sidebar/1", export, title, symbol, None)
     }
 
     /// A pane (`cmux.pane/1`) drawn by the script's `export`.

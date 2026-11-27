@@ -5,7 +5,7 @@
 //! whether this machine held the chat, under which epoch, and the last snapshot the store
 //! acknowledged. The row is a pure function of it, so the row reads no live state.
 
-use cmux_auto_session::wire::{Blocked, State};
+use cmux_auto_session::wire::{Blocked, MoveTo, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -59,6 +59,44 @@ pub struct AutoRecord {
     /// what a leftover patch is cut against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
+    /// Where the person moved the chat, while it is not there yet: its holder is giving it, or
+    /// the Cloud still tells the wish.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<MoveTo>,
+    /// The person set the chat to run on this machine only while the Cloud held it: Auto goes
+    /// off once the chat is home, this machine has stored a copy of its own and has taken the
+    /// chat's Cloud inbox. It lasts only while the store says the chat is coming here or is
+    /// here: a pick of Cloud or Auto from another device, or a move home that did not happen,
+    /// ends it (`runtime/chats.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub local_wanted: bool,
+}
+
+/// Where a chat runs, as the person chose it: the record's three states (`auto`,
+/// `keepInCloud`), in the place picker's words.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// On this machine only. Nothing is copied to the Cloud.
+    Local,
+    /// On this machine while it is there, on the Cloud machine when it is not.
+    Auto,
+    /// In the Cloud, always.
+    Cloud,
+}
+
+impl Mode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Mode::Local => "local",
+            Mode::Auto => "auto",
+            Mode::Cloud => "cloud",
+        }
+    }
+
+    /// The mode a word names; None for any other word.
+    pub fn parse(word: &str) -> Option<Mode> {
+        [Mode::Local, Mode::Auto, Mode::Cloud].into_iter().find(|mode| mode.as_str() == word)
+    }
 }
 
 impl AutoRecord {
@@ -74,22 +112,41 @@ impl AutoRecord {
             blocked: None,
             leftover: None,
             anchor: None,
+            moving: None,
+            local_wanted: false,
+        }
+    }
+
+    /// Where the chat runs, as the person chose it. A chat set to this machine only reads so
+    /// from the moment it was set, also while it is still on its way home.
+    pub fn mode(&self) -> Mode {
+        match (self.auto, self.local_wanted, self.keep_in_cloud) {
+            (false, _, _) | (true, true, _) => Mode::Local,
+            (true, false, false) => Mode::Auto,
+            (true, false, true) => Mode::Cloud,
         }
     }
 
     /// The row's `autoSession` (the design's "Daemon surface"):
-    /// `{auto, state, here, keepInCloud, blocked?, leftover?: {files}}`. `leftover.files` is how
-    /// many files the kept changes touch; `leftover show` lists them.
+    /// `{auto, mode, state, here, keepInCloud, moving?, blocked?, leftover?: {files}}`. `mode` is
+    /// `local`, `auto` or `cloud`; `moving` is `cloud` or `local` while the chat is on its way
+    /// there. `leftover.files` is how many files the kept changes touch; `leftover show` lists
+    /// them.
     ///
     /// A chat with Auto off runs here as any chat does, whatever the record last held.
     pub fn row(&self) -> Value {
         let (state, here) = if self.auto { (self.state, self.here) } else { (State::Local, true) };
         let mut row = json!({
             "auto": self.auto,
+            "mode": self.mode().as_str(),
             "state": state.as_str(),
             "here": here,
             "keepInCloud": self.auto && self.keep_in_cloud,
         });
+        let moving = self.moving.filter(|_| self.auto);
+        if let (Some(to), Some(object)) = (moving, row.as_object_mut()) {
+            object.insert("moving".to_owned(), json!(to.as_str()));
+        }
         if let (Some(blocked), Some(object)) = (self.blocked, row.as_object_mut()) {
             object.insert("blocked".to_owned(), json!(blocked.as_str()));
         }
@@ -109,7 +166,10 @@ impl AutoRecord {
     pub fn row_of(record: Option<&AutoRecord>) -> Value {
         match record {
             Some(record) => record.row(),
-            None => json!({ "auto": false, "state": "local", "here": true, "keepInCloud": false }),
+            None => json!({
+                "auto": false, "mode": "local", "state": "local", "here": true,
+                "keepInCloud": false,
+            }),
         }
     }
 }
@@ -122,10 +182,10 @@ mod tests {
     fn the_row_carries_what_the_pane_decodes() {
         let mut record = AutoRecord::on();
         record.here = true;
-        assert_eq!(
-            record.row(),
-            json!({ "auto": true, "state": "local", "here": true, "keepInCloud": false })
-        );
+        let held = json!({
+            "auto": true, "mode": "auto", "state": "local", "here": true, "keepInCloud": false,
+        });
+        assert_eq!(record.row(), held);
         record.here = false;
         record.state = State::ComingBack;
         record.blocked = Some(Blocked::NoMachine);
@@ -138,10 +198,36 @@ mod tests {
         assert_eq!(
             record.row(),
             json!({
-                "auto": true, "state": "coming_back", "here": false, "keepInCloud": false,
-                "blocked": "no_machine", "leftover": { "files": 2 },
+                "auto": true, "mode": "auto", "state": "coming_back", "here": false,
+                "keepInCloud": false, "blocked": "no_machine", "leftover": { "files": 2 },
             })
         );
+    }
+
+    #[test]
+    fn the_row_says_the_mode_and_where_the_chat_is_moving() {
+        let mut record = AutoRecord::on();
+        assert_eq!(record.row()["mode"], "auto");
+        assert_eq!(record.row().get("moving"), None, "absent when the chat is not moving");
+        record.keep_in_cloud = true;
+        record.moving = Some(MoveTo::Cloud);
+        assert_eq!((record.mode(), Mode::parse("cloud")), (Mode::Cloud, Some(Mode::Cloud)));
+        assert_eq!(record.row()["mode"], "cloud");
+        assert_eq!(record.row()["moving"], "cloud");
+        record.moving = Some(MoveTo::Local);
+        assert_eq!(record.row()["moving"], "local");
+        // Auto off: the chat runs here, whatever the record last held.
+        record.auto = false;
+        assert_eq!(record.row()["mode"], "local");
+        assert_eq!(record.row().get("moving"), None);
+        assert_eq!(Mode::parse("hybrid"), None);
+        // Set to this machine only while the Cloud has it: local at once, on its way home.
+        let mut leaving = AutoRecord::on();
+        leaving.local_wanted = true;
+        leaving.moving = Some(MoveTo::Local);
+        assert_eq!(leaving.row()["mode"], "local");
+        assert_eq!(leaving.row()["auto"], true);
+        assert_eq!(leaving.row()["moving"], "local");
     }
 
     #[test]
@@ -155,7 +241,9 @@ mod tests {
 
     #[test]
     fn a_chat_with_auto_off_reads_as_running_here() {
-        let off = json!({ "auto": false, "state": "local", "here": true, "keepInCloud": false });
+        let off = json!({
+            "auto": false, "mode": "local", "state": "local", "here": true, "keepInCloud": false,
+        });
         assert_eq!(AutoRecord::row_of(None), off);
         let mut was_away = AutoRecord::on();
         was_away.auto = false;

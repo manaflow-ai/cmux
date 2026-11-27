@@ -5,8 +5,10 @@
 //! the app FFI's JSON channel as ops `cloud_move_*` (`cmux-layout-reducer-ffi/src/cloud_move.rs`).
 
 pub mod autosize;
+pub mod chat_moves;
 pub mod cli;
 pub mod folder;
+pub mod landed;
 pub mod ledger;
 pub mod login;
 pub mod pin;
@@ -14,5 +16,6 @@ pub mod place;
 pub mod priority;
 pub mod progress;
 pub mod seed;
+pub mod settle;
 pub mod targets;
 pub mod wait;

@@ -247,6 +247,15 @@ pub const ACTIONS: &[ActionDef] = &[
         args: "[MODE]",
     },
     ActionDef {
+        action: Action::Plan,
+        name: "plan",
+        aliases: &[],
+        label: "toggle Plan mode",
+        keys: "Alt-Shift-p",
+        group: "settings",
+        args: "",
+    },
+    ActionDef {
         action: Action::Effort,
         name: "effort",
         aliases: &["reasoning"],
@@ -434,6 +443,15 @@ pub const ACTIONS: &[ActionDef] = &[
         keys: "Ctrl-z",
         group: "editing",
         args: "",
+    },
+    ActionDef {
+        action: Action::Find,
+        name: "find",
+        aliases: &["search"],
+        label: "find in this chat",
+        keys: "Cmd-f  Ctrl-f (transcript)",
+        group: "reading",
+        args: "[text]",
     },
 ];
 

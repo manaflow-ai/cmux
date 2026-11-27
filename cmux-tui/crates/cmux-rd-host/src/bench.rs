@@ -114,6 +114,8 @@ enum Arrived {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     Closed(String),
+    /// The link has a current path again (after none answered): feedback goes at once.
+    PathBack,
 }
 
 impl ViewerIo {
@@ -203,11 +205,19 @@ impl ViewerIo {
                             link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
-                        NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
+                        NetEvent::Endpoint(EndpointEvent::PathChanged {
+                            route,
+                            kind,
+                            rtt_us,
+                            ..
+                        }) => {
                             eprintln!(
                                 "{}",
                                 json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
                             );
+                            if route.is_some() {
+                                out.push(Arrived::PathBack);
+                            }
                         }
                         _ => {}
                     }
@@ -287,6 +297,10 @@ struct Viewer {
     record: Option<std::fs::File>,
     /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
     marker_origin: (usize, usize),
+    /// `--marker-scale N/D`: the picture is N/D of the screen the marker was painted on (a host
+    /// fitting a share into `--max-width` sends a smaller stream, not cap `video.scaled`), so the
+    /// marker's cells arrive N/D their size; read it there. Default 1/1.
+    marker_scale: (usize, usize),
     /// The stream's size once the host negotiated cap `video.scaled` (`--caps video.scaled`):
     /// a decoded picture smaller than it is read scaled up to it (src/scaled.rs).
     scaled_stream: Option<(usize, usize)>,
@@ -394,9 +408,9 @@ impl Viewer {
                                 );
                             }
                         }
-                        let origin = self.marker_origin;
-                        let read =
-                            picture.with_luma(|y, stride| read_marker(scale, y, stride, origin));
+                        let (origin, shrink) = (self.marker_origin, self.marker_scale);
+                        let read = picture
+                            .with_luma(|y, stride| read_marker(scale, y, stride, origin, shrink));
                         self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                         if self.want_snapshot {
                             self.newest_picture = Some(picture);
@@ -431,7 +445,13 @@ impl Viewer {
                                 );
                             }
                         }
-                        let read = read_marker(scale, &pic.y, pic.width, self.marker_origin);
+                        let read = read_marker(
+                            scale,
+                            &pic.y,
+                            pic.width,
+                            self.marker_origin,
+                            self.marker_scale,
+                        );
                         self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                     }
                     Ok(false) => {}
@@ -505,7 +525,13 @@ impl Viewer {
                                 bgrx.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
                             self.snapshot = Some((w, h, rgb));
                         }
-                        read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
+                        read_marker(
+                            scale,
+                            yuv.y(),
+                            yuv.strides().0,
+                            self.marker_origin,
+                            self.marker_scale,
+                        )
                     }
                     Ok(None) => None,
                     Err(_) => {
@@ -616,6 +642,12 @@ impl Viewer {
                 }
                 Arrived::Closed(reason) => {
                     self.ended.get_or_insert(reason);
+                    continue;
+                }
+                // The host learns the path is back from the first feedback after the
+                // silence (D12): send it now rather than at the next keepalive.
+                Arrived::PathBack => {
+                    self.last_feedback_ns = 0;
                     continue;
                 }
                 Arrived::Control(payload) => payload,
@@ -823,6 +855,7 @@ impl Viewer {
             need_recovery: self.reassembler.need_recovery(),
             arrivals: std::mem::take(&mut self.arrivals),
             nacks,
+            acked_ltr_tokens: Vec::new(),
         };
         self.send_feedback(&fb)?;
         self.last_feedback_ns = now;
@@ -1108,6 +1141,10 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        marker_scale: match opts.get("marker-scale") {
+            Some(ratio) => parse_marker_scale(ratio)?,
+            None => (1, 1),
+        },
         scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
@@ -1265,7 +1302,11 @@ pub fn run(opts: &Opts) -> Res<()> {
         v.send_input()?;
         loop {
             v.pump(2_000_000)?;
-            if v.marker == Some(expected) {
+            // Reached or passed: after a drop, pump() resends every key the drop lost and
+            // they land together, so the marker jumps past `expected` on the first frame
+            // that shows them. Waiting for exactly `expected` then counted that frame as
+            // a lost key and added up to a second to every measured recovery.
+            if v.marker.is_some_and(|m| m.wrapping_sub(expected) < 0x8000) {
                 if let Some(from) = stall_from.take() {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }
@@ -1485,11 +1526,29 @@ fn read_marker(
     y: &[u8],
     stride: usize,
     origin: (usize, usize),
+    shrink: (usize, usize),
 ) -> Option<u16> {
+    let (n, d) = shrink;
     match scale {
         Some(scale) => marker::decode_with(true, origin, |x, row| scale.luma(y, stride, x, row)),
-        None => marker::decode_luma_at(y, stride, true, origin),
+        None if n == d => marker::decode_luma_at(y, stride, true, origin),
+        // A smaller stream: the marker's screen pixel (x, row) is at (x, row) * n / d. Rows past
+        // the plane read None, so a marker that does not fit reads as no marker.
+        None => marker::decode_with(true, origin, |x, row| {
+            let (px, py) = (x * n / d, row * n / d);
+            (px < stride).then(|| y.get(py * stride + px).copied()).flatten()
+        }),
     }
+}
+
+/// `--marker-scale N/D` (or a bare `N`, meaning N/1): 0 < N <= D, the picture's share of the screen.
+fn parse_marker_scale(ratio: &str) -> Res<(usize, usize)> {
+    let (n, d) = ratio.split_once('/').unwrap_or((ratio, "1"));
+    let (n, d): (usize, usize) = (n.trim().parse()?, d.trim().parse()?);
+    if n == 0 || n > d {
+        return Err(format!("--marker-scale takes N/D with 0 < N <= D (got {ratio})").into());
+    }
+    Ok((n, d))
 }
 
 /// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
@@ -1629,5 +1688,47 @@ mod h264_baseline_cap_tests {
         assert!(super::bench_decodes_with_openh264(Some("openh264")));
         assert!(!super::bench_decodes_with_openh264(Some("videotoolbox")));
         assert!(!super::bench_decodes_with_openh264(Some("vp9")));
+    }
+}
+
+#[cfg(test)]
+mod marker_scale_tests {
+    use super::*;
+
+    /// A luma plane of `w` x `h` with the marker for `v` painted at cell size `cell` (video range).
+    fn plane(v: u16, w: usize, h: usize, cell: usize) -> Vec<u8> {
+        let mut y = vec![16u8; w * h];
+        for (i, white) in crate::marker::cells(u32::from(v)).iter().enumerate() {
+            for row in 0..cell.min(h) {
+                for x in i * cell..((i + 1) * cell).min(w) {
+                    y[row * w + x] = if *white { 235 } else { 16 };
+                }
+            }
+        }
+        y
+    }
+
+    #[test]
+    fn a_half_size_stream_reads_its_marker_at_half_scale() {
+        // A 960x1080 screen fitted into 480 wide: the 32 px cells arrive as 16 px.
+        let y = plane(0xbeef, 480, 540, 16);
+        assert_eq!(
+            read_marker(None, &y, 480, (0, 0), (1, 1)),
+            None,
+            "the 640 px marker overruns 480"
+        );
+        assert_eq!(read_marker(None, &y, 480, (0, 0), (1, 2)), Some(0xbeef));
+        let full = plane(0x1234, 960, 64, 32);
+        assert_eq!(read_marker(None, &full, 960, (0, 0), (1, 1)), Some(0x1234));
+    }
+
+    #[test]
+    fn marker_scale_takes_a_ratio_of_at_most_one() {
+        assert_eq!(parse_marker_scale("1/2").unwrap(), (1, 2));
+        assert_eq!(parse_marker_scale("480/960").unwrap(), (480, 960));
+        assert_eq!(parse_marker_scale("1").unwrap(), (1, 1));
+        for bad in ["0/2", "3/2", "x", "1/"] {
+            assert!(parse_marker_scale(bad).is_err(), "{bad}");
+        }
     }
 }
