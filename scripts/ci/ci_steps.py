@@ -51,7 +51,9 @@ a fail evicts the key on the controller, and the step's real result is the job's
 weaker than routing: the runner already skips a step whose inputs a change does not touch, which
 trusts the same `inputs` with the same tree. Steps that read the event (the advisory job, a step with
 `labels`, a run that names one of EVENT_VARS) or set `reuse = false` always run. Any controller error
-is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's).
+is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's). Outside Actions it
+is off unless CI_STEP_RESULTS=on (a build fleet job: CI_STEP_RESULTS_REPO, _SHA, _RUN_URL, _RUNNER name the
+run, CI_STEP_RESULTS_WRITE=0 makes it read only).
 """
 
 from __future__ import annotations
@@ -379,8 +381,19 @@ class StepResults:
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
-        if env.get("CI_STEP_RESULTS", "").lower() in ("off", "0", "false") or env.get("GITHUB_ACTIONS") != "true":
+        switch = env.get("CI_STEP_RESULTS", "").lower()
+        if switch in ("off", "0", "false"):
             return None
+        if env.get("GITHUB_ACTIONS") != "true":
+            # Off Actions only when asked: the build fleet's pool runs a pull request's fast tier as a controller
+            # job (cmuxterm-hq fast_verdict.sh), on the tailnet, and names its run and whether it may write.
+            if switch not in ("on", "1", "true"):
+                return None
+            meta = {"repo": env.get("CI_STEP_RESULTS_REPO", ""), "sha": env.get("CI_STEP_RESULTS_SHA", ""),
+                    "run_url": env.get("CI_STEP_RESULTS_RUN_URL", ""),
+                    "runner": env.get("CI_STEP_RESULTS_RUNNER", "") or os.uname().nodename}
+            write = env.get("CI_STEP_RESULTS_WRITE", "1").lower() not in ("off", "0", "false")
+            return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
         if env.get("RUNNER_ENVIRONMENT") == "github-hosted":
             return None  # a GitHub VM is not on the tailnet: every lookup would wait to fail
         write = True
@@ -538,7 +551,7 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT, pr_scope: bool = False) -> int:
+            root: Path = ROOT, pr_scope: bool = False, tools_only: bool = False) -> int:
     names = route(table, paths, label, pr_scope).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label).get(job, []) if n not in names]
@@ -599,7 +612,11 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                 made = list(pool.map(make_tool, needed))
             results += made
             ready = all(r.ok for r in made)
-        if ready:
+        if ready and tools_only:
+            # A warm only (a pool image bake): the tools are where a later job finds them (RUNNER_TOOL_CACHE,
+            # CARGO_HOME, ZIG_TARBALL_CACHE_DIR); no step runs.
+            pass
+        elif ready:
             # Advisory steps wait on the network, not a CPU: they all start at once, as before.
             limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or max(2, os.cpu_count() or 1))
             with ThreadPoolExecutor(max_workers=limit) as pool:
@@ -669,6 +686,8 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
+    x.add_argument("--tools-only", action="store_true",
+                   help="run the job's setup and the tools its routed steps need, then no step (a cache warm)")
     x.add_argument("--pr-scope", action="store_true",
                    help="a pull request's route: a step reached only by a whole-directory input or the pipeline's own "
                         "files is left to the post-merge batch")
@@ -681,9 +700,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
-    store = None if args.label else StepResults.from_env(dict(os.environ))
+    store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope)
+                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope,
+                   tools_only=args.tools_only)
 
 
 if __name__ == "__main__":
