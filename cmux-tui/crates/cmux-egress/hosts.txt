@@ -154,6 +154,8 @@ models.dev
 monitoring.googleapis.com
 # crash and error reports, scrubbed (below), only when telemetry is on
 o4507547940749312.ingest.us.sentry.io
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+objects.githubusercontent.com
 # museum art for backgrounds, when you search for art
 openaccess-api.clevelandart.org
 # museum art for backgrounds, when you search for art
@@ -172,6 +174,8 @@ pypi.org
 raw.githubusercontent.com
 # checks for a newer cmux CLI when installed with npm; npm packages agents install
 registry.npmjs.org
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+release-assets.githubusercontent.com
 # shared workspace links in development builds
 share-dev.cmux.dev
 # shared workspace links on staging, only when chosen

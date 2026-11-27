@@ -75,6 +75,8 @@ pub mod cloud_model_plane;
 pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The pinned cmux-rd a joined Linux machine installs, and its `linux-host enable` (`cmux_rd.rs`).
+pub mod cmux_rd;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod cmux_tui_service;
