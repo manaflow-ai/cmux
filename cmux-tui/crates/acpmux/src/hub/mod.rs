@@ -257,6 +257,7 @@ pub(crate) mod pause;
 /// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
 pub(crate) mod pause_state;
 mod paused_fs;
+pub(crate) mod reply_slot;
 mod peer_cache;
 pub(crate) mod peer_cache_disk;
 #[cfg(test)]
@@ -2542,6 +2543,7 @@ impl Hub {
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
+            reply_slot: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -3426,6 +3428,8 @@ impl Hub {
                 m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
             }
         }
+        // The chat's last replies (`reply_slot.rs`): O(1), and only once a read seeded them.
+        session.reply_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record(&record);
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.

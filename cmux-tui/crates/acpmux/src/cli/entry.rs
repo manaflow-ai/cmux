@@ -249,6 +249,7 @@ fn one_shot(command: &Command) -> bool {
             | Command::Status { .. }
             | Command::Info { .. }
             | Command::Last { .. }
+            | Command::LastMessage { .. }
             | Command::Pending
     )
 }

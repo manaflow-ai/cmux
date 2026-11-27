@@ -87,6 +87,8 @@ pub struct Session {
     /// Tool output snapshots held back from the log while a newer one may replace them
     /// (`store/deferred.rs`); taken only under `append_lock`.
     pub(super) log_deferral: StdMutex<crate::store::Deferral>,
+    /// Its last agent replies, folded on append once a read seeded them (`reply_slot.rs`).
+    pub(super) reply_slot: StdMutex<super::reply_slot::ReplySlot>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
