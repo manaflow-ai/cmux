@@ -69,6 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
+    /// Only closed sessions (`--status closed`); `--json` rows carry `close`: who closed each,
+    /// why, and its outcome (`done`, `dropped`, `unfinished`).
+    #[arg(long, conflicts_with_all = ["live", "status"])]
+    closed: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
     /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
     /// after its own sessions passes `--machine local`.
@@ -110,6 +114,11 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 /// optional relay/SSH recovery reads together.
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+// RFD 0050 rule 5: the relay listing inside `ls` ends before `ls` does.
+const _: () = assert!(
+    crate::cli::send_relay::LS_DEADLINE.as_millis() < LS_TOTAL_DEADLINE.as_millis(),
+    "the relay listing's bound must nest inside the ls budget"
+);
 
 const LOCAL_ROUTE: &str = "local daemon";
 
@@ -228,6 +237,41 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+/// `acpmux machine cells` (`cell_report.rs`): the live rows `acpmux ls --live --json` lists,
+/// within the same bounds, judged against fleet-registry.json.
+pub(super) async fn cells(json_out: bool) -> Result<()> {
+    #[derive(clap::Parser)]
+    struct Ls {
+        #[command(flatten)]
+        args: LsArgs,
+    }
+    let args = <Ls as clap::Parser>::try_parse_from(["ls", "--live"])?.args;
+    let budget = ListBudget::new(None);
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
+    let far = wants_far(&args)
+        .then(|| crate::cli::ls_far::start(client.clone(), crate::cli::ls_far::budget()));
+    let now = crate::store::now_ms();
+    let (out, _) = bounded_total(
+        &budget,
+        "read",
+        scoped_output_with_budget(args, true, &client, Via::daemon(), now, Some(&budget), far),
+    )
+    .await??;
+    let rows: Value = serde_json::from_str(&out)?;
+    let rows = match &rows {
+        Value::Array(r) => r.as_slice(),
+        other => other.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+    };
+    let registry = crate::placement::load_registry();
+    let report = crate::cell_report::report(registry.as_ref(), rows, now);
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        crate::cell_report::lines(&report).iter().for_each(|l| println!("{l}"));
+    }
+    Ok(())
+}
+
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
 /// pages, with ages as of `now`. The tests read it; `run` takes [`scoped_output`]'s line too.
 #[cfg(test)]
@@ -303,8 +347,11 @@ async fn scoped_output_with_budget(
         wide,
         leads,
         archived,
+        closed,
         refresh_relay_cache: _,
     } = args;
+    // `--closed` is `--status closed` (clap refuses the two together).
+    let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);
@@ -351,6 +398,20 @@ async fn scoped_output_with_budget(
     }
     if rows.local_only() {
         params.set("localOnly", json!(true));
+    }
+    // `--fields` with no filter of this side's that reads other members: the daemon sends only
+    // those members of each row (`hub/page_first.rs` `row_fields`), not whole rows to be cut
+    // here. A daemon from before it sends whole rows, cut below as before.
+    let reads_more = named
+        || tag.is_some()
+        || pending
+        || leads
+        || with_tools
+        || matches!(status.as_deref(), Some("stuck" | "waiting"));
+    if let Some(fields) = fields.as_deref()
+        && !reads_more
+    {
+        params.set("fields", json!(fields));
     }
     let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
     let keeps = |s: &Value| {
@@ -675,6 +736,14 @@ async fn scoped_output_with_budget(
         out.push('\n');
     }
     if let Some(line) = status.as_ref().and_then(outbox_line) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    if let Some(line) = status
+        .as_ref()
+        .and_then(|s| s.get("outboxStats"))
+        .and_then(crate::hub::outbox_stats::ls_line)
+    {
         out.push_str(&line);
         out.push('\n');
     }

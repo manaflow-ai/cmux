@@ -78,6 +78,15 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing -p cmux-terminal-client -p cmux-encode --locked --profile ci --no-tests=fail$' "$TMP/calls" || fail "terminal: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | clippy | --doc|--workspace' "$TMP/calls" || fail "terminal mode ran more than the terminal crates: $(cat "$TMP/calls")"
 [[ ! -e "$TMP/go-calls" ]] || fail "terminal mode set up Go (its crates do not build cmux-tailnet)"
+# The fleet step runs the script by a relative path from the repo root
+# (`bash scripts/ci/cmux-tui-rust-check.sh`): it finds install-nextest.sh after
+# its cd into cmux-tui (cmux#50150: "cd: scripts/ci: No such file or directory").
+mkdir -p "$TMP/work/scripts/ci"
+cp "$ROOT/scripts/ci/cmux-tui-rust-check.sh" "$ROOT/scripts/ci/install-nextest.sh" "$TMP/work/scripts/ci/"
+rm -f "$TMP/calls"
+out=$( (cd "$TMP/work" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k /bin/bash scripts/ci/cmux-tui-rust-check.sh terminal) 2>&1) || fail "terminal mode by a relative path: $out"
+grep -q 'nextest run -p ghostty-vt ' "$TMP/calls" || fail "relative path: nextest did not run: $out"
+rm -rf "$TMP/work/scripts"
 rm -f "$TMP/calls"
 ARGS=(terminal 'tmux_conformance')
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode with a filter refused"
@@ -121,6 +130,21 @@ grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test sta
 ! grep -q -- '--no-run' "$TMP/calls" || fail "a test target scope pruned the target: $(cat "$TMP/calls")"
 grep -q 'gate-notice: crate scope: -p cmux-tui --test startup_timings$' <<<"$out" || fail "the test target scope is not in the log: $out"
 rm -f "$TMP/calls"
+# A crate whose tests/ files are modules of one `it` binary (#56677): CRATE:FILE is --test it,
+# except a file with a [[test]] of its own.
+mkdir -p "$TMP/work/cmux-tui/crates/cmux-tui/tests/it"
+: > "$TMP/work/cmux-tui/crates/cmux-tui/tests/it/main.rs"
+printf '[package]\nname = "cmux-tui"\nautotests = false\n\n[[test]]\nname = "it"\npath = "tests/it/main.rs"\n\n[[test]]\nname = "spill_to_cloud"\npath = "tests/spill_to_cloud.rs"\n' \
+  > "$TMP/work/cmux-tui/crates/cmux-tui/Cargo.toml"
+ARGS=(test 'build_step' cmux-tui:startup_timings)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "test with a module of the it binary refused: $out"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test it --locked --profile ci --no-tests=fail build_step$' "$TMP/calls" || fail "a module of the it binary: $(cat "$TMP/calls")"
+grep -q 'gate-notice: crate scope: -p cmux-tui --test it$' <<<"$out" || fail "the it scope is not in the log: $out"
+rm -f "$TMP/calls"
+ARGS=(test 'spill' cmux-tui:spill_to_cloud)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with a file of its own binary refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test spill_to_cloud --locked --profile ci --no-tests=fail spill$' "$TMP/calls" || fail "a file with its own binary: $(cat "$TMP/calls")"
+rm -f "$TMP/calls" "$TMP/work/cmux-tui/crates/cmux-tui/Cargo.toml" "$TMP/work/cmux-tui/crates/cmux-tui/tests/it/main.rs"
 # 8 crates are the most that a scope takes.
 ARGS=(test 'parked' a,b,c,d,e,f,g,h)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with 8 crates refused"

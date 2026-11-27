@@ -35,10 +35,10 @@ chief-usage
 chief-views
 cloud
 cloud-progress
-coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history
@@ -46,7 +46,6 @@ home-channels
 icon-picker
 keybindings
 machines
-mobile-pairing
 onboarding
 passwords
 server-cards
@@ -57,6 +56,7 @@ stats
 glass-parity
 task-manager
 tasks
+terminal-history
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES site-settings site-data certificate"
@@ -66,7 +66,7 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
-SPLIT_STRINGS="settings home-channels"
+SPLIT_STRINGS="settings home-channels onboarding"
 # Pages that also carry a subset of the agent pane's table (generated/pane-strings.json, for the
 # pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
 SPLIT_PANE_STRINGS="home-channels"

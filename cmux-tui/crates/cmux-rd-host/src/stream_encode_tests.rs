@@ -2,7 +2,7 @@
 //! (stream.rs's `encode_off_loop_tests`, moved out of the file to keep it in budget).
 
 use super::*;
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming, MediaQueueStats};
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
 use cmux_rd_core::session::StartRequest;
 use cmux_rd_proto::{InputEvent, InputPacket};
@@ -83,6 +83,7 @@ struct FakeCarrier {
     seen: Arc<Seen>,
     release: Option<mpsc::Sender<()>>,
     sent_input: bool,
+    queue_stats: Option<MediaQueueStats>,
     /// Always readable, so the loop keeps reading.
     ready: (UnixStream, UnixStream),
 }
@@ -139,6 +140,9 @@ impl Carrier for FakeCarrier {
     ) -> std::io::Result<()> {
         Ok(())
     }
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.queue_stats
+    }
     fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
         Ok(())
     }
@@ -148,10 +152,12 @@ fn cfg() -> SessionCfg {
     SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 1000,
         max_kbps: 2000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
@@ -164,12 +170,14 @@ fn cfg() -> SessionCfg {
         upstream_record_max_bytes: 0,
         frames_in_flight: 2,
         input_frame_now: false,
+        ltr: false,
         rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     }
 }
 
@@ -192,8 +200,13 @@ fn viewer_input_is_injected_while_a_frame_encodes() {
     let ready = UnixStream::pair().expect("socket pair");
     use std::io::Write;
     (&ready.0).write_all(&[1]).expect("make the carrier readable");
-    let mut carrier =
-        FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
+    let mut carrier = FakeCarrier {
+        seen: seen.clone(),
+        release: Some(release_tx),
+        sent_input: false,
+        queue_stats: None,
+        ready,
+    };
     let viewer = Principal {
         user: "owner".into(),
         install: "test".into(),
@@ -239,4 +252,315 @@ fn an_openh264_viewer_gets_constrained_baseline() {
     assert!(super::offers_h264_baseline("videotoolbox"));
     assert!(super::offers_h264_baseline("openh264"));
     assert!(!super::offers_h264_baseline("vp9"));
+}
+
+/// A viewer that negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
+/// Text") gets a session whose OpenH264 codes in screen usage; any other viewer keeps the
+/// host's shipped usage. Both caps together apply both.
+#[test]
+fn a_sharp_text_viewer_gets_screen_usage() {
+    use cmux_rd_core::service::caps::{CLOCK, H264_BASELINE, SHARP_TEXT};
+    let host = SessionCfg { profile: "high".into(), ..cfg() };
+    assert!(!super::session_cfg(&host, &[CLOCK.to_owned()]).sharp_text);
+    let sharp = super::session_cfg(&host, &[SHARP_TEXT.to_owned()]);
+    assert!(sharp.sharp_text);
+    assert_eq!(sharp.profile, "high");
+    let both = super::session_cfg(&host, &[H264_BASELINE.to_owned(), SHARP_TEXT.to_owned()]);
+    assert!(both.sharp_text);
+    assert_eq!(both.profile, "baseline");
+    assert_eq!(super::offers_sharp_text("openh264"), cfg!(target_os = "linux"));
+    assert_eq!(super::offers_sharp_text("auto"), cfg!(target_os = "linux"));
+    assert!(!super::offers_sharp_text("videotoolbox"));
+    assert!(!super::offers_sharp_text("vaapi"));
+}
+
+#[test]
+fn a_pending_send_queue_blocks_the_next_encoded_frame() {
+    let carrier = FakeCarrier {
+        seen: Arc::new(Seen::default()),
+        release: None,
+        sent_input: false,
+        queue_stats: Some(MediaQueueStats {
+            queue_frames: 1,
+            queue_datagrams: 4,
+            ..MediaQueueStats::default()
+        }),
+        ready: UnixStream::pair().expect("socket pair"),
+    };
+    assert!(encoded_frame_waits_for_queues(&carrier, None, false));
+    assert!(!encoded_frame_waits_for_queues(&carrier, None, true));
+}
+
+/// Like `LinkCarrier`: `send_datagram` only enqueues; a receipt appears when the transport
+/// writes the datagram, stamped with that write's time.
+#[derive(Default)]
+struct EnqueueOnlyCarrier {
+    queued: Vec<Vec<u8>>,
+    receipts: Vec<DatagramDeparture>,
+}
+
+impl EnqueueOnlyCarrier {
+    /// The transport writes everything queued at `departed_us`.
+    fn transmit(&mut self, departed_us: u64) {
+        for datagram in self.queued.drain(..) {
+            let (header, _) = DatagramHeader::decode(&datagram).expect("header");
+            self.receipts.push(DatagramDeparture {
+                header,
+                departed_us,
+                wire_bytes: datagram.len(),
+            });
+        }
+    }
+}
+
+impl Carrier for EnqueueOnlyCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>) {
+        out.append(&mut self.receipts);
+    }
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
+    fn fds(&self) -> Vec<RawFd> {
+        Vec::new()
+    }
+    fn receive(&mut self, _out: &mut Vec<Incoming>) -> Result<(), String> {
+        Ok(())
+    }
+    fn send_datagram(&mut self, datagram: &[u8]) -> std::io::Result<()> {
+        self.queued.push(datagram.to_vec());
+        Ok(())
+    }
+    fn send_datagram_frame(
+        &mut self,
+        datagrams: Vec<Vec<u8>>,
+        _droppable: bool,
+    ) -> std::io::Result<()> {
+        self.queued.extend(datagrams);
+        Ok(())
+    }
+    fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Review F1 on #44555: a datagram the carrier accepted but has not written has not departed.
+#[test]
+fn an_enqueued_datagram_has_no_departure_until_its_receipt() {
+    let header = DatagramHeader {
+        flags: 0,
+        kind: DatagramKind::Video,
+        stream: 0,
+        frame: 7,
+        index: 0,
+        count: 1,
+        fec_count: 0,
+        transport_seq: 19,
+    };
+    let mut carrier = EnqueueOnlyCarrier::default();
+    carrier.send_datagram(&header.encode()).expect("enqueued");
+    let mut receipts = Vec::new();
+    let mut stamps = Vec::new();
+    drain_departures(&mut carrier, &mut receipts, |h, at| stamps.push((*h, at)));
+    assert!(stamps.is_empty(), "send_datagram returning is an enqueue, not a departure");
+
+    carrier.transmit(1_234_567);
+    receipts.clear();
+    drain_departures(&mut carrier, &mut receipts, |h, at| stamps.push((*h, at)));
+    assert_eq!(stamps, vec![(header, 1_234_567)], "stamped with the receipt's own time");
+    assert_eq!(receipts.len(), 1);
+}
+
+/// Encodes instantly: every frame is a tiny IDR access unit.
+struct InstantEncoder;
+
+impl FrameSource for InstantEncoder {
+    fn capture(&mut self, _damage: Rect) -> Res<()> {
+        Ok(())
+    }
+    fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+        out.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00]);
+        Ok(true)
+    }
+    fn set_bitrate(&mut self, _kbps: u32) {}
+    fn kbps(&self) -> u32 {
+        1000
+    }
+    fn encoder_name(&self) -> String {
+        "instant test encoder".into()
+    }
+}
+
+/// Like the link's carrier: an empty media queue, frames handed over whole. Records when the
+/// first video datagram left, then stops the session (or gives up after `give_up`).
+struct FirstFrameCarrier {
+    started: std::time::Instant,
+    give_up: Duration,
+    first_video: Option<Duration>,
+    queue_stats: Option<MediaQueueStats>,
+    ready: (UnixStream, UnixStream),
+}
+
+impl FirstFrameCarrier {
+    fn note(&mut self, datagram: &[u8]) {
+        let video = DatagramHeader::decode(datagram)
+            .is_ok_and(|(h, _)| matches!(h.kind, DatagramKind::Video));
+        if video && self.first_video.is_none() {
+            self.first_video = Some(self.started.elapsed());
+        }
+    }
+}
+
+impl Carrier for FirstFrameCarrier {
+    fn drain_departures(&mut self, _out: &mut Vec<DatagramDeparture>) {}
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
+    fn fds(&self) -> Vec<RawFd> {
+        vec![self.ready.1.as_raw_fd()]
+    }
+    fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
+        if self.first_video.is_some() || self.started.elapsed() > self.give_up {
+            out.push(Incoming::Control(Box::new(Control::Stop)));
+        }
+        Ok(())
+    }
+    fn send_datagram(&mut self, datagram: &[u8]) -> std::io::Result<()> {
+        self.note(datagram);
+        Ok(())
+    }
+    fn send_datagram_frame(
+        &mut self,
+        datagrams: Vec<Vec<u8>>,
+        _droppable: bool,
+    ) -> std::io::Result<()> {
+        for d in &datagrams {
+            self.note(d);
+        }
+        Ok(())
+    }
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.queue_stats
+    }
+    fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// How long after `run` starts the first keyframe's first datagram leaves, with an encoder
+/// that takes no time.
+fn first_keyframe_after(queue_stats: Option<MediaQueueStats>) -> Option<Duration> {
+    let desktop = FakeDesktop {
+        seen: Arc::new(Seen::default()),
+        quiet: UnixStream::pair().expect("socket pair"),
+    };
+    let fps = 30;
+    let mut session = MediaSession::with_desktop(
+        Box::new(desktop),
+        Box::new(InstantEncoder),
+        &SessionCfg { max_fps: fps, ..cfg() },
+        1200,
+        &[],
+        Box::new(crate::upstream::NoSink),
+    )
+    .expect("session");
+    let ready = UnixStream::pair().expect("socket pair");
+    use std::io::Write;
+    (&ready.0).write_all(&[1]).expect("make the carrier readable");
+    let viewer = Principal {
+        user: "owner".into(),
+        install: "test".into(),
+        class: PrincipalClass::User,
+        interactive: true,
+    };
+    let mut table = SessionTable::new(HostPolicy {
+        enabled: true,
+        owner_user: viewer.user.clone(),
+        grants: Vec::new(),
+        consent: ConsentRule::AskOthers,
+        unattended_allowed: true,
+    });
+    let id = table
+        .start(StartRequest {
+            key: "k",
+            caller: Some(&viewer),
+            for_client: None,
+            mode: Mode::Control,
+            console_user: None,
+            now_ms: 0,
+        })
+        .expect("session starts");
+    let mut carrier = FirstFrameCarrier {
+        started: std::time::Instant::now(),
+        give_up: Duration::from_secs(6),
+        first_video: None,
+        queue_stats,
+        ready,
+    };
+    let reason = session.run(&mut carrier, &mut table, id, &viewer);
+    assert_eq!(reason, "stopped by viewer");
+    carrier.first_video
+}
+
+/// The first keyframe leaves within one frame interval (30 fps: 33 ms) of the session's start,
+/// over a carrier with no media queue and over one with an empty one (the link).
+#[test]
+fn the_first_keyframe_leaves_within_one_frame_interval() {
+    let interval = Duration::from_millis(1000 / 30);
+    for stats in [None, Some(MediaQueueStats::default())] {
+        let first = first_keyframe_after(stats);
+        eprintln!("first keyframe after {first:?} (queue stats {stats:?})");
+        let first = first.expect("no keyframe left in 6 s");
+        assert!(first <= interval, "first keyframe after {first:?}, over {interval:?}");
+    }
+}
+
+/// [`InstantEncoder`] that, like OpenH264, only makes Constrained Baseline.
+struct BaselineOnlyEncoder;
+
+impl FrameSource for BaselineOnlyEncoder {
+    fn capture(&mut self, damage: Rect) -> Res<()> {
+        InstantEncoder.capture(damage)
+    }
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+        InstantEncoder.encode(force_idr, pts_us, out)
+    }
+    fn set_bitrate(&mut self, _kbps: u32) {}
+    fn kbps(&self) -> u32 {
+        1000
+    }
+    fn encoder_name(&self) -> String {
+        "baseline-only test encoder".into()
+    }
+    fn constrained_baseline(&self) -> bool {
+        true
+    }
+}
+
+fn opened_for_high(frames: Box<dyn FrameSource>) -> OpenedDesktop {
+    let desktop = FakeDesktop {
+        seen: Arc::new(Seen::default()),
+        quiet: UnixStream::pair().expect("socket pair"),
+    };
+    OpenedDesktop {
+        desktop: Box::new(desktop),
+        frames,
+        cursor: false,
+        profile: "high".into(),
+        open_us: 0,
+        ready_us: 0,
+    }
+}
+
+/// The desktop `cmux-rd serve` opened during the handshake (for the host's `high`) serves a
+/// `h264.baseline` viewer when its encoder only makes Constrained Baseline (OpenH264): opening
+/// it again put 340-410 ms between the viewer's start and the first keyframe. An encoder that
+/// honours the profile (VAAPI, x264, VideoToolbox) still opens again for baseline.
+#[test]
+fn a_baseline_viewer_keeps_the_handshakes_desktop_when_the_encoder_only_makes_baseline() {
+    let openh264 = opened_for_high(Box::new(BaselineOnlyEncoder));
+    assert!(openh264.serves_profile("baseline"));
+    assert!(openh264.serves_profile("high"));
+    let hardware = opened_for_high(Box::new(InstantEncoder));
+    assert!(!hardware.serves_profile("baseline"));
+    assert!(hardware.serves_profile("high"));
 }

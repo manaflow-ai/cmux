@@ -250,7 +250,9 @@ class HistoryFetchTests(unittest.TestCase):
 
     def fetch(self, **env: str) -> subprocess.CompletedProcess:
         return subprocess.run([str(FETCH_HISTORY), self.merge, self.base, self.head], cwd=self.clone,
-                              env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", **env},
+                              # No history store unless a test makes one: a cloud runner VM has a real one.
+                              env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0",
+                                   "CMUX_PR_HISTORY_STORE": f"{self.tmp.name}/no-store.git", **env},
                               capture_output=True, text=True)
 
     def has(self, sha: str) -> bool:
@@ -274,12 +276,45 @@ class HistoryFetchTests(unittest.TestCase):
             "--worktree", "--", "base.txt")
         self.assertEqual((out / "base.txt").read_text(), f"moved {self.MOVES - 1}\n")
 
+    def test_deepens_until_the_merge_reaches_an_older_event_base(self):
+        # The event's base is the PR's fork (the head already merged it), while GitHub merged onto a base that
+        # moved MOVES commits on: the merge base turns up at depth 8, the base side's path to it only at 128.
+        result = subprocess.run([str(FETCH_HISTORY), self.merge, self.fork, self.head], cwd=self.clone,
+                                env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", "CMUX_PR_HISTORY_DEPTHS": "8 128"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("depth 128", result.stdout)
+        # What check-generator-inputs.sh reads: the event base on the merge commit's base side.
+        git(self.clone, "merge-base", "--is-ancestor", self.fork, f"{self.merge}^1")
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+
     def test_unshallows_when_the_depths_fall_short(self):
         result = self.fetch(CMUX_PR_HISTORY_DEPTHS="4 16")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("history: whole", result.stdout)
         self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "false")
         self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
+
+    def test_a_history_store_gives_the_history_with_no_remote_fetch(self):
+        # A cloud runner VM's image: the repository's commits and trees, without the PR's merge ref.
+        store = Path(self.tmp.name) / "store.git"
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", f"file://{self.remote}", str(store)],
+                       check=True, capture_output=True)
+        git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8", CMUX_PR_HISTORY_STORE=str(store))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history: already whole", result.stdout)
+        self.assertNotIn("::warning::history fetch", result.stdout)
+        self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
+        self.assertEqual(git(self.clone, "remote"), "origin")
+
+    def test_a_broken_history_store_leaves_the_remote_fetch(self):
+        store = Path(self.tmp.name) / "broken.git"
+        (store / "objects").mkdir(parents=True)
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128", CMUX_PR_HISTORY_STORE=str(store))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history store fetch failed", result.stdout)
+        self.assertIn("depth 128", result.stdout)
 
     def test_a_fetch_that_keeps_failing_fails_the_job(self):
         git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")

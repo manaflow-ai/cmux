@@ -20,6 +20,18 @@ regexes = [
   '''^pck_[a-z0-9]+$''',
   '''^(?i)(cmd|command|ctrl|control|alt|opt|option|shift|super|meta|hyper|fn)([+-][^\s"']+)+$''',
   '''(?i)(not[-_]?real|fake|dummy|placeholder|redacted|example)''',
+  # Test fixtures that moved out of inline `mod tests` into *_tests.rs files (cmux#49132), so the scan read them
+  # as new: WebSocket handshake nonces (RFC 6455's "the sample nonce", base64), a fixture UUID, a git tree hash
+  # pinned by ssh_artifacts, and a counting hex string.
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+  '''^dGhlIHNhbXBsZSA2NA==$''',
+  '''^FBC6C273-1E11-4696-A320-1B29E00E73C7$''',
+  '''^df65220e9948cbe76924483c2a7ae1a98d52efbc$''',
+  '''^(0123456789abcdef)+$''',
+  # The same for acpmux's (cmux#49122): a made-up ghp_ token the audit redaction test masks, and two test strings.
+  '''^ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k$''',
+  '''^ghs_(secret|minted)0123''',
+  '''same-length-secret-001''',
   # The made-up Stripe test key in cmux hub's parser tests (cmux-tui cli/hub_tests.rs): no account has it.
   '''^rk_test_abc123$''',
 ]

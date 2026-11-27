@@ -236,3 +236,224 @@ fn a_window_from_the_viewports_top_names_the_turn_above_it() {
     let facts = ToChat { base: 13, top: 13, ..facts(window) };
     assert_eq!(chat_place(&facts), ChatPlace::Turn { index: 2 });
 }
+
+/// The swap's driver as `TerminalChatPlacing` runs it over these rules, on a fake terminal and
+/// chat (the app's TerminalChatPlaceTests' cases, held here on Linux).
+mod swap {
+    use super::*;
+
+    const SCREEN: &[&str] = &[
+        "> fix the login bug",
+        "",
+        "⏺ In auth.rs.",
+        "",
+        "> now add a test",
+        "",
+        "⏺ Added.",
+        "",
+        "> ",
+    ];
+    const PROMPTS: &[&str] = &["fix the login bug", "now add a test"];
+
+    struct Terminal {
+        rows: Vec<String>,
+        visible: usize,
+        top: usize,
+        scrolls: Vec<Option<usize>>,
+        reads: Vec<(usize, usize)>,
+    }
+
+    impl Terminal {
+        fn new(rows: Vec<String>, top: Option<usize>) -> Self {
+            let visible = 5;
+            let top = top.unwrap_or(rows.len().saturating_sub(visible));
+            Terminal { rows, visible, top, scrolls: vec![], reads: vec![] }
+        }
+        fn bottom(&self) -> usize {
+            self.rows.len().saturating_sub(self.visible)
+        }
+        fn at_bottom(&self) -> bool {
+            self.top >= self.bottom()
+        }
+        fn read(&mut self, from_top: bool, through_bottom: bool) -> String {
+            let first = if from_top { self.top } else { 0 };
+            let last = if through_bottom {
+                self.rows.len().min(self.top + self.visible) - 1
+            } else {
+                self.rows.len() - 1
+            };
+            self.reads.push((first, last));
+            self.rows[first..=last].join("\n")
+        }
+        fn scroll(&mut self, row: Option<usize>) {
+            self.scrolls.push(row);
+            self.top = row.unwrap_or(self.bottom()).min(self.bottom());
+        }
+    }
+
+    struct Chat {
+        at: Option<usize>,
+        shows: Vec<Option<usize>>,
+        reads: usize,
+    }
+
+    fn chat(at: Option<usize>) -> Chat {
+        Chat { at, shows: vec![], reads: 0 }
+    }
+
+    fn screen() -> Vec<String> {
+        prompts(SCREEN)
+    }
+
+    fn long_screen() -> Vec<String> {
+        let mut rows = vec!["older output".to_string(); 40];
+        rows.extend(screen());
+        rows.push(String::new());
+        rows
+    }
+
+    fn place_terminal(chat: &mut Chat, terminal: &mut Terminal, rows: usize) {
+        let (top, at_bottom) = (terminal.top, terminal.at_bottom());
+        chat.reads += 1;
+        let read =
+            terminal_read(&TerminalReadFacts { at: chat.at, total: terminal.rows.len(), rows });
+        let TerminalRead::Screen { base, from_viewport_top } = read else {
+            return terminal.scroll(None);
+        };
+        if base > 0 {
+            terminal.scroll(Some(base));
+        }
+        let screen = terminal.read(from_viewport_top, false);
+        let place =
+            ToTerminal { prompts: prompts(PROMPTS), at: chat.at, screen, base, columns: 80 };
+        match terminal_scroll(&ToTerminalScroll { place, top, at_bottom }) {
+            TerminalScroll::Row { row } => terminal.scroll(Some(row)),
+            TerminalScroll::Latest => terminal.scroll(None),
+            TerminalScroll::Keep => {}
+        }
+    }
+
+    fn place_chat(chat: &mut Chat, terminal: &mut Terminal, rows: usize) {
+        let facts = ChatReadFacts {
+            top: terminal.top,
+            visible: terminal.visible,
+            total: terminal.rows.len(),
+            at_bottom: terminal.at_bottom(),
+            at_latest: chat.at.is_none(),
+            rows,
+        };
+        let (base, from_top, through) = match chat_read(&facts) {
+            ChatRead::Latest { show } => {
+                if show {
+                    chat.shows.push(None);
+                    chat.at = None;
+                }
+                return;
+            }
+            ChatRead::Stay => return,
+            ChatRead::Screen { base, from_viewport_top, through_viewport_bottom } => {
+                (base, from_viewport_top, through_viewport_bottom)
+            }
+        };
+        chat.reads += 1;
+        let screen = terminal.read(from_top, through);
+        let place = ToChat {
+            prompts: prompts(PROMPTS),
+            screen,
+            base,
+            columns: 80,
+            top: terminal.top,
+            at_bottom: false,
+        };
+        let show = match chat_show(&ToChatShow { place, at: chat.at }) {
+            ChatShow::Latest => None,
+            ChatShow::Turn { index } => Some(index),
+            ChatShow::Stay => return,
+        };
+        chat.shows.push(show);
+        chat.at = show;
+    }
+
+    #[test]
+    fn the_terminal_shows_at_the_chats_turn() {
+        let mut terminal = Terminal::new(screen(), None);
+        place_terminal(&mut chat(Some(0)), &mut terminal, READ_ROWS);
+        assert_eq!(terminal.scrolls, vec![Some(0)]);
+        let mut other = Terminal::new(screen(), Some(0));
+        place_terminal(&mut chat(Some(1)), &mut other, READ_ROWS);
+        assert_eq!(other.scrolls, vec![Some(4)]);
+    }
+
+    #[test]
+    fn the_chat_shows_at_the_terminals_turn() {
+        let (mut chat, mut terminal) = (chat(None), Terminal::new(screen(), Some(2)));
+        place_chat(&mut chat, &mut terminal, READ_ROWS);
+        assert_eq!(chat.shows, vec![Some(0)]);
+        // The terminal back at its newest rows: the chat at its latest message.
+        terminal.top = terminal.bottom();
+        place_chat(&mut chat, &mut terminal, READ_ROWS);
+        assert_eq!(chat.shows, vec![Some(0), None]);
+    }
+
+    #[test]
+    fn a_chat_at_its_latest_brings_the_terminal_to_its_newest_rows() {
+        let (mut chat, mut terminal) = (chat(None), Terminal::new(screen(), Some(0)));
+        place_terminal(&mut chat, &mut terminal, READ_ROWS);
+        assert_eq!(terminal.scrolls, vec![None]);
+        assert!(terminal.reads.is_empty());
+    }
+
+    #[test]
+    fn both_at_their_latest_move_nothing_going_to_the_chat() {
+        let (mut chat, mut terminal) = (chat(None), Terminal::new(screen(), None));
+        place_chat(&mut chat, &mut terminal, READ_ROWS);
+        assert!(chat.reads == 0 && chat.shows.is_empty() && terminal.reads.is_empty());
+    }
+
+    #[test]
+    fn ten_swaps_on_a_scrolled_up_turn_keep_it() {
+        let (mut chat, mut terminal) = (chat(Some(0)), Terminal::new(screen(), None));
+        for _ in 0..10 {
+            place_terminal(&mut chat, &mut terminal, READ_ROWS);
+            assert_eq!(terminal.top, 0);
+            place_chat(&mut chat, &mut terminal, READ_ROWS);
+            assert_eq!(chat.at, Some(0));
+        }
+        assert!(chat.shows.is_empty());
+    }
+
+    #[test]
+    fn a_long_history_is_read_only_as_far_as_the_cap() {
+        let mut terminal = Terminal::new(long_screen(), None);
+        place_terminal(&mut chat(Some(1)), &mut terminal, 10);
+        assert_eq!(terminal.reads, vec![(40, 49)]);
+        assert_eq!(terminal.scrolls, vec![Some(40), Some(44)]);
+        let (mut shown, mut chat_none) = (Terminal::new(long_screen(), Some(44)), chat(None));
+        place_chat(&mut chat_none, &mut shown, 10);
+        assert_eq!(shown.reads, vec![(44, 49)]);
+        assert!(chat_none.shows == vec![Some(1)] && shown.scrolls.is_empty());
+        let (mut far, mut stays) = (Terminal::new(long_screen(), Some(20)), chat(None));
+        place_chat(&mut stays, &mut far, 10);
+        assert!(far.reads.is_empty() && stays.shows.is_empty());
+    }
+
+    #[test]
+    fn a_turn_the_window_lacks_puts_the_hidden_terminal_back() {
+        let mut terminal = Terminal::new(long_screen(), None);
+        place_terminal(&mut chat(Some(0)), &mut terminal, 5);
+        assert_eq!(terminal.scrolls, vec![Some(45), None]);
+        assert!(terminal.at_bottom());
+    }
+
+    #[test]
+    fn rows_default_to_the_read_cap() {
+        let facts: ChatReadFacts =
+            serde_json::from_str(r#"{"top":1,"visible":5,"total":9}"#).unwrap();
+        assert_eq!(facts.rows, READ_ROWS);
+        let facts: TerminalReadFacts = serde_json::from_str(r#"{"at":0,"total":30000}"#).unwrap();
+        assert_eq!(
+            terminal_read(&facts),
+            TerminalRead::Screen { base: 10_000, from_viewport_top: true }
+        );
+    }
+}

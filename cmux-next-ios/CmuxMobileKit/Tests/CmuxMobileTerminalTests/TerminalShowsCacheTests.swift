@@ -36,6 +36,10 @@ import UIKit
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: false) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .skeleton)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
+        // The Mac's pushed screen text stands in for the skeleton, never over a frame or live rows.
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true, hasScreenText: true) == .screenText)
+        #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true, hasScreenText: true) == .lastFrame)
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
     /// Connection changes keep the cached frame (only drawn live rows replace it).
@@ -59,8 +63,8 @@ import UIKit
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
-        for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(model.connectionLine == "Reconnecting to Mac Studio…")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
@@ -69,13 +73,14 @@ import UIKit
     }
 
     @Test func quietLinesNeverCarryTransportWords() {
-        for state in [TerminalConnectionState.connecting(mac: nil), .reattaching(mac: "Mac Studio"), .offline(mac: nil),
-                      .failed(message: "daemon channel closed")] {
+        for state in [TerminalConnectionState.offline(mac: nil), .failed(message: "daemon channel closed")] {
             let line = state.quietLine ?? ""
             #expect(!line.isEmpty)
             #expect(!line.contains("daemon") && !line.contains("channel"), "\(line)")
         }
         #expect(TerminalConnectionState.attached.quietLine == nil)
+        #expect(TerminalConnectionState.connecting(mac: nil).quietLine == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "Mac Studio").quietLine == nil)
     }
 }
 #endif

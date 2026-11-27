@@ -56,6 +56,15 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private var tops: [CGFloat] = []
     private var index: [String: Int] = [:]
     private var measured: [String: RowHeights] = [:]
+    /// Heights kept from an earlier page of this chat (`remembered`) for rows not measured here
+    /// yet, by the revision and disclosures they were asked for. Only a layout height: a cell
+    /// shown at one still measures itself (`knownHeight` does not give it out).
+    private var recalled: [String: Measured] = [:]
+    /// The kept height of each row (`ChatRowHeightMemory`) in a column this wide, in order; nil
+    /// for a row that changed or is new.
+    var remembered: (([Item], CGFloat) -> [CGFloat?])?
+    /// A cell measured `item` at a height in a column this wide (kept for the next page).
+    var didMeasure: ((Item, CGFloat, CGFloat) -> Void)?
     private var dirtyFrom: Int? = 0
     private var width: CGFloat = 0
     /// The collection view's width the column was laid out in (the column is `width`).
@@ -108,6 +117,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         }
         let old = items
         items = new
+        recall(first..<new.count)
         if heights.count > new.count { heights.removeSubrange(new.count...) }
         heights.reserveCapacity(new.count)
         for row in first..<new.count {
@@ -136,13 +146,41 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func height(for item: Item) -> CGFloat {
-        guard !item.exact, let known = measured[item.id]?.height(fold: item.fold) else { return item.estimate }
-        return known.width == width || width == 0 ? known.height : item.estimate
+        guard !item.exact else { return item.estimate }
+        if let known = measured[item.id]?.height(fold: item.fold), known.width == width || width == 0 { return known.height }
+        if let kept = recalled[item.id], kept.revision == item.revision, kept.fold == item.fold, kept.width == width {
+            return kept.height
+        }
+        return item.estimate
+    }
+
+    /// Asks `remembered`, in one keyed diff, for the heights of the rows in `range` that this
+    /// layout has not measured at its width: a page built again draws them at their final
+    /// height at once instead of an estimate a cell then corrects.
+    private func recall(_ range: Range<Int>) {
+        guard let remembered, width > 0, !range.isEmpty else { return }
+        var asked: [Item] = []
+        for row in range {
+            let item = items[row]
+            guard !item.exact else { continue }
+            if let known = measured[item.id]?.height(fold: item.fold), known.width == width { continue }
+            if let kept = recalled[item.id], kept.revision == item.revision, kept.fold == item.fold, kept.width == width { continue }
+            asked.append(item)
+        }
+        guard !asked.isEmpty else { return }
+        for (item, height) in zip(asked, remembered(asked, width)) {
+            if let height {
+                recalled[item.id] = Measured(revision: item.revision, fold: item.fold, width: width, height: height)
+            } else {
+                recalled.removeValue(forKey: item.id)
+            }
+        }
     }
 
     /// Text size changed: every measured height is stale.
     func forgetHeights() {
         measured = [:]
+        recalled = [:]
         heights = items.map(\.estimate)
         markDirty(0)
         invalidateLayout()
@@ -192,6 +230,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// Drops heights of rows no longer in the transcript.
     func retainMeasured(_ ids: Set<String>) {
         measured = measured.filter { ids.contains($0.key) }
+        recalled = recalled.filter { ids.contains($0.key) }
     }
 
     /// The height a cell measured for this row's current revision at this width, if any:
@@ -233,6 +272,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         let width = columnWidth(in: boundsWidth)
         if width != self.width {
             self.width = width
+            recall(0..<items.count)
             heights = items.map(height(for:))
             dirtyFrom = 0
         }
@@ -345,6 +385,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         }
         measured[item.id, default: RowHeights()].record(Measured(revision: item.revision, fold: item.fold, width: width,
                                                                  height: preferred.size.height))
+        didMeasure?(item, preferred.size.height, width)
         return abs(preferred.size.height - heights[row]) > 0.25
     }
 
@@ -416,6 +457,14 @@ final class ChatTranscriptCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         didLayout?()
+        // A composer can be ready while the transcript is still empty. Mark the
+        // first frame with an actual visible transcript cell instead.
+        if visibleCells.contains(where: { cell in
+            guard cell is ChatRowCell || cell is ChatNativeRowCell else { return false }
+            return !cell.isHidden && cell.bounds.width > 0 && cell.bounds.height > 0
+        }) {
+            LaunchMarks.shared.markNextFrame("chat_first_row_frame")
+        }
     }
 }
 
@@ -538,6 +587,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         set { lookup.revisions = newValue }
     }
     private var shownIDs: [String] = []
+    /// The app's kept row heights (`ChatRowHeightMemory`), and each row's content fingerprint for it.
+    private let heightMemory = ChatRowHeightMemory.shared
+    private var contentKeys: [String: UInt64] = [:]
     /// Rows to reconfigure on the next reload although their content is the same (a code
     /// card shown in full).
     private var forced: Set<String> = []
@@ -603,6 +655,21 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         collectionView.prefetchDataSource = self
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
         layout.measuresSettle = { [weak self] item in self?.measureSettles(item) ?? true }
+        if heightMemory != nil {
+            layout.remembered = { [weak self] items, width in self?.rememberedHeights(items, width) ?? items.map { _ in nil } }
+            layout.didMeasure = { [weak self] item, height, width in self?.remember(item, height: height, width: width) }
+        }
+        // The layout-shift count: rows on screen, in the list's visible bounds, native and hosted
+        // cells alike. Measured in the list, so the list scaled or moved whole (the tab grid's
+        // zoom, the live page following its card) is not a shift.
+        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.probeRows() ?? [] }
+        #if DEBUG
+        if let probe = LoadFrameProbe.shared {
+            probe.watch(collectionView, rows: { [weak self] in self?.probeRows() ?? [] },
+                        role: { [weak self] id in self?.probeRole(id) ?? "other" })
+            probe.report { ChatRowHeightMemory.shared?.stats ?? [:] }
+        }
+        #endif
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.selfSizingInvalidation = .enabledIncludingConstraints
@@ -627,6 +694,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.context = ChatRowContext(store: store, surface: surface)
         builder = ChatTranscriptBuilder(diffs: store.diffs)
         rows = [:]
+        contentKeys = [:]
         revisions.removeAll()
         lookup.layouts.reset()
         lookup.shownNative = [:]
@@ -969,6 +1037,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     if !isNew { changed.append(row.id) }
                     revisions.bump(row.id)
                     rows[row.id] = row
+                    if let heightMemory { contentKeys[row.id] = heightMemory.fingerprint(row) }
                     if loaded, isNew, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
                     if loaded, row.turnID == runningTurn, lookup.eligible(row), !streamsOffScreen(row) {
                         lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
@@ -1014,6 +1083,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if ids.count + heldRows.count < rows.count {
             let live = Set(ids).union(heldRows)
             rows = rows.filter { live.contains($0.key) }
+            contentKeys = contentKeys.filter { live.contains($0.key) }
             revisions.retain(live)
             lookup.layouts.retain(live)
             layout.retainMeasured(live)
@@ -1234,6 +1304,59 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     func row(_ id: String) -> ChatRow? { rows[id] }
+
+    // MARK: Kept heights
+
+    /// What the kept heights of this chat are keyed by besides the row: the chat, its text size,
+    /// code wrapping and work folding (each changes a row's height without changing the row).
+    private var memoryScope: String {
+        "\(store.summary.id)|\(collectionView.traitCollection.preferredContentSizeCategory.rawValue)|\(CmuxMobilePreferences.wrapCode())|\(foldsWork)"
+    }
+
+    private func rememberedHeights(_ items: [ChatTranscriptLayout.Item], _ width: CGFloat) -> [CGFloat?] {
+        var heights = [CGFloat?](repeating: nil, count: items.count)
+        guard let heightMemory else { return heights }
+        var asked: [(id: String, content: UInt64, fold: Int)] = []
+        var at: [Int] = []
+        for (index, item) in items.enumerated() {
+            guard let content = contentKeys[item.id] else { continue }
+            asked.append((item.id, content, item.fold))
+            at.append(index)
+        }
+        for (index, height) in zip(at, heightMemory.heights(scope: memoryScope, width: width, rows: asked)) { heights[index] = height }
+        return heights
+    }
+
+    private func remember(_ item: ChatTranscriptLayout.Item, height: CGFloat, width: CGFloat) {
+        guard let heightMemory, let content = contentKeys[item.id] else { return }
+        heightMemory.record(scope: memoryScope, width: width, id: item.id, content: content, fold: item.fold, height: height)
+    }
+
+    /// The rows on screen and their frames in the list's visible bounds (`LoadFrameProbe`,
+    /// `LayoutShiftProbe`).
+    private func probeRows() -> [(String, CGRect)] {
+        let offset = collectionView.contentOffset
+        return collectionView.indexPathsForVisibleItems.compactMap { indexPath in
+            guard let id = dataSource.itemIdentifier(for: indexPath), let cell = collectionView.cellForItem(at: indexPath) else { return nil }
+            return (id, cell.frame.offsetBy(dx: -offset.x, dy: -offset.y))
+        }
+    }
+
+    #if DEBUG
+    /// A row's part in its turn, for the send trace (`LoadFrameProbe`, `CMUX_MOBILE_SEND_TRACE`).
+    private func probeRole(_ id: String) -> String {
+        guard let kind = rows[id]?.kind else { return "other" }
+        return switch kind {
+        case .prompt, .steer, .incoming: "user"
+        case .working: "work"
+        case .block: "answer"
+        case .thought: "thought"
+        case .tool, .toolGroup, .edit: "tool"
+        case .actions: "actions"
+        default: "other"
+        }
+    }
+    #endif
 
     // MARK: Warm-up
 
@@ -1505,7 +1628,6 @@ final class ChatRowLookup {
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowTop {
                 ChatRowView(row: row, context: context)
-
                     // VoiceOver hears which row holds Find in Chat's current match.
                     .accessibilityAddTraits(marked ? .isSelected : [])
                     // Rows whose views keep their own state (a question's answers, a code card shown in
@@ -1577,13 +1699,13 @@ extension ChatRow {
         case .tool: "tool"
         case .toolGroup: "toolGroup"
         case .edit: "edit"
-        case .plan: "plan"
         case .permission: "permission"
         case .question: "question"
         case .subagents: "subagents"
         case .working: "working"
         case .editedFiles: "editedFiles"
         case .stopped: "stopped"
+        case .notSent: "notSent"
         case .failed: "failed"
         case .actions: "actions"
         case .nextStep: "nextStep"
@@ -1651,14 +1773,14 @@ extension ChatRow {
             case .math: return 60
             case .rule: return 9
             }
+        case .tool(let call) where call.hasImages: return 32 + 6 + CGFloat(min(call.images.count, ToolOutputImages.maxShown)) * (ToolOutputImages.maxHeight + 6)
         case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
-        case .plan(let entries): return 56 + CGFloat(entries.count) * 30
         case .permission: return 120
         case .question: return 220
         case .subagents(let ids): return 45 + CGFloat(ids.count) * 52
         case .editedFiles(let changes): return 49 + CGFloat(changes.files.count) * 44
-        case .stopped: return 18
+        case .stopped, .notSent: return 18
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64

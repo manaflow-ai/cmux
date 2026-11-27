@@ -3384,6 +3384,299 @@
         "summary": "List a directory in a VM"
       }
     },
+    "/v1/vms/{vmId}/files/search": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.searchFiles",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "A literal, case-sensitive substring, matched line by line.",
+              "title": "maxLength(256)",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "required": true,
+            "description": "A literal, case-sensitive substring, matched line by line."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileSearch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileSearch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Search the text of files under a folder in a VM. Requires the vm:files scope. One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Search the text of files under a folder in a VM"
+      }
+    },
+    "/v1/vms/{vmId}/files/replica": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.seedFileReplica",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileReplica",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileReplica"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Seed a paused VM's read replica. Requires the vm:files scope. Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Seed a paused VM's read replica"
+      }
+    },
     "/v1/snapshot-creations": {
       "get": {
         "tags": [
@@ -4156,7 +4449,7 @@
         ],
         "responses": {
           "201": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4246,7 +4539,7 @@
             }
           }
         },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
         "summary": "Snapshot a running or paused VM",
         "requestBody": {
           "content": {
@@ -4454,7 +4747,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10710,7 +11003,7 @@
           },
           "budget": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "snapshots",
               "vms",
               "rate",
@@ -10724,7 +11017,10 @@
               "enrollmentCode.perMeshPerHour",
               "address.perDevice",
               "agent_vms",
-              "agent_usd_per_hour"
+              "agent_usd_per_hour",
+              "agent_running_vms",
+              "agent_usd_per_day",
+              "agent_usd_per_month"
             ]
           },
           "_tag": {
@@ -11178,6 +11474,9 @@
             "description": "an array of at most 8 item(s)",
             "title": "maxItems(8)",
             "maxItems": 8
+          },
+          "egress": {
+            "$ref": "#/components/schemas/VmEgressAllowlist"
           }
         },
         "additionalProperties": false,
@@ -11222,6 +11521,46 @@
         },
         "maxProperties": 16,
         "writeOnly": true
+      },
+      "VmEgressAllowlist": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "allowlist"
+            ]
+          },
+          "presets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 32 character(s) long",
+              "title": "maxLength(32)",
+              "maxLength": 32
+            },
+            "description": "Named groups of exact host names: anthropic, openai, openrouter, opencode, github, npm, pypi, rust.",
+            "title": "maxItems(16)",
+            "maxItems": 16
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 253 character(s) long",
+              "title": "maxLength(253)",
+              "maxLength": 253
+            },
+            "description": "Exact host names (no wildcard, no address), reached over HTTPS on 443 only.",
+            "title": "maxItems(48)",
+            "maxItems": 48
+          }
+        },
+        "additionalProperties": false,
+        "description": "The VM reaches no public address: only these exact HTTPS names (plus the names every cmux VM needs: its CLI downloads and GitHub releases), and its HTTPS proxies. Conflicts with publicEgress true."
       },
       "RequestedResources": {
         "type": "object",
@@ -11374,6 +11713,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "allowedDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Present for an allowlist create: every exact HTTPS name the VM may reach besides its proxies."
           }
         },
         "additionalProperties": false,
@@ -11974,6 +12320,110 @@
         },
         "additionalProperties": false
       },
+      "FileSearch": {
+        "type": "object",
+        "required": [
+          "source",
+          "complete",
+          "scanned",
+          "matches"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "replica",
+              "disk"
+            ],
+            "description": "replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded)."
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches."
+          },
+          "scanned": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Files under the path that were searched.",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchMatch"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "SearchMatch": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "text"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a positive number",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "text": {
+            "type": "string",
+            "description": "The matching line, at most 400 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "FileReplica": {
+        "type": "object",
+        "required": [
+          "root",
+          "complete",
+          "files",
+          "bytes",
+          "truncated",
+          "seedMs"
+        ],
+        "properties": {
+          "root": {
+            "$ref": "#/components/schemas/GuestPath"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "files": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "bytes": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "truncated": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Files over 256 KiB: only their first 256 KiB are searched.",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "seedMs": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "SnapshotCreationList": {
         "type": "object",
         "required": [
@@ -12258,7 +12708,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters."
+        "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters."
       },
       "SnapshotList": {
         "type": "object",

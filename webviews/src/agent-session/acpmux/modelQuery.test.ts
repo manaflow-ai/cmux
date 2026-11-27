@@ -71,3 +71,11 @@ test("a half-typed effort or fast word keeps the models the rest of the query fo
   expect(search("opus 5.5 m ")).toEqual([]);
   expect(search("sonnet")).toEqual([]);
 });
+
+test("the family-version shorthand resolves the requested Astra model, effort and speed", () => {
+  const request = parseQuery("astra-6.2 fast high", efforts);
+  const model = { id: "gpt-6.2-astra", name: "GPT-6.2 Astra", fast: true, efforts: ["high"] };
+  expect(fitsQuery(model, "Codex", request)).toBe(true);
+  expect(fitsQuery({ ...model, id: "gpt-6-astra", name: "Astra" }, "Codex", request)).toBe(false);
+  expect(fitsQuery({ ...model, fast: false }, "Codex", request)).toBe(false);
+});

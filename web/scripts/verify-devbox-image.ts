@@ -40,6 +40,7 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
+  retryFreestyleOverload,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -78,6 +79,19 @@ import {
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./cmux-vm-image/machine-health";
+
+/**
+ * What a failed machine-health smoke prints next: the health unit's own journal (which step of
+ * the pass ran out its 45 s, or what killed it), the units still starting (the re-arm's overdue
+ * housekeeping timers share the disk with the pass, which runs at idle I/O priority), and load.
+ * Here, not in cmux-vm-image/machine-health.ts, so it is no rebake input.
+ */
+const MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND = [
+  "journalctl -u cmux-machine-health.service -o short-monotonic --no-pager -n 40",
+  "echo activating: $(systemctl list-units --state=activating --no-legend --plain | awk '{print $1}' | tr '\\n' ' ')",
+  "echo loadavg: $(cat /proc/loadavg)",
+  "echo psi-io: $(tr '\\n' ' ' < /proc/pressure/io 2>/dev/null)",
+].join("; ");
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -121,6 +135,8 @@ const CHECKS: readonly string[] = [
   "cua-driver --version",
   `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+  // Media and dev tools people's chats reach for (Leo, 2026-11-25: "ffprobe isn't installed"): each one runs.
+  "ffprobe -hide_banner -version | head -1 && convert -version | head -1 && identify -version >/dev/null && pdfinfo -v 2>&1 | grep -i poppler && command -v pdftotext && command -v pdftoppm && git lfs version && sqlite3 --version && unzip -v | head -1 && zip -v | sed -n 2p && echo media-dev-tools-ok",
   // Prove the current upstream binary is selected and can sandbox as cmux.
   devboxBubblewrapCheckCommand(),
   // Baked files are byte-identical to this checkout.
@@ -452,7 +468,7 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
+  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -496,7 +512,7 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
+    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
@@ -572,6 +588,12 @@ if (provider === "freestyle") {
     const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
     console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
     const healthOk = healthProblems.length === 0;
+    if (!healthOk) {
+      // Run 45897047683 failed with only "one pass: exit 1, result timeout": the problem list
+      // can't say which step of the pass ran past the unit's 45 s, or what else held the disk.
+      const why = await exec(MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND, 30_000);
+      console.log(`  $ machine-health failure context\n    ${why.output.trim().split("\n").join("\n    ")}`);
+    }
     pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!healthOk) console.log("[freestyle] machine-health check FAILED");
