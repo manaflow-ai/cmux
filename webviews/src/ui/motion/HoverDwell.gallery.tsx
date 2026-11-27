@@ -125,17 +125,17 @@ export default componentEntry<DwellDemoProps>({
     // is a bit slow"): the standard ramp is 400 ms in, so Steer, trash and the menu took most of half a
     // second to arrive. Arms: in 90, 120 or 150 ms on the scale's ease-out, out on the quick step.
     "queued-90": {
-      note: "Queued row actions: 90 ms ease-out in, 80 ms out. Snappiest; Steer's glyph barely reads as a fade.",
+      note: "Queued row actions: 90 ms ease-out in, quick step out. Snappiest; Steer's glyph barely reads as a fade.",
       props: { curve: "queued-90" },
       play: ran,
     },
     "queued-120": {
-      note: "Picked for the queued row's actions: 120 ms ease-out in (the scale's micro step), 80 ms out. Full by the time the eye lands.",
+      note: "Picked for the queued row's actions: the scale's micro step, ease-out, in; the quick step out. Full by the time the eye lands.",
       props: { curve: "queued-120" },
       play: ran,
     },
     "queued-150": {
-      note: "Queued row actions: 150 ms ease-out in, 80 ms out. Still reads as a fade, a touch behind the pointer.",
+      note: "Queued row actions: 150 ms ease-out in, quick step out. Still reads as a fade, a touch behind the pointer.",
       props: { curve: "queued-150" },
       play: ran,
     },
