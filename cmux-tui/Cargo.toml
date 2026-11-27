@@ -469,10 +469,10 @@ cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-bytes = { path = "crates/cmux-bytes" }
-cmux-cas = { path = "crates/cmux-cas" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }

@@ -3462,6 +3462,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-build-space",
  "cmux-bytes",
+ "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
