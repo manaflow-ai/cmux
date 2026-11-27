@@ -76,6 +76,7 @@ cmux-intent.workspace = true
 cmux-egress.workspace = true
 cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
+cmux-phone-page.workspace = true
 cmux-cloud-client.workspace = true
 # `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
 # `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
