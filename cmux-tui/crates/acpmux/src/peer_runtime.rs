@@ -44,11 +44,15 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
-            wireguard: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            ssh_mux_override: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            wg_learner: std::sync::OnceLock::new(),
+            wg_learning: AtomicBool::new(false),
             tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
@@ -76,6 +80,7 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            list_baseline_missing: AtomicBool::new(false),
             rows_link: AtomicU64::new(0),
             listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
@@ -116,6 +121,9 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            host_key_refused: AtomicBool::new(false),
+            remote_listen: StdMutex::new(None),
+            link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -136,6 +144,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            quality: StdMutex::default(),
             replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
@@ -166,7 +175,14 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
@@ -187,6 +203,40 @@ impl Peer {
     pub(super) fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
         let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
         f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
+    pub(super) fn with_quality<T>(
+        &self,
+        f: impl FnOnce(&mut crate::peer_link_quality::LinkQuality) -> T,
+    ) -> T {
+        f(&mut self.quality.lock_or_recover())
+    }
+
+    /// How long a ping sent to check a silent link waits for an answer: what the silence budget's
+    /// measured round trip asks for (`SilenceBudget::probe_wait`), and not under `NETWORK_PROBE`
+    /// scaled to the link quality's round trip (`peer_link_quality::probe_wait`).
+    pub(super) fn probe_wait(&self) -> Duration {
+        let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
+        if !self.timings.rtt_adaptive {
+            return wait;
+        }
+        wait.max(self.with_quality(|q| {
+            crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE)
+        }))
+    }
+
+    /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
+    /// its round trip asks for (`peer_link_quality::silence_floor`). A fixed
+    /// `ACPMUX_PEER_PING_SECS` keeps it as set.
+    pub(super) fn silence_for(&self, learned: Duration) -> Duration {
+        let t = &self.timings;
+        if !t.rtt_adaptive || t.fixed_silence {
+            return learned;
+        }
+        let floor = self.with_quality(|q| {
+            crate::peer_link_quality::silence_floor(q.rtt(), t.ping_every, t.silence_budget())
+        });
+        learned.max(floor)
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -303,6 +353,42 @@ impl Peer {
         )
     }
 
+    /// The link is up and past its handshake: a request goes out on it.
+    fn takes_requests(&self) -> bool {
+        self.connected.load(Ordering::SeqCst) && !self.admitting.load(Ordering::SeqCst)
+    }
+
+    /// A link that is coming up or went down moments ago (a network blip, a path switch, the
+    /// peer's daemon restarting) is usually back within seconds: a request waits that out
+    /// (`LinkTimings::reconnect_wait`) instead of refusing the person at once. A link that has
+    /// been down longer, or whose attempt failed while it waited, refuses now as before
+    /// (`peer_unreachable`, retryable: the request was not sent).
+    pub(crate) async fn await_reconnect(&self) -> Result<(), RpcError> {
+        use cmux_tui_util::retry::{Attempt, Patience};
+        let wait = self.timings.reconnect_wait;
+        if wait.is_zero() || !self.link().coming_back(crate::store::now_ms()) {
+            return Err(self.unreachable_error());
+        }
+        let peer: &Self = self;
+        Patience::new(format!("{} to reconnect", self.name), wait)
+            .quiet()
+            .spaced(Duration::from_millis(50), Duration::from_millis(500))
+            .run_async(
+                || (),
+                move || async move {
+                    if peer.takes_requests() {
+                        Ok(())
+                    } else if peer.link().coming_back(crate::store::now_ms()) {
+                        Err(Attempt::Retry(()))
+                    } else {
+                        Err(Attempt::Fail(()))
+                    }
+                },
+            )
+            .await
+            .map_err(|()| self.unreachable_error())
+    }
+
     /// Receives every later settled connect attempt.
     pub fn settled(&self) -> tokio::sync::watch::Receiver<u64> {
         self.settled.subscribe()
@@ -392,10 +478,12 @@ impl Peer {
         ),
         String,
     > {
-        let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let (host, url_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let to = tunnel_target(url_port, *self.remote_listen.lock_or_recover());
+        let remote_port = to.port();
         let mut command = self.ssh_command();
         command
-            .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
+            .args(tunnel_argv_to(&host, to, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -434,9 +522,55 @@ impl Peer {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
         }
-        if ssh_errors::login_refused(reason) {
+        if ssh_errors::host_key_refused(reason) {
+            self.host_key_refused.store(true, Ordering::SeqCst);
+        } else if ssh_errors::login_refused(reason) {
             self.login_refused.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// The address the machine's daemon recorded at the last read, kept for the next tunnels.
+    pub(super) fn note_remote_listener(&self, recorded: Option<std::net::SocketAddr>) {
+        let mut kept = self.remote_listen.lock_or_recover();
+        if *kept != recorded {
+            tracing::info!(peer = %self.name, ?recorded, "the machine's daemon listener, as recorded");
+        }
+        *kept = recorded;
+    }
+
+    /// The forward to `tried` (a port on the machine) was refused: read the machine's
+    /// `listener.json` again, keep it, and return it when it names another port. A daemon that
+    /// found its port taken as it started serves on a free one, and only its record says which
+    /// (`listener_record.rs`). None when the URL names its own port, when the read fails, or when
+    /// the record is gone or names `tried` (the daemon is down).
+    pub(super) async fn reread_listener(&self, tried: u16) -> Option<std::net::SocketAddr> {
+        let (host, url_port) = self.ssh_parts()?;
+        if url_port != SSH_PEER_PORT || self.stop.load(Ordering::SeqCst) {
+            return None;
+        }
+        let mut command = self.ssh_command();
+        command
+            .args(read_listener_argv(&host, self.ssh_connect_secs()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let child = command.spawn().ok()?;
+        let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
+        let out = tokio::select! {
+            out = read => out.ok()?.ok()?,
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+                return None;
+            }
+        };
+        if !out.status.success() && out.stdout.is_empty() {
+            return None;
+        }
+        let recorded = remote_listener_text(&out.stdout);
+        self.note_remote_listener(recorded);
+        recorded.filter(|addr| addr.port() != tried)
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -491,6 +625,7 @@ impl Peer {
             ));
         }
         let (config, peer) = split_remote_read(&out.stdout);
+        self.note_remote_listener(remote_read_listener(&out.stdout));
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
@@ -622,9 +757,11 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease. A boundary peer
+    /// is dialed and kept (`peer_demand.rs` `closes_idle`), so a parked one wakes.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+        self.demand_changed();
     }
 
     /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
@@ -679,7 +816,7 @@ impl Peer {
         self: &Arc<Self>,
         id: Value,
         params: Value,
-        slot: tokio::sync::OwnedSemaphorePermit,
+        slot: crate::github_broker::OwnerPermit,
         link: u64,
     ) {
         let me = self.clone();
@@ -707,7 +844,7 @@ impl Peer {
             let reply = tokio::select! {
                 reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
                 () = &mut revoked => {
-                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
+                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots, &Value::Null) else {
                         return;
                     };
                     Err(e)
@@ -751,12 +888,41 @@ impl Peer {
         self.watch_active.store(active, Ordering::Release);
     }
 
+    pub(crate) fn coalesce_lists(&self) {
+        self.notices.coalesce_lists();
+    }
+
+    pub(crate) fn take_waiting_list(&self, number: u64) -> Option<Vec<Arc<str>>> {
+        let rows = self.notices.take_waiting_list(number);
+        self.list_baseline_missing.store(rows.is_none(), Ordering::SeqCst);
+        if rows.is_none() {
+            self.rows_ready.store(false, Ordering::SeqCst);
+            self.rows_link.store(0, Ordering::SeqCst);
+        }
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queue_notice_for_test(
+        &self,
+        notice: PeerNotice,
+    ) -> Result<(), crate::peer_notice_outbox::Closed> {
+        if matches!(notice, PeerNotice::Listed) {
+            self.listed_links.lock_or_recover().push_back(self.link_epoch());
+        }
+        self.notices.send((self.name.clone(), self.generation, notice)).await
+    }
+
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
     /// last. A notice no link queued (a test's) stands for the live link.
-    pub(crate) fn note_rows_applied(&self) {
+    pub(crate) fn note_rows_applied(&self) -> bool {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
+        if self.list_baseline_missing.load(Ordering::SeqCst) {
+            return false;
+        }
         self.rows_link.store(link + 1, Ordering::SeqCst);
+        link == self.link_epoch()
     }
 
     /// The link is ready and the hub applied the session list this link read (`Listed`), so
@@ -806,6 +972,8 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // The ping bar: null while the link is down or before its first pong.
+            "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
             "received": self.received.split(),
         })
     }
@@ -870,7 +1038,8 @@ impl Peer {
                         marks.remove(id);
                     }
                 }
-                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+                let class = attach_failure_class(e);
+                tracing::warn!(peer = %self.name, session = %id, refused, class = %class, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
         }
         attached
@@ -904,11 +1073,22 @@ impl Peer {
                         }
                         break;
                     }
-                    Err(e) if refuses_attach(&e) => break,
-                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
-                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    // A refusal is not tried again (its class is `gap_too_old`: the chat is
+                    // gone there, or `unknown`: the peer takes no such attach). Every other
+                    // class is, after each of `ATTACH_RETRY_AFTER`: that schedule is its bound.
+                    Err(e) if refuses_attach(&e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::info!(peer = %me.name, session = %id, class = %class, "the peer refused the chat's attach; it is not tried again");
+                        break;
                     }
-                    Err(_) => {}
+                    Err(e) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        let class = attach_failure_class(&e);
+                        tracing::warn!(peer = %me.name, session = %id, class = %class, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::debug!(peer = %me.name, session = %id, class = %class, attempt = n + 1, "the peer's chat was not attached; trying again");
+                    }
                 }
             }
             me.attach_retries.lock_or_recover().remove(&id);
@@ -1025,8 +1205,11 @@ impl Peer {
         // One of any link that is bound to its connection goes again on the next link when
         // this one switches paths under it (`resend_switched`).
         let retry = epoch.is_none() && dual::bound(m);
+        if epoch.is_none() && !self.takes_requests() {
+            self.await_reconnect().await?;
+        }
         let epoch = epoch.unwrap_or_else(|| self.link_epoch());
-        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
+        if !self.takes_requests() {
             return Err(self.unreachable_error());
         }
         self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await

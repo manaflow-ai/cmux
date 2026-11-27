@@ -52,7 +52,7 @@ jobs:
   compile:
     name: cmux-next head compile
     if: ${{ github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || inputs.head != '') && vars.CI_COMPILE_CHECK_GATEWAY != '' && vars.CI_HEAD_COMPILE == 'on' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (#54437)
     permissions:
       contents: read
       actions: read
@@ -67,7 +67,7 @@ jobs:
       culprit_pr: ${{ steps.run.outputs.culprit_pr }}
     steps:
       - name: Checkout the head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.head || github.sha }}
           persist-credentials: false

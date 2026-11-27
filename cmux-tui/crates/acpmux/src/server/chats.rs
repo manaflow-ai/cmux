@@ -149,6 +149,9 @@ pub(super) async fn route(
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::consent_grant::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Agent byte channels: listen, unlisten, open (`channels.rs`).
     if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -229,6 +232,9 @@ pub(super) async fn route(
     if let Some(reply) = super::prompt_schedule::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
         return reply;
@@ -272,6 +278,10 @@ pub(super) async fn route(
     // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_SCORECARD {
         return scorecard::handle(hub, conn.origin, &params).await;
+    }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
@@ -491,6 +501,11 @@ pub(super) async fn route(
                 (name.to_owned(), profile.clone())
             };
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
+                id,
+                &forked,
+            );
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {

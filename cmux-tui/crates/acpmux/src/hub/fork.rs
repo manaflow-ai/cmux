@@ -313,6 +313,13 @@ impl Hub {
             }
             None => None,
         };
+        // What this fork shares with the chat, logged once it is made (`fork_spec.rs`).
+        let spec = crate::fork_spec::ForkSpec::hub(
+            checked.is_some(),
+            subagent,
+            target.is_some(),
+            through.is_some() || before.is_some(),
+        );
         // A mode of the chat's own harness is checked before anything is made; another
         // harness's once it is up (`apply_fork_start`).
         if target.is_none()
@@ -765,6 +772,8 @@ impl Hub {
         let rules_kept = !fresh
             && !moved
             && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
+        // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
+        let (title, title_source) = super::titles::fork_title(&parent_meta);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -843,8 +852,8 @@ impl Hub {
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             policy_source: parent_meta.policy_source.clone(),
-            title: None,
-            title_source: None,
+            title,
+            title_source,
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
@@ -1294,6 +1303,7 @@ impl Hub {
         new.fork_made();
         self.save_meta(&new);
         creation_guard.disarm();
+        crate::fork_spec::log(&spec, &session.id, &new.id);
         if let Some(checked) = checked {
             // A sub-session's harness runs only in the folder its start checked, or not at all.
             if let Err(e) = self.start_checked_child(&new, checked).await {

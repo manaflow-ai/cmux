@@ -48,6 +48,7 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
+      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
       # No render reads Markdown (as on pull requests below).
       - "!**/*.md"
@@ -60,6 +61,8 @@ on:
       - "webviews/src/pages/shared/desktop.css"
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
+      # Prose renders no gallery state: a docs-only pull request starts no capture (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
       # No render reads Markdown: a docs-only pull request starts nothing here (tests/test_ci_docs_only_prs.py).
       - "!**/*.md"
@@ -97,7 +100,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the status scripts from the base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -149,7 +152,7 @@ jobs:
       # (2026-11-12). The capture step fetches the base branch's commits, no trees or blobs,
       # for the merge base.
       - name: Checkout the PR head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
@@ -160,6 +163,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -277,7 +281,11 @@ jobs:
             # Only what a gallery build reads, as the checkout above: the whole tree was ~47,000
             # files to write for one build.
             git worktree add -f -f -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
-            git sparse-checkout list | git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin
+            # The patterns file actions/checkout wrote, not `git sparse-checkout list`: on a reused
+            # runner a `core.sparseCheckout=false` an earlier job left in config.worktree masks
+            # checkout's `true`, and `list` then exits 128 "this worktree is not sparse" (cmux#46599
+            # job 140195097506; hq docs/handbook/sparse-checkout-left-on-a-reused-runner.md).
+            git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin < "$(git rev-parse --git-path info/sparse-checkout)"
             git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
             if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
               cd "$RUNNER_TEMP/base/webviews"
@@ -476,7 +484,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the status scripts from the base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false

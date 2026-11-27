@@ -62,7 +62,7 @@ else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/t
 /// through WireGuard but around the packet filter, so it works where the policy refuses this
 /// node dialing the user's devices. A disco ping alone starts no handshake (it did not help);
 /// disco pings before the TSMP ping delayed the handshake past its use (measured worse).
-const PEER_KICK: &str = "( tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
+const PEER_KICK: &str = "( i=0; until tailscale status --json --peers=false 2>/dev/null | tr -d '\\n' | grep -q '\"Addrs\": *\\[ *\"'; do i=$((i+1)); [ $i -gt 20 ] && break; sleep 0.1; done; tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
 
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
 /// machine's clock at the stop. The state file stays on the machine until [`forget_command`], so
@@ -90,8 +90,26 @@ pub struct Released {
 impl Released {
     /// What the caller writes, 0600, to [`STAGED_STATE_FILE`] on the new holder.
     pub fn staged_contents(&self) -> String {
-        format!("{}\n", self.state.expose())
+        staged_contents(&self.state)
     }
+}
+
+/// What the caller writes, 0600, to [`STAGED_STATE_FILE`] for `state` (base64), from a release or
+/// from the vault.
+pub fn staged_contents(state: &Secret) -> String {
+    format!("{}\n", state.expose())
+}
+
+/// One exec on the current holder, which keeps running: print its state as one base64 word, for
+/// the user's vault to keep (`cmux vm tailnet keep`). Read while `tailscaled` runs: the keys in it do
+/// not change once the node is signed in, so the copy brings the same node up later.
+pub fn snapshot_command() -> String {
+    format!(
+        "{ROOT}; f={STATE_FILE}; \
+if root test -L \"$f\" || ! root test -s \"$f\"; then echo 'cmux-tailnet: no node state on this machine (not on a tailnet, or not through system Tailscale)' >&2; exit 3; fi; \
+printf 'cmux-tailnet-state '; root base64 -w0 \"$f\" || exit 1; echo; \
+echo cmux-tailnet-snapshot"
+    )
 }
 
 /// Reads [`release_command`]'s stdout. `Err` is why there is no state to move, in words.
@@ -99,6 +117,35 @@ pub fn parse_released(stdout: &str) -> Result<Released, String> {
     if !stdout.lines().any(|l| l.trim() == "cmux-tailnet-released") {
         return Err("the old machine did not hand over its node state".to_owned());
     }
+    parse_state(stdout)
+}
+
+/// Reads [`snapshot_command`]'s stdout: the node state, base64.
+pub fn parse_snapshot(stdout: &str) -> Result<Secret, String> {
+    if !stdout.lines().any(|l| l.trim() == "cmux-tailnet-snapshot") {
+        return Err("the machine did not print its node state".to_owned());
+    }
+    parse_state(stdout).map(|released| released.state)
+}
+
+/// Checks `state` is one base64 word of a node's size. `Err` says why not, in words.
+pub fn check_state(state: &str) -> Result<(), String> {
+    if state.is_empty() {
+        return Err("the node state is empty".to_owned());
+    }
+    if state.len() > MAX_STATE_BYTES {
+        return Err(format!(
+            "the node state is {} bytes, more than a node's state ever is",
+            state.len()
+        ));
+    }
+    if !state.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')) {
+        return Err("the node state is not base64".to_owned());
+    }
+    Ok(())
+}
+
+fn parse_state(stdout: &str) -> Result<Released, String> {
     let mut state = None;
     let mut stopped_at_ms = None;
     for line in stdout.lines() {
@@ -109,18 +156,7 @@ pub fn parse_released(stdout: &str) -> Result<Released, String> {
         }
     }
     let state = state.unwrap_or_default();
-    if state.is_empty() {
-        return Err("the old machine's node state is empty".to_owned());
-    }
-    if state.len() > MAX_STATE_BYTES {
-        return Err(format!(
-            "the old machine's node state is {} bytes, more than a node's state ever is",
-            state.len()
-        ));
-    }
-    if !state.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')) {
-        return Err("the old machine's node state is not base64".to_owned());
-    }
+    check_state(state).map_err(|why| why.replacen("the node", "the old machine's node", 1))?;
     Ok(Released { state: Secret::new(state), stopped_at_ms })
 }
 

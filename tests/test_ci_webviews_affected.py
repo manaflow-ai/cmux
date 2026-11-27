@@ -534,6 +534,20 @@ class PullRequestShardsTest(unittest.TestCase):
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[0], [1, 2, 3])
 
+    def test_a_selection_past_one_environment_variable_still_splits(self) -> None:
+        """A full-ci closure named every test file inline in CMUX_WEB_TEST_FILES: past 128 KiB the exec failed with
+        E2BIG and the pick ran all 8 shards (run 45937345076). The list goes through CMUX_WEB_TEST_FILES_FROM."""
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        names = subprocess.run(["git", "ls-files", "*.test.ts", "*.test.tsx"], cwd=ROOT / "webviews",
+                               capture_output=True, text=True, check=True).stdout.split()
+        selected = {wa.WEB + name for name in names}
+        if sum(len(name) + 1 for name in names) < 131072:
+            self.skipTest("fewer test files than one environment variable holds")
+        split = [ps.shard_files(ROOT, shard, 8, selected) for shard in range(1, 9)]
+        self.assertEqual(set().union(*split), selected)
+        self.assertEqual(sum(map(len, split)), len(selected))  # each file in one shard
+        self.assertEqual(ps.shard_files(ROOT, 1, 8, set()), ps.shard_files(ROOT, 1, 8, None))
+
     def test_files_of_lists_the_named_shards_files_webviews_relative(self) -> None:
         """react-apps-base-early replays base reds only among these (RFD 0023 item 3): the picked shards' own split."""
         import webviews_pr_shards as ps  # noqa: PLC0415
