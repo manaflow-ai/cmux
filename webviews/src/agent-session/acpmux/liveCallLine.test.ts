@@ -5,7 +5,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { LIVE_THINKING, WORKED, turnView } from "./conversation/turns";
-import { callOnly, drewLiveLine, lineCalledNow, liveCallLine, liveCallLineHeard, setLiveLine } from "./liveCallLine";
+import {
+  callOnly,
+  drewLiveLine,
+  lineCalledNow,
+  liveCallLine,
+  liveCallLineHeard,
+  setLiveLine,
+  setOpenRows,
+} from "./liveCallLine";
 import { drewThoughts } from "./liveThought";
 import { markOneRowChange } from "./rowChanges";
 
@@ -220,10 +228,51 @@ test("once the pane's readers follow the rows store, a hidden shell's start move
   expect(callOnly(first, edit, true)).toBeUndefined();
 });
 
-test("with followed readers, a call the turn's open fold draws still redraws the pane", () => {
+test("with followed readers, a command's end under the turn's open fold moves only the row it changed", () => {
+  const expanded = new Set([`${WORKED}-${prompt.id}`]);
+  const first = snapshot([prompt, reply, work(1, [read("r1", "completed"), read("s1", "in_progress", "execute")])]);
+  const drew = paneDraws(first, expanded);
+  const ended = after(
+    first,
+    [prompt, reply, work(2, [read("r1", "completed"), read("s1", "completed", "execute")])],
+    2,
+  );
+  const call = callOnly(first, ended, true);
+  expect(call).toBeDefined();
+  const shaped = turnView(ended.rows as AcpmuxRow[], expanded, options);
+  expect(call!.rows.length).toBeGreaterThan(0);
+  for (const [from, to] of call!.rows) {
+    expect(drew).toContain(from);
+    expect(to).toEqual(shaped.find((row) => row.id === to.id)!);
+  }
+  setOpenRows(call!.rows);
+  setLiveLine(call!.line);
+  // The transcript told again of the rows it drew keeps them: those rows read the newer ones.
+  drewLiveLine(drew);
+  expect(flushes).toBe(0);
+  // A pass that shapes the pane's older rows again draws the newest snapshot at once.
+  transcriptDraws(first, expanded);
+  expect(flushes).toBe(1);
+});
+
+test("with followed readers, a call under the turn's open fold moves only the rows it changed", () => {
   const expanded = new Set([`${WORKED}-${prompt.id}`]);
   const first = snapshot([prompt, reply, work(1, [read("r1", "completed")])]);
-  paneDraws(first, expanded);
+  const drew = paneDraws(first, expanded);
   const ended = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("r2", "completed")])], 2);
-  expect(callOnly(first, ended, true)).toBeUndefined();
+  const call = callOnly(first, ended, true);
+  const shaped = turnView(ended.rows as AcpmuxRow[], expanded, options);
+  if (!call) {
+    // The call drew a row of its own: the turn's rows change in number, so the pane draws them.
+    expect(shaped.length).not.toBe(drew.length);
+    return;
+  }
+  for (const [from, to] of call.rows) {
+    expect(drew).toContain(from);
+    expect(shaped.find((row) => row.id === to.id)).toEqual(to);
+  }
+  expect(call.rows.length).toBeGreaterThan(0);
+  // Unfollowed readers still redraw the pane for it.
+  paneDraws(first, expanded);
+  expect(callOnly(first, ended)).toBeUndefined();
 });

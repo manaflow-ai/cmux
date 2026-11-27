@@ -16,7 +16,7 @@ import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER 
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
 import { useLiveThoughtRow } from "../liveThought";
-import { useLiveLineRow } from "../liveCallLine";
+import { useLiveLineRow, useLiveOpenRow } from "../liveCallLine";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
@@ -57,7 +57,10 @@ export const RowContent = React.memo(
     });
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
-    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    const row = useLiveLineRow(
+      useLiveThoughtRow(useLiveToolRow(useLiveOpenRow(props.row, liveTools), liveTools), liveTools),
+      liveTools,
+    );
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />

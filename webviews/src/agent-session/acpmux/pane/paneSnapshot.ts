@@ -71,7 +71,7 @@ import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtMiss, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
-import { callMiss, callOnly, callOnlyMiss, liveCallLine, setLiveLine } from "../liveCallLine";
+import { callMiss, callOnly, callOnlyMiss, liveCallLine, setLiveLine, setOpenRows } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
@@ -994,6 +994,7 @@ export function paneSnapshotEffect({
         ? callOnly(received, next, rowsRef.readersFollow)
         : undefined;
     if (line) {
+      setOpenRows(line.rows);
       setLiveLine(line.line);
       return;
     }
