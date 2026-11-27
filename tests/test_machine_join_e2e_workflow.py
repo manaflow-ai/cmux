@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""machine-join-e2e.yml keeps the scope it was cleared for.
+"""The machine_join suite in machine-vault-e2e.yml keeps the scope it was cleared for.
 
 The workflow holds the repo's dev stack account and adds an OS user, so these
 hold for good: manual dispatch only; feat-cmux-next only; top-level
@@ -246,7 +246,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertNotIn('systemctl start "$manager" && started=1', prep)
         # The development device hub only, in the workflow and the script.
         document = load()
-        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"][JOB])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"', script)
         self.assertIn("if (sh.hub !== DEV_DEVICE_HUB)", script)

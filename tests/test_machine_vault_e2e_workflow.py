@@ -81,7 +81,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertIn('"$got" != "$want"', cli["run"])
         self.assertIn("ahead", cli["run"])
         self.assertLess(names().index("Download the published cmux CLI"), names().index(RUN_STEP))
-        text = WORKFLOW.read_text(encoding="utf-8")
+        text = str(load()["jobs"]["e2e"])
         self.assertNotIn("cargo build", text)
         self.assertNotIn("setup-cmux-tui-rust", text)
 
@@ -132,8 +132,20 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertIn('"the output holds the Claude login"', script)
 
     def test_one_run_at_a_time(self) -> None:
-        self.assertEqual(load()["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
+        self.assertNotIn("concurrency", load())
+        self.assertEqual(load()["jobs"]["e2e"]["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
         self.assertIn("is already in this account's vault", SCRIPT.read_text(encoding="utf-8"))
+
+    def test_suite_gates_are_disjoint(self) -> None:
+        jobs = load()["jobs"]
+        self.assertEqual(
+            {name: job["if"] for name, job in jobs.items()},
+            {
+                "e2e": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-vault'",
+                "billing": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'billing'",
+                "machine_join": "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-join'",
+            },
+        )
 
     def test_no_xtrace(self) -> None:
         for s in steps():
