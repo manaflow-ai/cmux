@@ -65,6 +65,9 @@ final class TipUpdateCheck {
     /// The newest build this check asked the driver for.
     private(set) var asked: String?
     let timer: DemandTimer
+    /// A DEV update-harness copy takes a NIGHTLY's fast check (``UpdaterService/debugReleasePush(_:)``),
+    /// so a simulated release push runs the path a NIGHTLY's does.
+    var simulatesNightly = false
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.tipCheck", clock: clock)
@@ -83,7 +86,7 @@ final class TipUpdateCheck {
     /// Called when the phase, the schedule, the download or managed policy moves, and when the sheet closes.
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
-        guard task == nil, !timer.isScheduled, let interval = Self.interval(for: updater.identity) else { return }
+        guard task == nil, !timer.isScheduled, let interval = readInterval(updater) else { return }
         timer.schedule(after: .seconds(interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
@@ -102,8 +105,12 @@ final class TipUpdateCheck {
         return task != nil
     }
 
+    private func readInterval(_ updater: UpdaterService) -> TimeInterval? {
+        Self.interval(for: updater.identity) ?? (simulatesNightly ? Self.nightlyInterval : nil)
+    }
+
     private func mayCheck(_ updater: UpdaterService) -> Bool {
-        guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.settingsApplied, updater.disabledReason == nil,
+        guard readInterval(updater) != nil, automatic, updater.isStarted, updater.settingsApplied, updater.disabledReason == nil,
               !updater.flow.installRequested, !updater.isSheetPresented(), !updater.isOffManagedChannel else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true

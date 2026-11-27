@@ -23,6 +23,13 @@ What it does (plans: .cmux-scratch/hq-ff/updates-plan.md, slice S0):
      waits for the update to stage (Sparkle downloads, verifies and extracts
      it), checks that nothing relaunches, then presses Restart to Update.
      --scenario runs the install action through the control socket.
+     --push starts it with a simulated release push (debug.updater push: the
+     NIGHTLY path, TipUpdateCheck's fast check) instead of Check for Updates;
+     it must still stage with no click. --delta also lists a Sparkle delta
+     from v1 to v2 (Sparkle 2.8.1's BinaryDelta, as the nightly makes) and
+     fails unless the update downloaded the delta and never the full archive.
+     Together they replay a nightly's push and incremental update in about a
+     minute, no real nightly needed.
   5. Waits for v1 to exit (kernel exit event) and for the relaunched app's
      launch marks, then writes <out>/timeline.json and prints the numbers.
   6. Stops what it started (exact pids), the server, and deletes the key.
@@ -48,6 +55,9 @@ ATTEMPT_ACTION = "palette.attemptUpdate"
 # --scenario: the palette's Attempt Update (Cmd+Shift+P), run through action.run (the registry path
 # the palette runs), and what the update UI shows (the card.* marks, updates.status).
 SCENARIOS = ["attempt-up-to-date", "attempt-update", "attempt-staged", "attempt-feed-error", "attempt-download-error"]
+# The Sparkle release the nightly's deltas come from (scripts/sparkle_generate_appcast.sh).
+SPARKLE_VERSION = "2.8.1"
+SPARKLE_TARBALL_SHA256 = "5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
 RESTORED_MARKS = ["launch.first_window_frame_committed", "launch.launch_snapshot_shown",
                   "launch.daemon_connected", "launch.daemon_version_handoff", "launch.daemon_snapshot_loaded",
                   "launch.sidebar_rows_shown", "launch.first_terminal_content"]
@@ -526,6 +536,37 @@ def run_attempt_scenario(a, sock, marks, pid, result):
         raise SystemExit(f"attempt-download-error: the failure offers no Download Manually: {failure}")
 
 
+def binary_delta_tool(path, work):
+    """Sparkle's BinaryDelta: `path`, else the release tarball the nightly uses (cmux-ci's cache
+    or a download), checksum checked, extracted under `work`."""
+    if path:
+        return path
+    import hashlib
+    cache = os.path.expanduser(f"~/Library/Caches/cmux-ci/sparkle/Sparkle-{SPARKLE_VERSION}-{SPARKLE_TARBALL_SHA256[:16]}.tar.xz")
+    tarball = cache
+    if not os.path.exists(cache):
+        tarball = os.path.join(work, "Sparkle.tar.xz")
+        run(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "4", "--retry-all-errors",
+             "--max-time", "300", "-o", tarball,
+             f"https://github.com/sparkle-project/Sparkle/releases/download/{SPARKLE_VERSION}/Sparkle-{SPARKLE_VERSION}.tar.xz"])
+    with open(tarball, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    if digest != SPARKLE_TARBALL_SHA256:
+        raise SystemExit(f"Sparkle {SPARKLE_VERSION} tarball {tarball} checksum mismatch: {digest}")
+    tools = os.path.join(work, "sparkle-tools")
+    os.makedirs(tools, exist_ok=True)
+    run(["tar", "-xf", tarball, "-C", tools, "./bin/BinaryDelta"])
+    return os.path.join(tools, "bin", "BinaryDelta")
+
+
+def served_paths(server_log):
+    """The paths the loopback feed served (http.server's request lines), in order."""
+    if not os.path.exists(server_log):
+        return []
+    with open(server_log, errors="replace") as f:
+        return re.findall(r'"GET (\S+) HTTP/[0-9.]+" 2\d\d', f.read())
+
+
 def read_feed_reads(path):
     """The slow feed's appcast reads (``slow_feed.py``), oldest first."""
     try:
@@ -613,6 +654,13 @@ def main():
     ap.add_argument("--click-delay", type=float, default=0,
                     help="with --click-at-stage: click this many seconds after the update staged (a person who "
                          "installs right away; Leo's NIGHTLY: 3)")
+    ap.add_argument("--push", action="store_true",
+                    help="start the update with a simulated release push (debug.updater push: the NIGHTLY path) "
+                         "instead of Check for Updates; with automatic downloads it must stage with no click")
+    ap.add_argument("--delta", action="store_true",
+                    help="also list a Sparkle delta from v1 to v2 and fail unless the update downloaded the delta, "
+                         "never the full archive")
+    ap.add_argument("--binary-delta", help="Sparkle's BinaryDelta for --delta (default: Sparkle 2.8.1's, checksum checked)")
     ap.add_argument("--scenario", choices=SCENARIOS,
                     help="the palette's Attempt Update: up-to-date (the feed offers v1 itself) -> the up to date card; "
                          "update -> checking or downloading, then the staged update card (Restart to Update); "
@@ -735,6 +783,20 @@ def main():
         signature = run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, archive])
         length = os.path.getsize(archive)
         short = i2.get("CFBundleShortVersionString", "0")
+        deltas = ""
+        if a.delta:
+            # The nightly's delta: v1's tree to v2's, made by the same Sparkle release, signed like the archive.
+            delta = os.path.join(feed, "update.delta")
+            started = time.monotonic()
+            run([binary_delta_tool(a.binary_delta, work), "create", v1, v2, delta])
+            delta_signature = run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, delta])
+            result["delta"] = {"bytes": os.path.getsize(delta), "archive_bytes": length,
+                               "create_s": round(time.monotonic() - started, 1)}
+            log("delta", json.dumps(result["delta"]))
+            deltas = f"""
+      <sparkle:deltas>
+        <enclosure url="http://127.0.0.1:{a.port}/update.delta" sparkle:deltaFrom="{i1['CFBundleVersion']}" length="{os.path.getsize(delta)}" type="application/octet-stream" sparkle:edSignature="{delta_signature}"/>
+      </sparkle:deltas>"""
         appcast = f"""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
@@ -744,7 +806,7 @@ def main():
       <pubDate>{time.strftime('%a, %d %b %Y %H:%M:%S +0000', time.gmtime())}</pubDate>
       <sparkle:version>{i2['CFBundleVersion']}</sparkle:version>
       <sparkle:shortVersionString>{short}</sparkle:shortVersionString>
-      <description><![CDATA[New: the update harness relaunch]]></description>
+      <description><![CDATA[New: the update harness relaunch]]></description>{deltas}
       <enclosure url="http://127.0.0.1:{a.port}/{'missing.zip' if a.scenario == 'attempt-download-error' else 'update.zip'}" length="{length}" type="application/octet-stream" sparkle:edSignature="{signature}"/>
     </item>
   </channel>
@@ -863,7 +925,11 @@ def main():
             run_attempt_scenario(a, sock, marks, v1_pid, result)
             return
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
-        if not a.sparkle_auto:
+        if a.push:
+            # The release push a NIGHTLY gets when a build publishes, simulated: the fast check reads the
+            # feed and the found build downloads by itself, as a scheduled read's does.
+            log("push", json.dumps(rpc(sock, "debug.updater", {"action": "push", "build": i2["CFBundleVersion"]}))[:200])
+        elif not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
         # With automatic downloads (the default) the update stages with no click; with --downloads-off
         # the check stops on the update-found step.
@@ -906,6 +972,13 @@ def main():
             status = rpc(sock, "updates.status")
             raise SystemExit(f"no staged update: {json.dumps(status)[:1500]}")
         log("staged")
+        if a.delta:
+            # Incremental: the staged update came from the delta, and the full archive was never read.
+            paths = [p.split("?")[0] for p in served_paths(os.path.join(out, "server.log"))]
+            result["delta"]["downloaded"] = [p for p in paths if p.endswith((".delta", ".zip"))]
+            log("delta downloads", json.dumps(result["delta"]["downloaded"]))
+            if "/update.delta" not in paths or "/update.zip" in paths:
+                raise SystemExit(f"the update did not come from the delta: {json.dumps(result['delta'])}")
         if not a.click_at_stage:
             # A person clicks seconds or hours after the card appears; the staging work is done by then.
             kept = marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v1_pid), 120)

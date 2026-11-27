@@ -29,6 +29,8 @@ import CmuxNextUpdater
 /// Share cmux modal and `{action: "share-copy"}` presses its Copy Link.
 /// `{action: "newest", pulled?}` shows the "Getting the Newest Build…" card (with `pulled`, its
 /// "This build was pulled." line); `{action: "unstage"}` ends it.
+/// `{action: "push", build}`: the release push for `build` (`UpdaterService.debugReleasePush`; DEV
+/// and bench builds), as the update harness's `--push` sends it.
 /// `{action: "feedCards"}` posts sample installed-update Feed cards (cmux and Claude Code).
 @MainActor
 enum DebugUpdater {
@@ -45,6 +47,14 @@ enum DebugUpdater {
             let staged = UpdateSimulation.stageSample(services.updater, version: params["version"]?.stringValue, changes: params["changes"]?.doubleValue)
             return .object(["staged": .string(staged.version), "changes": JSONValue(staged.changes)])
         case "simulate": return .object(["simulating": .bool(true), "publishedNotes": .bool(UpdateSimulation(updater: services.updater).simulate())])
+        #if DEBUG || CMUX_BENCH_HOOKS
+        case "push":
+            guard let build = params["build"]?.stringValue.flatMap({ Int64($0) }) ?? params["build"]?.doubleValue.map({ Int64($0) }) else {
+                throw ControlError.invalidParams("debug.updater push: build must be a build number")
+            }
+            services.updater.debugReleasePush(build)
+            return .object(["pushed": .string(String(build))])
+        #endif
         case "available":
             services.updater.debugShowFound(version: params["version"]?.stringValue ?? "1.99.0", asked: params["asked"]?.boolValue == true)
             return .object(["notice": .string(services.updater.card?.kind ?? "none"),
