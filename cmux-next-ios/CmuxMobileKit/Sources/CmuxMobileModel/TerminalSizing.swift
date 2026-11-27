@@ -52,6 +52,12 @@ public struct TerminalSizeParticipant: Identifiable, Hashable, Sendable {
         self.counts = counts
     }
 
+    /// A Mac, a cmux-tui frontend, or the desktop app on Linux or Windows.
+    /// The model is also built for macOS, where the iOS-only FFI target is
+    /// unavailable, so this host-side predicate remains here for callers
+    /// that identify a phone by its device id.
+    public var isDesktop: Bool { ["mac", "tui", "linux", "windows"].contains(deviceKind) }
+
     static func decode(_ value: Any) -> TerminalSizeParticipant? {
         guard let object = value as? [String: Any], let id = object["id"] as? String else { return nil }
         return TerminalSizeParticipant(
