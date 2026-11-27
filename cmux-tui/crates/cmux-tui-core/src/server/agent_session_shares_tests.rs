@@ -1191,7 +1191,11 @@ fn a_drive_invite_does_not_promote_an_earlier_team_attempt() {
     shares
         .invite(
             dir,
-            &Invite { share_id: share_id.clone(), account: account.into(), role: Some(Role::Drive) },
+            &Invite {
+                share_id: share_id.clone(),
+                account: account.into(),
+                role: Some(Role::Drive),
+            },
         )
         .unwrap();
     assert_eq!(redeem("team-attempt"), Err("share.not_invited"));
