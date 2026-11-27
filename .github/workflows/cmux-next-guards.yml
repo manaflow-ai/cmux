@@ -1158,18 +1158,23 @@ jobs:
             echo "::notice title=traced-input audit (step receipt)::static-checks $line"
             echo "traced-input audit: static-checks $line" >> "$GITHUB_STEP_SUMMARY"
           done
-  # The nightly-next build generates the Rust third-party notices from the
-  # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
-  # A new path crate it cannot map failed the nightly publish (run 38359624385,
-  # cmux-git, 2026-10-13) hours after the landing. This runs the same generation
-  # when a pull request or push changes a Rust manifest or the notices tooling,
-  # so such a change is red at its own landing.
+  # The nightly-next build generates the Rust third-party notices from the tree: its "Generate third-party notices
+  # (cmux-next)" step runs scripts/ci/nightly-steps/app-third-party-notices.sh. A new path crate it cannot map failed
+  # the nightly publish (run 38359624385, cmux-git, 2026-10-13) hours after the landing. This runs the same generation,
+  # through that step's own script (its `pr` mode), when a pull request or push changes a dependency manifest or
+  # lockfile (Cargo, npm/bun/pnpm/yarn, SwiftPM), a pin, or the notices tooling, so such a change is red at its own head.
+  #
+  # It runs on every pull request head, draft or ready (tests/test_head_tier.py KEEP_ON_EVERY_HEAD), not in the land
+  # tier or pull_request_skip. Skipped there, it let cmux#59540 (jpeg-encoder 0.6.1, `(MIT OR Apache-2.0) AND IJG`; no
+  # IJG text in license_match.py) merge green and break the nightly's notices step for about 3 hours (cmux#60807 added
+  # IJG). A change that reaches no notice input ends after a sparse depth-2 checkout and a diff; one that does takes the
+  # full checkout and generates (no build: about 1.7 min a run, 79 job-minutes over 47 runs in the replay).
+  # tests/test_rust_notices_pr_check.py holds the route, the shared script, and a fixture crate whose license has no
+  # text signature going red through the real generator; it runs here when the route or the tooling changes.
   rust-notices-tree:
     needs: [coalesce, full-carry]
     name: cmux-next Rust notices generate
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
@@ -1198,33 +1203,70 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - name: Checkout
+      - name: Checkout the notice route and its test
+        timeout-minutes: 5
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/cmux-next-guards.yml
+            /.github/workflows/nightly.yml
+            /cmux-tui/build-support/notices/*.py
+            /scripts/ci/affected-jobs.json
+            /scripts/ci/nightly-steps/app-third-party-notices.sh
+            /tests/test_rust_notices_pr_check.py
 
       - name: Changed notice inputs
         id: inputs
+        timeout-minutes: 2
         env:
+          EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          # Every dependency manifest and lockfile, the pins and the notices tooling (tests/test_rust_notices_pr_check.py).
+          pattern='(^|/)Cargo\.(toml|lock)$|(^|/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|bun\.lockb?|pnpm-lock\.yaml|yarn\.lock|Package\.resolved)$|^scripts/cmux-next/(remote-browser-host\.pin\.json|cmux-tui\.pin|generate-third-party-notices\.sh)$|^scripts/cmux-next/notices/|^cmux-tui/build-support/notices/|^scripts/ci/nightly-steps/app-third-party-notices\.sh$'
+          # The route's own test also runs when the route changes.
+          route='^\.github/workflows/cmux-next-guards\.yml$|^tests/test_rust_notices_pr_check\.py$'
+          if [ "$EVENT" = pull_request ]; then
+            base=HEAD^1
+          elif [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            base="$BASE_SHA"
+          else
+            printf 'run=true\ntest=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$'
-          if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+          changed="$(git diff --name-only "$base" HEAD)"
+          if grep -qE "$pattern" <<<"$changed"; then
+            printf 'run=true\ntest=true\n' >> "$GITHUB_OUTPUT"
+          elif grep -qE "$route" <<<"$changed"; then
+            printf 'run=false\ntest=true\n' >> "$GITHUB_OUTPUT"
+          else
+            echo "no dependency manifest, lockfile, pin or notices tool changed: no notice can change"
+            printf 'run=false\ntest=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: An unmatched license goes red (tests/test_rust_notices_pr_check.py)
+        if: steps.inputs.outputs.test == 'true'
+        timeout-minutes: 3
+        run: python3 -I tests/test_rust_notices_pr_check.py
+
+      # actions/checkout turns the sparse checkout above into a full one.
+      - name: Checkout
+        if: steps.inputs.outputs.run == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Generate the Rust notices from this tree (as the nightly does)
         if: steps.inputs.outputs.run == 'true'
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
-        run: |
-          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
-            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+        run: bash scripts/ci/nightly-steps/app-third-party-notices.sh pr
 
   # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
   # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.

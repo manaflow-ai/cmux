@@ -439,6 +439,21 @@
           ".github/workflows/pr-red-checks-comment.yml"
         ]
       },
+      "rust-notices-tree": {
+        "why": "runs on every pull request on purpose: skipped on feat pull requests it let cmux#59540's unmatched license (IJG) merge and break the nightly's notices step; a change that reaches no notice input (dependency manifests and lockfiles, pins, the notices tooling) ends after a sparse depth-2 checkout and a diff",
+        "suggested_inputs": [
+          "Cargo.lock",
+          "Cargo.toml",
+          "Package.resolved",
+          "bun.lock",
+          "cmux-tui/build-support/notices/",
+          "package.json",
+          "scripts/ci/nightly-steps/app-third-party-notices.sh",
+          "scripts/cmux-next/generate-third-party-notices.sh",
+          "scripts/cmux-next/notices/",
+          "tests/test_rust_notices_pr_check.py"
+        ]
+      },
       "security-holes": {
         "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
         "suggested_inputs": []
