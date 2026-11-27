@@ -22,7 +22,8 @@ runs only the entries the change reaches and builds only their packages:
 affected_jobs.py's crate graph for a cargo entry, cmux_next_route.py's test
 targets for a CmuxNext suite, the package and its local dependencies for another
 swift package, the script's folder for a script entry. The others print SKIP and
-run in the post-merge batch (cmux-next-fast-tier-batch.yml). An unreadable list,
+run in the post-merge batch (cmux-next-fast-tier-batch.yml for cargo and script
+entries, cmux-next-pr-pipeline-mac-batch.yml for swift ones). An unreadable list,
 the full-ci label, a change to the runner or its registry, or any routing error
 runs every entry (docs/ci/cmux-next-workflow-notes.md#note-559).
 
@@ -199,8 +200,9 @@ def swift_scope(root, entries, changed, labels):
 def scope(root, entries, changed, labels):
     """(entries to run, entries whose package to build, {name: why skipped}) for a pull request whose changed paths
     are CHANGED: only the entries the diff reaches run; the post-merge batch runs every entry at the merged
-    head (cmux-next-fast-tier-batch.yml). An unread change, a full-ci label, a change to the runner or its
-    registry, or a scope that cannot be read runs every entry."""
+    head (cmux-next-fast-tier-batch.yml; the swift entries in cmux-next-pr-pipeline-mac-batch.yml). An unread
+    change, a full-ci label, a change to the runner or its registry, or a scope that cannot be read runs every
+    entry."""
     if changed is None:
         return entries, entries, {}
     if "full-ci" in labels:
