@@ -594,7 +594,16 @@ fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
     kill_and_restart(&daemon);
     let ended = turn.join().unwrap();
     assert!(ended.get("error").is_none(), "{ended}");
-    notice(&daemon, surface, |row| row["title"].as_str().is_some_and(|t| t.ends_with("finished")));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while finished(&daemon).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "no finish on tab {surface} after the restart: notices {:?}, workspaces {}",
+            all_notices(&daemon),
+            daemon.rpc(json!({"id": 8, "cmd": "list-workspaces"})),
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
     fence(&mut marker, &daemon, "marker one");
     assert_eq!(finished(&daemon).len(), 1, "one turn, one finish: {:?}", finished(&daemon));
 
