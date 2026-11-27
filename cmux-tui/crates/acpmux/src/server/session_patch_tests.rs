@@ -149,3 +149,45 @@ fn a_masked_rows_patch_takes_the_masked_row_on_and_carries_no_secret() {
     assert_eq!(held, masked(&new));
     assert_ne!(held["title"], new["title"], "the title is masked");
 }
+
+/// A watcher of more busy chats than a peer's link holds settles on patches: after each
+/// chat's first row, every change of 370 chats changing in turn is a patch (an idle app,
+/// 2026-11-27: 370 chats changed within two minutes, and the bound of 256 sent most
+/// changes whole forever). A peer's link keeps its bound, the one its side holds.
+#[test]
+fn a_local_watcher_of_many_busy_chats_hears_patches_after_the_first_row() {
+    let chats = 370;
+    let mut local = SentRows::bounded(bound(true));
+    let mut link = SentRows::bounded(bound(false));
+    let (mut local_whole, mut link_whole) = (0, 0);
+    for round in 0..5u64 {
+        for i in 0..chats {
+            let row = json!({"sessionId": format!("c{i}"), "eventCount": round, "preview": "x".repeat(200)});
+            if matches!(local.change(&format!("c{i}"), false, &row), Change::Whole { .. }) {
+                local_whole += 1;
+            }
+            if matches!(link.change(&format!("c{i}"), false, &row), Change::Whole { .. }) {
+                link_whole += 1;
+            }
+        }
+    }
+    assert_eq!(local_whole, chats, "only each chat's first row goes whole");
+    assert!(local.rows.len() == chats);
+    assert!(link.rows.len() <= MAX_ROWS);
+    assert!(link_whole > chats, "past its bound a link hears rows whole again");
+}
+
+/// Past the bound the row sent longest ago goes, never one just sent.
+#[test]
+fn the_row_sent_longest_ago_goes_first() {
+    let mut rows = SentRows::bounded(3);
+    for id in ["a", "b", "c"] {
+        rows.change(id, false, &json!({"n": 0}));
+    }
+    // `a` changes again: `b` is now the one sent longest ago.
+    assert!(matches!(rows.change("a", false, &json!({"n": 1})), Change::Patch { .. }));
+    rows.change("d", false, &json!({"n": 0}));
+    assert!(rows.rows.contains_key("a") && !rows.rows.contains_key("b"));
+    assert!(matches!(rows.change("a", false, &json!({"n": 2})), Change::Patch { .. }));
+    assert!(matches!(rows.change("b", false, &json!({"n": 1})), Change::Whole { row_seq: 1 }));
+}
