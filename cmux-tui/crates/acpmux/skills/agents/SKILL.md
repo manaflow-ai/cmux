@@ -1,6 +1,6 @@
 ---
 name: agents
-description: "Drive coding agents through `cmux agent` (the acpmux engine), which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
+description: "Drive coding-agent sessions by name with `cmux agent` (Claude Code, Codex, OpenCode, pi, Gemini; this machine or others): run, prompt, wait on, inspect, or start a second agent for a subtask."
 ---
 
 # cmux agent guide

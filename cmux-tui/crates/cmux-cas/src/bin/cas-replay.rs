@@ -1,8 +1,9 @@
 //! The RFD 0166 replay harness (rows U2, W1, B1): given the trees of consecutive published
 //! artifacts, oldest first, print what `cas/1` moves against today's whole-archive download.
 //!
-//! `cas-replay [--archive-bytes N]... DIR...` hashes each DIR into a manifest and, for every
-//! consecutive pair and for the oldest against the newest (N-k to N), prints one JSON line:
+//! `cas-replay [--behind K]... [--archive-bytes N]... DIR...` hashes each DIR into a manifest and,
+//! for every pair K trees apart (K defaults to 1; U2's row is `--behind 20`) and for the oldest
+//! against the newest, prints one JSON line:
 //! `{from, to, full, want_raw, want_wire, ranges, range_bytes, ms}`. `full` is the archive a
 //! client downloads today (its `--archive-bytes`, in DIR order, else the tree's size), `want_wire`
 //! the compressed chunk files a client holding `from` lacks, and `range_bytes` what Range GETs
@@ -19,16 +20,19 @@ use std::time::Instant;
 fn main() -> Result<()> {
     let mut dirs = Vec::new();
     let mut full = Vec::new();
+    let mut behind = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        if a == "--archive-bytes" {
+        if a == "--behind" {
+            behind.push(args.next().ok_or("--behind needs a number")?.parse::<usize>()?);
+        } else if a == "--archive-bytes" {
             full.push(args.next().ok_or("--archive-bytes needs a number")?.parse::<u64>()?);
         } else {
             dirs.push(PathBuf::from(a));
         }
     }
     if dirs.len() < 2 {
-        return Err("usage: cas-replay [--archive-bytes N]... DIR DIR...".into());
+        return Err("usage: cas-replay [--behind K]... [--archive-bytes N]... DIR DIR...".into());
     }
     let mut wire: HashMap<Id, u64> = HashMap::new();
     let mut ms = Vec::new();
@@ -62,7 +66,7 @@ fn main() -> Result<()> {
         println!(
             "{}",
             serde_json::json!({
-                "from": dirs[from], "to": dirs[to], "full": full, "tree": next.size(),
+                "behind": to - from, "from": dirs[from], "to": dirs[to], "full": full, "tree": next.size(),
                 "want_raw": want_raw, "want_wire": want_wire, "ranges": ranges.len(),
                 "range_bytes": range_bytes, "pct_of_full": (range_bytes as f64) * 100.0 / (full as f64),
                 "ms": t,
@@ -70,10 +74,15 @@ fn main() -> Result<()> {
         );
         Ok(())
     };
-    for i in 1..dirs.len() {
-        row(i - 1, i)?;
+    if behind.is_empty() {
+        behind.push(1);
     }
-    if dirs.len() > 2 {
+    for &k in &behind {
+        for i in k.max(1)..dirs.len() {
+            row(i - k.max(1), i)?;
+        }
+    }
+    if dirs.len() > 2 && !behind.contains(&(dirs.len() - 1)) {
         row(0, dirs.len() - 1)?;
     }
     Ok(())
