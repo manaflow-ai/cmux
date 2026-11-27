@@ -107,9 +107,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         loadAvatar()
         // The header's top-right toggles (Share Screen, Memory): each runs its panel's action.
-        transcript.onHeaderPanel = { [weak self] id in
-            if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
-        }
+        transcript.onHeaderPanel = { [weak self] id in if let self { HomeHeaderPanels.toggle(id, headerPanelContext) } }
         followChosenPicture()
         transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // task-owner: lives as long as this view; event-driven (Observation)
@@ -143,15 +141,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
-        // Sign in on a signed-out Chief's card: Claude's own login in a terminal tab, typed and run
-        // (`accounts.reauthenticate`, AIProvider.reauthPlan), never "open a terminal" in words.
-        transcript.onChiefSignIn = { agent in
-            _ = registry.perform("accounts.reauthenticate", invocation: ActionInvocation(arguments: ["provider": .string(agent)], origin: .user))
-        }
-        // Forward… on a bubble: Send To… with its text (the palette asks where).
-        transcript.onForward = { text in
-            _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
-        }
+        // Forward… on a bubble: Send To… with its text (the palette asks where). Sign in on a signed-out Chief's card: the agent's own login typed and run in a terminal tab.
+        transcript.onForward = { text in _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user)) }
+        transcript.onChiefSignIn = { agent in _ = registry.perform("accounts.reauthenticate", invocation: ActionInvocation(arguments: ["provider": .string(agent)], origin: .user)) }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the
