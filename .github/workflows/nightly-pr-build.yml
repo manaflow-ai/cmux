@@ -64,7 +64,11 @@ jobs:
     timeout-minutes: 140  # the client waits up to 3600 s queued plus 3600 s running
     permissions: {}
     strategy:
-      fail-fast: false
+      # One arch's red cancels the other's wait. The reds seen are arch-independent: a Swift error in the
+      # head or base, or the fleet refusing the step (source depot full), so the second arch only repeats it
+      # while holding its runner up to an hour. 2026-11-27 07-13Z: in 89 runs that ran both arches, the other
+      # arch outlived the first red by 1,035 job-min (~4.1k GitHub min/day). The next push runs both again.
+      fail-fast: true
       matrix:
         arch: [arm64, x86_64]
     env:
