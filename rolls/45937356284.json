@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45937356284",
+  "recorded_at": "2026-11-27T04:44:08Z",
+  "reason": "image inputs changed in f6b94b19b939dc88842ae0b7f621c2183ca56c61..258090d975ae8cb62f1b0a25b680ed8c45d70dca; cmux-tui stays 348e8a8aff37 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "348e8a8aff37009a312146c16aa19198274a3a1a",
+  "fixes": [
+    {
+      "sha": "258090d975ae8cb62f1b0a25b680ed8c45d70dca",
+      "mergedAt": "2026-11-27T04:00:02+00:00",
+      "subject": "devbox bake: run each step detached with short polls (#60210)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T04:44:08Z",
+    "snapshot_id": "sh-aab382474ad84d44b6b3270f7f294891",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45937356284): 33 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6c71e7d602825d734db3b282653ae15a7cbe9f08",
+    "image": "cloud-native-auto-348e8a8a-45937356284-1",
+    "revision": "ci-45937356284-1",
+    "at": "2026-11-27T04:44:08Z"
+  },
+  "rolled_back": false
+}
