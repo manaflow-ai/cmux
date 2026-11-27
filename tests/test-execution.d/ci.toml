@@ -436,6 +436,10 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_fast_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_fast_verdict.py"
 lane = "linux-guard"
 
@@ -445,6 +449,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_loading_placeholders.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_presence_claims.py"
 lane = "linux-guard"
 
 [[test]]

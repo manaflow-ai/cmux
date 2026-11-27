@@ -1,4 +1,3 @@
 [[test]]
 path = "tests/test_update_e2e_diagnostics.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_update_e2e_diagnostics.py"
+lane = "linux-guard"
