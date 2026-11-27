@@ -270,8 +270,9 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set(
                 "outdated",
                 json!(
-                    health["build"]
-                        .as_str()
+                    health
+                        .get("build")
+                        .and_then(Value::as_str)
                         .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
                 ),
             );
