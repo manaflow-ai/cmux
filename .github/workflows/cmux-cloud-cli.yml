@@ -47,7 +47,7 @@ jobs:
       - working-directory: cmux-tui
         run: |
           cargo fmt -p cmux-cloud-cli -p cmux-cloud-wire --check
-          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy -p cmux-cloud-cli -p cmux-cloud-wire --locked --all-targets -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy -p cmux-cloud-cli -p cmux-cloud-wire --locked --all-targets --keep-going -- -D warnings
           cargo test -p cmux-cloud-cli -p cmux-cloud-wire --locked
           rustup target add x86_64-unknown-linux-musl
           cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl

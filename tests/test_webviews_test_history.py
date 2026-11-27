@@ -1158,6 +1158,127 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_bundle_consumers_install_once_built_outputs_and_reject_bad_manifests(self):
+        """Execute each consumer with instrumented builders: shards/replays never silently recompile artifacts."""
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cases = [("react-apps-check-shard", "Build the web bundles", "head", "head", "", False),
+                 ("react-apps-base-early", "Build base web bundles", "base", "head", "base", False),
+                 ("react-apps-base-check", "Build head web bundles", "head", "head", "", False),
+                 ("react-apps-base-check", "Build base web bundles", "base", "head", "base", False),
+                 ("react-apps-base-check", "Build base web bundles", "head", "head", "", False),
+                 ("react-apps-base-check", "Build base web bundles", "base", "head", "", True)]
+        for job, name, key, head, base, compiles in cases:
+            script = next(s["run"] for s in jobs[job]["steps"] if s.get("name") == name)
+            for valid in (True, False):
+                with self.subTest(job=job, name=name, key=key, base=base, valid=valid), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "scripts/cmux-next").mkdir(parents=True)
+                    (root / "scripts/ci").mkdir(parents=True)
+                    (root / "webviews").mkdir()
+                    (root / "scripts/cmux-next/web-bundle-key.py").write_text("import os; print(os.environ['KEY'])")
+                    verifier = "import os,sys; sys.exit(0 if os.environ['VALID'] == '1' else 1)"
+                    (root / "scripts/ci/compile_preflight.py").write_text(verifier)
+                    (root / "compile_preflight.py").write_text(verifier)
+                    builder = root / "scripts/cmux-next/build-web-bundles.sh"
+                    builder.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/builds"\n')
+                    builder.chmod(0o755)
+                    bun = root / "bun"
+                    bun.write_text("#!/bin/bash\nexit 0\n")
+                    bun.chmod(0o755)
+                    env = dict(os.environ, RUNNER_TEMP=tmp, PATH=tmp + os.pathsep + os.environ["PATH"],
+                               GITHUB_EVENT_NAME="pull_request", BASE_ARTIFACT=base, HEAD_ARTIFACT=head, KEY=key, VALID="1" if valid else "0")
+                    result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env, capture_output=True, text=True)
+                    if valid or compiles:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        calls = (root / "builds").read_text().splitlines()
+                        self.assertEqual(len(calls), 1)
+                        self.assertEqual(calls[0].startswith("--force"), compiles)
+                        if not compiles:
+                            self.assertIn("--from", calls[0])
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse((root / "builds").exists(), "invalid output must not trigger a duplicate fallback build")
+        source = next(s["run"] for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "source-build")
+        self.assertIn("check-webviews-bun-version.sh", source)
+        self.assertIn("verify:tanstack-router", source)
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" != pull_request ]; then', source)
+        self.assertEqual(source.count("build-webviews-app.sh"), 1)
+
+    def test_non_pr_historical_sources_keep_their_old_build_path_when_producer_skips(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        shard = jobs["react-apps-check-shard"]
+        steps = {s.get("id"): s for s in shard["steps"]}
+        def enabled(expression, event_name):
+            context = {"github.event_name": event_name, "needs.web-subarea-scope.result": "success",
+                       "needs.react-apps-head-bundles.result": "skipped", "inputs.web": "true",
+                       "inputs.only": "", "needs.web-subarea-scope.outputs.react_apps": "true"}
+            body = expression.removeprefix("${{").removesuffix("}}")
+            body = re.sub(r"\b(?:github|vars|needs|inputs)(?:\.[A-Za-z_*][\w*-]*)+",
+                          lambda m: repr(context.get(m.group(0), "")), body)
+            return eval(body.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or "),
+                        {"__builtins__": {}}, {"true": True, "false": False, "contains": lambda a, b: b in a})
+        for event_name in ("workflow_dispatch", "push"):
+            with self.subTest(event=event_name), tempfile.TemporaryDirectory() as tmp:
+                self.assertFalse(enabled(jobs["react-apps-head-bundles"]["if"], event_name))
+                self.assertTrue(enabled(shard["if"], event_name), "skipped producer cannot skip non-PR tests")
+                root = Path(tmp)
+                (root / "scripts/cmux-next").mkdir(parents=True)
+                for name in ("scripts/build-webviews-app.sh", "scripts/cmux-next/build-web-bundles.sh"):
+                    path = root / name
+                    path.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/builds"\n')
+                    path.chmod(0o755)
+                # Deliberately no manifest helper, R2 action or source-key script: a historical probe predates them.
+                env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_EVENT_NAME=event_name, RESTORED="")
+                for step in ("source-build", "bundles"):
+                    result = subprocess.run(["bash", "-e", "-c", steps[step]["run"]], cwd=root, env=env,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "builds").read_text().splitlines(), ["--check --skip-typecheck", "--force"])
+
+    def test_early_bundle_plan_builds_only_for_known_red_files_and_distinct_sources(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        plan = next(s["run"] for s in jobs["web-subarea-scope"]["steps"] if s.get("id") == "base-bundle-plan")
+        producer = jobs["react-apps-base-bundles"]
+        self.assertIn("base_bundle_ref != ''", producer["if"])
+        self.assertIn("base_bundle_same != 'true'", producer["if"])
+        for red, same in ((False, False), (True, False), (True, True)):
+            with self.subTest(red=red, same=same), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "scripts/cmux-next").mkdir(parents=True)
+                (root / "scripts/ci").mkdir(parents=True)
+                (root / "scripts/ci/webviews_test_history.py").write_text(SCRIPT.read_text())
+                (root / "scripts/cmux-next/web-bundle-key.py").write_text("from pathlib import Path; print(Path('input').read_text())")
+                (root / "webviews/test").mkdir(parents=True)
+                (root / "webviews/test/one.test.ts").write_text("test")
+                (root / "input").write_text("base")
+                env = git_fixture_env.fixture_env(dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(root / "output"), REACT_APPS_CLASS="full"))
+                def git(*args):
+                    return subprocess.check_output(["git", *args], cwd=root, env=env, text=True).strip()
+                git("init", "-q")
+                git("add", ".")
+                git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+                base = git("rev-parse", "HEAD")
+                if not same:
+                    (root / "input").write_text("head")
+                git("add", ".")
+                git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "head")
+                head = git("rev-parse", "HEAD")
+                duration = root / "webviews-durations"
+                duration.mkdir()
+                (duration / "base-reds.json").write_text(json.dumps({"inputs": "fixture", "red": ["test/one.test.ts > test"] if red else []}))
+                (duration / "manifest.json").write_text("{}")
+                result = subprocess.run(["bash", "-e", "-c", plan], cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(git("rev-parse", "HEAD"), head, "planning restores the source checkout")
+                output = (root / "output").read_text() if (root / "output").exists() else ""
+                self.assertEqual("ref=" in output, red)
+                self.assertEqual("same=true" in output, red and same)
+                if red:
+                    self.assertIn(base, output)
+
     def test_a_pull_request_shard_stopped_before_its_results_is_red(self):
         """A SIGTERM'd test step under continue-on-error left the shard green, so a failed-job rerun never retried it
         and the base check failed on every attempt (cmux#49337, run 44955291325). The gate step fails it."""
@@ -1437,15 +1558,18 @@ class Workflow(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
-        self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
+        self.assertIn("web-subarea-scope", early["needs"])
+        self.assertIn("react-apps-base-bundles", early["needs"])
+        self.assertNotIn("react-apps-check-shard", early["needs"])  # alongside tests, not after them
         # Off pull requests unless labelled full-ci (1.10% of PR runner-minutes, no red caught, 11-13..19), and never
         # a need of the base check: a skipped need would skip the required replay.
         self.assertNotIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"].replace(
-            "github.event_name == 'pull_request' && ",
-            "github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && ", 1))
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", early["if"])
+        self.assertIn("!cancelled()", early["if"])
+        self.assertIn("!cancelled()", check["if"])  # skipped early producer must not skip the late replay
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", check["if"])
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))

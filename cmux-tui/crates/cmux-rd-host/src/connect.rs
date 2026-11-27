@@ -45,6 +45,9 @@ struct Answer {
     /// The hub's TURN relays, for a relayed path when no direct one works.
     #[serde(default)]
     turn: Vec<crate::carrier::TurnSetup>,
+    /// TCP and TLS relays, used after the UDP ones, for a network that blocks UDP.
+    #[serde(default)]
+    turn_stream: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     candidates: Vec<String>,
     socket: String,
@@ -140,7 +143,7 @@ pub fn run() -> Res<()> {
         expected_remote: peer,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: crate::carrier::turn_servers(&answer.turn),
+        turn: crate::carrier::turn_servers_with_stream(&answer.turn, &answer.turn_stream),
         relay_only: answer.relay_only,
     })?;
     if let Some(later) = stun_later {
