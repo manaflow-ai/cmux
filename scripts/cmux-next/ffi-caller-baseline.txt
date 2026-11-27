@@ -34,8 +34,6 @@ cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_ca
 cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_deep_link_call
 cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_deep_link_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_abi_version
-cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_bytes_free
-cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_call
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check_gesture
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_filter_reply
