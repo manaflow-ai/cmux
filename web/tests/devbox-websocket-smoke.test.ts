@@ -14,7 +14,9 @@ import { runChild } from "./helpers/run-child";
  * state dir, like the real connector, which records it after its first
  * connect completes. `remote rpc` answers only when the daemon is recorded,
  * and otherwise fails with the real client's error. The pending list also
- * carries a stale request from another device, listed first.
+ * carries a stale request from another device, listed first. A spawned pane
+ * snapshots blank, at through_sequence 0, for its first FAKE_OUTPUT_DELAY
+ * seconds, like a cold login shell that has not printed yet.
  */
 function fakeCmuxTui(dir: string): string {
   const binary = join(dir, "cmux-tui");
@@ -54,9 +56,10 @@ case "$1 $2 \${3:-}" in
     case "$REQUEST" in
       *'"capabilities"'*) echo '{"type":"capabilities"}' ;;
       *'"open-workspace"'*) echo '{"id":"ws-1"}' ;;
-      *'"spawn-process"'*) printf '%s' "$REQUEST" >"$F/spawn"; echo '{"process":"proc-1"}' ;;
+      *'"spawn-process"'*) printf '%s' "$REQUEST" >"$F/spawn"; date +%s >"$F/spawned-at"; echo '{"process":"proc-1"}' ;;
       *'"snapshot-process-terminal"'*)
         if [ -n "\${FAKE_SNAPSHOT_TEXT:-}" ]; then printf '{"snapshot":{"through_sequence":1,"text":"%s"}}\\n' "$FAKE_SNAPSHOT_TEXT"; exit 0; fi
+        if [ $(( $(date +%s) - $(cat "$F/spawned-at") )) -lt "\${FAKE_OUTPUT_DELAY:-0}" ]; then echo '{"snapshot":{"through_sequence":0,"text":"   "}}'; exit 0; fi
         MARKER="$(grep -o 'CMUX_WS_SMOKE_[A-Za-z0-9]*_[0-9]*' "$F/spawn" | head -1)"
         printf '{"snapshot":{"through_sequence":1,"text":"%s:%s"}}\\n' "$MARKER" ${JSON.stringify(`${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}`)} ;;
       *) echo '{}' ;;
@@ -96,7 +99,7 @@ describe("cmux-tui WebSocket smoke", () => {
     const result = await runSmoke({ FAKE_PIN_DELAY: "3" });
     expect(result.stderr).not.toContain("no known daemon matches this route");
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/websocket-smoke-ok marker=CMUX_WS_SMOKE_cloud_\d+ through_sequence=1->1 timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms pinned=\+\d+ms done=\+\d+ms/);
+    expect(result.stdout).toMatch(/websocket-smoke-ok marker=CMUX_WS_SMOKE_cloud_\d+ through_sequence=1->1 timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms pinned=\+\d+ms spawned=\+\d+ms output=\+\d+ms done=\+\d+ms/);
     const pinnedAfter = Number(/pinned=\+(\d+)ms/.exec(result.stdout)?.[1]) - Number(/approved=\+(\d+)ms/.exec(result.stdout)?.[1]);
     expect(pinnedAfter).toBeGreaterThanOrEqual(2_900);
   }, 30_000);
@@ -118,11 +121,21 @@ describe("cmux-tui WebSocket smoke", () => {
   // Rebake run 45875662667: this step failed with empty stdout and stderr,
   // because a bare \`jq -e\` check failing under set -e prints nothing.
   test("a failing check after the RPCs names its command and the response it judged", async () => {
-    const result = await runSmoke({ FAKE_SNAPSHOT_TEXT: "no marker here" });
+    const result = await runSmoke({ FAKE_SNAPSHOT_TEXT: "no marker here", CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS: "1" });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/cmux-tui websocket smoke: line \d+ failed: jq -e --arg marker/);
     expect(result.stderr).toContain("no marker here");
     expect(result.stderr).toMatch(/timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms pinned=\+\d+ms/);
+  }, 30_000);
+
+  // Rebake run 45903367893: the one snapshot, 2 s after the spawn, was blank
+  // at through_sequence 0; the login shell had not printed the marker yet.
+  test("waits for a pane that prints the marker 4 s after the spawn", async () => {
+    const result = await runSmoke({ FAKE_OUTPUT_DELAY: "4" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    const outputAfter = Number(/output=\+(\d+)ms/.exec(result.stdout)?.[1]) - Number(/spawned=\+(\d+)ms/.exec(result.stdout)?.[1]);
+    expect(outputAfter).toBeGreaterThanOrEqual(2_500);
   }, 30_000);
 
   test("a connector that exits before its request is pending fails at once with its stderr", async () => {

@@ -66,10 +66,14 @@ export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string)
 /** Seconds the smoke waits, after approving its device, for the connector to record the daemon. */
 export const CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS = 60;
 
+/** Seconds the smoke waits, after spawning its pane, for the pane to show the marker. */
+export const CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS = 30;
+
 /**
  * The guest-side script behind {@link cmuxTuiWebsocketSmokeCommand}. Exported
  * so a test can run it against a fake cmux-tui; CMUX_TUI_SMOKE_ROOT and
- * CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS exist for that test only.
+ * CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS and CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS
+ * exist for that test only.
  *
  * After the approval it waits until the connector has recorded the daemon in
  * its state dir (`remote known-daemons`), the record every later `remote rpc`
@@ -96,6 +100,7 @@ BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
 SESSION=${session}
 ROOT="\${CMUX_TUI_SMOKE_ROOT:-/tmp/cmux-tui-websocket-smoke}"
 PIN_TIMEOUT_SECONDS="\${CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS:-${CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS}}"
+OUTPUT_TIMEOUT_SECONDS="\${CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS:-${CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS}}"
 ROUTE='ws://[::1]:1337/v1/link'
 MARKER="CMUX_WS_SMOKE_${session}_$$"
 DEVICE_NAME="snapshot-websocket-smoke-$$"
@@ -204,9 +209,19 @@ SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '
 SPAWN="$(rpc "$SPAWN_REQUEST")"
 PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
 test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
-sleep 2
+mark spawned
+# Snapshot until the pane shows the marker, bounded: a fixed 2 s sleep lost
+# to a cold login shell on rebake run 45903367893, whose one snapshot was
+# blank at through_sequence 0. A pane that never shows it fails below, on the
+# check, with the last snapshot.
 SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
-FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+FIRST=""
+for attempt in $(seq 1 $(( OUTPUT_TIMEOUT_SECONDS * 2 ))); do
+  FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+  if printf '%s' "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null 2>&1; then break; fi
+  sleep 0.5
+done
+mark output
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 # The whole point of the daemon layout: a pane it opens is a shell of the work
 # user on a machine named cmux, which is what the prompt shows a person.
