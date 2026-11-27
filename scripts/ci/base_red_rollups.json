@@ -131,6 +131,12 @@
           ],
           "prefixes": []
         },
+        "full-carry": {
+          "exact": [
+            "full-ci base merge carry"
+          ],
+          "prefixes": []
+        },
         "mac-ios-e2e": {
           "exact": [
             "mac-ios-e2e"

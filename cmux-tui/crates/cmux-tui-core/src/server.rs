@@ -265,6 +265,8 @@ mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
+pub mod identify_reply;
+pub use identify_reply::install_identify;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
@@ -3442,6 +3444,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

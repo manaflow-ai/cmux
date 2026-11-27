@@ -224,6 +224,13 @@ class StatusMapping(unittest.TestCase):
         admission = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast-admission"]
         self.assertIn("needs.release-compile-fast.outputs.verdict != 'superseded'", admission["if"])
 
+    def test_a_stale_push_without_a_verdict_skips_the_mac_fallback_behind_a_repo_variable(self):
+        job = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast"]
+        env = next(step["env"] for step in job["steps"] if "run" in step and "STALE_PUSH_GATE" in step.get("env", {}))
+        self.assertEqual(env["STALE_PUSH_GATE"], "${{ vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK || '1' }}")
+        script = (WORKFLOW.parents[2] / "scripts/ci/cmux-next-steps/fast-fleet-compile-check.sh").read_text(encoding="utf-8")
+        self.assertIn('"$state" != pass && "$state" != fail && "${STALE_PUSH_GATE:-1}" != 0', script)
+
     def test_a_controller_mark_hands_nothing_off_that_this_job_would_not(self):
         # A verdict in the receipt is relayed as before, marked or not.
         code, posts, _ = self.run_step(self.reply("pass", status_poster="controller"), PR="28059")
@@ -518,7 +525,9 @@ class Placement(unittest.TestCase):
                        "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
-        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce"])
+        # A PR head's compile-status waits for the Linux cargo tier and skips on a red one (#58899, note-cheap-gate).
+        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce", "fast-tier-cargo"])
+        self.assertIn("needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped'", job()["if"])
         self.assertEqual(job()["outputs"]["handoff"], "${{ steps.wait.outputs.handoff }}")
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.
@@ -781,14 +790,14 @@ class ResultsServiceDown(unittest.TestCase):
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         self.server.reads.clear()
         started = time.monotonic()
-        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", BAD_BOUND="4")
+        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", BAD_BOUND="4", SUPERSEDED_GATE="0")
         self.assertLess(time.monotonic() - started, 15)
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
         step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
-        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1")
+        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", SUPERSEDED_GATE="0")
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_handoff_job_waits_on_the_fallback_and_checks_nothing_out(self):
