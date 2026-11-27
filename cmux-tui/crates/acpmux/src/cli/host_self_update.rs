@@ -53,6 +53,9 @@ use std::process::{Child, Command, Stdio};
 
 #[path = "host_self_update_rd.rs"]
 pub(super) mod rd;
+
+#[path = "host_self_update_fast_patch.rs"]
+pub(crate) mod fast_patch;
 use rd::{RdOutcome, RdPaths};
 
 #[path = "host_self_update_tui.rs"]
@@ -1010,10 +1013,17 @@ impl Remote for LocalRemote {
 /// by hand with `host update` is replaced by the channel's at the next run,
 /// unless automatic updates are off or the installed build is of a newer
 /// commit than the channel's (`--allow-downgrade` replaces that too).
+///
+/// `fast_patch` (`--fast-patch [--commit SHA]`, RFD 0060; see
+/// [`fast_patch`]): the run is the same update with `now` (no restart
+/// window), refused when `SHA` is given and the channel names another
+/// commit, and it appends one line to the fast-patch runs file; `--json`
+/// carries the line as `fastPatch` once the update ran.
 pub(crate) async fn self_update(
     channel: &str,
     now: bool,
     allow_downgrade: bool,
+    fast_patch: Option<Option<String>>,
     json_out: bool,
 ) -> Result<()> {
     if std::env::consts::OS != "linux" {
@@ -1021,19 +1031,38 @@ pub(crate) async fn self_update(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
+    let now = now || fast_patch.is_some();
     let paths = Paths::here(now, allow_downgrade)?;
+    let mut run = fast_patch.map(|asked| fast_patch::Run::start(asked, &paths.installed));
+    // A run that changed nothing: its line (stderr says so), then the
+    // update's own answer on stdout.
+    let refuse = |run: Option<fast_patch::Run>, why: &str| {
+        if let Some(run) = run {
+            run.finish("refused", why);
+            eprintln!("acpmux: fast-patch refused: {why}");
+        }
+    };
     let controller =
         Controller::configured().map(|url| Controller { url, fetch: &CONTROLLER_FETCH });
-    let plan = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await? {
+    let prepared = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await {
+        Ok(prepared) => prepared,
+        Err(e) => {
+            refuse(run, &format!("{e:#}"));
+            return Err(e);
+        }
+    };
+    let plan = match prepared {
         Prepared::Off => {
             let why = format!(
                 "automatic updates are off on this host (remove {} to turn them on)",
                 paths.off.display()
             );
+            refuse(run, &why);
             return skipped(channel, "off", &why, None, json_out);
         }
         Prepared::Locked => {
             let why = "another update of this host is running (a host update, or this timer)";
+            refuse(run, why);
             return skipped(channel, "locked", why, None, json_out);
         }
         Prepared::RolledBackBefore(commit, rd, picked) => {
@@ -1041,16 +1070,39 @@ pub(crate) async fn self_update(
                 "the {channel} build of commit {commit} ({}) was rolled back on this host before; waiting for a newer one",
                 picked.source.name()
             );
+            if let Some(run) = run.as_mut() {
+                let _ = run.check_commit(&commit);
+            }
+            refuse(run, &why);
             print_rd(&rd, json_out);
             return skipped(channel, "rolledBack", &why, Some(&picked), json_out);
         }
         Prepared::Ready(plan) => plan,
     };
+    if let Some(r) = run.as_mut()
+        && let Err(why) = r.check_commit(&plan.commit)
+    {
+        // Nothing installed: dropping the plan releases the update lock.
+        refuse(run, &why);
+        bail!("fast-patch refused: {why}");
+    }
     let up = apply(&LocalRemote, &plan, paths.target, now);
     let tui = refresh_tui(&paths, &R2_FETCH, &plan, &up).await;
     let name = crate::hand::pair::hostname();
+    let fast_patch_line = run.map(|run| {
+        let line = run.finish(fast_patch::outcome(&up), &fast_patch::detail(&up));
+        eprintln!(
+            "acpmux: fast-patch {} {}: {} in {} s",
+            fast_patch::SERVICE,
+            plan.commit.get(..12).unwrap_or(&plan.commit),
+            line.get("outcome").and_then(|v| v.as_str()).unwrap_or_default(),
+            line.get("seconds").cloned().unwrap_or_default()
+        );
+        line
+    });
     if json_out {
         print_json(&json!({
+            "fastPatch": fast_patch_line,
             "channel": channel,
             "commit": plan.commit,
             "sha256": plan.sha256,

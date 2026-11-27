@@ -39,6 +39,7 @@ const ACPMUX_KINDS: &[&str] = &[
     super::forum::PROVENANCE_KIND,
     "auto_resume",
     "offer_result",
+    crate::lane_death_watch::KIND,
 ];
 
 /// The provenance kinds of other agents' messages and acpmux's notices or digests of them.

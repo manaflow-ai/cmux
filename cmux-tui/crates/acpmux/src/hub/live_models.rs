@@ -9,7 +9,7 @@
 //! on a probe except `_acpmux/models {refresh: true}`.
 
 use super::Hub;
-use crate::config::{HarnessKind, HarnessProfile};
+use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::live_models::{Cache, CacheKey, Cli, LiveModel, PROBE_TIMEOUT};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -23,27 +23,46 @@ struct Target {
     env: BTreeMap<String, String>,
 }
 
-/// The harnesses with a live list: every Claude Code (stdio) profile, through
-/// its own argv, and every Codex-family ACP profile, through the real `codex`
-/// (the adapter's `CODEX_PATH`, else `codex` on the login PATH).
-fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
-    let codex = crate::managed_codex::codex_binary;
-    harnesses
-        .iter()
-        .filter_map(|(name, profile)| {
-            let (cli, argv) = match profile.kind {
-                HarnessKind::ClaudeStdio if !profile.argv.is_empty() => {
-                    (Cli::Claude, profile.argv.clone())
-                }
-                HarnessKind::Acp if crate::config::derive_family(name, profile) == "codex" => {
-                    let bin = profile.env.get("CODEX_PATH").cloned().or_else(codex)?;
-                    (Cli::Codex, vec![bin])
-                }
-                _ => return None,
-            };
-            Some(Target { harness: name.clone(), cli, argv, env: profile.env.clone() })
-        })
-        .collect()
+fn live_cli(name: &str, profile: &HarnessProfile) -> Option<Cli> {
+    match profile.kind {
+        HarnessKind::ClaudeStdio if !profile.argv.is_empty() => Some(Cli::Claude),
+        HarnessKind::Acp if crate::config::derive_family(name, profile) == "codex" => {
+            Some(Cli::Codex)
+        }
+        _ => None,
+    }
+}
+
+/// The program a live list is read from, without resolving a profile launch's credentials
+/// (`target` may consult the credential store): Claude Code's own argv, else the real `codex`.
+fn live_program(name: &str, profile: &HarnessProfile) -> Option<String> {
+    match live_cli(name, profile)? {
+        Cli::Claude => profile.argv.first().cloned(),
+        Cli::Codex => {
+            profile.env.get("CODEX_PATH").cloned().or_else(crate::managed_codex::codex_binary)
+        }
+    }
+}
+
+fn target(cfg: &Config, name: &str, cli: Cli) -> anyhow::Result<Target> {
+    let profile =
+        cfg.harnesses.get(name).ok_or_else(|| anyhow::anyhow!("no harness named {name}"))?;
+    let (argv, env) = match cli {
+        Cli::Claude => (profile.argv.clone(), profile.env.clone()),
+        Cli::Codex if crate::codex_app_server::is_profile_launch(&profile.argv) => {
+            crate::cli::harness_login::catalog_launch(cfg, name, profile)?
+        }
+        Cli::Codex => {
+            let bin = profile
+                .env
+                .get("CODEX_PATH")
+                .cloned()
+                .or_else(crate::managed_codex::codex_binary)
+                .ok_or_else(|| anyhow::anyhow!("no Codex CLI available"))?;
+            (vec![bin], profile.env.clone())
+        }
+    };
+    Ok(Target { harness: name.to_owned(), cli, argv, env })
 }
 
 impl Hub {
@@ -160,7 +179,11 @@ impl Hub {
     ) -> std::collections::BTreeSet<String> {
         let names: Vec<String> = {
             let cfg = self.config.read().await;
-            targets(&cfg.harnesses).into_iter().map(|target| target.harness).collect()
+            cfg.harnesses
+                .iter()
+                .filter(|(name, p)| live_cli(name, p).is_some())
+                .map(|(name, _)| name.clone())
+                .collect()
         };
         let names = names.iter().filter(|name| self.probes(name)).map(String::as_str);
         self.live_ages.lock().unwrap_or_else(PoisonError::into_inner).claim_due(names, now)
@@ -209,13 +232,13 @@ impl Hub {
     pub(super) async fn changed_live_binaries(&self) -> std::collections::BTreeSet<String> {
         let recorded: Vec<(String, crate::live_models::CacheKey, std::path::PathBuf)> = {
             let cfg = self.config.read().await;
-            targets(&cfg.harnesses)
-                .into_iter()
-                .filter(|target| self.probes(&target.harness))
-                .filter_map(|target| {
-                    let program = std::path::PathBuf::from(target.argv.first()?);
-                    let read_from = self.model_lists.live_binary(&target.harness)??;
-                    Some((target.harness, read_from, program))
+            cfg.harnesses
+                .iter()
+                .filter(|(name, _)| self.probes(name))
+                .filter_map(|(name, profile)| {
+                    let program = std::path::PathBuf::from(live_program(name, profile)?);
+                    let read_from = self.model_lists.live_binary(name)??;
+                    Some((name.clone(), read_from, program))
                 })
                 .collect()
         };
@@ -275,18 +298,33 @@ impl Hub {
         if crate::harness_fixture::active().is_some() {
             return;
         }
-        let handles: Vec<_> = {
-            let cfg = self.config.read().await;
-            targets(&cfg.harnesses)
-        }
-        .into_iter()
-        .filter(|target| self.probes(&target.harness))
-        .filter(|target| only.as_ref().is_none_or(|o| o.contains(&target.harness)))
-        .map(|target| {
-            let hub = self.clone();
-            tokio::spawn(async move { hub.probe_live(target).await })
-        })
-        .collect();
+        self.wait_startup().await;
+        let cfg = Arc::new(self.config.read().await.clone());
+        let handles: Vec<_> = cfg
+            .harnesses
+            .iter()
+            .filter(|(name, _)| {
+                self.probes(name) && only.as_ref().is_none_or(|o| o.contains(*name))
+            })
+            .filter_map(|(name, profile)| Some((name.clone(), live_cli(name, profile)?)))
+            .map(|(name, cli)| {
+                let hub = self.clone();
+                let cfg = cfg.clone();
+                tokio::spawn(async move {
+                    let id = name.clone();
+                    // Resolving a profile can consult its credential store. Only do it for a scheduled probe.
+                    match tokio::task::spawn_blocking(move || target(&cfg, &id, cli)).await {
+                        Ok(Ok(target)) => hub.probe_live(target).await,
+                        _ => {
+                            hub.probe_errors
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .insert(name, "could not resolve the harness model probe".into());
+                        }
+                    }
+                })
+            })
+            .collect();
         if wait {
             for handle in handles {
                 let _ = handle.await;
@@ -297,8 +335,6 @@ impl Hub {
     async fn probe_live(self: &Arc<Self>, target: Target) {
         // MDM's off as the list starts: its one read, taken first (review 120 of #23322).
         let latch = self.off_latch();
-        // The CLIs need the login environment (PATH, API keys).
-        self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
         self.live_ages
             .lock()

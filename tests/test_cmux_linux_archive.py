@@ -4,6 +4,7 @@ phase 4): the nfpm config holds exactly the binaries a verified release file nam
 repository's InRelease and Release.gpg verify with gpgv against the archive keyring alone (the signing subkey,
 never the primary) and carry Valid-Until; Packages names each .deb's sha256. Needs openssl 3, gpg and gpgv,
 and dpkg-deb; the rpm repository case also needs createrepo_c, and the nfpm case runs nfpm when $NFPM names it.
+The AppImage cases (the same verified binaries, a reproducible image, its update information) need squashfs-tools.
 """
 import base64
 import hashlib
@@ -411,6 +412,160 @@ class PublishWithoutTheKey(Base):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning::scripts/ci/cmux-archive-keyring.asc is not committed", result.stdout)
 
+
+UPDATE_INFO = "zsync|https://files.cmux.com/linux/appimage/feat-cmux-next/cmux-x86_64.AppImage.zsync"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+
+
+def fake_runtime():
+    """An ELF64 little-endian file laid out like the type2 runtime: a 1024-byte .upd_info section, and the
+    section header table last, so the squashfs starts right after it."""
+    names = b"\0.shstrtab\0.upd_info\0"
+    upd_at = 64
+    names_at = upd_at + 1024
+    shoff = names_at + len(names)
+    header = bytearray(64)
+    header[0:6] = b"\x7fELF\x02\x01"
+    header[0x28:0x30] = shoff.to_bytes(8, "little")
+    header[0x3A:0x3C] = (64).to_bytes(2, "little")
+    header[0x3C:0x3E] = (3).to_bytes(2, "little")
+    header[0x3E:0x40] = (1).to_bytes(2, "little")
+
+    def section(name_at, offset, size):
+        h = bytearray(64)
+        h[0:4] = name_at.to_bytes(4, "little")
+        h[24:32] = offset.to_bytes(8, "little")
+        h[32:40] = size.to_bytes(8, "little")
+        return bytes(h)
+    return (bytes(header) + b"\0" * 1024 + names + bytes(64) + section(1, names_at, len(names))
+            + section(11, upd_at, 1024))
+
+
+@unittest.skipUnless(have("openssl", "mksquashfs", "unsquashfs"), "needs openssl 3 and squashfs-tools")
+class AppImage(NfpmConfig):
+    """The AppImage holds exactly the verified binaries under their installed names, builds to the same
+    bytes twice, carries the update information in .upd_info, and appimage-verify refuses one whose binary
+    is not the release file's."""
+
+    def setUp(self):
+        super().setUp()
+        self.runtime = self.path("runtime")
+        with open(self.runtime, "wb") as f:
+            f.write(fake_runtime())
+        self.runtime_sha = hashlib.sha256(fake_runtime()).hexdigest()
+        self.icon = self.path("icon.png")
+        with open(self.icon, "wb") as f:
+            f.write(PNG)
+
+    def appdir(self, out):
+        return run([sys.executable, ARCHIVE, "appdir", "--release", self.release, "--keys", self.keys,
+                    "--target", TARGET, "--binaries-dir", self.bin, "--icon", self.icon, "--out", out])
+
+    def appimage(self, appdir, out, update_info=UPDATE_INFO, runtime_sha=None):
+        return run([sys.executable, ARCHIVE, "appimage", "--appdir", appdir, "--runtime", self.runtime,
+                    "--runtime-sha256", runtime_sha or self.runtime_sha, "--update-info", update_info,
+                    "--out", out])
+
+    def verify(self, image):
+        return run([sys.executable, ARCHIVE, "appimage-verify", "--appimage", image, "--release", self.release,
+                    "--keys", self.keys, "--target", TARGET])
+
+    def build(self, name):
+        appdir = self.path(f"{name}.AppDir")
+        result = self.appdir(appdir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = self.path(f"{name}.AppImage")
+        result = self.appimage(appdir, out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return appdir, out
+
+    def test_appdir_holds_the_installed_names_and_a_launcher(self):
+        appdir, _ = self.build("a")
+        self.assertEqual(sorted(os.listdir(os.path.join(appdir, "usr", "bin"))), ["cmux", "cmux-tui-hook"])
+        self.assertTrue(os.access(os.path.join(appdir, "AppRun"), os.X_OK))
+        self.assertEqual(open(os.path.join(appdir, "cmux-version")).read().strip(), VERSION)
+        self.assertIn("Exec=cmux", open(os.path.join(appdir, "cmux.desktop")).read())
+        self.assertEqual(os.readlink(os.path.join(appdir, ".DirIcon")), "cmux.png")
+        self.assertEqual(int(os.stat(os.path.join(appdir, "usr", "bin", "cmux")).st_mtime), 1795348800)
+
+    def test_build_is_reproducible_and_carries_the_update_information(self):
+        _, first = self.build("a")
+        _, second = self.build("b")
+        data = open(first, "rb").read()
+        self.assertEqual(data, open(second, "rb").read())
+        self.assertTrue(os.access(first, os.X_OK))
+        runtime = fake_runtime()
+        self.assertEqual(data[64:64 + len(UPDATE_INFO)], UPDATE_INFO.encode())
+        self.assertEqual(data[64 + len(UPDATE_INFO):64 + 1024], b"\0" * (1024 - len(UPDATE_INFO)))
+        self.assertEqual(data[64 + 1024:len(runtime)], runtime[64 + 1024:])
+        self.assertEqual(data[len(runtime):len(runtime) + 4], b"hsqs")
+        result = self.verify(first)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2 binaries match", result.stdout)
+
+    def test_changed_binary_inside_is_refused(self):
+        appdir = self.path("t.AppDir")
+        self.assertEqual(self.appdir(appdir).returncode, 0)
+        with open(os.path.join(appdir, "usr", "bin", "cmux-tui-hook"), "ab") as f:
+            f.write(b"x")
+        out = self.path("t.AppImage")
+        self.assertEqual(self.appimage(appdir, out).returncode, 0)
+        result = self.verify(out)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not the cmux-tui-hook the release file names", result.stderr)
+
+    def test_extra_binary_inside_is_refused(self):
+        appdir = self.path("x.AppDir")
+        self.assertEqual(self.appdir(appdir).returncode, 0)
+        with open(os.path.join(appdir, "usr", "bin", "extra"), "wb") as f:
+            f.write(b"#!/bin/sh\n")
+        out = self.path("x.AppImage")
+        self.assertEqual(self.appimage(appdir, out).returncode, 0)
+        result = self.verify(out)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not the binaries the release file names", result.stderr)
+
+    def test_unpinned_runtime_and_foreign_update_url_are_refused(self):
+        appdir = self.path("r.AppDir")
+        self.assertEqual(self.appdir(appdir).returncode, 0)
+        result = self.appimage(appdir, self.path("r.AppImage"), runtime_sha="0" * 64)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not the pinned runtime", result.stderr)
+        result = self.appimage(appdir, self.path("r.AppImage"),
+                               update_info="zsync|https://example.com/cmux-x86_64.AppImage.zsync")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bad update information", result.stderr)
+
+    def test_release_with_packages_builds_the_binaries_alone(self):
+        # Since #57583 a release file names each musl target's .deb and .rpm beside its binaries; the
+        # AppImage holds the binaries alone and appimage-verify reads the same set.
+        payload = json.load(open(self.path("payload.json")))
+        for packager in ("deb", "rpm"):
+            payload["targets"][TARGET][packager] = {
+                "url": f"https://files.cmux.com/cmux-tui/{COMMIT}/cmux-20261122120000-amd64.{packager}",
+                "sha256": "0" * 64, "size": 1}
+        with open(self.path("payload.json"), "w") as f:
+            json.dump(payload, f)
+        result = run([sys.executable, POINTER, "sign", "--payload", self.path("payload.json"),
+                      "--key", self.path("ota.pem"), "--keys", self.keys, "--out", self.release])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        appdir, image = self.build("p")
+        self.assertEqual(sorted(os.listdir(os.path.join(appdir, "usr", "bin"))), ["cmux", "cmux-tui-hook"])
+        result = self.verify(image)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2 binaries match", result.stdout)
+
+    def test_changed_binary_is_refused_before_the_appdir(self):
+        with open(os.path.join(self.bin, f"cmux-tui-hook-{TARGET}"), "ab") as f:
+            f.write(b"x")
+        result = self.appdir(self.path("c.AppDir"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sha256 differ", result.stderr)
+
+
+# AppImage inherits NfpmConfig's release fixture; its nfpm cases already ran once.
+for _name in [n for n in vars(NfpmConfig) if n.startswith("test_")]:
+    setattr(AppImage, _name, None)
 
 # RpmRepo inherits AptRepo's key fixture; its apt cases already ran once.
 for _name in [n for n in vars(AptRepo) if n.startswith("test_")]:

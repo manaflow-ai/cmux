@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Create or refresh the caller's user record from the Stack session.
+    UserEnsureOp {
+        name: "user.ensure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: UserEnsureParams,
+        result: UserProfile,
+        error: UserEnsureError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UserEnsureParams {}
 
