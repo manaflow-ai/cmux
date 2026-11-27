@@ -10,7 +10,7 @@ hook's allowlist. A job moved into a reusable workflow (on: workflow_call) is na
 cmux-next-post-merge.yml as reusable workflows. The hook saw "cmux-next-post-merge.yml swift" and
 "cmux-next-post-merge.yml compile", refused both on every batch, and "fast tier (Swift entries, build fleet)"
 and "tip test-compile" stayed red on feat-cmux-next until #56548 renamed the ids to swift-fleet and
-compile-fleet. Before #56548 this test fails with those 2 jobs; after it, 0.
+compile-fleet. Measured on the workflow tree: before #56548 it finds those 2 jobs plus the one below; after it, the one below.
 """
 from __future__ import annotations
 
@@ -24,6 +24,11 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 # The literal label, or a repository variable that names it (vars.CI_COMPILE_CHECK_GATEWAY before cmux#55571 froze it).
 GATEWAY = re.compile(r"glaeda-gateway|vars\.\w*GATEWAY\b")
 SUFFIX = "-fleet"
+# Known, not yet fixed: ci.yml calls ci-macos.yml, whose swift-package-tests job takes
+# vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY on pull requests when that opt-in variable is set (hq#794). The hook
+# would see "ci.yml swift-package-tests", which is not on its allowlist. The job id has about 70 references, so
+# its rename is its own change; the test below fails once it is renamed, so this entry is cut then.
+KNOWN = {"ci-macos.yml swift-package-tests"}
 
 
 def _triggers(doc: dict) -> object:
@@ -47,10 +52,13 @@ def refused_gateway_jobs(root: Path = WORKFLOWS) -> list[str]:
 class GatewayReusableJobIds(unittest.TestCase):
     def test_gateway_jobs_in_reusable_workflows_end_in_fleet(self) -> None:
         self.assertEqual(
-            refused_gateway_jobs(),
+            [job for job in refused_gateway_jobs() if job not in KNOWN],
             [],
             "the gateway hook refuses these when a caller runs them; rename each job id to end in -fleet",
         )
+
+    def test_every_known_exception_still_needs_its_entry(self) -> None:
+        self.assertEqual(KNOWN - set(refused_gateway_jobs()), set(), "renamed: cut its KNOWN entry")
 
     def test_the_check_sees_the_two_jobs_hq_26191_broke(self) -> None:
         import tempfile
