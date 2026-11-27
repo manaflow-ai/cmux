@@ -196,7 +196,11 @@ fn an_inbox_from_its_point_holds_what_the_whole_log_gives_and_reads_past_it_only
             let point = hub.read_inbox_point(&s).expect("a restore saves an inbox point");
             point_seq = point.seq;
             assert_eq!(point_seq, s.seq.load(Ordering::SeqCst));
-            assert!(point.records.len() < 1000, "only the held messages' records are carried");
+            // The log holds 1813 inbox records; a held message carries at most four (its
+            // message, notice, answer and read), and only the KEEP held ones are carried.
+            let carried = |kind: &str| point.records.iter().filter(|r| r.kind == kind).count();
+            assert_eq!(carried("inbox"), KEEP, "only the held messages are carried");
+            assert!(point.records.len() <= 4 * KEEP, "only the held messages' records are carried");
         }
         after(&hub, &s);
         hub.save_meta(&s);
