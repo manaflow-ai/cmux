@@ -5,6 +5,7 @@
 // Connected until the host's connection list catches up, then both go. The card lives beside the
 // picker (the menu closes on Connect), so the composer holds both through `useClaudeConnectFlow`.
 import { useState, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { AgentMark, agentBrand } from "../shared/AgentMark";
 import {
   CLAUDE_CONNECT_BRAND,
@@ -51,15 +52,9 @@ export function ClaudeConnectRow({
       </span>
       {!connected &&
         (onConnect ? (
-          <button
-            type="button"
-            className="ui-button ui-btn acpmux-connect-claude-row-button"
-            data-variant="subtle"
-            data-size="sm"
-            onClick={onConnect}
-          >
+          <Button className="acpmux-connect-claude-row-button" variant="subtle" size="sm" onClick={onConnect}>
             {t("picker.connectClaude.connect")}
-          </button>
+          </Button>
         ) : (
           <span className="ui-button ui-btn acpmux-connect-claude-row-button" data-variant="subtle" data-size="sm">
             {t("picker.connectClaude.connect")}
