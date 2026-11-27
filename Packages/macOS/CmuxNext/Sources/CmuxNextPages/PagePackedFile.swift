@@ -12,7 +12,8 @@ import Foundation
 /// signed bundle: a first-party page's code never comes from a folder another process can write
 /// (``PageWebView/mayServe(_:from:testRoot:)``). The agent pane's lazy `chunks/` ship the same way
 /// in the app (scripts/cmux-next/pack-webviews-chunks.py), read by its own handler through this too.
-nonisolated public enum PagePackedFile {
+nonisolated public struct PagePackedFile {
+    public nonisolated init() {}
     /// The suffix pack-pages.mjs gives a packed file (its `PACKED_SUFFIX`).
     public static let suffix = ".deflate"
 
