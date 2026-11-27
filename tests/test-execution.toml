@@ -968,6 +968,10 @@ path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_token_spread_pool.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_continuation_jobs_wait_through_rate_limits.py"
 lane = "linux-guard"
 
