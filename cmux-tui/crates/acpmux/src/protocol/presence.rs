@@ -141,7 +141,6 @@ pub struct PresenceNote {
 
 /// The Phase 1 Live toggle, shared by peer presence (RFD 0141).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields)]
 pub struct LiveParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live: Option<bool>,
