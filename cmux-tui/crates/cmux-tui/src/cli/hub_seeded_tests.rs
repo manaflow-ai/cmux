@@ -28,7 +28,8 @@ fn the_token_rides_only_in_authorization_and_the_key_only_in_the_link_body() {
         }
         let link =
             request_of(&Verb::Link { provider: "stripe".into(), sharing: None, policy: None });
-        let _ = hub.send(&link, Some(&link_body("stripe", Some(key), None, None))).await;
+        let body = link_body("stripe", Some(key), None, None);
+        let _ = hub.send(&link, Some(body.as_str())).await;
     });
     let sent: Vec<_> = capture::requests_to(HOST)
         .into_iter()
