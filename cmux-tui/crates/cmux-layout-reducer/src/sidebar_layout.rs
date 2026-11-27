@@ -787,8 +787,7 @@ fn move_item(id: &str, target: &str, index: i64, sections: &mut [Section]) -> Re
         return Err(Reject::UnknownItem);
     }
     source.items.remove(i);
-    let target_index = if s < t { t - 1 } else { t };
-    let Some(target_section) = sections.get_mut(target_index) else {
+    let Some(target_section) = sections.get_mut(t) else {
         return Err(Reject::UnknownSection);
     };
     let at = clamp(index, target_section.items.len());
