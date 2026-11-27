@@ -3,6 +3,8 @@ import AppKit
 import Foundation
 import Testing
 
+#if DEBUG
+
 /// A Cloud machine's `cmux-rd` desktop: shown in every build, opened watching, with one
 /// Take over / Hand back button in the toolbar.
 @MainActor
@@ -97,3 +99,4 @@ import Testing
         #expect(pane.view.toolbar.takeOverTitle == nil)
     }
 }
+#endif
