@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
@@ -190,6 +191,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `wallpaper-cost.sh` | A live wallpaper's CPU, GPU time and footprint per wallpaper and per hold (bench wallpaper_cost). | live wallpapers | 2026-11-17 | active |
 | `wallpaper-cost.py` | Python driver for wallpaper-cost.sh. | live wallpapers | 2026-11-17 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
+| `mcp-serve-malloc-ab.sh` | `cmux mcp serve`'s idle phys_footprint, macOS malloc default against space-efficient mode, on one signed binary (`dmg=nightly`, no build). | ram-baseline | 2026-11-27 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
 | `perf-lab.sh` | Measures a prebuilt bench app of one commit on one lab host. | p12 | 2026-10-31 | active |
