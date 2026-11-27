@@ -115,6 +115,7 @@ mod fork;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_model;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -135,9 +136,10 @@ mod git_watch;
 // RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
+pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
+mod goal_watch;
 mod handoff;
 mod harness_key;
 pub(crate) mod harness_magic;
@@ -485,6 +487,7 @@ mod turn_usage;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+mod unattended_ask;
 pub(crate) mod unattended_presets;
 mod unread_steer;
 // What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
@@ -494,6 +497,7 @@ mod update_cost_bench;
 mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod sidecars;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
@@ -2690,6 +2694,8 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            prompt_heard: AtomicU64::new(0),
+            goal_watch: StdMutex::new(Default::default()),
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),

@@ -20,7 +20,7 @@ RECORD = {
     "kind": "cmux-proof-record", "version": 1, "suite": "ios-flows", "repo": "manaflow-ai/cmux", "pr": 7,
     "head_sha": HEAD, "base_ref": "feat-cmux-next", "base_sha": OTHER,
     "selection": {"flows": ["smoke-launch-sign-in", "terminal-first-attach"]},
-    "runs": [{"name": "sim 1/1", "result": "pass", "worker": "cmux23", "step": "abc12345", "seconds": 140}],
+    "runs": [{"name": "sim 1/1", "result": "pass", "step": "abc12345", "seconds": 140}],
     "captures": [{"name": "a.png", "sha256": "0" * 64, "verdict": "same"}],
     "verdict": "pass", "timing": {"push_to_proof_s": 212}, "tool": "scripts/ci/ios_verify.py@x",
 }
@@ -29,6 +29,26 @@ RECORD = {
 def comment(body, assoc="COLLABORATOR", login="someone", kind="User", at="2026-11-27T02:00:00Z"):
     return {"body": body, "author_association": assoc, "user": {"login": login, "type": kind},
             "created_at": at, "html_url": "u"}
+
+
+class ReadRetry(unittest.TestCase):
+    def test_a_passing_refusal_is_asked_again(self):
+        # One 502 used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        import functools
+        from unittest import mock
+        http = pr.gh_http.deadline_http
+        answers = [(502, b"", http.Headers({})), (200, json.dumps([comment("x")]).encode(), http.Headers({}))]
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            seen.append(req.full_url)
+            return answers.pop(0)
+
+        retrying = functools.partial(pr.gh_http.request, sleep=lambda s: None, log=lambda line: None)
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            got = pr.pr_comments("o/r", 7, "t")
+        self.assertEqual([c["body"] for c in got], ["x"])
+        self.assertEqual(len(seen), 2)
 
 
 class Record(unittest.TestCase):
@@ -92,7 +112,8 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                pr.main(["gate", "--suite", "ios-flows"])
+                rc = pr.main(["gate", "--suite", "ios-flows"])
+            self.assertEqual(rc, pr.UNREAD)
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})
@@ -108,11 +129,42 @@ class Gate(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
+    def test_simulator_dispatch_identity(self):
+        from unittest import mock
+
+        step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
+
+        def dispatch(head=HEAD, strict=False, attempt="1", **changes):
+            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
+            cmd = run.call_args.args[0]
+            return cmd[cmd.index("--key") + 1]
+
+        with mock.patch.object(ios_verify.time, "time", return_value=1):
+            key = dispatch()
+        with mock.patch.object(ios_verify.time, "time", return_value=2):
+            self.assertEqual(key, dispatch())
+        self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
+        self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
+        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        self.assertNotEqual(key, dispatch(strict=True))
+        self.assertNotEqual(key, dispatch(attempt="2"))
+        self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
                 "ui": ["U1", "U2", "U3"], "swift": [], "scripts": []}
         base.update(kw)
         return base
+
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -152,6 +204,18 @@ class Plan(unittest.TestCase):
         self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
         self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
 
+    def test_posted_proof_names_no_worker(self):
+        # cmux#61688: public-body-guard refused the proof comment for naming the fleet hosts its shards ran on.
+        runs = [{"name": "sim 1/2", "mode": "test", "worker": "cmux22", "step": "abc12345", "result": "pass",
+                 "seconds": 140, "tail": "ran on cmux22"},
+                {"name": "script: x", "mode": "script", "worker": "gcp-agent-lane-2", "result": "pass"}]
+        rec = dict(RECORD, runs=ios_verify.public_runs(runs), timing={"push_to_proof_s": 212})
+        body = pr.render(rec, ios_verify.summary_md(rec))
+        for host in ("cmux22", "gcp-agent-lane-2"):
+            self.assertNotIn(host, body)
+        self.assertEqual(rec["runs"][0]["step"], "abc12345")
+        self.assertEqual(pr.problems(rec), [])
+
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
         body = pr.render(rec)
@@ -181,6 +245,58 @@ class Launcher(unittest.TestCase):
         self.assertRegex(dev, r'words: \["ios", "verify"\]')
         sh = (ROOT / "scripts/ci/ios-verify.sh").read_text()
         self.assertTrue(re.search(r"scripts/ci/ios_verify\.py", sh))
+
+
+class TokenFallbackTest(unittest.TestCase):
+    """Before -> after on PR 45147 (2026-11-27): the run's github.token 403'd on every call, the gate read with it
+    alone and posted `UI proof not read (HTTPError)` on every rerun. After: the pool token reads it."""
+
+    @staticmethod
+    def refused(code: int):
+        import urllib.error
+        return urllib.error.HTTPError("https://api.github.com/x", code, "refused", {}, None)
+
+    def test_a_refused_token_falls_back_to_the_next(self) -> None:
+        seen = []
+
+        def read(token: str) -> str:
+            seen.append(token)
+            if token == "run":
+                raise self.refused(403)
+            return f"read with {token}"
+
+        self.assertEqual(pr.with_tokens(read, ["run", "pool1", "pool2"]), "read with pool1")
+        self.assertEqual(seen, ["run", "pool1"])
+
+    def test_the_last_refusal_and_other_errors_raise(self) -> None:
+        import urllib.error
+
+        def always(token: str):
+            raise self.refused(403)
+
+        with self.assertRaises(urllib.error.HTTPError) as got:
+            pr.with_tokens(always, ["a", "b"])
+        self.assertEqual(pr.read_error(got.exception), "HTTPError 403")
+        tried = []
+
+        def missing(token: str):
+            tried.append(token)
+            raise self.refused(404)
+
+        # A 404 is the read's answer, not the token's: no other token changes it.
+        with self.assertRaises(urllib.error.HTTPError):
+            pr.with_tokens(missing, ["a", "b"])
+        self.assertEqual(tried, ["a"])
+        with self.assertRaises(ValueError):
+            pr.with_tokens(missing, [])
+
+    def test_read_tokens_puts_gh_token_first_then_the_pool_once_each(self) -> None:
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "run", "TOKENS": "run pool1  pool2"}, clear=False):
+            self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
+            self.assertEqual(pr.read_tokens(), [])
 
 
 if __name__ == "__main__":

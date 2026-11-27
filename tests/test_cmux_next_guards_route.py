@@ -130,13 +130,13 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn(  # then the land tier (tests/test_head_tier.py)
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && ",
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
         # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
         # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
         self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
                       "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
+                      "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))",
                       jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
@@ -206,6 +206,57 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(init[0]["name"]), names.index("Validate app bundle license compliance"))
 
+
+    def test_ios_placeholder_bounds_runs_only_where_the_diff_reaches_its_inputs(self):
+        # ci-runner-min-per-day-50k (Leo, 2026-11-27: "whatever we need to cut, we cut."): the job ran on every pull
+        # request event, about 6,000 runs a day. workflow-start-lint's route step, on the depth-2 checkout it already
+        # takes, says whether the diff reaches the check's inputs; a miss skips the job (a skipped check run passes
+        # land-judge and GitHub's required checks). A push and vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1' run it.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        bounds = jobs["ios-placeholder-bounds"]
+        self.assertIn("workflow-start-lint", bounds["needs"])
+        self.assertIn("(needs.workflow-start-lint.outputs.ios_placeholder != 'false' || "
+                      "vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1')", bounds["if"])
+        self.assertIn("!cancelled()", bounds["if"])
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["ios_placeholder"], "${{ steps.touched.outputs.ios_placeholder }}")
+        # A label other than full-ci or ready-to-land changes no file: the lint skips that event.
+        self.assertIn("github.event.action == 'labeled' && !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), "
+                      "github.event.label.name)", lint["if"])
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "cmux-next-ios/App/View.swift", "true"),
+            ("pull_request", "cmux-next-ios/design/placeholders.json", "true"),
+            ("pull_request", "scripts/ci/ios_placeholder_bounds.py", "true"),
+            ("pull_request", "tests/test_ios_placeholder_bounds.py", "true"),
+            ("pull_request", ".github/workflows/cmux-next-guards.yml", "true"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", ".github/workflows/ci.yml", "false"),
+            ("pull_request", "docs/cmux-next-ios.md", "false"),
+            ("push", "cmux-tui/crates/acpmux/src/lib.rs", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                lines = out.read_text().splitlines()
+                self.assertIn(f"ios_placeholder={want}", lines)
 
 if __name__ == "__main__":
     unittest.main()
