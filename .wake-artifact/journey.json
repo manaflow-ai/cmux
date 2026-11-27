@@ -1,0 +1,181 @@
+{
+  "backend": {
+    "name": "staging",
+    "api": "https://cloud-api-staging.cmux.dev",
+    "stack": "dev"
+  },
+  "meta": {
+    "tag": "jr-mwyywwss",
+    "team": "(personal)",
+    "agent": "claude",
+    "exec": "client session",
+    "model": "stub (on the machine)"
+  },
+  "steps": [
+    {
+      "step": "health",
+      "status": "pass",
+      "ms": 62,
+      "detail": "commit 0.1.0"
+    },
+    {
+      "step": "sign in (agent test account)",
+      "status": "pass",
+      "ms": 436,
+      "detail": "Stack project 454ecd03"
+    },
+    {
+      "step": "user.ensure",
+      "status": "pass",
+      "ms": 987,
+      "detail": "user user_4b0ad73155f1c6cad934"
+    },
+    {
+      "step": "install token",
+      "status": "pass",
+      "ms": 404,
+      "detail": "install inst_82b74511f270b07e90e8"
+    },
+    {
+      "step": "team-scoped install token",
+      "status": "pass",
+      "ms": 221,
+      "detail": "team team_968c8afd7c1f2b21e6b8 via user.teams.list (which heals the team before the mint), minted in 118 ms"
+    },
+    {
+      "step": "capacity preflight (quota headroom)",
+      "status": "pass",
+      "ms": 1557,
+      "detail": "quota_headroom:account-team used 103/9007199254740991, need 2: room"
+    },
+    {
+      "step": "create machine",
+      "status": "pass",
+      "ms": 26251,
+      "detail": "vm_351c4972138251aa9aad status provisioning",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250
+        }
+      }
+    },
+    {
+      "step": "running (status)",
+      "status": "pass",
+      "ms": 102407,
+      "detail": "host host_55034302dc5854686928, daemon 1.0.0+58845c13653b; retried once after owner.unreachable",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "wake-echo machine size",
+      "status": "pass",
+      "ms": 54453,
+      "detail": "{\"platform\":{\"cpu\":2,\"memory_mb\":4096,\"disk_mb\":20480},\"guest\":\"nproc 2 MemTotal:        4008964 kB\"}",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "wake-echo idle policy off",
+      "status": "pass",
+      "ms": 1586,
+      "detail": "idle_seconds 0",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "wake-echo probe setup",
+      "status": "pass",
+      "ms": 11019,
+      "detail": "daemon socket, terminal and dry run ok",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "wake-echo",
+      "status": "fail",
+      "ms": 0,
+      "detail": "13 of 50 asked echoed (20 ran); stopped: 3 failed cycles in a row after 20 of 50; failures {\"daemon restarted across the wake (product)\":2,\"guest unreachable\":3,\"platform op\":1,\"machine state\":1}",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "guest updater (before-cleanup)",
+      "status": "skip",
+      "ms": 4935,
+      "detail": "collected; updater=current; first_ready=on_image; full evidence: guest-updater.json",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "failure facts",
+      "status": "skip",
+      "ms": 15027,
+      "detail": "read before any delete: {\"machine\":{\"status\":\"running\",\"daemon_version\":\"1.0.0+8df97dc42eb0\"},\"timeline\":null,\"timeline_error\":\"guest carrier timeline: no answer in 15000 ms\"}",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "revoke install (cleanup)",
+      "status": "pass",
+      "ms": 286,
+      "detail": "inst_82b74511f270b07e90e8",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    },
+    {
+      "step": "delete (cleanup)",
+      "status": "fail",
+      "ms": 36895,
+      "detail": "cloud.machine.delete: HTTP 503 {\"_tag\":\"OwnerUnreachable\",\"code\":\"owner.unreachable\",\"message\":\"Error: Durable Object exceeded its CPU time limit and was reset.\",\"retryable\":true}",
+      "fields": {
+        "create_marks_ms": {
+          "create": 0,
+          "created": 26250,
+          "running": 128658
+        }
+      }
+    }
+  ]
+}

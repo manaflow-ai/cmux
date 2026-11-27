@@ -1,0 +1,1264 @@
+{
+  "backend": "staging",
+  "machine": "vm_351c4972138251aa9aad",
+  "asked": 50,
+  "size": {
+    "platform": {
+      "cpu": 2,
+      "memory_mb": 4096,
+      "disk_mb": 20480
+    },
+    "guest": "nproc 2 MemTotal:        4008964 kB"
+  },
+  "probe": {
+    "daemon": "guest",
+    "version": "1.0.0",
+    "protocol": 12,
+    "dry_run": {
+      "marker": "0",
+      "dns_at": 1795783336791.1772,
+      "conn_at": 1795783336792.674,
+      "daemon": {
+        "pid": 25576,
+        "start": 37094389
+      },
+      "net_up_at": 1795783336794.4407,
+      "net_tries": 1,
+      "handshake_at": 1795783336795.5964,
+      "pty_attach_at": 1795783336798.983,
+      "input_at": 1795783336798.9854,
+      "send_reply_at": 1795783336799.3833,
+      "echo_any_at": 1795783336800.6416,
+      "echo_at": 1795783336800.6416,
+      "other_events": []
+    }
+  },
+  "stopped": "3 failed cycles in a row after 20 of 50",
+  "summary": {
+    "cycles": 20,
+    "echoed": 13,
+    "failed": 7,
+    "rows": [
+      {
+        "phase": "restore",
+        "n": 13,
+        "p50": 4965,
+        "p95": 137646,
+        "max": 137646
+      },
+      {
+        "phase": "net_up",
+        "n": 13,
+        "p50": 108,
+        "p95": 6470,
+        "max": 6470
+      },
+      {
+        "phase": "pty_attach",
+        "n": 13,
+        "p50": 62,
+        "p95": 6696,
+        "max": 6696
+      },
+      {
+        "phase": "echo",
+        "n": 13,
+        "p50": 2,
+        "p95": 590,
+        "max": 590
+      },
+      {
+        "phase": "total",
+        "n": 13,
+        "p50": 5007,
+        "p95": 138102,
+        "max": 138102
+      }
+    ],
+    "biggest": "restore",
+    "causes": {
+      "daemon restarted across the wake (product)": 2,
+      "guest unreachable": 3,
+      "platform op": 1,
+      "machine state": 1
+    }
+  },
+  "cycles": [
+    {
+      "i": 0,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:42:17.669Z",
+      "paused_ms": 8389,
+      "answered_ms": 1626,
+      "first_exec_ms": 9152,
+      "offset_ms": 67,
+      "offset_rtt_ms": 1895,
+      "offset_pre_ms": -7486.5,
+      "marks_ms": {
+        "resumed": 4965,
+        "net_up": 5034,
+        "pty_attach": 5003,
+        "input": 5003,
+        "echo": 5007,
+        "echo_any": 5007
+      },
+      "phases": {
+        "restore": 4965,
+        "net_up": 69,
+        "pty_attach": 38,
+        "echo": 4,
+        "total": 5007
+      },
+      "warnings": [
+        "guest clock moved 7553 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783398443.917,
+        "resumed_wall": 1795783410132.595,
+        "wall_gap": 11688.677978515625,
+        "mono_gap": 11688.688643038273,
+        "seq": 0,
+        "marker": "0",
+        "conn_at": 1795783410153.7021,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783410166.459,
+        "pty_attach_at": 1795783410170.6086,
+        "input_at": 1795783410170.611,
+        "send_reply_at": 1795783410172.6072,
+        "echo_any_at": 1795783410174.961,
+        "echo_at": 1795783410174.961,
+        "other_events": [],
+        "net_up_at": 1795783410201.5662,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783405102,
+          "answered_at_ms": 1795783406727,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1610,
+            "pre": 0,
+            "finish": 0,
+            "total": 1610
+          }
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:43:47.539Z",
+      "paused_ms": 3401,
+      "answered_ms": 1129,
+      "first_exec_ms": 7008,
+      "offset_ms": 154,
+      "offset_rtt_ms": 1863,
+      "offset_pre_ms": 209,
+      "marks_ms": {
+        "resumed": 3187,
+        "net_up": 3264,
+        "pty_attach": 3215,
+        "input": 3215,
+        "echo": 3217,
+        "echo_any": 3217
+      },
+      "phases": {
+        "restore": 3187,
+        "net_up": 77,
+        "pty_attach": 28,
+        "echo": 2,
+        "total": 3217
+      },
+      "warnings": [],
+      "guest": {
+        "prev_wall": 1795783434224.5876,
+        "resumed_wall": 1795783443378.2534,
+        "wall_gap": 9153.665771484375,
+        "mono_gap": 9153.675707995892,
+        "seq": 1,
+        "marker": "1",
+        "conn_at": 1795783443400.6394,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783443406.0327,
+        "pty_attach_at": 1795783443406.9172,
+        "input_at": 1795783443406.918,
+        "send_reply_at": 1795783443407.2852,
+        "echo_any_at": 1795783443408.1016,
+        "echo_at": 1795783443408.1016,
+        "other_events": [],
+        "net_up_at": 1795783443455.4497,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783440038,
+          "answered_at_ms": 1795783441167,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1119,
+            "pre": 0,
+            "finish": 0,
+            "total": 1119
+          }
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:44:20.212Z",
+      "paused_ms": 4187,
+      "answered_ms": 619,
+      "first_exec_ms": 7108,
+      "offset_ms": 170,
+      "offset_rtt_ms": 834,
+      "offset_pre_ms": 15,
+      "marks_ms": {
+        "resumed": 3341,
+        "net_up": 3449,
+        "pty_attach": 3405,
+        "input": 3405,
+        "echo": 3408,
+        "echo_any": 3408
+      },
+      "phases": {
+        "restore": 3341,
+        "net_up": 108,
+        "pty_attach": 64,
+        "echo": 3,
+        "total": 3408
+      },
+      "warnings": [
+        "guest clock moved 155 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783468679.5178,
+        "resumed_wall": 1795783478272.9985,
+        "wall_gap": 9593.480712890625,
+        "mono_gap": 9593.497047960758,
+        "seq": 2,
+        "marker": "2",
+        "conn_at": 1795783478326.166,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783478333.5583,
+        "pty_attach_at": 1795783478337.4778,
+        "input_at": 1795783478337.479,
+        "send_reply_at": 1795783478339.2483,
+        "echo_any_at": 1795783478339.9246,
+        "echo_at": 1795783478339.9246,
+        "other_events": [],
+        "net_up_at": 1795783478380.9204,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783474762,
+          "answered_at_ms": 1795783475381,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 609,
+            "pre": 0,
+            "finish": 0,
+            "total": 609
+          }
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:44:47.249Z",
+      "paused_ms": 5321,
+      "answered_ms": 539,
+      "first_exec_ms": 15669,
+      "offset_ms": 269,
+      "offset_rtt_ms": 1109,
+      "offset_pre_ms": 157.5,
+      "marks_ms": {
+        "resumed": 10216,
+        "net_up": 10392,
+        "pty_attach": 10307,
+        "input": 10307,
+        "echo": 10309,
+        "echo_any": 10309
+      },
+      "phases": {
+        "restore": 10216,
+        "net_up": 176,
+        "pty_attach": 91,
+        "echo": 2,
+        "total": 10309
+      },
+      "warnings": [
+        "guest clock moved 111 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783493479.1396,
+        "resumed_wall": 1795783510552.5908,
+        "wall_gap": 17073.451171875,
+        "mono_gap": 17073.463693976402,
+        "seq": 3,
+        "marker": "3",
+        "conn_at": 1795783510630.9731,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783510640.6277,
+        "pty_attach_at": 1795783510643.548,
+        "input_at": 1795783510643.5505,
+        "send_reply_at": 1795783510644.5984,
+        "echo_any_at": 1795783510645.2122,
+        "echo_at": 1795783510645.2122,
+        "other_events": [],
+        "net_up_at": 1795783510728.9734,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783500068,
+          "answered_at_ms": 1795783500607,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 526,
+            "pre": 0,
+            "finish": 0,
+            "total": 526
+          }
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:45:22.267Z",
+      "paused_ms": 5268,
+      "answered_ms": 2299,
+      "first_exec_ms": 10133,
+      "offset_ms": 281,
+      "offset_rtt_ms": 993,
+      "offset_pre_ms": 86.5,
+      "marks_ms": {
+        "resumed": 4611,
+        "net_up": 4715,
+        "pty_attach": 4643,
+        "input": 4643,
+        "echo": 4645,
+        "echo_any": 4645
+      },
+      "phases": {
+        "restore": 4611,
+        "net_up": 104,
+        "pty_attach": 32,
+        "echo": 2,
+        "total": 4645
+      },
+      "warnings": [
+        "guest clock moved 194 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783530221.6614,
+        "resumed_wall": 1795783541522.096,
+        "wall_gap": 11300.4345703125,
+        "mono_gap": 11300.359534978867,
+        "seq": 4,
+        "marker": "4",
+        "conn_at": 1795783541541.4062,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783541552.1775,
+        "pty_attach_at": 1795783541554.1392,
+        "input_at": 1795783541554.1401,
+        "send_reply_at": 1795783541554.4438,
+        "echo_any_at": 1795783541556.1296,
+        "echo_at": 1795783541556.1296,
+        "other_events": [],
+        "net_up_at": 1795783541626.5686,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783536631,
+          "answered_at_ms": 1795783538930,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 2290,
+            "pre": 0,
+            "finish": 0,
+            "total": 2290
+          }
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:45:53.169Z",
+      "paused_ms": 3947,
+      "answered_ms": 569,
+      "first_exec_ms": 4682,
+      "offset_ms": 226,
+      "offset_rtt_ms": 903,
+      "offset_pre_ms": 177,
+      "marks_ms": {
+        "resumed": 2074,
+        "net_up": 2187,
+        "pty_attach": 2136,
+        "input": 2136,
+        "echo": 2137,
+        "echo_any": 2137
+      },
+      "phases": {
+        "restore": 2074,
+        "net_up": 113,
+        "pty_attach": 62,
+        "echo": 1,
+        "total": 2137
+      },
+      "warnings": [],
+      "guest": {
+        "prev_wall": 1795783559522.08,
+        "resumed_wall": 1795783568170.0977,
+        "wall_gap": 8648.017578125,
+        "mono_gap": 8647.957602977753,
+        "seq": 5,
+        "marker": "5",
+        "conn_at": 1795783568175.6345,
+        "daemon": {
+          "pid": 25576,
+          "start": 37094389
+        },
+        "handshake_at": 1795783568228.7043,
+        "pty_attach_at": 1795783568232.197,
+        "input_at": 1795783568232.1987,
+        "send_reply_at": 1795783568233.5974,
+        "echo_any_at": 1795783568233.988,
+        "echo_at": 1795783568233.988,
+        "other_events": [],
+        "net_up_at": 1795783568283.1748,
+        "net_tries": 3
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783565871,
+          "answered_at_ms": 1795783566440,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 557,
+            "pre": 0,
+            "finish": 0,
+            "total": 557
+          }
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "ok": false,
+      "error": "guest probe: attach: RuntimeError: attach refused: {\"error\": \"unknown surface 6\", \"id\": 3, \"ok\": false}",
+      "at": "2026-11-27T12:47:01.336Z",
+      "paused_ms": 7915,
+      "answered_ms": 546,
+      "first_exec_ms": 5275,
+      "offset_ms": 337,
+      "offset_rtt_ms": 1109,
+      "offset_pre_ms": 574.5,
+      "marks_ms": {
+        "resumed": 2409,
+        "net_up": 2669
+      },
+      "phases": {
+        "restore": 2409,
+        "net_up": 260
+      },
+      "warnings": [
+        "guest clock moved -238 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783636884.1038,
+        "resumed_wall": 1795783647762.1292,
+        "wall_gap": 10878.025390625,
+        "mono_gap": 10878.03479295969,
+        "seq": 6,
+        "marker": "6",
+        "conn_at": 1795783647768.056,
+        "daemon": {
+          "pid": 27164,
+          "start": 37125279
+        },
+        "handshake_at": 1795783647835.5046,
+        "net_up_at": 1795783648022.0278,
+        "net_tries": 4,
+        "surface_lost": {
+          "surface": 6,
+          "setup_daemon": {
+            "pid": 25576,
+            "start": 37094389
+          },
+          "daemon_now": {
+            "pid": 27164,
+            "start": 37125279
+          },
+          "same_daemon": false,
+          "workspaces": "{\"generation\": \"85691d63-f236-4732-b7fa-5b88a0b6d7de\", \"groups\": [], \"lines_written_before_read\": 3, \"pane_revision\": 2, \"registry_id\": \"e374a9c5-14c3-47c0-883e-5052df832327\", \"terminal_revision\": 10, \"workspace_revision\": 2, \"workspaces\": [{\"active\": false, \"app\": null, \"color\": null, \"group\": null, \"icon\": null, \"id\": 1, \"key\": \"2a3f5d85-01ff-41d9-9aed-91e51ac0187b\", \"kind\": \"normal\", \"marked_unread\": false, \"name\": \"workspace-1\", \"name_revision\": \"0\", \"name_source\": \"auto\", \"pinned\": false, \"recovered\": false, \"resource_id\": \"ws_d530ad9c069e2ac8906c7d8b0758952b\", \"screen_groups\": [], \"screens\": [{\"active\": true, \"active_pane\": 8, \"color\": null, \"group\": null, \"icon\": null, \"id\": 6, \"layout\": {\"pane\": 8, \"type\": \"leaf\"}, \"name\": null, \"panes\": [{\"active_tab\": 0, \"focused_at\": 0, \"id\": 8, \"name\": null, \"resource_id\": \"pane_a76e263a4cca5c258b9c3932efcfec78\", \"short_id\": \"000008\", \"tab_groups\": [], \"tabs\": [{\"attention\": null, \"browser_engine\": null, \"browser_error\": null, \"browser_frames_stalled\": null, \"browser_owner\": null, \"browser_profile_id\": null, \"browser_renderer\": null, \"browser_source\": null, \"browser_status\": null, \"content_resource_id\": \"term_b4acc1e7eeba0fc5de7300587c3e8551\", \"conversation\": null, \"cwd\": \"/home/cmux\", \"dead\": false, \"end\": null, \"favicon_url\": null, \"git_branch\": null, \"git_detached\": false, \"group\": null, \"host_record_version\": null, \"kind\": \"pty\", \"name\": null, \"notification\": null, \"pinned\": false, \"pinned_url\": null, \"program_status\": null, \"",
+          "new_surface": 13
+        },
+        "error": "attach: RuntimeError: attach refused: {\"error\": \"unknown surface 6\", \"id\": 3, \"ok\": false}"
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783645017,
+          "answered_at_ms": 1795783645563,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 536,
+            "pre": 0,
+            "finish": 0,
+            "total": 536
+          }
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:47:37.645Z",
+      "paused_ms": 52738,
+      "answered_ms": 859,
+      "first_exec_ms": 142573,
+      "offset_ms": 178,
+      "offset_rtt_ms": 791,
+      "offset_pre_ms": -10,
+      "marks_ms": {
+        "resumed": 137646,
+        "net_up": 138023,
+        "dns": 138033,
+        "pty_attach": 138061,
+        "input": 138061,
+        "echo": 138102,
+        "echo_any": 138102
+      },
+      "phases": {
+        "restore": 137646,
+        "net_up": 377,
+        "pty_attach": 415,
+        "echo": 41,
+        "total": 138102
+      },
+      "warnings": [
+        "guest clock moved 188 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795783720842.6062,
+        "resumed_wall": 1795783864611.488,
+        "wall_gap": 143768.8818359375,
+        "mono_gap": 143768.98355203867,
+        "seq": 7,
+        "marker": "7",
+        "conn_at": 1795783864978.893,
+        "daemon": {
+          "pid": 27164,
+          "start": 37125279
+        },
+        "net_up_at": 1795783864988.7551,
+        "net_tries": 1,
+        "dns_at": 1795783864998.3313,
+        "handshake_at": 1795783865022.2,
+        "pty_attach_at": 1795783865026.3967,
+        "input_at": 1795783865026.398,
+        "send_reply_at": 1795783865063.227,
+        "echo_any_at": 1795783865067.528,
+        "echo_at": 1795783865067.528,
+        "other_events": []
+      },
+      "state_json": true,
+      "state_wake": {
+        "echo_at": null,
+        "input_at": null,
+        "net_up_at": 1795783883503,
+        "outcome": null,
+        "pty_attach_at": null,
+        "resumed_at": 1795783867356,
+        "v": 1
+      },
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783726788,
+          "answered_at_ms": 1795783727647,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 850,
+            "pre": 0,
+            "finish": 0,
+            "total": 850
+          }
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "ok": false,
+      "error": "no probe result 150 s after wake_at (exec first answered never ms); probe/gap logs: ==> /tmp/wake-echo/probe.log <== ==> /tmp/wake-echo/gaps.log <== {\"prev_wall\": 1795783530221.6614, \"resumed_wall\": 1795783541522.096, \"wall_gap\": 11300.4345703125, \"mono_gap\": 11300.359534978867, \"armed\": true} {\"pre",
+      "at": "2026-11-27T12:52:02.936Z",
+      "paused_ms": 8238,
+      "answered_ms": 1748,
+      "first_exec_ms": null,
+      "offset_ms": null,
+      "offset_rtt_ms": null,
+      "offset_pre_ms": -170.5,
+      "marks_ms": {},
+      "phases": {},
+      "warnings": [],
+      "guest": null,
+      "state_json": false,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795783941636,
+          "answered_at_ms": 1795783943383,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1736,
+            "pre": 0,
+            "finish": 0,
+            "total": 1736
+          }
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:55:16.439Z",
+      "paused_ms": 7203,
+      "answered_ms": 1107,
+      "first_exec_ms": 7713,
+      "offset_ms": 196,
+      "offset_rtt_ms": 2175,
+      "offset_pre_ms": 34,
+      "marks_ms": {
+        "resumed": 2412,
+        "net_up": 2478,
+        "pty_attach": 2431,
+        "input": 2431,
+        "echo": 2432,
+        "echo_any": 2432
+      },
+      "phases": {
+        "restore": 2412,
+        "net_up": 66,
+        "pty_attach": 19,
+        "echo": 1,
+        "total": 2432
+      },
+      "warnings": [
+        "guest clock moved 162 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795784134677.5857,
+        "resumed_wall": 1795784143523.7354,
+        "wall_gap": 8846.149658203125,
+        "mono_gap": 8846.15802103281,
+        "seq": 9,
+        "marker": "9",
+        "conn_at": 1795784143536.3538,
+        "daemon": {
+          "pid": 27164,
+          "start": 37125279
+        },
+        "handshake_at": 1795784143540.9773,
+        "pty_attach_at": 1795784143542.4358,
+        "input_at": 1795784143542.4365,
+        "send_reply_at": 1795784143542.7393,
+        "echo_any_at": 1795784143543.9573,
+        "echo_at": 1795784143543.9573,
+        "other_events": [],
+        "net_up_at": 1795784143589.344,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": {
+        "echo_at": null,
+        "input_at": null,
+        "net_up_at": 1795784077212,
+        "outcome": null,
+        "pty_attach_at": 1795784062573,
+        "resumed_at": 1795784063348,
+        "v": 1
+      },
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784140916,
+          "answered_at_ms": 1795784142023,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1096,
+            "pre": 0,
+            "finish": 0,
+            "total": 1096
+          }
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T12:57:02.468Z",
+      "paused_ms": 69656,
+      "answered_ms": 2589,
+      "first_exec_ms": 10873,
+      "offset_ms": 255,
+      "offset_rtt_ms": 1461,
+      "offset_pre_ms": 140.5,
+      "marks_ms": {
+        "resumed": 6765,
+        "net_up": 6975,
+        "pty_attach": 6923,
+        "input": 6923,
+        "echo": 6924,
+        "echo_any": 6924
+      },
+      "phases": {
+        "restore": 6765,
+        "net_up": 210,
+        "pty_attach": 158,
+        "echo": 1,
+        "total": 6924
+      },
+      "warnings": [
+        "guest clock moved 114 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795784295138.1821,
+        "resumed_wall": 1795784311682.3638,
+        "wall_gap": 16544.181640625,
+        "mono_gap": 16544.194974005222,
+        "seq": 10,
+        "marker": "A",
+        "conn_at": 1795784311835.2727,
+        "daemon": {
+          "pid": 27164,
+          "start": 37125279
+        },
+        "handshake_at": 1795784311838.484,
+        "pty_attach_at": 1795784311840.0708,
+        "input_at": 1795784311840.0723,
+        "send_reply_at": 1795784311840.4753,
+        "echo_any_at": 1795784311841.8489,
+        "echo_at": 1795784311841.8489,
+        "other_events": [],
+        "net_up_at": 1795784311892.339,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784304663,
+          "answered_at_ms": 1795784307252,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 2578,
+            "pre": 0,
+            "finish": 0,
+            "total": 2578
+          }
+        }
+      ]
+    },
+    {
+      "i": 11,
+      "ok": false,
+      "error": "guest probe: attach: RuntimeError: attach refused: {\"error\": \"unknown surface 13\", \"id\": 3, \"ok\": false}",
+      "at": "2026-11-27T12:59:33.973Z",
+      "paused_ms": 5624,
+      "answered_ms": 491,
+      "first_exec_ms": 4533,
+      "offset_ms": 157,
+      "offset_rtt_ms": 805,
+      "offset_pre_ms": 241.5,
+      "marks_ms": {
+        "resumed": 1796,
+        "net_up": 1862
+      },
+      "phases": {
+        "restore": 1796,
+        "net_up": 66
+      },
+      "warnings": [],
+      "guest": {
+        "prev_wall": 1795784387966.73,
+        "resumed_wall": 1795784397030.498,
+        "wall_gap": 9063.76806640625,
+        "mono_gap": 9063.704580962658,
+        "seq": 11,
+        "marker": "B",
+        "conn_at": 1795784397043.6726,
+        "daemon": {
+          "pid": 30250,
+          "start": 37204248
+        },
+        "handshake_at": 1795784397048.0173,
+        "net_up_at": 1795784397096.8103,
+        "net_tries": 2,
+        "surface_lost": {
+          "surface": 13,
+          "setup_daemon": {
+            "pid": 27164,
+            "start": 37125279
+          },
+          "daemon_now": {
+            "pid": 30250,
+            "start": 37204248
+          },
+          "same_daemon": false,
+          "workspaces": "{\"generation\": \"4f17603f-f894-447c-bc31-75a75a552eb3\", \"groups\": [], \"lines_written_before_read\": 3, \"pane_revision\": 3, \"registry_id\": \"e374a9c5-14c3-47c0-883e-5052df832327\", \"terminal_revision\": 18, \"workspace_revision\": 3, \"workspaces\": [{\"active\": false, \"app\": null, \"color\": null, \"group\": null, \"icon\": null, \"id\": 1, \"keep_awake\": false, \"key\": \"2a3f5d85-01ff-41d9-9aed-91e51ac0187b\", \"kind\": \"normal\", \"marked_unread\": false, \"name\": \"workspace-1\", \"name_revision\": \"0\", \"name_source\": \"auto\", \"pinned\": false, \"recovered\": false, \"resource_id\": \"ws_d530ad9c069e2ac8906c7d8b0758952b\", \"screen_groups\": [], \"screens\": [{\"active\": true, \"active_pane\": 17, \"color\": null, \"group\": null, \"icon\": null, \"id\": 14, \"layout\": {\"pane\": 17, \"type\": \"leaf\"}, \"name\": null, \"panes\": [{\"active_tab\": 0, \"focused_at\": 0, \"id\": 17, \"name\": null, \"resource_id\": \"pane_a76e263a4cca5c258b9c3932efcfec78\", \"short_id\": \"00000h\", \"tab_groups\": [], \"tabs\": [{\"attention\": null, \"browser_engine\": null, \"browser_error\": null, \"browser_frames_stalled\": null, \"browser_owner\": null, \"browser_profile_id\": null, \"browser_renderer\": null, \"browser_source\": null, \"browser_status\": null, \"content_resource_id\": \"term_b4acc1e7eeba0fc5de7300587c3e8551\", \"conversation\": null, \"cwd\": \"/home/cmux\", \"dead\": false, \"end\": null, \"favicon_url\": null, \"git_branch\": null, \"git_detached\": false, \"group\": null, \"host_record_version\": null, \"kind\": \"pty\", \"name\": null, \"notification\": null, \"pinned\": false, \"pinned_url\": null, ",
+          "new_surface": 23
+        },
+        "error": "attach: RuntimeError: attach refused: {\"error\": \"unknown surface 13\", \"id\": 3, \"ok\": false}"
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784395078,
+          "answered_at_ms": 1795784395569,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 477,
+            "pre": 0,
+            "finish": 0,
+            "total": 477
+          }
+        }
+      ]
+    },
+    {
+      "i": 12,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T13:00:06.583Z",
+      "paused_ms": 6909,
+      "answered_ms": 1318,
+      "first_exec_ms": 10740,
+      "offset_ms": 620,
+      "offset_rtt_ms": 2010,
+      "offset_pre_ms": 474,
+      "marks_ms": {
+        "resumed": 3448,
+        "net_up": 3513,
+        "pty_attach": 3467,
+        "input": 3467,
+        "echo": 3469,
+        "echo_any": 3469
+      },
+      "phases": {
+        "restore": 3448,
+        "net_up": 65,
+        "pty_attach": 19,
+        "echo": 2,
+        "total": 3469
+      },
+      "warnings": [
+        "guest clock moved 146 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795784414207.6926,
+        "resumed_wall": 1795784426777.3552,
+        "wall_gap": 12569.66259765625,
+        "mono_gap": 12569.67870604992,
+        "seq": 12,
+        "marker": "C",
+        "conn_at": 1795784426788.2373,
+        "daemon": {
+          "pid": 30250,
+          "start": 37204248
+        },
+        "handshake_at": 1795784426794.9111,
+        "pty_attach_at": 1795784426796.1086,
+        "input_at": 1795784426796.1096,
+        "send_reply_at": 1795784426796.544,
+        "echo_any_at": 1795784426797.9768,
+        "echo_at": 1795784426797.9768,
+        "other_events": [],
+        "net_up_at": 1795784426841.742,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784422709,
+          "answered_at_ms": 1795784424027,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1299,
+            "pre": 0,
+            "finish": 0,
+            "total": 1299
+          }
+        }
+      ]
+    },
+    {
+      "i": 13,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T13:00:47.007Z",
+      "paused_ms": 3434,
+      "answered_ms": 1101,
+      "first_exec_ms": 12176,
+      "offset_ms": 219,
+      "offset_rtt_ms": 917,
+      "offset_pre_ms": 228,
+      "marks_ms": {
+        "resumed": 6391,
+        "net_up": 6449,
+        "pty_attach": 6399,
+        "input": 6399,
+        "echo": 6400,
+        "echo_any": 6400
+      },
+      "phases": {
+        "restore": 6391,
+        "net_up": 58,
+        "pty_attach": 8,
+        "echo": 1,
+        "total": 6400
+      },
+      "warnings": [],
+      "guest": {
+        "prev_wall": 1795784454021.808,
+        "resumed_wall": 1795784466672.4958,
+        "wall_gap": 12650.687744140625,
+        "mono_gap": 12650.70044106245,
+        "seq": 13,
+        "marker": "D",
+        "conn_at": 1795784466677.3618,
+        "daemon": {
+          "pid": 30250,
+          "start": 37204248
+        },
+        "handshake_at": 1795784466679.9172,
+        "pty_attach_at": 1795784466680.598,
+        "input_at": 1795784466680.5986,
+        "send_reply_at": 1795784466680.814,
+        "echo_any_at": 1795784466681.8518,
+        "echo_at": 1795784466681.8518,
+        "other_events": [],
+        "net_up_at": 1795784466730.8203,
+        "net_tries": 2
+      },
+      "state_json": true,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784460063,
+          "answered_at_ms": 1795784461163,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1075,
+            "pre": 0,
+            "finish": 0,
+            "total": 1075
+          }
+        }
+      ]
+    },
+    {
+      "i": 14,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T13:02:23.627Z",
+      "paused_ms": 5944,
+      "answered_ms": 7330,
+      "first_exec_ms": 133230,
+      "offset_ms": -24,
+      "offset_rtt_ms": 3602,
+      "offset_pre_ms": 304.5,
+      "marks_ms": {
+        "resumed": 69954,
+        "net_up": 76424,
+        "dns": 76329,
+        "pty_attach": 76650,
+        "input": 76650,
+        "echo": 76924,
+        "echo_any": 76924
+      },
+      "phases": {
+        "restore": 69954,
+        "net_up": 6470,
+        "pty_attach": 6696,
+        "echo": 274,
+        "total": 76924
+      },
+      "warnings": [
+        "guest clock moved -328 ms between pre-pause and post-wake offsets"
+      ],
+      "guest": {
+        "prev_wall": 1795784562123.3486,
+        "resumed_wall": 1795784638604.1895,
+        "wall_gap": 76480.8408203125,
+        "mono_gap": 77071.62249702215,
+        "seq": 14,
+        "marker": "E",
+        "conn_at": 1795784644889.54,
+        "dns_at": 1795784644978.5933,
+        "daemon": {
+          "pid": 30250,
+          "start": 37204248
+        },
+        "net_up_at": 1795784645073.5447,
+        "net_tries": 1,
+        "handshake_at": 1795784645278.3855,
+        "pty_attach_at": 1795784645299.919,
+        "input_at": 1795784645299.9224,
+        "send_reply_at": 1795784645386.0945,
+        "echo_any_at": 1795784645573.6257,
+        "echo_at": 1795784645573.6257,
+        "other_events": []
+      },
+      "state_json": false,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784568674,
+          "answered_at_ms": 1795784576004,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 7320,
+            "pre": 0,
+            "finish": 0,
+            "total": 7320
+          }
+        }
+      ]
+    },
+    {
+      "i": 15,
+      "ok": false,
+      "error": "no probe result 150 s after wake_at (exec first answered never ms); probe/gap logs: unread",
+      "at": "2026-11-27T13:06:07.015Z",
+      "paused_ms": 19026,
+      "answered_ms": 1161,
+      "first_exec_ms": null,
+      "offset_ms": null,
+      "offset_rtt_ms": null,
+      "offset_pre_ms": null,
+      "marks_ms": {},
+      "phases": {},
+      "warnings": [],
+      "guest": null,
+      "state_json": false,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795784863486,
+          "answered_at_ms": 1795784864647,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 1133,
+            "pre": 0,
+            "finish": 0,
+            "total": 1133
+          }
+        }
+      ]
+    },
+    {
+      "i": 16,
+      "ok": true,
+      "error": "",
+      "at": "2026-11-27T13:10:38.669Z",
+      "paused_ms": 41912,
+      "answered_ms": 544,
+      "first_exec_ms": 23113,
+      "offset_ms": 4701,
+      "offset_rtt_ms": 11923,
+      "offset_pre_ms": null,
+      "marks_ms": {
+        "resumed": 11591,
+        "net_up": 14803,
+        "dns": 15501,
+        "pty_attach": 16704,
+        "input": 16704,
+        "echo": 17294,
+        "echo_any": 17294
+      },
+      "phases": {
+        "restore": 11591,
+        "net_up": 3212,
+        "pty_attach": 5113,
+        "echo": 590,
+        "total": 17294
+      },
+      "warnings": [],
+      "guest": {
+        "prev_wall": 1795785155677.9382,
+        "resumed_wall": 1795785201576.52,
+        "wall_gap": 45898.581787109375,
+        "mono_gap": 45898.88955497742,
+        "seq": 16,
+        "marker": "G",
+        "conn_at": 1795785203985.9736,
+        "net_up_at": 1795785204788.9426,
+        "net_tries": 2,
+        "daemon": {
+          "pid": 30250,
+          "start": 37204248
+        },
+        "dns_at": 1795785205486.168,
+        "handshake_at": 1795785206475.638,
+        "pty_attach_at": 1795785206689.095,
+        "input_at": 1795785206689.8684,
+        "send_reply_at": 1795785207073.9424,
+        "echo_any_at": 1795785207279.733,
+        "echo_at": 1795785207279.733,
+        "other_events": []
+      },
+      "state_json": true,
+      "state_wake": {
+        "echo_at": null,
+        "input_at": null,
+        "net_up_at": 1795785211575,
+        "outcome": null,
+        "pty_attach_at": 1795785206488,
+        "resumed_at": 1795785202587,
+        "v": 1
+      },
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795785185285,
+          "answered_at_ms": 1795785185829,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 514,
+            "pre": 0,
+            "finish": 0,
+            "total": 514
+          }
+        }
+      ]
+    },
+    {
+      "i": 17,
+      "ok": false,
+      "error": "cloud.machine.pause: HTTP 200 {\"code\":\"mutation.indeterminate\",\"message\":\"the provider call was cut off; retry with the same key\",\"retryable\":true}",
+      "at": "2026-11-27T13:16:37.597Z",
+      "paused_ms": null,
+      "answered_ms": null,
+      "first_exec_ms": null,
+      "offset_ms": null,
+      "offset_rtt_ms": null,
+      "offset_pre_ms": 3793,
+      "marks_ms": {},
+      "phases": {},
+      "warnings": [],
+      "guest": null,
+      "state_json": false,
+      "state_wake": null
+    },
+    {
+      "i": 18,
+      "ok": false,
+      "error": "no probe result 150 s after wake_at (exec first answered 5387 ms); probe/gap logs: unread",
+      "at": "2026-11-27T13:22:05.820Z",
+      "paused_ms": 74375,
+      "answered_ms": 552,
+      "first_exec_ms": 5387,
+      "offset_ms": null,
+      "offset_rtt_ms": null,
+      "offset_pre_ms": 202.5,
+      "marks_ms": {},
+      "phases": {},
+      "warnings": [],
+      "guest": null,
+      "state_json": false,
+      "state_wake": null,
+      "start_attempts": [
+        {
+          "sent_at_ms": 1795785925818,
+          "answered_at_ms": 1795785926370,
+          "http_status": 200,
+          "machine_status": "starting",
+          "timing_ms": {
+            "vmapi": 514,
+            "pre": 0,
+            "finish": 0,
+            "total": 514
+          }
+        }
+      ]
+    },
+    {
+      "i": 19,
+      "ok": false,
+      "error": "pause did not land: the machine read pausing 180 s after the pause call",
+      "at": "2026-11-27T13:28:34.915Z",
+      "paused_ms": null,
+      "answered_ms": null,
+      "first_exec_ms": null,
+      "offset_ms": null,
+      "offset_rtt_ms": null,
+      "offset_pre_ms": 1356,
+      "marks_ms": {},
+      "phases": {},
+      "warnings": [],
+      "guest": null,
+      "state_json": false,
+      "state_wake": null
+    }
+  ]
+}
