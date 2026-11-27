@@ -59,6 +59,11 @@ path = "tests/test_base_coalesce_direct_push.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_coalesce_record_dir.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_coalesce_record_dir.py"
+
+[[test]]
 path = "tests/test_base_merge_warning.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_merge_warning.py"
@@ -92,14 +97,14 @@ path = "tests/test_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cancel_superseded_pr_runs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cancel_superseded_pr_runs.py"
-
-[[test]]
 path = "tests/test_bun_options_join.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_bun_options_join.py"
+
+[[test]]
+path = "tests/test_cancel_superseded_pr_runs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cancel_superseded_pr_runs.py"
 
 [[test]]
 path = "tests/test_car_guards.py"
