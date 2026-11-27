@@ -6,6 +6,7 @@
 import { useId } from "react";
 import {
   connectionText,
+  connectionText,
   currentFrameEvent,
   displayFrame,
   frameEvents,
