@@ -32,7 +32,7 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
                        for a wake whose placeholder showed none: no kept frame, or the page was back first
   snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
-INFTABS-RENDERER lines give each Chromium renderer at full: its pid, RSS, footprint and peak, its distinguishing
+INFTABS-RENDERER lines give each Chromium renderer at empty and at full (phase=): its pid, RSS, footprint and peak, its distinguishing
 ps args (--renderer-client-id, extension) and the live pages it hosts with their owning tab (renderers.list).
 --app-vm: INFTABS-APPVM lines give the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` at empty
 and at full, so the two diff region by region (the app is Chromium's browser process and PartitionAlloc is its
@@ -351,7 +351,7 @@ def kinds_table(empty: dict, full: dict):
 RENDERER_ARG_KEYS = ("renderer-client-id", "extension", "site", "origin", "cmux", "process-per")
 
 
-def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
+def renderers(app: bm.App, pid: int, bundle: str, sample: dict, phase: str = "full") -> list[dict]:
     """One row per Chromium renderer at `sample`: its distinguishing ps args and the live pages the app says
     it hosts. `renderers.list` (Release too) names each helper's `--renderer-client-id` and each live page's
     renderer clients and owning tab; `debug.cef_pages` (bench or DEV build) is the fallback, without owners."""
@@ -378,10 +378,10 @@ def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
                      "max_footprint_mb": row.get("max_footprint_mb"), "client": client, "args": args, "pages": hosted})
     unplaced = [p.get("url") or p.get("origin") for p in pages if not p.get("renderer_clients")]
     for row in rows:
-        print(f"INFTABS-RENDERER pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
+        print(f"INFTABS-RENDERER phase={phase} pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
               f"peak_footprint_mb={row['max_footprint_mb']} args={' '.join(row['args']) or '-'} "
               f"pages={json.dumps(row['pages'])}", flush=True)
-    print(f"INFTABS-RENDERER live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
+    print(f"INFTABS-RENDERER phase={phase} live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
           f"no_renderer={json.dumps(unplaced)}", flush=True)
     return rows
 
@@ -508,6 +508,9 @@ def run(argv: list[str]) -> int:
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
         app_memory(pid, "empty", args, report)
         report["chat_heap_empty"] = chat_heap(app, pid, bundle, "empty")  # after the window: the empty app's own floor
+        # The empty app's renderers too: a renderer that is in both phases (a spare, Home's) costs the ratio nothing
+        # to keep and raises it when cut, so only a renderer new at full, or one that grew, is a cut for the goal.
+        report["empty_renderers"] = renderers(app, pid, bundle, report["phases"]["empty"], "empty")
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
