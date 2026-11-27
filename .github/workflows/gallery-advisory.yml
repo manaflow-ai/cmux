@@ -48,7 +48,10 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
+      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
+      # No render reads Markdown (as on pull requests below).
+      - "!**/*.md"
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -58,7 +61,11 @@ on:
       - "webviews/src/pages/shared/desktop.css"
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
+      # Prose renders no gallery state: a docs-only pull request starts no capture (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
       - ".github/workflows/gallery-advisory.yml"
+      # No render reads Markdown: a docs-only pull request starts nothing here (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -100,6 +107,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -125,7 +133,7 @@ jobs:
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -178,6 +186,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -288,6 +297,8 @@ jobs:
             cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
             bun install --frozen-lockfile
             "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+            # The Mac's UI face on Linux: Inter, not DejaVu Sans (pin-browser-test-font.sh, as gallery-health).
+            "$GITHUB_WORKSPACE/scripts/ci/pin-browser-test-font.sh"
           }
           for part in head_build base_build browser_setup; do
             ( set -euo pipefail; "$part" ) > "$RUNNER_TEMP/$part.log" 2>&1 &
@@ -475,6 +486,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true
