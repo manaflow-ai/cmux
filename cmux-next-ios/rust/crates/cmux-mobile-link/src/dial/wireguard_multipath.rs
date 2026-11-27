@@ -882,6 +882,7 @@ mod tests {
             stun: Vec::new(),
             reflexive,
             timeline: crate::timing::Timeline::new(),
+            new_hop_port: tokio::sync::oneshot::channel().0,
         });
         assert_eq!(
             underlay.socket.local_addr().unwrap(),
@@ -909,6 +910,7 @@ mod tests {
             stun: Vec::new(),
             reflexive,
             timeline: crate::timing::Timeline::new(),
+            new_hop_port: tokio::sync::oneshot::channel().0,
         });
         assert_eq!(underlay.socket.local_addr().unwrap(), fresh_addr);
         assert!(underlay.assist.secondary.is_some());

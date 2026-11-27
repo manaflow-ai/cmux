@@ -135,6 +135,9 @@ class Scenario:
         return {**os.environ, "HOME": str(self.home), "CFFIXED_USER_HOME": str(self.home),
                 "TMPDIR": str(self.scratch / "tmp") + "/", "CMUX_NEXT_CONFIG_FILE": str(self.config),
                 "CMUX_WEB_SLOT_STATE_DIR": str(self.scratch / "web-slot"), "PATH": path, "APP": self.app,
+                # web-overlay.sh checks and writes for this app only; unset, it checks the Mac's installed
+                # NIGHTLY/NEXT, whose web ABI is not the tree's (step 294dc843: ABI 9 vs 7, every film no-op).
+                "CMUX_WEB_OVERLAY_APP": self.app,
                 "CMUX": self.cli_path, "CMUX_APP_SOCKET": self.socket or ""}
 
     def rpc(self, method, params=None, timeout=60):
@@ -418,6 +421,7 @@ class Scenario:
         result = GS.analyze(movie, marks, self.regions, run, label or name, text, probe, run / "frames")
         result["trigger_exit"] = code
         if code:
+            result["ok"] = False  # a trigger that did nothing films nothing: "kept" is not a pass
             log(f"GSW-FLEET {name}: the trigger exited {code}: {str(said)[-600:]}")
         return result
 
