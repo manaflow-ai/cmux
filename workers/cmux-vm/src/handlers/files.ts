@@ -6,15 +6,27 @@
  */
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { CmuxVmApi, FileEntry, FileList, FileStat, type FileEntryKind } from "../api.ts";
+import { CmuxVmApi, FileEntry, FileList, FileReplica, FileSearch, FileStat, SearchMatch, type FileEntryKind } from "../api.ts";
 import { badRequest, conflict, fileNotFound, PayloadTooLarge, unavailable, vmNotFound } from "../errors.ts";
 import { TenantPolicy } from "../policy.ts";
 import { UpstreamClient } from "../upstream/client.ts";
 import { audited, auditableVmId, withOwnedVm } from "./common.ts";
+import { searchFiles, under, type ReplicaMeta } from "../replica/match.ts";
+import { ReplicaStore } from "../replica/store.ts";
+import { walkDisk } from "../replica/walk.ts";
+import type { UpstreamError } from "../upstream/client.ts";
 
 const kindOf = (kind: string): FileEntryKind => (kind === "file" || kind === "directory" || kind === "symlink" ? kind : "other");
 
 const NOT_RUNNING = "The VM is not running, or it stopped answering; retry once it runs";
+
+const DEFAULT_SEARCH_LIMIT = 100;
+
+/** A walk's failure is its root's: a missing folder, an unreadable one, or the provider. */
+const walkError = (error: UpstreamError) =>
+  error.status === 404 ? fileNotFound() : error.status === 409 ? conflict(NOT_RUNNING) : error.status === 400 ? badRequest("The path is not a readable directory") : unavailable(error);
+
+const vmReadError = (error: UpstreamError) => (error.status === 404 ? vmNotFound() : unavailable(error));
 
 export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers) =>
   handlers
@@ -84,6 +96,71 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             return HttpServerResponse.empty({ status: 204 });
           }),
         ),
+      ),
+    )
+    .handle("searchFiles", ({ path, urlParams }) =>
+      withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
+        Effect.gen(function* () {
+          const upstream = yield* UpstreamClient;
+          const replicas = yield* ReplicaStore;
+          const { path: root, query } = urlParams;
+          const limit = urlParams.limit ?? DEFAULT_SEARCH_LIMIT;
+          const current = yield* upstream.getVm(vm, proofs).pipe(Effect.mapError(vmReadError));
+          const paused = current.state === "paused";
+          if (paused) {
+            // The replica answers only for the pause it was seeded in: the provider's updatedAt moves on any resume.
+            const meta = yield* replicas.meta(vm.value).pipe(Effect.orElseSucceed(() => null));
+            if (meta !== null && meta.marker === current.updatedAt && under(meta.root, root)) {
+              const found = yield* replicas.search(vm.value, root, query, limit).pipe(Effect.option);
+              if (found._tag === "Some") {
+                return new FileSearch({
+                  source: "replica",
+                  complete: meta.complete && found.value.matches.length < limit,
+                  scanned: found.value.scanned,
+                  matches: found.value.matches.map((m) => new SearchMatch(m)),
+                });
+              }
+            }
+          }
+          const startedAt = Date.now();
+          const walk = yield* walkDisk(vm, proofs, root).pipe(Effect.mapError(walkError));
+          if (paused) {
+            const meta: ReplicaMeta = {
+              root, marker: current.updatedAt, complete: walk.complete, files: walk.files.length, bytes: walk.bytes,
+              truncated: walk.truncated, seededAtMs: startedAt,
+            };
+            // Best effort: a search that read the paused disk keeps it as the replica for the next one.
+            yield* replicas.replace(vm.value, meta, walk.files).pipe(Effect.ignore);
+          }
+          const found = searchFiles(walk.files, root, query, limit);
+          return new FileSearch({
+            source: "disk",
+            complete: walk.complete && found.matches.length < limit,
+            scanned: found.scanned,
+            matches: found.matches.map((m) => new SearchMatch(m)),
+          });
+        }),
+      ),
+    )
+    .handle("seedFileReplica", ({ path, urlParams }) =>
+      withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
+        Effect.gen(function* () {
+          const upstream = yield* UpstreamClient;
+          const replicas = yield* ReplicaStore;
+          const current = yield* upstream.getVm(vm, proofs).pipe(Effect.mapError(vmReadError));
+          if (current.state !== "paused") return yield* Effect.fail(conflict("Only a paused VM's replica can be seeded; pause it first"));
+          const startedAt = Date.now();
+          const walk = yield* walkDisk(vm, proofs, urlParams.path).pipe(Effect.mapError(walkError));
+          const meta: ReplicaMeta = {
+            root: urlParams.path, marker: current.updatedAt, complete: walk.complete, files: walk.files.length, bytes: walk.bytes,
+            truncated: walk.truncated, seededAtMs: startedAt,
+          };
+          yield* replicas.replace(vm.value, meta, walk.files).pipe(Effect.mapError(() => unavailable("replica.replace")));
+          return new FileReplica({
+            root: meta.root, complete: meta.complete, files: meta.files, bytes: meta.bytes, truncated: meta.truncated,
+            seedMs: Math.max(0, Date.now() - startedAt),
+          });
+        }),
       ),
     )
     .handle("listFiles", ({ path, urlParams }) =>

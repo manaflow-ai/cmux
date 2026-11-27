@@ -276,6 +276,26 @@ def fetch_state(repo: str, out_dir: str, token: str) -> bool:
     return False
 
 
+# Longest wait for GitHub's rate limit to reset before the next try; the step's timeout sits above it.
+RATE_LIMIT_WAIT_CAP_S = 20 * 60
+
+
+def rate_limit_wait(e: BaseException, now: float | None = None) -> float | None:
+    """Seconds until GitHub's rate limit lets a read through, from a 403/429's Retry-After or X-RateLimit-Reset
+    (capped); None for any other error. A spent quota lasts up to an hour, so 10 and 20 s retries all fail
+    (runs 45594072967 and 45607027561 stopped this way before any bench ran)."""
+    if not isinstance(e, urllib.error.HTTPError) or e.code not in (403, 429) or e.headers is None:
+        return None
+    retry_after = (e.headers.get("Retry-After") or "").strip()
+    if retry_after.isdigit():
+        return float(min(int(retry_after) + 1, RATE_LIMIT_WAIT_CAP_S))
+    reset = (e.headers.get("X-RateLimit-Reset") or "").strip()
+    if e.headers.get("X-RateLimit-Remaining") == "0" and reset.isdigit():
+        now = time.time() if now is None else now
+        return float(min(max(int(reset) - now, 0) + 5, RATE_LIMIT_WAIT_CAP_S))
+    return None
+
+
 def fetch_state_retrying(repo: str, out_dir: str, token: str, tries: int = 3, sleep=time.sleep, fetch=None):
     """fetch_state, retried; None when every try failed. An unread state is not "no state": planning from nothing
     would publish a state with every earlier number gone (run 45207965116: one 403 dropped 8 interactions' last
@@ -287,7 +307,10 @@ def fetch_state_retrying(repo: str, out_dir: str, token: str, tries: int = 3, sl
         except (OSError, ValueError, zipfile.BadZipFile) as e:
             print(f"nightly-interaction-latency: state not read, try {attempt + 1} of {tries} ({e})", flush=True)
             if attempt + 1 < tries:
-                sleep(10 * (attempt + 1))
+                wait = rate_limit_wait(e)
+                if wait is not None:
+                    print(f"nightly-interaction-latency: rate limited; waiting {wait:.0f}s for the reset", flush=True)
+                sleep(10 * (attempt + 1) if wait is None else wait)
     print("nightly-interaction-latency: state not read; publishing nothing, so the last state stays the newest")
     return None
 
