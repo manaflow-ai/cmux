@@ -5,6 +5,26 @@ use super::*;
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 #[cfg(unix)]
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    bind_unix_with(path, |_| false).await
+}
+
+/// The daemon's own bind of its socket, holding this home's lock. A connect that succeeds is no
+/// other daemon when the process listening behind it is one `ours_or_gone` names (this process,
+/// the daemon it took over from, or a process that no longer runs): that socket is replaced.
+/// Any other listener is refused as [`bind_unix`] refuses it.
+#[cfg(unix)]
+pub(crate) async fn bind_daemon_unix(
+    path: &std::path::Path,
+    ours_or_gone: fn(u32) -> bool,
+) -> Result<UnixListener> {
+    bind_unix_with(path, ours_or_gone).await
+}
+
+#[cfg(unix)]
+async fn bind_unix_with(
+    path: &std::path::Path,
+    replaceable: fn(u32) -> bool,
+) -> Result<UnixListener> {
     crate::config::refuse_lost_home(&crate::config::home())?;
     // A configured path longer than sun_path fails here with the path and
     // the limit, never as a bare bind error.
@@ -17,8 +37,18 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     }
     if path.exists() {
         // Refuse to steal a live socket.
-        if tokio::net::UnixStream::connect(path).await.is_ok() {
-            anyhow::bail!("another acpmux daemon owns {}", path.display());
+        if let Ok(stream) = tokio::net::UnixStream::connect(path).await {
+            // The process that called listen on it, whichever process holds a copy now.
+            let pid = stream.peer_cred().ok().and_then(|c| c.pid());
+            drop(stream);
+            match pid.and_then(|p| u32::try_from(p).ok()) {
+                Some(pid) if replaceable(pid) => tracing::warn!(
+                    pid,
+                    "{} answers from a listener that is no other daemon; replacing it",
+                    path.display()
+                ),
+                _ => anyhow::bail!("another acpmux daemon owns {}", path.display()),
+            }
         }
         // A failed connect is not a dead socket: a live daemon whose accept queue is full
         // refuses it too. Only the holder of the lock that serves it may remove it.
