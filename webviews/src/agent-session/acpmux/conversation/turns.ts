@@ -42,7 +42,7 @@ import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
-import { experimentArm } from "../../../experiments/experiment";
+import { experimentArm, withExperimentPass } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
@@ -674,7 +674,12 @@ const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
 
-export function turnViewFrom(
+/// `turnViewIn` with the experiments' debug key read once for the whole pass (experiment.ts `withExperimentPass`).
+export function turnViewFrom(...args: Parameters<typeof turnViewIn>): TurnView {
+  return withExperimentPass(() => turnViewIn(...args));
+}
+
+function turnViewIn(
   rows: readonly AcpmuxRow[],
   expanded: Folds,
   {

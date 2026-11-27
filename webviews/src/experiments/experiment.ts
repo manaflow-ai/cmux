@@ -77,6 +77,21 @@ function storedOverrides(): Readonly<ArmOverrides> {
   return stored.overrides;
 }
 
+// The debug key as one pass read it (`withExperimentPass`): a chat's open shapes every turn, and each turn asked
+// localStorage again for every experiment it reads (384 reads for 47 turns), though the key cannot change mid-pass.
+let passStored: Readonly<ArmOverrides> | undefined;
+
+/** Runs `run` with the debug key read once: every experimentArm() inside it takes that read. Nests. */
+export function withExperimentPass<T>(run: () => T): T {
+  if (passStored !== undefined) return run();
+  passStored = storedOverrides();
+  try {
+    return run();
+  } finally {
+    passStored = undefined;
+  }
+}
+
 /** The arm ids of an experiment, in definition order. */
 export function armIds<Arm extends string>(experiment: Experiment<Arm>): Arm[] {
   return Object.keys(experiment.arms) as Arm[];
@@ -95,7 +110,7 @@ export function experimentArm<Arm extends string>(
   if (isArm(experiment, overrides[experiment.id])) return overrides[experiment.id] as Arm;
   const settings = sources.settings ?? settingArms();
   if (isArm(experiment, settings[experiment.id])) return settings[experiment.id] as Arm;
-  const stored = sources.stored ?? storedOverrides();
+  const stored = sources.stored ?? passStored ?? storedOverrides();
   if (isArm(experiment, stored[experiment.id])) return stored[experiment.id] as Arm;
   return experiment.defaultArm;
 }
