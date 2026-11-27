@@ -74,6 +74,7 @@ extension PaneContentView {
         view.autoresizingMask = [.width, .height]
         addSubview(view, positioned: .below, relativeTo: subviews.first)
         backdropState.artView = view
+        wallpaperBadge?.add(view) // a live wallpaper's badge shows the signed-in account
         return view
     }
 
