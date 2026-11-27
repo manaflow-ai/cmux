@@ -604,7 +604,37 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
+    let mut registry: Value =
+        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
+    fold_role_holders(&mut registry);
+    Some(registry)
+}
+
+/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
+/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
+/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
+/// machine is ignored. Idempotent.
+pub fn fold_role_holders(registry: &mut Value) {
+    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut roles: Vec<&String> = holders.keys().collect();
+    roles.sort();
+    for role in roles {
+        let Some(list) = holders[role].as_array() else { continue };
+        for host in list.iter().filter_map(Value::as_str) {
+            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
+            let entry = m.entry("roles").or_insert_with(|| json!([]));
+            if let Some(arr) = entry.as_array_mut() {
+                if !arr.iter().any(|r| r.as_str() == Some(role)) {
+                    arr.push(json!(role));
+                }
+            }
+        }
+    }
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.
@@ -678,6 +708,9 @@ struct Weighed {
     why: String,
     /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
     ram_free: Option<f64>,
+    /// Its AutoCloud enrollment block from the reading (`autocloud_enroll.rs`), as it said it;
+    /// null from a machine on an older build: `place_mode`'s enrolled tier.
+    auto_cloud: Value,
 }
 
 impl Weighed {
@@ -732,6 +765,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         cap: CapState::Unknown,
         why: String::new(),
         ram_free: None,
+        auto_cloud: h.get("autoCloud").cloned().unwrap_or(Value::Null),
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -949,6 +983,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "why": w.why,
             // Free RAM in bytes (null without a reading): place_mode's chip.
             "ramFree": w.ram_free,
+            // Its AutoCloud enrollment (null: an older build, not enrolled): `place_mode`.
+            "autoCloud": w.auto_cloud,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

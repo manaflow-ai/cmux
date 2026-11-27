@@ -84,7 +84,9 @@ MAC_COMMON = (
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
     "scripts/ci/e2e_warm_derived_data.py", "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
-    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
+    "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
 ) + route.FULL_INPUTS + route.VENDORED_PINS + route.GENERATED_INPUTS
 
@@ -106,7 +108,10 @@ SWIFT_TEST = (
     "cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist", "cmux-helper.entitlements",
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
-GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
+# generated-files-linux.sh: the generated-files steps' bodies, moved out of the workflow. toolchain-r2.sh
+# restores the bun and node both jobs build the web bundles with.
+GENERATED = ("scripts/ci/defaults_guard.py", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+             "scripts/ci/toolchain-r2.sh", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
 # generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
