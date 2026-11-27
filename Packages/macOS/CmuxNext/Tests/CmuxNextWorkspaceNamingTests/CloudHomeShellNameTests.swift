@@ -7,7 +7,8 @@ import Testing
 
 /// An unnamed Cloud workspace whose shell idles at its home reads "Terminal" in the sidebar (#28051), and its window's
 /// titlebar, the palette and the rename prompt name it the same way (`titlebarName`), never the account's home folder,
-/// "cmux" (#36283). An SSH computer's or this Mac's workspace keeps its folder everywhere.
+/// "cmux" (#36283). An SSH computer's workspace keeps its folder everywhere; this Mac's reads "Terminal" too
+/// (`HomeShellLoginNameTests`, first-run findings row 19).
 @MainActor
 struct CloudHomeShellNameTests {
     /// A workspace with the daemon's default name and one idle shell in `cwd`.
