@@ -70,6 +70,8 @@ on:
       # The steps' own scripts: a change to one ran no kit run until an unrelated iOS push (the simulator bound
       # and the connection-notices lint both gate this run).
       - "scripts/ci/ios-kit-sim-mac-test.sh"
+      - "scripts/ci/ios_sim_bundles.py"
+      - "scripts/ci/ios-sim-mac-bundles.txt"
       - "scripts/cmux-next/check-connection-notices.py"
       - "scripts/cmux-next/connection-notices-allowlist.tsv"
       # The pool phone's runner for the kit's simulator tests (the sim-linux steps run it at this commit).
@@ -348,7 +350,7 @@ jobs:
           echo "built=true" >> "$GITHUB_OUTPUT"
 
       - name: Save CmuxMobileLinkFFI.xcframework
-        if: steps.build.outputs.built == 'true' && steps.key.outputs.key != ''
+        if: steps.build.outputs.built == 'true' && steps.key.outputs.key != '' && github.ref == 'refs/heads/feat-cmux-next'
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -601,7 +603,7 @@ jobs:
           fi
 
       - name: Save CmuxMobileLinkFFI.xcframework
-        if: ${{ success() && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -697,6 +699,7 @@ jobs:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCTS: ${{ github.run_id }}/${{ steps.sim-products.outputs.name }}
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
         run: |
           set -euo pipefail
           [[ -n "$CONTROLLER" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; exit 1; }
@@ -715,13 +718,18 @@ jobs:
                   raise SystemExit(f"{name}: sha256 mismatch")
               (root / name).write_bytes(data)
           PY
-          # The simulator step's skips (below), as test targets the pool run leaves out.
+          # The test targets the pool run leaves out: the ones skipped everywhere, and with "on" the bundles that stay
+          # on the Mac (scripts/ci/ios_sim_bundles.py). Exit 3: every bundle stays on the Mac, so nothing is submitted.
+          skip_file="$RUNNER_TEMP/sim-linux/skips"
+          rc=0; python3 -I scripts/ci/ios_sim_bundles.py pool > "$skip_file" || rc=$?
+          if [[ $rc == 3 ]]; then echo "every simulator test bundle stays on the Mac: no pool run"; exit 1; fi
+          [[ $rc == 0 ]] || exit "$rc"
           date +%s > "$RUNNER_TEMP/sim-linux/started"
           CMUX_CI_CONTROLLER="$CONTROLLER" nohup bash -c '
+            mapfile -t skips < "$1/skips"
             python3 "$0/ci-client.py" run --class simulator --os linux --script scripts/ci/ios-sim-linux-test.sh \
               --ref "$HEAD_SHA" --repo manaflow-ai/cmux --env "CMUX_IOS_PRODUCTS=$PRODUCTS" \
-              --arg suite=kit --arg skip=CmuxMobileInstantPerfTests --arg skip=CmuxMobileDesignCoreTests --arg skip=CmuxMobileRealtimeTests \
-              --arg skip=CmuxMobileTransportTests --arg timeout=1800 \
+              --arg suite=kit "${skips[@]}" --arg timeout=1800 \
               --artifact artifacts/ios-sim-linux/result.tgz --timeout 2400 --queue-timeout 900
             echo $? > "$1/exit"; date +%s > "$1/finished"
           ' "$client" "$RUNNER_TEMP/sim-linux" > "$RUNNER_TEMP/sim-linux/step.log" 2>&1 &
@@ -755,11 +763,16 @@ jobs:
         # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
         # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
         # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
-        if: ${{ !cancelled() && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (vars.CMUX_IOS_SIM_LINUX || 'shadow') != 'on' }}
+        # With "on" it runs only the bundles that stay on the Mac (scripts/ci/ios-sim-mac-bundles.txt; RFD 0051's
+        # per-bundle cutover) and the fleet pool runs the rest; with none listed it ends at once.
+        if: ${{ !cancelled() && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
+        env:
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
+          KIT_SIM_PART: mac
         run: bash ../../scripts/ci/ios-kit-sim-mac-test.sh
 
       # verdict: pass, fail (the pool ran the tests and some failed) or none (no verdict: submit, queue, phone or
@@ -840,6 +853,8 @@ jobs:
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
           REASON: ${{ steps.sim-linux.outputs.reason }}
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
+          KIT_SIM_PART: fallback
         run: |
           echo "::notice title=Mac fallback::iOS simulator tests on this Mac: $REASON"
           bash ../../scripts/ci/ios-kit-sim-mac-test.sh
@@ -1035,6 +1050,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           PRODUCTS: ${{ steps.wait.outputs.products }}
           LABEL: fleet pool
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
       - name: Upload the fleet pool result
