@@ -98,15 +98,11 @@ pub(super) fn flush_sharing(
     let mut built: Option<(&str, Arc<Value>)> = None;
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
-            // A client that draws no breakdown gets the row without it (`server/mod.rs`'s
-            // `lean`), and its build leaves the chart the chat's rows owe to the next client.
             let lean = conn.omit_time_breakdown.load(Ordering::SeqCst)
                 || super::omits_time_breakdown(conn, &row.session_id);
-            // The row is the record's it is built for: the turn's chart rides every build of
-            // that record (`hub/views.rs` `ChangeRow`).
             let build = |seq: u64| {
                 let s = hub.resolve(&row.session_id).ok()?;
-                let mut summary = hub.session_change_summary(&s, seq, lean);
+                let mut summary = hub.session_change_summary(&s, seq);
                 if lean {
                     requests::without_time_breakdown(&mut summary);
                 }

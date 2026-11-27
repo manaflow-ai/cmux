@@ -166,8 +166,11 @@ pub(crate) struct State {
     /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
     pub(crate) saved_seq: u64,
     /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
-    /// turns ended by then, when, and the record it followed. None until a row carried it.
-    rowed: Option<(u64, u64, u64)>,
+    /// turns ended by then, and when. None until a row carried it.
+    rowed: Option<(u64, u64)>,
+    /// The record whose change row last carried the breakdown: every build of that record's row
+    /// carries it, not only the first ([`Self::row_snapshot`]).
+    rowed_seq: Option<u64>,
     reducer: Reducer,
 }
 
@@ -260,24 +263,26 @@ impl State {
     /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
     /// (`tests/transfer_cli/view_latency.rs`).
     ///
-    /// `seq` is the record the row follows. One record's row is built more than once (each
-    /// watcher builds it again once the last copy is sent, `HubEvent::row`), and every build of
-    /// the row that carried it carries it again: the first build used to spend it, so a second
-    /// pane, or the pane after a phone's lean row, got that turn's row without the chart.
+    /// `seq` is the record the row follows. One record's row is built more than once: once per
+    /// cell (with tools, and with tools less the breakdown for a client that draws none), and again
+    /// when the shared copy (`SharedRow`, a weak share) was already let go. Every build of the
+    /// record that owed the breakdown carries it; before, the first build took it, so a phone's
+    /// lean row (or a second watcher's rebuild) left the pane's row without it.
     pub(crate) fn row_snapshot(&mut self, now: u64, seq: u64) -> Option<TimeBreakdown> {
         if !self.initialized {
             return None;
         }
-        let ended = self.reducer.ended_turns;
-        if self.rowed.is_some_and(|(_, _, rowed_seq)| rowed_seq == seq) {
+        if self.rowed_seq == Some(seq) {
             return Some(self.snapshot(now));
         }
-        let owed = self.rowed.is_none_or(|(turns, at, _)| {
+        let ended = self.reducer.ended_turns;
+        let owed = self.rowed.is_none_or(|(turns, at)| {
             turns != ended
                 || (self.reducer.turn.is_some() && now.saturating_sub(at) >= ROW_EVERY_MS)
         });
         owed.then(|| {
-            self.rowed = Some((ended, now, seq));
+            self.rowed = Some((ended, now));
+            self.rowed_seq = Some(seq);
             self.snapshot(now)
         })
     }
