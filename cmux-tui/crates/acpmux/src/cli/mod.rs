@@ -55,6 +55,8 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod host_pipe;
 pub(crate) mod host_sandbox;
 pub mod host_ssh_key;
 pub mod host_steps;

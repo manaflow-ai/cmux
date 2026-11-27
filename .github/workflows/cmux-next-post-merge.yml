@@ -95,6 +95,9 @@ jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: read
       contents: read
@@ -397,6 +400,9 @@ jobs:
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: write
       contents: read

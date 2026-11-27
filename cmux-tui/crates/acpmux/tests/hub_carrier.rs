@@ -3477,6 +3477,31 @@ fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
     assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
 }
 
+/// A held machine is named by its `daemonId` or its host: a host resolves through the address
+/// book to every key it lists for that host, each key once, and a name the book lacks is left out.
+#[test]
+fn hub_carrier_held_machines_resolve_host_names_through_the_address_book() {
+    use acpmux::hub_carrier::{is_daemon_id, resolve_held};
+    let key_a = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".to_owned();
+    let key_b = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned();
+    let key_c = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=".to_owned();
+    assert!(is_daemon_id(&key_a));
+    assert!(!is_daemon_id("build-box"));
+    let book = vec![
+        (key_a.clone(), "build-box".to_owned()),
+        (key_b.clone(), "work-mac".to_owned()),
+        (key_c.clone(), "work-mac".to_owned()),
+    ];
+    let entries: Vec<String> =
+        ["build-box", "work-mac", "gone-host", &key_a].iter().map(|s| s.to_string()).collect();
+    let (keys, unlisted) = resolve_held(&entries, &book);
+    assert_eq!(keys, vec![key_a.clone(), key_b, key_c]);
+    assert_eq!(unlisted, vec!["gone-host".to_owned()]);
+    // A key the book does not list is still held: the book can lag a machine that just joined.
+    let (keys, unlisted) = resolve_held(&[key_a.clone()], &[]);
+    assert_eq!((keys, unlisted), (vec![key_a], Vec::<String>::new()));
+}
+
 /// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's
 /// age is a local read, and an echo is one stream open and one round trip through the real path;
 /// a machine that keeps no circuits answers it on a plain one.

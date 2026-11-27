@@ -192,6 +192,9 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+/// The process that holds the far end of each held pipe past a daemon restart (`hub_carrier_pipe_host.rs`).
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod hub_carrier_pipe_host;
 pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]

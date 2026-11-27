@@ -1,7 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -183,8 +182,7 @@ impl ProviderNoticeIdentity {
                     let state_root = state_root.as_deref().ok_or_else(|| {
                         anyhow::anyhow!("cannot determine durable state directory").context(message)
                     })?;
-                    let acquired =
-                        crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                    let acquired = acquire_notice_identity_lease(state_root).map_err(|error| {
                             let message = if error
                                 .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
                                 .is_some()
@@ -213,6 +211,33 @@ impl ProviderNoticeIdentity {
             Self::Persisted { lease, .. } => lease.as_ref().map(|identity| identity.consumer_id()),
         }
     }
+}
+
+/// How long a connection waits for another runtime's notice identity lease:
+/// a runtime of this process that is shutting down (a reconnect, a provider
+/// switch) drops its lease within moments, so that race is waited out; a
+/// lease that another live window holds stays refused.
+const NOTICE_IDENTITY_LEASE_PATIENCE: Duration = Duration::from_millis(1500);
+
+fn acquire_notice_identity_lease(
+    state_root: &Path,
+) -> anyhow::Result<crate::provider_notice_identity::ProviderNoticeIdentityLease> {
+    use cmux_tui_core::retry::{Attempt, Patience};
+    Patience::new("the machine provider connection", NOTICE_IDENTITY_LEASE_PATIENCE)
+        .quiet()
+        .spaced(Duration::from_millis(25), Duration::from_millis(250))
+        .run(|| {
+            crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                if error
+                    .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                    .is_some()
+                {
+                    Attempt::Retry(error)
+                } else {
+                    Attempt::Fail(error)
+                }
+            })
+        })
 }
 
 /// Owns the provider control connection and stable process-local machine keys.

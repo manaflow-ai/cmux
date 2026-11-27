@@ -19,7 +19,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Retitles the `index`th row: one `update` op from the host. */
-    benchChangeOne(index: number): void;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

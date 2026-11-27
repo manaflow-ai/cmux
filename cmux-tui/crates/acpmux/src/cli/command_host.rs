@@ -402,6 +402,19 @@ pub enum PeerCmd {
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
     },
+    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
+    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
+    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
+    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
+    /// pipes gets a plain pipe, which ends with its circuit.
+    Pipe {
+        /// A machine name in the hub's address book, or its node key.
+        #[arg(value_name = "MACHINE")]
+        machine: String,
+        /// The far machine's loopback port (the one its `remote_daemon` admits).
+        #[arg(long, default_value_t = 22)]
+        port: u16,
+    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).
