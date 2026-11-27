@@ -231,6 +231,7 @@ members = [
     "crates/cmux-vault-egress",
     "crates/cmux-vault-e2e",
     "crates/cmux-url-input",
+    "crates/cmux-voice",
     "crates/cmux-view-rows",
     "crates/cmux-computer-use",
     "crates/cmux-computer-use-ffi",
@@ -407,6 +408,7 @@ default-members = [
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
     "crates/cmux-url-input",
+    "crates/cmux-voice",
     "crates/cmux-view-rows",
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
@@ -534,6 +536,7 @@ cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-vault-e2e = { path = "crates/cmux-vault-e2e" }
 cmux-url-input = { path = "crates/cmux-url-input" }
+cmux-voice = { path = "crates/cmux-voice" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }

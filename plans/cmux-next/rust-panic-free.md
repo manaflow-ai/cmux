@@ -52,6 +52,17 @@ cover that lint by itself. Run both. The kin-table regression
 `fixed_records_reject_every_truncation_without_panicking` covers every cut of the
 entry, edge and level record encodings (cmux#44281).
 
+### Markdown speech sanitizers
+
+Treat incomplete Markdown and multibyte text as ordinary input. Use `strip_prefix`,
+`split_once`, slice patterns and checked `get` for delimiter-derived offsets,
+including underscore emphasis and list prefixes; a byte offset found in one
+view does not justify unchecked indexing in another. The detector is
+`scripts/cmux-next/rust_panic_ratchet.py` (`indexing_slicing` and `string_slice`).
+`cmux-voice` tests `unicode_markdown_boundaries` and
+`malformed_markdown_and_utf8_prefixes` cover labels, images, lists, fences,
+emphasis, truncation and every UTF-8 prefix of a mixed Markdown sample.
+
 ## 2. Inventory (before, feat-cmux-next 7c48cdf2c40e, 2026-10-22)
 
 The baseline file is measured at the landing's merged head (65a4003019ad):

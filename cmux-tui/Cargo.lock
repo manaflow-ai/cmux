@@ -99,6 +99,7 @@ dependencies = [
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-voice",
  "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
@@ -4051,6 +4052,19 @@ dependencies = [
  "num-bigint",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-voice"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-egress",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

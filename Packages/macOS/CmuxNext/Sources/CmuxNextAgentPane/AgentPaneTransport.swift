@@ -545,10 +545,10 @@ import CmuxPagePushBound
 
     /// The bridge's entry: the frames join the send line in arrival order (they are in line before
     /// this returns, so a later frame never overtakes them). Their work runs off the main thread.
-    public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
+    public func submit(connection id: Int, frames: [String], valid: (@MainActor () -> Bool)? = nil, reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
         // A page that sends runs its script: it drains again, though its ack (or an old page's) did not come.
         if id == current, ledger.pageAnswered() { resumeStalledPage() }
-        pending.append(PendingSend(connection: id, frames: frames, reply: reply))
+        pending.append(PendingSend(connection: id, frames: frames, valid: valid, reply: reply))
         guard !draining else { return }
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
@@ -560,12 +560,14 @@ import CmuxPagePushBound
     /// One page send in line: its frames still to go, its first error, and where its result goes.
     final class PendingSend {
         let connection: Int
+        let valid: (@MainActor () -> Bool)?
         var frames: [String]
         var firstError: AgentPaneTransportError?
         let reply: @MainActor (AgentPaneTransportError?) -> Void
 
-        init(connection: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
+        init(connection: Int, frames: [String], valid: (@MainActor () -> Bool)? = nil, reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
             self.connection = connection
+            self.valid = valid
             self.frames = frames
             self.reply = reply
         }

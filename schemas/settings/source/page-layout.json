@@ -311,7 +311,7 @@
               "agentPane.display.code.family", "agentPane.display.code.scale"
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
-              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
+              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.voiceButton", "agentPane.dictationSource", "agentPane.dictationEngine", "agentPane.dictationEngineURL", "agentPane.dictationEngineModel", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerVimKeys",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.composerPlaceholder",
               "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.queueing",

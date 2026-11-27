@@ -22,6 +22,7 @@ public import CmuxNextPalette
 /// - `projectPalette`: the app's command palette (`AppServices.palette`), where Add project shows its source pages
 ///   (``ProjectPaletteBridge``); nil (tests): Add project opens no palette page.
 public struct AgentPaneShared {
+    public let voiceRegistry: AgentPaneVoiceRegistry
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
@@ -41,7 +42,10 @@ public struct AgentPaneShared {
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
                 newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil,
                 computerUseState: (@MainActor () -> AgentPaneComputerUseState?)? = nil,
-                projectPalette: (@MainActor () -> PaletteController?)? = nil) {
+                projectPalette: (@MainActor () -> PaletteController?)? = nil,
+                voiceEnvironment: (@MainActor () -> AcpmuxEnvironment?)? = nil) {
+        self.voiceRegistry = AgentPaneVoiceRegistry()
+        self.voiceRegistry.environment = voiceEnvironment
         self.hostMarks = hostMarks
         self.projectPalette = projectPalette
         self.openPanel = openPanel
@@ -61,7 +65,8 @@ extension AgentPaneView {
     public convenience init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                              pageHost: Bool = false, shared: AgentPaneShared) {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
-                  openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
+                  openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog,
+                  voiceRegistry: shared.voiceRegistry)
         model.transport.gestures.actAsMe = shared.actAsMe
         model.hostTouch.marks = shared.hostMarks
         if let projectPalette = shared.projectPalette {

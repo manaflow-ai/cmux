@@ -1,6 +1,1458 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.voice.provider.keyMissing": {
+      "comment": "Dictation with the person's own provider failed: no API key is saved for it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج الإملاء إلى مفتاح API. أضفه في الإعدادات > دردشة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktatu je potreban API ključ. Dodajte ga u Postavke > Chat agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering kræver en API-nøgle. Tilføj den i Indstillinger > Agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die Diktierfunktion ist ein API-Schlüssel nötig. Füge ihn unter Einstellungen > Agent-Chat hinzu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation needs an API key. Add it in Settings > Agent Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado necesita una clave de API. Añádela en Ajustes > Chat del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée nécessite une clé API. Ajoutez-la dans Réglages > Chat de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dettatura richiede una chiave API. Aggiungila in Impostazioni > Chat dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力には API キーが必要です。設定 > エージェントチャットで追加してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងត្រូវការសោ API។ បន្ថែមវានៅក្នុង ការកំណត់ > ការជជែកភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기에는 API 키가 필요합니다. 설정 > 에이전트 채팅에서 추가하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering trenger en API-nøkkel. Legg den til i Innstillinger > Agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie wymaga klucza API. Dodaj go w Ustawienia > Czat agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado precisa de uma chave de API. Adicione-a em Ajustes > Chat do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктовки нужен API-ключ. Добавьте его в разделе Настройки > Чат агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกต้องใช้คีย์ API เพิ่มได้ที่ การตั้งค่า > แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte için bir API anahtarı gerekir. Ayarlar > Ajan Sohbeti bölümünden ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для диктування потрібен API-ключ. Додайте його в Налаштування > Чат агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả cần khóa API. Thêm khóa trong Cài đặt > Trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写需要 API 密钥。请在“设置 > 智能体聊天”中添加。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫需要 API 金鑰。請在「設定 > 代理程式聊天」中加入。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.keyInvalid": {
+      "comment": "Dictation with the person's own provider failed: the provider refused the saved API key.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفضت خدمة الإملاء مفتاح API. تحقق منه في الإعدادات > دردشة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata je odbila API ključ. Provjerite ga u Postavke > Chat agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten afviste API-nøglen. Tjek den i Indstillinger > Agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst hat den API-Schlüssel abgelehnt. Prüfe ihn unter Einstellungen > Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service refused the API key. Check it in Settings > Agent Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado rechazó la clave de API. Revísala en Ajustes > Chat del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée a refusé la clé API. Vérifiez-la dans Réglages > Chat de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura ha rifiutato la chiave API. Controllala in Impostazioni > Chat dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスが API キーを拒否しました。設定 > エージェントチャットで確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងបានបដិសេធសោ API។ ពិនិត្យវានៅក្នុង ការកំណត់ > ការជជែកភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스가 API 키를 거부했습니다. 설정 > 에이전트 채팅에서 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten avviste API-nøkkelen. Sjekk den i Innstillinger > Agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa dyktowania odrzuciła klucz API. Sprawdź go w Ustawienia > Czat agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado recusou a chave de API. Verifique-a em Ajustes > Chat do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис диктовки отклонил API-ключ. Проверьте его в разделе Настройки > Чат агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกปฏิเสธคีย์ API ตรวจสอบได้ที่ การตั้งค่า > แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmeti API anahtarını reddetti. Ayarlar > Ajan Sohbeti bölümünden kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс диктування відхилив API-ключ. Перевірте його в Налаштування > Чат агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả đã từ chối khóa API. Kiểm tra trong Cài đặt > Trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务拒绝了该 API 密钥。请在“设置 > 智能体聊天”中检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務拒絕了此 API 金鑰。請在「設定 > 代理程式聊天」中檢查。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.offline": {
+      "comment": "Dictation with the person's own provider failed: the service could not be reached. 'On This Mac' is the Dictation Engine choice for Apple's on-device engine.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الوصول إلى خدمة الإملاء. تحقق من الاتصال، أو غيّر محرك الإملاء إلى «على هذا الـ Mac»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata nije dostupna. Provjerite vezu ili prebacite Mehanizam diktata na Na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten kunne ikke nås. Tjek forbindelsen, eller skift Dikteringsmotor til På denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst ist nicht erreichbar. Prüfe die Verbindung oder stelle die Diktier-Engine auf „Auf diesem Mac“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reach the dictation service. Check the connection, or switch Dictation Engine to On This Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con el servicio de dictado. Revisa la conexión o cambia el motor de dictado a En este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre le service de dictée. Vérifiez la connexion ou réglez le moteur de dictée sur Sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile raggiungere il servizio di dettatura. Controlla la connessione o imposta il motore di dettatura su Su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスに接続できませんでした。接続を確認するか、音声入力エンジンを「この Mac」に切り替えてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចភ្ជាប់ទៅសេវាសរសេរតាមសំឡេងបានទេ។ ពិនិត្យការតភ្ជាប់ ឬប្ដូរម៉ាស៊ីនសរសេរតាមសំឡេងទៅ នៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스에 연결할 수 없습니다. 연결을 확인하거나 받아쓰기 엔진을 이 Mac에서로 바꾸세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fikk ikke kontakt med dikteringstjenesten. Sjekk tilkoblingen, eller bytt Dikteringsmotor til På denne Mac-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można połączyć się z usługą dyktowania. Sprawdź połączenie lub przełącz silnik dyktowania na Na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível acessar o serviço de ditado. Verifique a conexão ou mude o mecanismo de ditado para Neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось связаться с сервисом диктовки. Проверьте подключение или выберите движок диктовки «На этом Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดต่อบริการป้อนตามคำบอกไม่ได้ ตรวจสอบการเชื่อมต่อ หรือเปลี่ยนเอนจินป้อนตามคำบอกเป็น บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmetine ulaşılamadı. Bağlantıyı kontrol edin veya Dikte Motoru’nu Bu Mac’te olarak değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зв’язатися із сервісом диктування. Перевірте з’єднання або виберіть рушій диктування «На цьому Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không kết nối được dịch vụ đọc chính tả. Kiểm tra kết nối hoặc chuyển Bộ máy đọc chính tả sang Trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接听写服务。请检查网络连接，或将“听写引擎”切换为“在这台 Mac 上”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線至聽寫服務。請檢查連線，或將「聽寫引擎」切換為「在這部 Mac 上」。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.timeout": {
+      "comment": "Dictation with the person's own provider failed: no answer in time.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استغرقت خدمة الإملاء وقتًا طويلًا للرد. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata predugo nije odgovarala. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten var for længe om at svare. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst hat zu lange nicht geantwortet. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service took too long to answer. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado tardó demasiado en responder. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée a mis trop de temps à répondre. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura ha impiegato troppo a rispondere. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスの応答に時間がかかりすぎました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងឆ្លើយយឺតពេក។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스의 응답이 너무 오래 걸렸습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten brukte for lang tid på å svare. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa dyktowania zbyt długo nie odpowiadała. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado demorou demais para responder. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис диктовки слишком долго не отвечал. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกใช้เวลาตอบนานเกินไป ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmeti yanıt vermekte çok gecikti. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс диктування надто довго не відповідав. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả phản hồi quá lâu. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务响应时间过长。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務回應時間過長。請再試一次。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.rateLimited": {
+      "comment": "Dictation with the person's own provider failed: the provider is rate limiting.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة الإملاء مشغولة أو تجاوزت حدّها. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata je zauzeta ili je prešla ograničenje. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten er optaget eller over sin grænse. Prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst ist ausgelastet oder über seinem Limit. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service is busy or over its limit. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado está ocupado o ha superado su límite. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée est occupé ou a dépassé sa limite. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura è occupato o ha superato il limite. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスが混雑しているか、上限を超えています。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងរវល់ ឬលើសដែនកំណត់។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스가 사용 중이거나 한도를 넘었습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten er opptatt eller over grensen sin. Prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa dyktowania jest zajęta lub przekroczyła limit. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado está ocupado ou acima do limite. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис диктовки занят или превышен его лимит. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกไม่ว่างหรือเกินขีดจำกัด ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmeti meşgul veya sınırını aştı. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс диктування зайнятий або перевищив ліміт. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả đang bận hoặc đã vượt giới hạn. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务繁忙或已超出限额。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務忙碌中或已超出上限。請稍後再試。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.badEndpoint": {
+      "comment": "Dictation with the person's own provider failed: the server URL setting is not usable.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان URL لخادم الإملاء غير صالح للاستخدام. تحقق منه في الإعدادات > دردشة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL servera za diktat nije upotrebljiv. Provjerite ga u Postavke > Chat agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringsserverens URL kan ikke bruges. Tjek den i Indstillinger > Agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die URL des Diktierservers ist nicht verwendbar. Prüfe sie unter Einstellungen > Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation server URL is not usable. Check it in Settings > Agent Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La URL del servidor de dictado no sirve. Revísala en Ajustes > Chat del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’URL du serveur de dictée est inutilisable. Vérifiez-la dans Réglages > Chat de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’URL del server di dettatura non è utilizzabile. Controllalo in Impostazioni > Chat dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サーバの URL が使用できません。設定 > エージェントチャットで確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL ម៉ាស៊ីនមេសរសេរតាមសំឡេងមិនអាចប្រើបានទេ។ ពិនិត្យវានៅក្នុង ការកំណត់ > ការជជែកភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서버 URL을 사용할 수 없습니다. 설정 > 에이전트 채팅에서 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL-en til dikteringsserveren kan ikke brukes. Sjekk den i Innstillinger > Agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresu URL serwera dyktowania nie można użyć. Sprawdź go w Ustawienia > Czat agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A URL do servidor de ditado não pode ser usada. Verifique-a em Ajustes > Chat do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL сервера диктовки не подходит. Проверьте его в разделе Настройки > Чат агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ URL ของเซิร์ฟเวอร์ป้อนตามคำบอกไม่ได้ ตรวจสอบได้ที่ การตั้งค่า > แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte sunucusu URL’si kullanılamıyor. Ayarlar > Ajan Sohbeti bölümünden kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL сервера диктування не придатна. Перевірте її в Налаштування > Чат агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không dùng được URL máy chủ đọc chính tả. Kiểm tra trong Cài đặt > Trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务器 URL 不可用。请在“设置 > 智能体聊天”中检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫伺服器 URL 無法使用。請在「設定 > 代理程式聊天」中檢查。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.rejected": {
+      "comment": "Dictation with the person's own provider failed: the provider refused the request.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفضت خدمة الإملاء التسجيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata je odbila snimak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten afviste optagelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst hat die Aufnahme abgelehnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service refused the recording."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado rechazó la grabación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée a refusé l’enregistrement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura ha rifiutato la registrazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスが録音を拒否しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងបានបដិសេធការថត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스가 녹음을 거부했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten avviste opptaket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa dyktowania odrzuciła nagranie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado recusou a gravação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис диктовки отклонил запись."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกปฏิเสธการบันทึกเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmeti kaydı reddetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс диктування відхилив запис."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả đã từ chối bản ghi âm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务拒绝了这段录音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務拒絕了這段錄音。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.rejectedDetail": {
+      "comment": "Dictation with the person's own provider failed: the provider refused the request. %@ is the provider's own short message.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفضت خدمة الإملاء التسجيل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata je odbila snimak: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten afviste optagelsen: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diktierdienst hat die Aufnahme abgelehnt: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service refused the recording: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado rechazó la grabación: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée a refusé l’enregistrement : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura ha rifiutato la registrazione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスが録音を拒否しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងបានបដិសេធការថត៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스가 녹음을 거부했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten avviste opptaket: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa dyktowania odrzuciła nagranie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado recusou a gravação: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис диктовки отклонил запись: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกปฏิเสธการบันทึกเสียง: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmeti kaydı reddetti: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс диктування відхилив запис: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả đã từ chối bản ghi âm: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务拒绝了这段录音：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務拒絕了這段錄音：%@"
+          }
+        }
+      }
+    },
+    "home.voice.provider.tooLarge": {
+      "comment": "Dictation with the person's own provider failed: the recording is too big to send.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا التسجيل أطول من أن تقبله خدمة الإملاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj snimak je predug za uslugu diktata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optagelsen er for lang til dikteringstjenesten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufnahme ist für den Diktierdienst zu lang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That recording is too long for the dictation service."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa grabación es demasiado larga para el servicio de dictado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet enregistrement est trop long pour le service de dictée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La registrazione è troppo lunga per il servizio di dettatura."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この録音は音声入力サービスには長すぎます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការថតនោះវែងពេកសម្រាប់សេវាសរសេរតាមសំឡេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 녹음은 받아쓰기 서비스에서 처리하기에 너무 깁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptaket er for langt for dikteringstjenesten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nagranie jest za długie dla usługi dyktowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa gravação é longa demais para o serviço de ditado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта запись слишком длинная для сервиса диктовки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การบันทึกเสียงนี้ยาวเกินไปสำหรับบริการป้อนตามคำบอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kayıt dikte hizmeti için çok uzun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей запис задовгий для сервісу диктування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản ghi âm này quá dài đối với dịch vụ đọc chính tả."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段录音对听写服务来说太长了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這段錄音對聽寫服務來說太長了。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.providerError": {
+      "comment": "Dictation with the person's own provider failed: the provider had a server error.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدثت مشكلة في خدمة الإملاء. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga diktata je imala problem. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten havde et problem. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Diktierdienst ist ein Problem aufgetreten. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation service had a problem. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de dictado tuvo un problema. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de dictée a rencontré un problème. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di dettatura ha avuto un problema. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力サービスで問題が発生しました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាសរសេរតាមសំឡេងមានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 서비스에 문제가 생겼습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteringstjenesten fikk et problem. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W usłudze dyktowania wystąpił problem. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de ditado teve um problema. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В сервисе диктовки произошла ошибка. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการป้อนตามคำบอกมีปัญหา ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte hizmetinde bir sorun oluştu. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У сервісі диктування сталася проблема. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ đọc chính tả gặp sự cố. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写服务出现问题。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫服務發生問題。請再試一次。"
+          }
+        }
+      }
+    },
+    "home.voice.provider.failed": {
+      "comment": "Dictation with the person's own provider failed for another reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الإملاء. تحقق من محرك الإملاء في الإعدادات > دردشة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktat nije uspio. Provjerite Mehanizam diktata u Postavke > Chat agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering mislykkedes. Tjek Dikteringsmotor i Indstillinger > Agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Diktieren ist fehlgeschlagen. Prüfe die Diktier-Engine unter Einstellungen > Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation failed. Check Dictation Engine in Settings > Agent Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dictado falló. Revisa el motor de dictado en Ajustes > Chat del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dictée a échoué. Vérifiez le moteur de dictée dans Réglages > Chat de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettatura non riuscita. Controlla il motore di dettatura in Impostazioni > Chat dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力に失敗しました。設定 > エージェントチャットで音声入力エンジンを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសរសេរតាមសំឡេងបានបរាជ័យ។ ពិនិត្យម៉ាស៊ីនសរសេរតាមសំឡេងនៅក្នុង ការកំណត់ > ការជជែកភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기에 실패했습니다. 설정 > 에이전트 채팅에서 받아쓰기 엔진을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktering mislyktes. Sjekk Dikteringsmotor i Innstillinger > Agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktowanie nie powiodło się. Sprawdź silnik dyktowania w Ustawienia > Czat agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ditado falhou. Verifique o mecanismo de ditado em Ajustes > Chat do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктовка не удалась. Проверьте движок диктовки в разделе Настройки > Чат агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนตามคำบอกล้มเหลว ตรวจสอบเอนจินป้อนตามคำบอกที่ การตั้งค่า > แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte başarısız oldu. Ayarlar > Ajan Sohbeti bölümünden Dikte Motoru’nu kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диктування не вдалося. Перевірте рушій диктування в Налаштування > Чат агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc chính tả thất bại. Kiểm tra Bộ máy đọc chính tả trong Cài đặt > Trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "听写失败。请在“设置 > 智能体聊天”中检查“听写引擎”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聽寫失敗。請在「設定 > 代理程式聊天」中檢查「聽寫引擎」。"
+          }
+        }
+      }
+    },
     "home.find.close" : {
       "extractionState": "manual",
       "localizations": {

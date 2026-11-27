@@ -145,6 +145,7 @@ struct AccessibilityEnabledRuntimeTests {
     }
 }
 
+// Match NSAccessibilityElement's nonisolated API under this package's MainActor default.
 private nonisolated class PressWithoutEnabledFixture: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { true }
 }

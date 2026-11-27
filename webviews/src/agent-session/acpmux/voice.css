@@ -1,0 +1,39 @@
+.acpmux-voice-button[aria-pressed="true"] {
+  color: var(--acpmux-dictation-accent);
+  background: color-mix(in srgb, var(--acpmux-dictation-accent) 12%, transparent);
+}
+.acpmux-voice-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 45%;
+  color: var(--agent-muted);
+  font-size: inherit;
+}
+.acpmux-voice-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-voice-dot {
+  flex: none;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-voice-status:is([data-state="listening"], [data-state="speaking"]) .acpmux-voice-dot {
+  color: var(--acpmux-dictation-accent);
+}
+.acpmux-voice-status button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}

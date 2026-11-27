@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "The person chooses the provider model used for dictation; agents do not change provider requests."
+}

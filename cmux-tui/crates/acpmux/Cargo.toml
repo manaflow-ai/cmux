@@ -169,6 +169,8 @@ cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 # Loopback URLs a background process prints, for its preview (src/hub/process_preview.rs).
 cmux-local-url.workspace = true
+# Dictation providers a person brings (`server/voice.rs`): catalog, endpoint rule, batch wires.
+cmux-voice.workspace = true
 cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
 # The Computer Use tool catalog and wire types (`computer_use/`): the engine

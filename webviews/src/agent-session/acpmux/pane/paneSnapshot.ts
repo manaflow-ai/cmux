@@ -104,6 +104,7 @@ import type { useSummaryCard } from "../summary/cardState";
 import { shouldScrollToBottomAfterSend } from "../sendScrollSetting";
 import { configureDictation, deliverDictation } from "../dictation";
 import { setReadAloudState } from "../conversation/readAloud";
+import { setVoiceState } from "../voice";
 import { sendPromptAgain, type SendPromptAgainState } from "../conversation/sendPromptAgain";
 import { interruptedResumeRunner, type InterruptedResumeState } from "../conversation/resumeInterrupted";
 import { sendUntilTaken } from "../conversation/turnRetry";
@@ -166,10 +167,10 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
-  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
+  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -819,6 +820,9 @@ export function paneSnapshotEffect({
     },
     applyNowPlaying(track) {
       setNowPlaying(track);
+    },
+    voice(state) {
+      setVoiceState(state);
     },
     applyReadAloud(state) {
       setReadAloudState(state);

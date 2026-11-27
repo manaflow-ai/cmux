@@ -441,7 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
-        services.bookmarks.follow(settings)
+        services.bookmarks.follow(settings); DictationProviderEngine.follow(settings) { [weak services] in services.flatMap { QuitAgents.environment($0) } }
         services.apps.start()
         Task {
             Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait

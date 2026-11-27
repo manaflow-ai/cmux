@@ -60,10 +60,12 @@ public final class DictationSession {
     private(set) var closing: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - makeTranscriber: A fresh single-session engine fed by the meter.
+    ///   - makeTranscriber: A fresh single-session engine fed by the meter; on-device by default
+    ///     (``DictationMicrophoneClaims/session()`` makes one with the person's engine).
     ///   - locale: The language, read at each start.
     ///   - stopDeadline: How long a stop may flush before the session ends
-    ///     with what it has.
+    ///     with what it has, unless the engine names its own
+    ///     (``SpeechTranscribing/finalizingDeadline``).
     public init(
         authorizer: any DictationAuthorizing = SystemDictationAuthorizer(),
         makeTranscriber: @escaping @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing = { meter in
@@ -110,7 +112,8 @@ public final class DictationSession {
         case .listening:
             set(.finalizing)
             let session = generation
-            deadline.schedule(after: stopDeadline) { @MainActor [weak self] in
+            // A provider engine waits for its provider's answer (a minute), not the on-device flush.
+            deadline.schedule(after: transcriber?.finalizingDeadline ?? stopDeadline) { @MainActor [weak self] in
                 self?.finish(session)
             }
             finishEngine()
@@ -127,7 +130,7 @@ public final class DictationSession {
         listening?.cancel()
         listening = nil
         endLevels()
-        finishEngine()
+        cancelEngine()
         transcriber = nil
         recording?.discard()
         recording = nil
@@ -166,8 +169,8 @@ public final class DictationSession {
         }
         guard session == generation, phase == .starting else {
             // Cancelled while starting: the engine may have opened the
-            // microphone after the cancel reached it.
-            await engine.finishTranscribing()
+            // microphone after the cancel reached it. Nothing is sent.
+            await engine.cancelTranscribing()
             return
         }
         set(.listening)
@@ -210,8 +213,8 @@ public final class DictationSession {
             onFinalText?(delta)
         }
         // The engine ended its stream itself (or missed the deadline); make
-        // sure it let go of the microphone.
-        finishEngine()
+        // sure it let go of the microphone, and drop a provider's late answer.
+        cancelEngine()
         transcriber = nil
         let text = committed
         guard let recording else {
@@ -242,7 +245,7 @@ public final class DictationSession {
         deadline.cancel()
         listening = nil
         endLevels()
-        finishEngine()
+        cancelEngine()
         transcriber = nil
         recording?.discard()
         recording = nil
@@ -274,6 +277,14 @@ public final class DictationSession {
         guard let engine = transcriber else { return }
         // task-owner: one-shot teardown; the engine's finish is idempotent and bounded
         Task { await engine.finishTranscribing() }
+    }
+
+    /// Ends the engine without a result and without waiting (Esc, an ended or failed session). An
+    /// on-device engine finishes as in ``finishEngine()``; a provider engine sends nothing.
+    private func cancelEngine() {
+        guard let engine = transcriber else { return }
+        // task-owner: one-shot teardown; the engine's cancel is idempotent and bounded
+        Task { await engine.cancelTranscribing() }
     }
 
     private func endLevels() {

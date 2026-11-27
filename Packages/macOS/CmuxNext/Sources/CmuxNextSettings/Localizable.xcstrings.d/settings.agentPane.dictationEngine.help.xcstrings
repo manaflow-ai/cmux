@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.dictationEngine.help" : {
+      "comment" : "Settings > Agent Chat > Composer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

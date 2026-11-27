@@ -65,6 +65,7 @@ enum AgentPanePageHost {
         events.append(AgentPaneNowPlaying.shared.event(for: view))
         if let tabs = view.model.attentionTabs { events += [tabs.event(for: view), tabs.places.event(for: view)] }
         if let readAloud = view.model.readAloud { events.append(readAloud.event(for: view)) }
+        events.append(view.voice.event)
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))

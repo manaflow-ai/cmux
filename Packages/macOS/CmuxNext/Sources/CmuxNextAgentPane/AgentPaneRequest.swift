@@ -380,6 +380,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    case voice(AgentPaneVoiceCommand)
     /// `dictation.handoff`: the mic, when `agentPane.dictationSource` names an app, sends that
     /// app's shortcut or starts macOS Dictation (``AgentPaneDictationHandoff``).
     case dictationHandoff
