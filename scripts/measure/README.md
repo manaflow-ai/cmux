@@ -126,6 +126,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-trace.sh` | Each user action's spans (launch, send to first token paint, chat switch, new chat) against its speed-of-light floor, from the daemon's Chrome trace (`CMUX_TRACE_FILE`): the trace JSON and one `ACTION-GAP name dur_us floor_us gap_us` line per span; `--burn=N` for duress. | Leo 2026-11-25, speed of light | 2026-11-25 | active |
 | `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `pane-compile-cef-ab.sh` | Both arms of the pane-compile A/B (`--before=SHA --after=SHA`) built and measured in one step on one Mac, interleaved; `ab.json` holds each arm's medians. | - | 2026-11-26 | active |
+| `composer-typing-ab.sh` | Composer-typing bench (`composer-typing.bench.ts --arms`), PR head vs its base rebuilt from a reverse patch, interleaved on one `cmux-ci test` runner with a fix' noise floor. | cmux#59968 | 2026-11-27 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
 | `close-flash.sh` | Close Window and close-key commit time in an active app. | - | 2026-11-01 | active |
@@ -340,6 +341,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `workspace-factory.sh` | Throwaway per-job workspace from a read-only seed vs today's step workspaces, one real SwiftPM prebuild (bench workspace-factory). | hq RFD 0005 | 2026-11-17 | active |
 | `workspace-factory` | `wsfactory`, the std-only Rust factory the script builds: seed publish/verify, create, destroy, reconcile. | hq RFD 0005 | 2026-11-17 | active |
 | `ci140-unmapped` | `unmapped.py`: PR job minutes the ci140 reuse measurement could not map to a head SHA, by reason, workflow, job and event, plus a minutes-weighted API sample of their real head SHAs: new head vs the same input as an earlier green. | goal ci-min-per-pr-140 | 2026-11-27 | active |
+| `ci140-fleet-required` | `fleet_required.py`: fleet machine minutes per merged PR in cmux-required-checks (clippy-changed, react-doctor) by worker pool and end state, runs per PR, same-tree repeats after green, cold warm-slot share on pool VMs, and from step logs the slot reuse, sccache counters and the three cargo passes. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
 | `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |

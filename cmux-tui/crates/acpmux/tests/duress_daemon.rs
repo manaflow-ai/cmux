@@ -121,6 +121,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The fleet's output directory, not a credential.
     "FAST_CHECKS_OUT",
     "ACPMUX_DURESS_BIG_RECORDS",
+    // The bigchat leg's parts left out, to find which one slows the daemon (`bigchat_off`).
+    "ACPMUX_DURESS_BIGCHAT_OFF",
     // How `systemd-run --user` reaches the user's manager, for the bigchat leg's memory ceiling.
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
@@ -184,6 +186,13 @@ const SLOW_READERS: usize = 100;
 const UNSETTLED: usize = 300;
 /// The memory ceiling of the `bigchat` leg's daemon (`systemd-run --user -p MemoryHigh=`).
 const MEMORY_HIGH: &str = "768M";
+
+/// Whether the bigchat leg runs without `part` (`ACPMUX_DURESS_BIGCHAT_OFF`, a comma list of
+/// `fork`, `resend`, `watch+team`, `outbox`, `gauges`, `readers`, `memoryhigh`, `cpu`): the
+/// leg with one part off at a time says which part slows the daemon.
+fn bigchat_off(part: &str) -> bool {
+    std::env::var("ACPMUX_DURESS_BIGCHAT_OFF").is_ok_and(|v| v.split(',').any(|p| p.trim() == part))
+}
 
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
@@ -1481,7 +1490,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let host150_high = host150::host150_memory_high();
-    let memory_high = if stress.bigchat || stress.host150 {
+    let memory_high = if (stress.bigchat && !bigchat_off("memoryhigh")) || stress.host150 {
         let high = if stress.host150 { host150_high.as_str() } else { MEMORY_HIGH };
         match memory_ceiling_works() {
             Ok(()) => {
@@ -1634,7 +1643,12 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let watchdog = Watchdog::arm(k.cap + host150::extra_cap(name));
     let mut stressors: Vec<Stressor> = vec![];
     let mut stress_json = std::mem::take(&mut stress_json_early);
-    if stress.cpu {
+    if stress.bigchat
+        && let Ok(off) = std::env::var("ACPMUX_DURESS_BIGCHAT_OFF")
+    {
+        stress_json.insert("bigchatOff".into(), json!(off));
+    }
+    if stress.cpu && !(stress.bigchat && bigchat_off("cpu")) {
         let count = k.cpu_x * cores();
         match Stressor::spawn("cpu", &cpu_script(count), k.cap) {
             Ok(s) => stressors.push(s),
@@ -1796,7 +1810,11 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let mut readers: Vec<Rpc> = vec![];
     let mut drivers = vec![];
     if stress.bigchat {
-        let (held, failed) = slow_readers(&daemon.socket, &big);
+        let (held, failed) = if bigchat_off("readers") {
+            (vec![], BTreeMap::new())
+        } else {
+            slow_readers(&daemon.socket, &big)
+        };
         stress_json.insert("slowReaders".into(), json!({"attached": held.len(), "failed": failed}));
         readers = held;
         // The first peer (`peers` names it `peer00`) held down.
@@ -2239,6 +2257,9 @@ fn bigchat_drivers(
     let mut threads = vec![];
     let spawn = |name: &str, f: Box<dyn FnOnce() -> Value + Send>| {
         let name = name.to_owned();
+        if bigchat_off(&name) {
+            return std::thread::spawn(move || (name, json!("off")));
+        }
         std::thread::spawn(move || (name, f()))
     };
     let (sock, b, c) = (socket.to_owned(), big.to_vec(), cwd.display().to_string());
