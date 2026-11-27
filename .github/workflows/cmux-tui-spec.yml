@@ -118,6 +118,7 @@ on:
       - "schemas/settings/file-keys.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
       - "schemas/settings/source/notifications.json"
+      - "schemas/settings/source/page-layout.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_call:

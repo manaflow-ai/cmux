@@ -176,6 +176,7 @@ on:
       - "webviews/bench/link-profiles.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "schemas/settings/source/page-layout.json"
   workflow_dispatch:
 
 concurrency:
