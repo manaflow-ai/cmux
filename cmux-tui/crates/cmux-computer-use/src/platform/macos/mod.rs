@@ -356,11 +356,19 @@ pub(super) fn press_aiming(pid: i32) -> roles::Aiming {
 
 /// The press aiming as the posting function takes it: addressed or not,
 /// or the refusal.
+/// Readings that disagree (an app activating, a panel taking the keyboard
+/// for a moment) are read again for up to [`crate::reread::REREAD_WAIT`]
+/// before the press is refused; nothing is posted in between.
 pub(super) fn aimed(pid: i32) -> DResult<bool> {
-    match press_aiming(pid) {
-        roles::Aiming::Addressed => Ok(true),
-        roles::Aiming::Unaddressed => Ok(false),
-        roles::Aiming::Refuse => Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into())),
+    let aiming = crate::reread::reread(crate::reread::REREAD_WAIT, || {
+        Some(press_aiming(pid)).filter(|a| *a != roles::Aiming::Refuse)
+    });
+    match aiming {
+        Some(roles::Aiming::Addressed) => Ok(true),
+        Some(roles::Aiming::Unaddressed) => Ok(false),
+        Some(roles::Aiming::Refuse) | None => {
+            Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into()))
+        }
     }
 }
 
