@@ -277,6 +277,13 @@ for s in data.get("samples", []):
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
     if s.get("gpu"):
         print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
+    # Each process that wrote in the window, by pid: which of a kind's processes (two acpmux daemons and a host
+    # share kind acpmux-daemon) holds the bytes, when no file's mtime moved to name it (goal idle-gpu-disk).
+    for p in s.get("processes", []):
+        if (p.get("disk_write_mb_per_h") or 0) >= 0.1 or (p.get("logical_write_mb_per_h") or 0) >= 0.1:
+            print(f"PERF-IDLE-WRITER app-agents {s['label']} kind={p['kind']} pid={p['pid']} "
+                  f"disk_write_mb_per_h={p.get('disk_write_mb_per_h')} logical_write_mb_per_h={p.get('logical_write_mb_per_h')} "
+                  f"command={json.dumps(p.get('command', ''))}")
     if s.get("files_written"):
         print(f"PERF-IDLE-FILES app-agents {s['label']} {json.dumps(s['files_written'])}")
     if "chat_renderers" in s:

@@ -7,6 +7,8 @@ built-in uBlock Origin's first-launch writes from the app's own (goal idle-gpu-d
 import json
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +52,29 @@ class Args(unittest.TestCase):
     def test_settings_alone_pass_through(self):
         self.assertEqual(self.settings('settings={"browser":{"builtInAdBlocker":true}}'),
                          {"browser": {"builtInAdBlocker": True}})
+
+class Report(unittest.TestCase):
+    def report(self, samples):
+        text = SCRIPT.read_text()
+        start = text.index("python3 - \"$work/agents.json\" <<'PY'")
+        body = text[text.index("\n", start) + 1:text.index("\nPY\n", start)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "agents.json"
+            path.write_text(json.dumps({"samples": samples}))
+            done = subprocess.run([sys.executable, "-I", "-c", body, str(path)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return [l for l in done.stdout.splitlines() if l.startswith("PERF-IDLE-WRITER ")]
+
+    def test_writer_rows_name_each_writing_process_only(self):
+        rows = self.report([{"label": "idle-10", "workspaces": 10, "kinds": {}, "processes": [
+            {"pid": 7, "kind": "acpmux-daemon", "command": "acpmux daemon", "disk_write_mb_per_h": 7.3,
+             "logical_write_mb_per_h": 21.1},
+            {"pid": 8, "kind": "acpmux-daemon", "command": "acpmux host", "disk_write_mb_per_h": 0.0,
+             "logical_write_mb_per_h": 0.05},
+            {"pid": 9, "kind": "app", "command": "cmux"}]}])
+        self.assertEqual(rows, ['PERF-IDLE-WRITER app-agents idle-10 kind=acpmux-daemon pid=7 disk_write_mb_per_h=7.3 '
+                                'logical_write_mb_per_h=21.1 command="acpmux daemon"'])
+
 
 if __name__ == "__main__":
     unittest.main()
