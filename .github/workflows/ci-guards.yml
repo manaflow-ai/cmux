@@ -1782,6 +1782,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_key.py
 
+      - name: Validate the CmuxMobileLinkFFI.xcframework cache seed saves what the iOS jobs restore
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_link_ffi_cache_seed.py
+
       - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_sh.py
