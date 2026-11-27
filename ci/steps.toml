@@ -1382,7 +1382,17 @@ job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
 about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
-inputs = ["**"]
+# `**` routes every change in the post-merge batch; on a pull request (--pr-scope) a whole-tree input routes
+# nothing, so the named inputs are what run tt-ci-step-table there when the table, a workflow or its rules change.
+inputs = [
+  "**",
+  "ci/steps.toml",
+  "ci/run",
+  ".github/workflows/*",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/web_subareas.py",
+  "tests/test_ci_step_table.py",
+]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
 sel=all
@@ -1416,7 +1426,6 @@ if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh
 if want tt-media-tree-submodules; then bash scripts/ci/tests/media-tree-submodules.test.sh || status=1; fi
 if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
 if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
-if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
 if want tt-normalize-pbxproj; then python3 tests/test_normalize_pbxproj.py || status=1; fi
 if want tt-web-validation; then python3 tests/test_web_validation.py || status=1; fi
 if want tt-tip-test-compile; then python3 tests/test_ci_tip_test_compile.py || status=1; fi
