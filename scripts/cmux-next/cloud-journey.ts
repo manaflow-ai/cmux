@@ -76,6 +76,10 @@
  * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
  * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
+ * --machine-provider NAME puts `provider: NAME` on the chat machine's create: `own-host` boots it on our own
+ * Firecracker hosts (cmux-platform ownhost/, cmuxterm-hq RFD 0073) for a team the deployment's CLOUD_OWN_HOST_TEAMS
+ * names. It implies --seed none (a copy boots on its snapshot's provider). Absent: the deployment's default provider.
+ *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
  * or by default the shared model stub with the journey's nonce, as `stub`), and CMUX_BIN runs `cmux inference setup
@@ -131,7 +135,7 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
+import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
@@ -3036,13 +3040,36 @@ export function parseScrollReport(stdout: string): TerminalScroll {
   return { surface: "cloud", bad: r.bad, views, seconds };
 }
 
-export function scrollDetail(t: TerminalScroll): string {
+/**
+ * The probe's notes for each view that counted a defect, view-prefixed, at most 6 of 160 chars: what the jump or blank
+ * row was (the daemon snapping to the bottom, or its top moving at an offset), which the counts alone cannot say. They go
+ * into the step's detail only, never probe.json. Their text is the probe's own (row ordinals and the generator's lines).
+ */
+export function scrollNotes(stdout: string): string[] {
+  const line = stdout.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  let r: any;
+  try {
+    r = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  const notes: string[] = [];
+  for (const name of ["mirror", "daemon"] as const) {
+    const v = r?.views?.[name];
+    if (!(Number(v?.blank_rows) + Number(v?.missing_rows) + Number(v?.jumps) > 0) || !Array.isArray(v?.notes)) continue;
+    for (const n of v.notes) if (typeof n === "string") notes.push(`${name}: ${n.replace(/\s+/g, " ").slice(0, 160)}`);
+  }
+  return notes.slice(0, 6);
+}
+
+export function scrollDetail(t: TerminalScroll, notes: string[] = []): string {
   const v = (c: ScrollCounts) => `${c.blank_rows} blank, ${c.missing_rows} missing, ${c.jumps} jumps`;
-  return `bad ${t.bad} (mirror: ${v(t.views.mirror)}; daemon: ${v(t.views.daemon)})${t.seconds === null ? "" : `, ${t.seconds} s`}`;
+  const said = notes.length ? `; notes: ${notes.join(" | ")}` : "";
+  return `bad ${t.bad} (mirror: ${v(t.views.mirror)}; daemon: ${v(t.views.daemon)})${t.seconds === null ? "" : `, ${t.seconds} s`}${said}`;
 }
 
 /** `carrier serve` + `__scroll-probe` (see SCROLL_PROBE_STEP): the report's counts, or a throw naming what stopped it. */
-export async function carrierScrollProbe(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, probeSeconds = 300): Promise<TerminalScroll> {
+export async function carrierScrollProbe(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, probeSeconds = 300): Promise<TerminalScroll & { notes: string[] }> {
   // mkdtemp makes the dir 0700: carrier serve refuses a socket dir another user can write.
   const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-scroll-"));
   carrierStateDirs.add(stateDir);
@@ -3100,7 +3127,7 @@ export async function carrierScrollProbe(cmux: string, api: Pick<Api, "origin" |
     });
     carrierDials.delete(probe);
     if (code !== 0) throw new Error(`scroll probe: exit ${code}: ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}${lastServed()}`);
-    return parseScrollReport(out);
+    return { ...parseScrollReport(out), notes: scrollNotes(out) };
   } finally {
     // stdin's end is serve's own way out; a SIGTERM after it covers one that does not go.
     serve.stdin!.end();
@@ -3353,11 +3380,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
-  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
-  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
-  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  const mine = ownNamedMachines(rows, tag, { kept });
   let failed = 0;
   for (const r of mine) {
     const id = String(r.id ?? r.machine_id ?? "");
@@ -4476,6 +4500,19 @@ export const LONG_JOURNEY_MS = 11 * 3_600_000;
 export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
 }
+/**
+ * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
+ * the ids in EXCLUDE. A create can leave a second machine under the run's name besides the id it answered: run
+ * 46059808882 (jr-mwzf7mv7, an 86.8 s create) deleted the answered vm_5e22ac9cfbb7343202e5 at its end while a second
+ * `cloud journey auto jr-mwzf7mv7` stayed paused on the production probe account, held a plan slot (paused counts
+ * against the 20-machine cap) until the next run's STALE_JOURNEY_MS sweep 3 h later. --kept adds a --keep run's names.
+ */
+export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolean; exclude?: Iterable<string | null | undefined> } = {}): any[] {
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
+  if (opts.kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
+  const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
+  return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -5390,8 +5427,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (autocloudTui && !cmux) throw new Error("--autocloud-tui needs --cmux PATH: cmux-autocloud dials with that cmux");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
-  const seed = argValue("--seed", argv) ?? "auto";
+  const machineProvider = argValue("--machine-provider", argv);
+  if (machineProvider !== undefined && !/^[a-z][a-z0-9-]{0,31}$/.test(machineProvider)) throw new Error(`--machine-provider ${machineProvider}: a provider name such as own-host`);
+  const seed = argValue("--seed", argv) ?? (machineProvider ? "none" : "auto");
   if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
+  if (machineProvider && seed !== "none") throw new Error("--machine-provider needs --seed none: a copy boots on its snapshot's provider");
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -5641,19 +5681,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
-    if (deleted) return;
-    let id = machine;
-    if (!id && !cleanupCreatedIdsOnly) {
-      // Every page: the machine may sit past the first (a shared account's list).
-      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
-      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
+    if (!deleted && machine) {
+      const target: string = machine;
+      await J.step("delete (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-delete`);
+        return { value: null, detail: target };
+      }).catch(() => undefined);
     }
-    if (!id) return;
-    const target: string = id;
-    await J.step("delete (cleanup)", async () => {
-      await api.deleteMachine(target, `${tag}-cleanup-delete`);
-      return { value: null, detail: target };
-    }).catch(() => undefined);
+    if (cleanupCreatedIdsOnly) return;
+    // Every machine under this run's own names, not only the id create answered: a lost create reply leaves
+    // `machine` null, and a slow create can leave a second machine by the same name (ownNamedMachines). Every page:
+    // the machine may sit past the first (a shared account's list).
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    for (const r of ownNamedMachines(rows, tag, { exclude: [machine, gatewayMachine] })) {
+      const target = String(r.id ?? r.machine_id ?? "");
+      if (!target) continue;
+      await J.step("delete own-named machine (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-name-${target}`);
+        return { value: null, detail: `${target} ${r.status ?? "?"}` };
+      }).catch(() => undefined);
+    }
   });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
@@ -6056,7 +6103,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (n) J.firstText.reset();
             J.firstText.mark("create");
             createSentAt = Date.now();
-            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
           });
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
@@ -6079,7 +6126,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
     machineExec = exec;
     if (wakeEchoN > 0) {
-      const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+      const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
       const log = (line: string) => console.log(scrub(line, J.secrets));
       let cycles: WakeCycle[] = [];
       const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
@@ -6108,12 +6155,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         cycles = await runWakeEcho({
           exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
-          status: async () => String((await row())?.status ?? "unread"),
+          status: async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
           pause: async () => {
             await resignIfOld();
             const t0 = Date.now();
-            await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
-            return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
+            const deadlineAt = t0 + 180_000;
+            const key = `${tag}-we-pause-${k++}`;
+            return pauseWithReconciliation(
+              () => api.raw("POST", "/v1/ops", { op: "cloud.machine.pause", params: { machine: created.id }, idempotency_key: key }, Math.max(1, deadlineAt - Date.now())),
+              async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
+              t0,
+              180_000,
+            );
           },
           wake: (recordAttempt) => startWithRetry(
             async (key) => {
@@ -6128,7 +6181,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               return r;
             },
             () => `${tag}-we-start-${k++}`,
-            async () => String((await row())?.status ?? "unread"),
+            async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
             180_000,
             (ms) => new Promise<void>((r) => setTimeout(r, ms)),
           ),
@@ -6172,9 +6225,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!scrollCmux) return J.skip(SCROLL_PROBE_STEP, "not measured: no cmux-tui (--cmux or --preclaim-login)");
       const t0 = Date.now();
       try {
-        const t = await carrierScrollProbe(scrollCmux, api, created.id);
+        const { notes, ...t } = await carrierScrollProbe(scrollCmux, api, created.id);
         probeExtra.terminal_scroll = t;
-        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t, notes).slice(0, 1200) });
       } catch (e) {
         J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
       }
@@ -7225,7 +7278,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // Written after every sample and stop, so a run cut short (a step timeout, a cancel) still uploads what it had.
         let sofar: ResumeSample[] = [];
         let stops: ResumeStop[] = [];
-        const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+        const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
         const first = await row();
         // The machine's provider as the API names it; staging's machines are VM API machines, with no client sessions.
         const provider = String(first?.provider ?? first?.platform ?? first?.transport ?? "unnamed (cloud.machine.get names none)");
@@ -7268,7 +7321,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           platformResume: platformStart,
           resumeRoute,
           platformSync: () => syncRunning(
-            async () => String((await row())?.status ?? "unread"),
+            async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
             platformStart,
             () => waitMachine(api, created.id, (x) => x.status === "running", 180_000),
           ),
@@ -7279,7 +7332,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             J.secrets.push(v.token);
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
-          status: async () => String((await row())?.status ?? "unread"),
+          status: async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
           provider,
           fillPct: resumeFill,
           deadlineAt: resumeDeadlineAt,
