@@ -243,9 +243,13 @@ async fn lending_peer_with_a_switch_wanted()
 #[tokio::test]
 async fn an_incoming_github_action_holds_a_path_switch_until_its_answer_is_written() {
     let (peer, link, mut out) = lending_peer_with_a_switch_wanted().await;
-    let slot =
-        crate::github_broker::admit_owner(&peer.name, peer.github_ready(link), &peer.github_slots)
-            .unwrap();
+    let slot = crate::github_broker::admit_owner(
+        &peer.name,
+        peer.github_ready(link),
+        &peer.github_slots,
+        &serde_json::json!({}),
+    )
+    .unwrap();
     // Invalid, so it answers without a `gh`: what matters is the answer's way out.
     peer.serve_github_action(serde_json::json!(7), serde_json::json!({}), slot, link);
     assert!(!peer.switch_due(), "the action is running: the link stays");
