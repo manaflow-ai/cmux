@@ -78,7 +78,11 @@ run_acpmux_test() {
 # line order. An unknown group or a line of another shape fails the script by name.
 # The script keeps to bash 3.2, a Mac's stock bash: no associative arrays.
 gates_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/v2-gates.d"
-gate_groups="book client core acpmux-lib tui-core-lib acpmux-v2-connection"
+# Groups run in this order. tui-core-lib goes last: from a cold target its build alone took 31 to
+# 35 minutes on a 4-CPU pool runner (runs 45275598234, 45363239143) for one row (7c), so when the
+# step's limit cuts the run it costs that row, not acpmux-v2-connection's five 4.x rows (Nov 24,
+# goal v2-gate-home-reports). acpmux-v2-connection follows acpmux-lib on the same gate profile.
+gate_groups="book client core acpmux-lib acpmux-v2-connection tui-core-lib"
 
 # Each group word and the runner it starts. A group's timing line is named by its word.
 gate_runner() {

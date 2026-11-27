@@ -109,5 +109,115 @@ class UpdaterOff(unittest.TestCase):
             self.assertEqual(M.launch_env(env, root / "probe.csv", path)["CMUX_DISABLE_AUTO_UPDATE"], "1")
 
 
+class NewProcessFound(unittest.TestCase):
+    """`open` starts the copy at its resolved path: a copy under /tmp runs as /private/tmp/... in ps, and a match on the
+    path as given alone found no new process on every `open` round (nightly dogfood launch tti, 2026-11-26)."""
+
+    def test_a_process_at_the_resolved_path_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            (real / "cmux NIGHTLY.app" / "Contents" / "MacOS").mkdir(parents=True)
+            link = Path(tmp) / "link"
+            link.symlink_to(real)
+            executable = link / "cmux NIGHTLY.app" / "Contents" / "MacOS" / "cmux"
+            resolved = os.path.realpath(executable)
+            self.assertNotEqual(resolved, str(executable))
+            ps = f"  101 {resolved}\n  102 /Applications/Other.app/Contents/MacOS/cmux\n  103 {executable}\n"
+            self.assertEqual(M.pids_running(ps, M.executable_paths(executable)), {101, 103})
+
+
+class FakeProcess:
+    def __init__(self, status=None):
+        self.status, self.killed = status, False
+
+    def poll(self):
+        return self.status
+
+    def kill(self):
+        self.killed, self.status = True, -9
+
+    def wait(self, timeout=None):
+        return self.status
+
+
+class RecoverApp(unittest.TestCase):
+    """recover_app: after a round leaves no tracked app (cmuxterm-hq job 140156243595: round 1 of 51 failed to launch
+    and the plan stopped, every NOW launch-to-interaction row null), the run brings the copy up once and goes on.
+    No Mac: the socket, ps and the launch are faked, so this proves the order of steps, NOT a real relaunch."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="tti-recover-test-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.app = self.root / "app" / "cmux NIGHTLY.app"
+        self.inst = M.rr.Instance(str(self.root / "sock"), str(self.app), str(self.root))
+        self.calls = []
+        self.answers = []
+        self.pids = set()
+        read, write = os.pipe()
+        os.close(write)
+        os.set_blocking(read, False)
+        self.fd = read
+
+    def call(self, sock, method, params=None, timeout=None):
+        self.calls.append((method, (params or {}).get("action")))
+        if method == "system.ping":
+            return {} if (self.answers.pop(0) if self.answers else False) else {"error": "no socket"}
+        self.pids.clear()  # the quit ends the untracked instance
+        return {}
+
+    def run_recover(self, process):
+        launched = []
+
+        def launch(app, env, log):
+            launched.append(app)
+            return process, self.fd, -1
+        with mock.patch.object(M.rr, "call", self.call), \
+                mock.patch.object(M.rr, "launch", launch), \
+                mock.patch.object(M.rr, "wait", lambda pred, timeout, step: pred()), \
+                mock.patch.object(M, "running_pids", lambda exe: set(self.pids)), \
+                mock.patch("fresh_home_launch_smoke.bundle_info", lambda app: ("id", "cmux")), \
+                mock.patch.object(M.os, "kill", lambda pid, sig: self.calls.append(("kill", pid))):
+            got = M.recover_app(self.inst, self.app, {"HOME": str(self.root)}, self.root)
+        return got, launched
+
+    def test_an_untracked_instance_is_quit_before_the_one_launch(self):
+        self.answers = [True, True]  # the orphan answers, then the relaunched app answers
+        self.pids = {4242}
+        process = FakeProcess()
+        (got, why), launched = self.run_recover(process)
+        self.assertIs(got, process)
+        self.assertIsNone(why)
+        self.assertEqual(launched, [self.app])
+        self.assertIn(("action.run", "quitKeepSessions"), self.calls)
+        self.assertNotIn(("kill", 4242), self.calls)
+
+    def test_nothing_up_launches_once_and_returns_the_process(self):
+        self.answers = [False, True]
+        process = FakeProcess()
+        (got, why), launched = self.run_recover(process)
+        self.assertIs(got, process)
+        self.assertEqual(len(launched), 1)
+        self.assertNotIn(("action.run", "quitKeepSessions"), self.calls)
+
+    def test_a_launch_that_never_answers_is_killed_and_named(self):
+        self.answers = [False, False]
+        process = FakeProcess()
+        (got, why), _ = self.run_recover(process)
+        self.assertIsNone(got)
+        self.assertTrue(process.killed)
+        self.assertIn("never answered", why)
+
+    def test_a_launch_that_raises_is_named(self):
+        def boom(app, env, log):
+            raise OSError("exec format error")
+        self.answers = [False]
+        with mock.patch.object(M.rr, "call", self.call), mock.patch.object(M.rr, "launch", boom), \
+                mock.patch.object(M, "running_pids", lambda exe: set()), \
+                mock.patch("fresh_home_launch_smoke.bundle_info", lambda app: ("id", "cmux")):
+            got, why = M.recover_app(self.inst, self.app, {"HOME": str(self.root)}, self.root)
+        self.assertIsNone(got)
+        self.assertIn("exec format error", why)
+
+
 if __name__ == "__main__":
     unittest.main()

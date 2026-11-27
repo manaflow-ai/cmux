@@ -1986,6 +1986,40 @@ fn state_of(room: &FakeRoom, conn: u64, client_id: &str) -> Value {
     }
 }
 
+/// A Drive guest's accepted prompts take no held slots. The same bound guest can stop the turn.
+#[test]
+fn the_room_reports_drive_prompts_sent_and_forwards_the_drivers_cancel() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-drive", &room);
+    let share = create(&mut owner, surface);
+    let id = share.pointer("/data/share_id").unwrap();
+    let (conn, _) = room.host();
+    room.next(conn, "guests");
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite",
+        "share_id":id, "account":"ann@example.com", "role":"drive"}));
+    assert_eq!(invite.get("ok"), Some(&json!(true)), "{invite}");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":id, "account":"ann@example.com", "name":"Ann", "attempt_id":"a1"}));
+    assert_eq!(guest.pointer("/data/role"), Some(&json!("drive")), "{guest}");
+    let ann = guest.pointer("/data/guest_id").unwrap();
+    room.send(json!({"v":1, "t":"guest_joined", "guest_id":ann}));
+    assert_eq!(room.next(conn, "snapshot").get("to"), Some(ann));
+    for n in 0..17 {
+        let client_id = format!("c{n}");
+        room.send(json!({"v":1, "t":"guest_prompt", "guest_id":ann,
+            "client_id":client_id, "text":"hello"}));
+        assert_eq!(state_of(&room, conn, &client_id).get("state"), Some(&json!("sent")));
+    }
+    room.send(json!({"v":1, "t":"guest_cancel", "guest_id":ann}));
+    loop {
+        let frame = fake.frame();
+        if frame.get("method") == Some(&json!("session/cancel")) {
+            assert_eq!(frame.pointer("/params/sessionId"), Some(&json!(SESSION)));
+            break;
+        }
+    }
+}
+
 /// acpmux's record that the owner approved `prompt`.
 fn approved(seq: u64, prompt: &str) -> Value {
     json!({"sessionId": SESSION, "seq": seq, "dir": "mux", "kind": "queue_approved",

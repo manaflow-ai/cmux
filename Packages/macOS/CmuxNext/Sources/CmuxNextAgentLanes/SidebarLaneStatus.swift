@@ -40,8 +40,6 @@ enum SidebarLaneStatus {
                 let saysStep = SidebarTunables.nowLine.value
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
-                // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
-                row.usageWarnings = usageWarnings(local)
                 // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
                 if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
                 if let chiefAvatar {
@@ -159,12 +157,6 @@ enum SidebarLaneStatus {
                 ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
             return (lane.since ?? .distantPast, text)
         }.max { $0.0 < $1.0 }?.1
-    }
-
-    /// Each usage warning of `lanes`, once, in lane order.
-    static func usageWarnings(_ lanes: [AgentActivityLane]) -> [String] {
-        var seen = Set<String>()
-        return lanes.flatMap(\.usageWarnings).filter { seen.insert($0).inserted }
     }
 
     /// A lane state as the row's status mark.

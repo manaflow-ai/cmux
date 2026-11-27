@@ -85,6 +85,11 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTailDisk.swift": {"count": 2, "reason": "safe: the disk tier of the chat-tail cache (at most AgentPaneTailCache.chats files of AgentPaneTailCache.bytes each); a tail over it is not cached and the chat opens from acpmux attach as before, so no message, prompt or file the person sends is refused or cut"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneToolCard.swift": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport.swift": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/claude_token/mod.rs": {"count": 1, "reason": "safe: a rolling 64 KiB window of the login PTY's output, scanned for the sign-in URL; older output is dropped from the window, nothing a user sends is bounded"},
+    "cmux-tui/crates/cmux-tui/src/link/sync_cli/local.rs": {"count": 1, "reason": "safe: a .gitignore over 1 MiB is not read as ignore rules (a symlink is not either); the copy still goes through, only that file's rules are not applied, and nothing a user sends is refused"},
+    "cmux-tui/crates/acpmux/src/hub_carrier_punch.rs": {"count": 1, "reason": "safe: DoS bound on the NAT-punch offer line (at most 16 socket candidates), read from the peer before any user data; messages never travel in it"},
+    "cmux-tui/crates/cmux-transport/src/hop.rs": {"count": 1, "reason": "platform: one hop/1 record plus its headers must fit one UDP datagram and a u16 length; the carrier splits streams into records below it, so a message of any size crosses"},
+    "webviews/src/agent-session/acpmux/direct.ts": {"count": 1, "reason": "safe: zlib-bomb bound on one inbound compressed frame, at twice acpmux's largest message (31 MiB); a user's send is not compressed by the page and is never refused by it"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTurnUndo.swift": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneUserGestures.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneVideoInfo.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
@@ -159,6 +164,7 @@
     "backend/apps/api/src/stack-webhook.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-sso-external.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-vm-journal.ts": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "backend/packages/home-core/src/appkv/domain.ts": {"count": 2, "reason": "safe: per-app synced widget storage (storage:synced), not a message, prompt or attachment; the same 64 KiB value and 4 MiB app bounds as the local app.storage in cmux-tui-core/src/apps/storage.rs, so a sync never refuses what the device already holds"},
     "backend/packages/home-core/src/conversation/attachments.ts": {"count": 1, "reason": "safe: the Worker streaming threshold; a larger original goes by presigned upload, nothing is refused"},
     "backend/packages/home-core/src/conversation/import.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/packages/home-core/src/conversation/types.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
@@ -181,7 +187,6 @@
     "cmux-tui/crates/acpmux/src/byo_endpoint.rs": {"count": 1, "reason": "safe: the most of a model-list answer (GET /v1/models, 4 MiB) read when cmux asks the endpoint the person adds as a harness for its models (fetch_models); a larger list only fails that model fetch with a message, and the model list is the endpoint's own answer, never a message, prompt or file the person sends"},
     "cmux-tui/crates/acpmux/src/hosted_mcp.rs": {"count": 1, "reason": "safe: the largest JSON-RPC reply (16 MiB) read from cmux's hosted MCP server for a tools/list or tools/call; a larger reply fails that one tool call back to the agent as an MCP error, the chat goes on, and it is a tool's answer to the agent, never a message, prompt or file the person sends"},
     "cmux-tui/crates/acpmux/src/agent_guidance.rs": {"count": 3, "reason": "safe: limits only how many files, how large each, and how many bytes in all (32 MiB), are copied from the person's ~/.config/cmux/skills folder into the session plugin, and how long a skill description is in the first-turn index (the full SKILL.md stays readable); no message, prompt or attachment is refused"},
-    "cmux-tui/crates/acpmux/src/agent.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/artifacts_sync.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/auto_session/export/leftover.rs": {"count": 1, "reason": "safe: the most patch text `show` prints; a larger patch is listed by its files, nothing is refused"},
     "cmux-tui/crates/acpmux/src/catalog/schema.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
@@ -366,6 +371,10 @@
     "workers/iroh-v2/src/observability.ts": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "workers/iroh-v2/src/relay.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "workers/iroh-v2/src/storage/socket-store.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "workers/iroh-v2/src/team-control.ts": {"count": 4, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"}
+    "workers/iroh-v2/src/team-control.ts": {"count": 4, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/claude_token/mod.rs": {"count": 1, "reason": "safe: the rolling 64 KiB window of `claude setup-token` terminal output acpmux searches for the sign-in URL during Claude's one-click connect; older output slides out of the window and nothing is refused, and it is the CLI's own output, never a message, prompt or file the person sends"},
+    "cmux-tui/crates/acpmux/src/hub_carrier_punch.rs": {"count": 1, "reason": "safe: the longest hole-punch offer line (4 KiB: at most 16 candidate addresses) one side reads from the other through the hub; a longer line fails that punch and the machine is dialed over the relay as before, and the offer is machine addresses, never a message, prompt or file the person sends"},
+    "cmux-tui/crates/cmux-transport/src/hop.rs": {"count": 1, "reason": "platform: one hop/1 record rides in one UDP datagram behind a u16 length, so it stays under the 65,507-byte IPv4 UDP payload with the DATA and record headers; hop/1 (RFD 0142 R4/R5) is a per-leg record layer with no caller that sends a person's message whole: a stream over it is split into records, as hub_carrier.rs splits the relay's into 16 KiB records, so a message of any size crosses"},
+    "webviews/src/agent-session/acpmux/direct.ts": {"count": 1, "reason": "safe: the most one zlib frame from acpmux may inflate to (64 MiB), twice acpmux's largest message (31 MiB), so no frame acpmux sends is ever refused; it bounds a decompression bomb on the read side and never touches what the person sends"}
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
+description: "Customize cmux: cmux-next.json (or cmux.json) actions, commands, layouts, buttons, palette, Dock, sidebar, settings, shortcuts, notifications, browser routing, terminal, own views."
 ---
 
 # cmux Customization
@@ -39,6 +39,19 @@ project-local `.cmux/cmux.json`. Say so instead of writing them. The recipes in
 If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
 
 Key surface: `actions`, named entries with `type: "command"` (`command`) or `type: "agent"` (`agent`, optional `args`), plus optional `title`, `tooltip`, `icon` and `target` (`newTabInCurrentPane` or `currentTerminal`). Each registers as `cmuxConfig.<name>` for the Command Palette, shortcuts and `cmux action run`.
+
+## Yolo path: a speculative chat UI change is a pack, never a core edit
+
+An opinionated or speculative change to how the chat looks does not edit the default UI. It ships as a pack the
+person can try on, keep or revert.
+
+1. Write the CSS (no `@import`, no `url()` but `data:`) to a scratch file; a component variant instead reads a
+   default-off setting and the pack sets it with `--set`.
+2. `cmux customize pack NAME --css /tmp/NAME.css [--set KEY=VALUE ...] "what it does"`. It writes the pack and
+   changes nothing live; its last line is the `wrap_up` actions.
+3. End the turn with those actions: Try it on (live now, back by itself in 10 minutes), Keep, Revert.
+4. A PR that only adds or changes such a pack or default-off setting carries the `yolo-path` label and lands on
+   green CI. Only the person's ask flips a default.
 
 ## Workflow
 
@@ -136,6 +149,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // One look for both appearances: name a pair ("light:Rose Pine Dawn,dark:Rose Pine") and add
+  // "light": {...} and "dark": {...} inside "colors"; each paints only its side, over the plain colors.
   // Or a Ghostty theme block:
   // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }

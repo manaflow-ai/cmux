@@ -119,6 +119,7 @@ export type PickerModel = {
   input?: string[];
   status?: ModelStatus;
   unavailable?: string;
+  codexUpdateVersion?: string;
   /** The catalog release an alias row stands for; `id` is the alias the harness offers. */
   release?: string;
   /** What the profile's declaration or the user's override set: the session's options keep it. */
@@ -625,7 +626,12 @@ function menuModels(
  */
 function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel[], join: Join): PickerModel {
   const probe = probed.find((candidate) => candidate.id === model.id);
-  return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
+  return pickerModel(
+    layeredModel(model, harnessId, probe, join),
+    join.catalog,
+    probe?.unavailable,
+    probe?.codexUpdateVersion,
+  );
 }
 
 /** The model the session runs: its model option's value, else the model it reports (a session can
@@ -794,7 +800,16 @@ function addSessionModels(
   }));
   if (current) choices.push({ id: current });
   for (const choice of choices) {
-    if (!choice.id || models.some((model) => model.id === choice.id)) continue;
+    if (!choice.id) continue;
+    const existing = models.find((model) => model.id === choice.id);
+    if (existing) {
+      // The running session can receive its provider's new list before the background probe.
+      if (existing.codexUpdateVersion) {
+        delete existing.codexUpdateVersion;
+        delete existing.unavailable;
+      }
+      continue;
+    }
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
     if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
@@ -812,7 +827,12 @@ function addSessionModels(
   }
 }
 
-function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog, unavailable?: string): PickerModel {
+function pickerModel(
+  model: HarnessModel & { own?: Own },
+  catalog: ModelCatalog,
+  unavailable?: string,
+  codexUpdateVersion?: string,
+): PickerModel {
   const info = model.ref ? catalog.models[model.ref] : undefined;
   const providerName = model.provider ? catalog.providers[model.provider]?.name : undefined;
   const contextWindow = model.contextWindow ?? info?.contextWindow;
@@ -834,7 +854,7 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(info?.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
     ...(info?.input ? { input: info.input } : {}),
     ...(status ? { status } : {}),
-    ...(unavailable ? { unavailable } : {}),
+    ...(unavailable ? { unavailable, codexUpdateVersion } : {}),
     ...(model.own ? { own: model.own } : {}),
     searchText: [model.id, model.name, model.family, providerName, ...(model.aliases ?? [])]
       .filter(Boolean)
@@ -858,7 +878,12 @@ function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identity
     ...(catalogModel?.family || info?.family ? { family: catalogModel?.family || info?.family } : {}),
     ...(catalogModel?.provider || provider ? { provider: catalogModel?.provider || provider } : {}),
   };
-  return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
+  return pickerModel(
+    layeredModel(base, harnessId, probe, join),
+    join.catalog,
+    probe.unavailable,
+    probe.codexUpdateVersion,
+  );
 }
 
 /** Once a profile is present, its models own availability. With no profile, the catalog remains
@@ -870,10 +895,16 @@ function includeCatalogIdentity(
   harnessId: string,
   join: Join,
 ): boolean {
-  if (!isIdentityOnlyCurrentModel(model)) return true;
   if (model.id === runs) return true;
   if (userDeclaresModel(model.id, profile?.id, harnessId, join)) return true;
-  return profile === undefined;
+  if (harnessId === "codex" && profile?.topModels !== undefined) {
+    return profile.models.some(
+      (row) =>
+        (row.id === model.id || model.aliases?.includes(row.id)) &&
+        includeReportedIdentity(row, profile, harnessId, runs, join),
+    );
+  }
+  return !isIdentityOnlyCurrentModel(model) || profile === undefined;
 }
 
 /** User overrides also add models; their explicit entries outrank fallback availability. */

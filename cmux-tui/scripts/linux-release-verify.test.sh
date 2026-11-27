@@ -350,12 +350,149 @@ new_case not-published
 run --commit "$c2"
 refused "is not published"
 
+# --nightly: the signed nightly channel; until it is published, the commit
+# the NIGHTLY app's feed names, by that commit's own release file.
+feed() { # COMMIT...: an update feed whose items name COMMITs, newest first
+  { printf '<rss><channel>'
+    for c in "$@"; do printf '\n<item><cmux:sourceCommit>%s</cmux:sourceCommit></item>' "$c"; done
+    printf '</channel></rss>\n'; } >"$d/serve/feed.xml"
+}
+
+new_case nightly-channel
+payload "$d/p" "$c2" 20261102000000 "$later" "$(entries "$d/serve" "$c2" "$root/bin2")"
+sed 's/"channel":"feat-cmux-next"/"channel":"nightly"/' "$d/p" >"$d/p2"
+lrf_sign "$d/p2" "$root/key" "$d/serve/channels/linux-nightly.json"
+feed "$c1"
+run --nightly
+check "--nightly installs the signed nightly channel (rc $rc): $(cat "$d/err")" test "$rc" = 0
+check "installed the nightly channel's binary" installed_is "$root/bin2"
+check "read channels/linux-nightly.json, not the feed: $(cat "$d/log")" \
+  sh -c 'grep -q channels/linux-nightly.json "$1" && ! grep -q files-next "$1"' _ "$d/log"
+
+new_case nightly-channel-wrong-channel
+payload "$d/p" "$c2" 20261102000000 "$later" "$(entries "$d/serve" "$c2" "$root/bin2")"
+lrf_sign "$d/p" "$root/key" "$d/serve/channels/linux-nightly.json"
+feed "$c1"
+run --nightly
+refused "is for the channel feat-cmux-next"
+check "a refused nightly channel does not fall back to the feed" sh -c '! grep -q files-next "$1"' _ "$d/log"
+check "nothing installed" nothing_installed
+
+new_case nightly-fallback
+payload "$d/p" "$c1" 20261101000000 "$later" "$(entries "$d/serve" "$c1" "$root/bin1")"
+publish "$d/p" "$c1"
+rm "$d/serve/channels/linux-feat-cmux-next.json"
+feed "$c1" "$c2"
+run --nightly
+check "no nightly channel: --nightly installs the feed's first commit (rc $rc): $(cat "$d/err")" test "$rc" = 0
+check "installed that commit's binary" installed_is "$root/bin1"
+check "tried the channel, then the commit: $(cat "$d/log")" \
+  sh -c 'grep -q channels/linux-nightly.json "$1" && grep -q "/$2/release.json" "$1"' _ "$d/log" "$c1"
+
+new_case nightly-fallback-no-feed
+run --nightly
+refused "nightly channel's signed release file"
+check "names the feed it could not read" err_has "could not read the current cmux NIGHTLY build"
+check "nothing installed" nothing_installed
+
+new_case nightly-fallback-unpublished
+feed "$c3"
+run --nightly
+refused "signed release file of $c3"
+check "nothing installed" nothing_installed
+
 new_case base-url-refused
 rc=0
 env -i HOME="$d/home" PATH="$shims:$PATH" TMPDIR="$d/tmp" SHELL=/bin/sh CMUX_DOWNLOAD_BASE_URL=https://evil.example \
   LRT_SERVE="$d/serve" LRT_LOG="$d/log" sh "$root/install-static.sh" >"$d/out" 2>"$d/err" || rc=$?
 check "CMUX_DOWNLOAD_BASE_URL refused on Linux (rc $rc)" test "$rc" = 2
 check "ends with a next: line" last_is_next
+
+# --system: the signed .deb or .rpm, verified, then handed to the package manager through sudo.
+# The shims record what the package manager was given; nothing is installed on this machine.
+for tool in sudo apt-get dnf; do
+  cat >"$shims/$tool" <<'EOF'
+#!/bin/sh
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$LRT_LOG.pm"
+[ "$(basename "$0")" = sudo ] && exec "$@"
+for a; do :; done
+cp "$a" "$LRT_LOG.pkg"
+EOF
+done
+printf '#!/bin/sh\nexit 0\n' >"$shims/dpkg"
+chmod 755 "$shims/sudo" "$shims/apt-get" "$shims/dnf" "$shims/dpkg"
+# A PATH with no apt-get or dpkg (this machine's included): the rpm path.
+nodeb="$root/nodeb"
+mkdir -p "$nodeb"
+for f in /usr/local/bin/* /usr/bin/* /bin/*; do
+  case "${f##*/}" in apt-get | dpkg) continue ;; esac
+  [ -e "$nodeb/${f##*/}" ] || ln -s "$f" "$nodeb/${f##*/}" 2>/dev/null || :
+done
+for tool in sudo dnf curl uname; do ln -sf "$shims/$tool" "$nodeb/$tool"; done
+head -c 3000 /dev/urandom >"$root/deb"
+head -c 3500 /dev/urandom >"$root/rpm"
+# DIR COMMIT: the binaries' entries and the commit's .deb and .rpm.
+packaged() {
+  mkdir -p "$1/$2"
+  cp "$root/deb" "$1/$2/cmux-20261101000000-amd64.deb"
+  cp "$root/rpm" "$1/$2/cmux-20261101000000-x86_64.rpm"
+  printf '%s,%s,%s' "$(entries "$1" "$2" "$root/bin1")" \
+    "$(lrf_entry deb "https://files.cmux.com/cmux-tui/$2/cmux-20261101000000-amd64.deb" "$root/deb")" \
+    "$(lrf_entry rpm "https://files.cmux.com/cmux-tui/$2/cmux-20261101000000-x86_64.rpm" "$root/rpm")"
+}
+pm_got() { cmp -s "$d/log.pkg" "$1"; }
+no_pm() { [ ! -e "$d/log.pm" ]; }
+
+new_case system-deb
+payload "$d/p" "$c1" 20261101000000 "$later" "$(packaged "$d/serve" "$c1")"
+publish "$d/p" "$c1"
+run --system
+check "--system installs the .deb (rc $rc): $(cat "$d/err")" test "$rc" = 0
+check "apt-get was given the signed .deb" pm_got "$root/deb"
+check "through sudo: $(cat "$d/log.pm" 2>/dev/null)" grep -q '^sudo apt-get install -y /' "$d/log.pm"
+check "nothing in ~/.cmux/bin" nothing_installed
+check "downloaded only the pointer and the .deb: $(cat "$d/log")" \
+  test "$(grep -vc -e '/channels/linux-feat-cmux-next.json$' -e "/$c1/cmux-20261101000000-amd64.deb\$" -e install-events "$d/log")" = 0
+
+new_case system-rpm
+payload "$d/p" "$c1" 20261101000000 "$later" "$(packaged "$d/serve" "$c1")"
+publish "$d/p" "$c1"
+rc=0
+env -i HOME="$d/home" PATH="$nodeb" TMPDIR="$d/tmp" SHELL=/bin/sh \
+  LRT_SERVE="$d/serve" LRT_LOG="$d/log" sh "$root/install-static.sh" --system >"$d/out" 2>"$d/err" || rc=$?
+check "--system installs the .rpm without apt-get (rc $rc): $(cat "$d/err")" test "$rc" = 0
+check "dnf was given the signed .rpm" pm_got "$root/rpm"
+check "through sudo: $(cat "$d/log.pm" 2>/dev/null)" grep -q '^sudo dnf install -y /' "$d/log.pm"
+
+new_case system-no-package
+payload "$d/p" "$c1" 20261101000000 "$later" "$(entries "$d/serve" "$c1" "$root/bin1")"
+publish "$d/p" "$c1"
+run --system
+refused "names no .deb for $target"
+check "the package manager was not run" no_pm
+check "nothing installed" nothing_installed
+
+new_case system-sha-mismatch
+payload "$d/p" "$c1" 20261101000000 "$later" "$(packaged "$d/serve" "$c1")"
+publish "$d/p" "$c1"
+head -c 3000 /dev/urandom >"$d/serve/$c1/cmux-20261101000000-amd64.deb"
+run --system
+refused "not the signed"
+check "the package manager was not run" no_pm
+
+new_case system-not-a-deb
+e="$(packaged "$d/serve" "$c1" | sed "s|cmux-20261101000000-amd64.deb|cmux-tui-$target|")"
+payload "$d/p" "$c1" 20261101000000 "$later" "$e"
+publish "$d/p" "$c1"
+run --system
+refused "not a cmux .deb"
+check "the package manager was not run" no_pm
+
+new_case system-dry-run
+run --system --dry-run
+check "--system --dry-run exits 0 (rc $rc): $(cat "$d/err")" test "$rc" = 0
+check "names the package manager: $(cat "$d/out")" grep -q 'apt-get install -y' "$d/out"
+check "the package manager was not run" no_pm
 
 printf 'linux-release-verify.test.sh: %d passed, %d failed\n' "$passes" "$fails"
 [ "$fails" -eq 0 ]

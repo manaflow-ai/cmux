@@ -145,7 +145,11 @@ const WORD = new Map([
   [B, "Reply"],
   [S, "Answer"],
 ]);
-const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
+/// The text a painted page of `chat` shows at its end: its newest prompt. Each workspace_switch round adds a turn to its
+/// target (`newTurn`), so after a dozen rounds the seed's last turn ("Answer 120:") is above the rows a page mounts at
+/// the latest row, and a wait for it never ended (the 60 s first-paint timeout in round 13 of workspace_switch.stream).
+const newestMark = new Map<string, string>();
+const markOf = (chat: string) => newestMark.get(chat) ?? `${WORD.get(chat)} ${TURNS}:`;
 const SEQ_SPAN = 100_000;
 const SEQ_BASE = new Map([
   [A, 0],
@@ -187,7 +191,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
   const chat = chats.get(String(params.sessionId)) ?? chats.get(A)!;
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      // As acpmux (capabilities.rs): it serves the settled attach, so the app asks for it as it does on a person's Mac.
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [], capabilities: ["settled-attach-v1"] } },
+      };
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
@@ -207,6 +215,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         events,
         hasMore: events.length < chat.events.length,
         turnOpener,
+        // As acpmux's settled attach (server/requests/settled_attach.rs): the view written through the chat's last record.
+        settled: params.settled === true ? { lastSeq: lastSeq(chat), forkSeqs: [] } : null,
       };
     }
     case "_acpmux/events": {
@@ -267,7 +277,8 @@ let extraTurns = 0;
 const newTurn = (sessionId: string, running = false) => {
   extraTurns += 1;
   if (running) append(sessionId, "mux", "turn_result", { status: "completed" });
-  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}` });
+  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}: what is left?` });
+  newestMark.set(sessionId, `Follow-up ${extraTurns}:`);
   append(sessionId, "mux", "turn_started", {});
   chunk(sessionId, `Follow-up answer ${extraTurns}: done, the branch is pushed and the checks are queued.`);
   if (!running) append(sessionId, "mux", "turn_result", { status: "completed" });

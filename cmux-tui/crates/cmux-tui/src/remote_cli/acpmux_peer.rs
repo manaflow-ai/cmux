@@ -552,3 +552,7 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
 #[cfg(test)]
 #[path = "acpmux_peer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "acpmux_peer_seeded_tests.rs"]
+mod seeded_tests;

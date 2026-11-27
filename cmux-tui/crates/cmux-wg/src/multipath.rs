@@ -34,8 +34,8 @@ use std::task::{Context, Poll, Waker};
 
 use cmux_transport::selector::default_medium;
 use cmux_transport::{
-    LocalNetwork, Medium, PathId, PathKind, PathView, ProbeOutcome, Selector, SelectorConfig,
-    SelectorError, Switch, local_networks, medium_of,
+    LocalNetwork, Medium, PathId, PathKind, PathState, PathView, ProbeOutcome, Selector,
+    SelectorConfig, SelectorError, Switch, local_networks, medium_of,
 };
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
@@ -470,6 +470,29 @@ impl Multipath {
             slot.watch.sent(Instant::now());
         }
     }
+
+    /// The live path that carries a duplicated datagram's second copy beside
+    /// `current`: the best other one by [`cmux_braid_class::paths_for`]
+    /// (lowest round trip), or none with one live path.
+    fn second_path(shared: &Shared, current: PathId) -> Option<PathId> {
+        use cmux_braid_class::paths::MAX_PICK;
+        use cmux_braid_class::{Class, PathView as ClassView, paths_for};
+        let blank = ClassView { id: current, alive: false, rtt: None, capacity: None };
+        let mut views = [blank; MAX_PICK];
+        let mut len = 0;
+        for slot in shared.slots.iter().filter(|slot| !slot.failed && slot.id != current) {
+            let Some(view) = shared.selector.path(slot.id) else { continue };
+            let Some(entry) = views.get_mut(len) else { break };
+            *entry = ClassView {
+                id: slot.id,
+                alive: view.state == PathState::Alive,
+                rtt: view.rtt_us.map(std::time::Duration::from_micros),
+                capacity: None,
+            };
+            len = len.saturating_add(1);
+        }
+        paths_for(Class::Input, views.get(..len).unwrap_or_default()).first()
+    }
 }
 
 impl Underlay for Multipath {
@@ -479,6 +502,32 @@ impl Underlay for Multipath {
 
     fn send_classified(&mut self, datagram: &[u8], priority: Priority) {
         self.send_in(datagram, Some(priority));
+    }
+
+    /// One copy on the current path and one on the best other live path
+    /// (RFD 0164 class 0). While no path is chosen the datagram already goes
+    /// on every path. The second copy does not arm that path's silence watch:
+    /// the peer answers on its own path, so a quiet second path says nothing.
+    fn send_duplicated(&mut self, datagram: &[u8], priority: Priority) {
+        let mut shared = lock(&self.shared);
+        let current = shared
+            .selector
+            .current()
+            .filter(|id| shared.slots.iter().any(|slot| slot.id == *id && !slot.failed));
+        let Some(current) = current else {
+            drop(shared);
+            return self.send_in(datagram, Some(priority));
+        };
+        let second = Self::second_path(&shared, current);
+        for slot in &mut shared.slots {
+            if slot.id == current {
+                slot.watch.sent(Instant::now());
+            } else if Some(slot.id) != second {
+                continue;
+            }
+            slot.carrier.send_classified(datagram, priority);
+            slot.sent += 1;
+        }
     }
 
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {

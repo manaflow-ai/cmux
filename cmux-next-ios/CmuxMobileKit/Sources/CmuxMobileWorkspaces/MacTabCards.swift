@@ -16,9 +16,14 @@ public struct MacCardInfo: Codable, Equatable, Sendable {
     public var screenColumns: Int
     public var screenRows: Int
     public var capturedAtMs: Int64
+    /// The tab's durable id on the Mac (the daemon's `tab_resource_id`): the tab id names a tab
+    /// only within one epoch, this one stays the tab's across them. Empty when unknown.
+    public var tabKey: String
 
     public init(title: String, kind: String, faviconHash: String? = nil, thumbHash: String? = nil,
-                screenHash: String? = nil, screenColumns: Int = 0, screenRows: Int = 0, capturedAtMs: Int64 = 0) {
+                screenHash: String? = nil, screenColumns: Int = 0, screenRows: Int = 0, capturedAtMs: Int64 = 0,
+                tabKey: String = "") {
+        self.tabKey = tabKey
         self.title = title
         self.kind = kind
         self.faviconHash = faviconHash
@@ -27,6 +32,21 @@ public struct MacCardInfo: Codable, Equatable, Sendable {
         self.screenColumns = screenColumns
         self.screenRows = screenRows
         self.capturedAtMs = capturedAtMs
+    }
+
+    /// Rows saved before `tabKey` existed have none: they decode with an empty key, so the
+    /// cards kept on disk still open filled.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        kind = try c.decode(String.self, forKey: .kind)
+        faviconHash = try c.decodeIfPresent(String.self, forKey: .faviconHash)
+        thumbHash = try c.decodeIfPresent(String.self, forKey: .thumbHash)
+        screenHash = try c.decodeIfPresent(String.self, forKey: .screenHash)
+        screenColumns = try c.decode(Int.self, forKey: .screenColumns)
+        screenRows = try c.decode(Int.self, forKey: .screenRows)
+        capturedAtMs = try c.decode(Int64.self, forKey: .capturedAtMs)
+        tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey) ?? ""
     }
 
     /// The blobs the card shows.
@@ -116,12 +136,17 @@ extension TabSnapshotStore {
     }
 
     /// The tab's newest picture: the phone's own capture or the Mac's thumbnail.
-    public func newestPicture(_ key: TabSnapshotKey) -> (data: Data, capturedAtMs: Int64)? {
-        let own = record(key).flatMap { record in blob(record.thumbHash).map { (data: $0, capturedAtMs: record.capturedAtMs) } }
+    public func newestPicture(_ key: TabSnapshotKey) -> (data: Data, pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64)? {
+        let own = record(key).flatMap { record in
+            blob(record.thumbHash).map {
+                (data: $0, pixelWidth: record.pixelWidth, pixelHeight: record.pixelHeight,
+                 capturedAtMs: record.capturedAtMs)
+            }
+        }
         let card = macCards(accountID: key.accountID, macID: key.macID)[key.tabID]
         let mac = card.flatMap { card in
             card.thumbHash.flatMap { macBlob($0, accountID: key.accountID, macID: key.macID) }
-                .map { (data: $0, capturedAtMs: card.capturedAtMs) }
+                .map { (data: $0, pixelWidth: 0, pixelHeight: 0, capturedAtMs: card.capturedAtMs) }
         }
         guard let own else { return mac }
         guard let mac, mac.capturedAtMs > own.capturedAtMs else { return own }
@@ -324,10 +349,15 @@ public final class MacTabCards {
         }
     }
 
-    /// A row under a new epoch is the tab the kept row was: the same kind, and the same title
-    /// or a blob in common (a page keeps its favicon while its title changes).
+    /// A row under a new epoch is the tab the kept row was. When both rows carry the Mac's
+    /// durable tab key, the key decides: the same key and kind is the same tab whatever its
+    /// title now reads, and another key is another tab even under the same title. Otherwise
+    /// (an older Mac, or rows kept before keys): the same kind, and the same title or a blob
+    /// in common (a page keeps its favicon while its title changes).
     nonisolated static func sameTab(_ kept: MacCardInfo, _ now: MacCardInfo) -> Bool {
-        kept.kind == now.kind && (kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes))
+        guard kept.kind == now.kind else { return false }
+        if !kept.tabKey.isEmpty, !now.tabKey.isEmpty { return kept.tabKey == now.tabKey }
+        return kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes)
     }
 
     /// `now`, the Mac's newest row of a tab, with every picture of `kept` (the row it replaces) that

@@ -193,10 +193,11 @@ impl StageLedger {
         }
     }
 
-    pub fn on_presented(&mut self, stream: u16, frame: u32, presented_us: u64) {
-        if let Some(row) = self.row(stream, frame, false) {
-            row.viewer.presented_us = Some(presented_us);
-        }
+    /// The frame reached the glass; its row after the note, when the ledger still has it.
+    pub fn on_presented(&mut self, stream: u16, frame: u32, presented_us: u64) -> Option<FrameRow> {
+        let row = self.row(stream, frame, false)?;
+        row.viewer.presented_us = Some(presented_us);
+        Some(*row)
     }
 
     /// The run's table. `offset_us`: the host clock's offset from the

@@ -220,13 +220,33 @@ fn seed_zig_packages(zig: &str, ghostty_dir: &Path, lock: &Path, mirror_only: bo
         // Under a name with no archive suffix until whole, so a cut-short
         // download never takes the name Zig reads.
         let part = archives.join(format!(".seed-{}-{}", package.hash, std::process::id()));
-        let fetched = Command::new("curl")
-            .args(["-fsSL", "--proto", "=https", "--retry", "3", "--retry-all-errors"])
-            .args(["--connect-timeout", "20", "--max-time", "300", "-o"])
-            .arg(&part)
-            .arg(&package.url)
-            .status()
-            .is_ok_and(|status| status.success());
+        // The machine's git cache proxy first when it runs (loopback HTTP, same bytes), then
+        // the original URL. `CMUX_TRANSPORT_REWRITE=0` skips the proxy.
+        let cached = cmux_transport_rewrite::cached_url(&package.url).is_some_and(|cached| {
+            Command::new("curl")
+                .args([
+                    "-fsSL",
+                    "--proto",
+                    "=http,https",
+                    "--connect-timeout",
+                    "5",
+                    "--max-time",
+                    "300",
+                ])
+                .arg("-o")
+                .arg(&part)
+                .arg(&cached)
+                .status()
+                .is_ok_and(|status| status.success())
+        });
+        let fetched = cached
+            || Command::new("curl")
+                .args(["-fsSL", "--proto", "=https", "--retry", "3", "--retry-all-errors"])
+                .args(["--connect-timeout", "20", "--max-time", "300", "-o"])
+                .arg(&part)
+                .arg(&package.url)
+                .status()
+                .is_ok_and(|status| status.success());
         if fetched && std::fs::rename(&part, &archive).is_ok() {
             continue;
         }
