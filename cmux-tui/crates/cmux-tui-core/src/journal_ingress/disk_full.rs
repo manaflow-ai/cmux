@@ -21,7 +21,7 @@ const KEEP_MAX: usize =
     super::JOURNAL_TERMINAL_BATCH_CHUNKS + super::JOURNAL_DURABLE_QUEUE_CAPACITY;
 /// What a waiter gets while background events wait for disk space.
 pub(super) const WAITER_ERROR: &str =
-    "the session journal is out of disk space; free some and it resumes writing on its own";
+    "the session journal is out of disk space; try again once there is room";
 const RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// The schedule, scaled down in tests so the writer tests stay fast.
