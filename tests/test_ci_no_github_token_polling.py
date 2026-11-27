@@ -152,6 +152,16 @@ ALLOWED: dict[str, str] = {
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'nightly-next-train.yml: Run the train':
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
+    'cmux-next-post-merge.yml: Plan the suites':
+        'retry only (post_merge_batch.py gh_api): reads try the route App token first; a call sleeps only after every '
+        'token is rate limited, until the reset read from the free rate_limit endpoint, within --api-wait-seconds '
+        '(plan 420 s); run_jobs pages at most 5 times',
+    'cmux-next-post-merge.yml: Judge the run':
+        'retry only (post_merge_batch.py gh_api): the same rate-limit wait as the plan, within 600 s for the judge; '
+        'run_jobs pages at most 5 times',
+    'cmux-next-post-merge.yml: Open the revert pull request':
+        'retry only (post_merge_batch.py gh_api): writes use the revert App token when minted; the same rate-limit '
+        'wait, within 900 s for the revert',
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     'cas-replay.yml: Replay the newest web bundle publishes (W1)':
