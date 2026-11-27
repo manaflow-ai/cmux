@@ -69,6 +69,13 @@ expect_pass TabHoverPreview 'final class TabHoverPreview: NSView {
 expect_pass edge-in-flow 'final class DemoRowView: NSView {
     func paint() { layer?.borderColor = NSColor.black.cgColor }
 }'
+# A marker on the content (the agent pointer's halo) is not the surface's edge; the surface's own edge still is.
+expect_pass DemoFloatingPreview 'final class DemoFloatingPreview: NSView {
+    func paint() { pointerLayer.borderColor = NSColor.white.cgColor }
+}'
+expect_fail DemoFloatingPreview hard-edge 'final class DemoFloatingPreview: NSView {
+    func paint() { pointerLayer.borderColor = NSColor.white.cgColor; layer?.borderColor = NSColor.white.cgColor }
+}'
 expect_fail DemoPopoverAllowed hard-edge 'final class DemoPopover: NSView {
     // one-material-allow: a test edge past the pin
     func paint() { layer?.borderColor = NSColor.white.cgColor }
