@@ -7,7 +7,7 @@ import { arriveTiming, timing } from "./tailGlide";
 
 function page() {
   const dom = new JSDOM(
-    "<!doctype html><html><head><style>.thread{--agent-motion-arrive:120ms;--cmux-motion-settle:265ms;--cmux-ease-settle:ease;--agent-motion-in:90ms;--agent-ease-out:ease-out}</style></head><body><div class=thread></div></body></html>",
+    "<!doctype html><html><head><style>.thread{--agent-motion-arrive:123ms;--cmux-motion-settle:267ms;--cmux-ease-settle:ease;--agent-motion-in:91ms;--agent-ease-out:ease-out}</style></head><body><div class=thread></div></body></html>",
   );
   const view = dom.window;
   const thread = view.document.querySelector<HTMLElement>(".thread")!;
