@@ -3072,33 +3072,48 @@ struct WorkspaceTabCard: View {
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
-                let lastKnown = source.snapshotEntry(tab.id)?.image
+                let snapshot = source.snapshotEntry(tab.id)
+                let lastKnown = snapshot?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model.url ?? tab.url)?.host())
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown,
+                                lastKnownPixelWidth: snapshot?.pixelWidth ?? 0,
+                                lastKnownPixelHeight: snapshot?.pixelHeight ?? 0,
+                                tabID: tab.id, host: (model.url ?? tab.url)?.host())
                 } else if let model = source.streamedBrowser(tab) {
                     // Site monograms (off by default) stand in for the globe until the first frame.
-                    if model.snapshot == nil, lastKnown == nil,
+                    if model.snapshot == nil, lastKnown == nil, snapshot?.hasKnownPicture != true,
                        monograms, SiteMonogram.letter(tab.url?.host()) != nil {
                         SiteMonogramFace(host: tab.url?.host())
                             .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
                     } else {
                         // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
-                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage,
+                                            lastKnownSize: snapshot?.knownPictureSize)
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil || snapshot?.hasKnownPicture == true ? "lastKnown" : "placeholder"))
                     }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
                     let model = source.existingBrowser(tab.id)
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model?.url ?? tab.url)?.host())
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown,
+                                lastKnownPixelWidth: snapshot?.pixelWidth ?? 0,
+                                lastKnownPixelHeight: snapshot?.pixelHeight ?? 0,
+                                tabID: tab.id, host: (model?.url ?? tab.url)?.host())
                 }
             case .simulator:
+                let snapshot = source.snapshotEntry(tab.id)
                 if let model = source.simulator(tab) {
-                    let lastKnown = source.snapshotEntry(tab.id)?.image
-                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage)
-                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
-                } else if let image = source.snapshotEntry(tab.id)?.image {
+                    let lastKnown = snapshot?.image
+                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage,
+                                        lastKnownSize: snapshot?.knownPictureSize)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil || snapshot?.hasKnownPicture == true ? "lastKnown" : "placeholder"))
+                } else if let image = snapshot?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
+                } else if snapshot?.hasKnownPicture == true {
+                    TabSnapshotPicture(image: nil, pixelWidth: snapshot?.pixelWidth ?? 0,
+                                       pixelHeight: snapshot?.pixelHeight ?? 0)
+                        .background(Color.black)
                         .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
                 } else {
                     // No picture yet: the card's background, never a stand-in glyph.
