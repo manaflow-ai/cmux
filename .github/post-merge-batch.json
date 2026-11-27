@@ -494,8 +494,7 @@
         "router-replay": "crate-graph router replay",
         "inventory": "inventory",
         "api-compat": "api-compat",
-        "acpmux-protocol-ir": "acpmux protocol IR is current",
-        "remote-web-wasm": "cmux remote web wasm"
+        "acpmux-protocol-ir": "acpmux protocol IR is current"
       }
     }
   }
