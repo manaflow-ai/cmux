@@ -567,10 +567,10 @@ def run_pair(a, note, share):
         # The launch the share leg quits keeps its helpers: a tagged DEV build otherwise starts
         # `cmux-tui __dev-reaper`, which SIGTERMs acpmux, and with it the share host, as the app
         # exits (run 45886008693). A shipped app never starts it; TagTeardown ends them at the end.
-        # That is the first launch without discovery, else the identity restart (the last launch
-        # before the share leg); the launches it replaces still end their helpers.
+        # Every launch before the share leg keeps them, the discovery launch too: the identity
+        # restart quits that one, and its reaper still SIGTERMed the share host (run 45918096680).
         share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")
-        mac_log = start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else share_launch)
+        mac_log = start_mac(dict(share_launch, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else share_launch)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
             try:  # evidence only: a failure here never replaces the error below

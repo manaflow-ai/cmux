@@ -349,6 +349,10 @@ class ShareLaunchKeepsHelpersTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_pair_e2e.py").read_text()
         self.assertIn('share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")', source)
         self.assertIn('if discovery else share_launch)', source)
+        # The discovery launch keeps them too: the identity restart quits it, and its reaper still
+        # SIGTERMed the share host (run 45918096680).
+        self.assertIn('start_mac(dict(share_launch, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery', source)
+        self.assertNotIn('start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1")', source)
         # The identity restart is the launch the share leg quits when discovery runs (run 45901838391).
         self.assertIn('discovery_restart(app, exe, share_launch,', source)
         self.assertIn('start_mac(env, "-pair")', source)
