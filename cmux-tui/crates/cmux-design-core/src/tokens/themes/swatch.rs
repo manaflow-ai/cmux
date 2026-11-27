@@ -35,7 +35,7 @@ fn split_once_swift(s: &str, sep: char) -> Vec<&str> {
         }
         let appended = i > start;
         if appended {
-            result.push(&s[start..i]);
+            result.push(s.get(start..i).unwrap_or_default());
         }
         start = i + c.len_utf8();
         if appended && result.len() == 1 {
@@ -43,7 +43,7 @@ fn split_once_swift(s: &str, sep: char) -> Vec<&str> {
         }
     }
     if start < s.len() {
-        result.push(&s[start..]);
+        result.push(s.get(start..).unwrap_or_default());
     }
     result
 }
@@ -79,8 +79,8 @@ pub fn strip(theme_file: &str) -> Vec<Rgb> {
         if parts.len() != 2 {
             continue;
         }
-        let value = trim(parts[1]);
-        match trim(parts[0]) {
+        let value = trim(parts.get(1).copied().unwrap_or_default());
+        match trim(parts.first().copied().unwrap_or_default()) {
             "background" => background = css_hex(value),
             "foreground" => foreground = css_hex(value),
             "palette" => {
@@ -88,8 +88,10 @@ pub fn strip(theme_file: &str) -> Vec<Rgb> {
                 if entry.len() != 2 {
                     continue;
                 }
-                let (Ok(index), Some(color)) = (trim(entry[0]).parse::<i64>(), css_hex(entry[1]))
-                else {
+                let (Ok(index), Some(color)) = (
+                    trim(entry.first().copied().unwrap_or_default()).parse::<i64>(),
+                    css_hex(entry.get(1).copied().unwrap_or_default()),
+                ) else {
                     continue;
                 };
                 palette.insert(index, color);

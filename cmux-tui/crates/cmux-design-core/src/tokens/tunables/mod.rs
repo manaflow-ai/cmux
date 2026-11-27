@@ -249,7 +249,9 @@ pub fn call(name: &str, request: &Value) -> OpResult {
             let see_through = look.is_see_through();
             let mut value =
                 serde_json::to_value(&look).map_err(|e| OpError::Invalid(e.to_string()))?;
-            value["isSeeThrough"] = json!(see_through);
+            if let Some(object) = value.as_object_mut() {
+                object.insert("isSeeThrough".into(), json!(see_through));
+            }
             Ok(value)
         }
         "tunables_memo_run" => {

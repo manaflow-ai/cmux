@@ -284,7 +284,7 @@ pub fn laid_out_metrics(
 /// spaces, tabs and line breaks are dropped.
 pub fn trailing_space_end(utf16: &[u16], start: usize, end: usize) -> usize {
     let mut end = end;
-    while end > start && TRAILING_SPACES.contains(&utf16[end - 1]) {
+    while end > start && utf16.get(end - 1).is_some_and(|c| TRAILING_SPACES.contains(c)) {
         end -= 1;
     }
     end
@@ -317,10 +317,10 @@ pub fn ellipsized(shape: &Shape, utf16: &[u16], shown_end: usize) -> Option<(Vec
     if !(shown_end < utf16.len() && shown_end > 0) {
         return None;
     }
-    if !LINE_BREAKS.contains(&utf16[shown_end - 1]) {
+    if !utf16.get(shown_end - 1).is_some_and(|c| LINE_BREAKS.contains(c)) {
         return None;
     }
-    let mut cut = utf16[..shown_end - 1].to_vec();
+    let mut cut = utf16.get(..shown_end - 1)?.to_vec();
     cut.push(0x2026);
     let attributes_at = shown_end.saturating_sub(2);
     Some((cut, attributes_at))

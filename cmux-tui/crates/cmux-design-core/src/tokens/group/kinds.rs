@@ -236,7 +236,9 @@ impl GroupGradient {
         let scaled = place.clamp(0.0, 1.0) * (stops.len() - 1) as f64;
         let index = (scaled as usize).min(stops.len() - 2);
         let t = scaled - index as f64;
-        let (a, b) = (stops[index], stops[index + 1]);
+        let Some((&a, &b)) = stops.get(index).zip(stops.get(index + 1)) else {
+            return Rgb::WHITE;
+        };
         let turn = (b.hue - a.hue + 540.0) % 360.0 - 180.0;
         from_oklch(Oklch {
             l: a.lightness + (b.lightness - a.lightness) * t,

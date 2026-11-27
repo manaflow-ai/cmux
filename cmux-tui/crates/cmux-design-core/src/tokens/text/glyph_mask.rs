@@ -31,7 +31,7 @@ pub const WARM_WEIGHTS: [&str; 3] = ["regular", "medium", "semibold"];
 pub fn components(ink: Option<&[f64]>) -> [f64; 3] {
     match ink {
         Some(parts) if parts.len() >= 3 => {
-            [parts[0], parts[1], parts[2]].map(|c| c.clamp(0.0, 1.0))
+            std::array::from_fn(|i| parts.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0))
         }
         _ => [0.0, 0.0, 0.0],
     }

@@ -232,6 +232,10 @@ impl<Id: Eq + Hash + Clone> ViewportRows for Indexed<'_, Id> {
     fn row_count(&self) -> usize {
         self.items.len()
     }
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "Swift's viewportRow is preconditioned by the row count"
+    )]
     fn viewport_row(&self, position: usize) -> Item<Id> {
         self.items[position].clone()
     }
@@ -240,8 +244,10 @@ impl<Id: Eq + Hash + Clone> ViewportRows for Indexed<'_, Id> {
     }
     // Any order of places: every item is read.
     fn viewport_positions(&self, lower: f64, upper: f64) -> Vec<usize> {
-        (0..self.items.len())
-            .filter(|&i| self.items[i].end() > lower && self.items[i].start < upper)
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| (item.end() > lower && item.start < upper).then_some(i))
             .collect()
     }
 }

@@ -504,8 +504,8 @@ pub fn call(name: &str, request: &Value) -> OpResult {
             let filled = title::follow_filled(&shown);
             let stops: Option<Vec<[f64; 5]>> = filled.as_ref().map(|idx| {
                 idx.iter()
-                    .map(|i| {
-                        let s = &r.samples[*i];
+                    .filter_map(|i| r.samples.get(*i))
+                    .map(|s| {
                         title::follow_locations(
                             s.truncated,
                             s.mask_locations,

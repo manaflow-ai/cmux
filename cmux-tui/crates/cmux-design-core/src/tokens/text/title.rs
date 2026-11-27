@@ -142,7 +142,9 @@ pub fn unclipped_keeps_mask(animated: bool, returning: bool, masked: bool) -> bo
 /// now (presentation or model; None when unset).
 pub fn unclipped_from(shown: Option<&[f64]>, open: [f64; 5]) -> [f64; 5] {
     match shown {
-        Some(s) if s.len() == open.len() => [s[0], s[1], 1.0, 1.0, 1.0],
+        Some(s) if s.len() == open.len() => {
+            [s.first().copied().unwrap_or(0.0), s.get(1).copied().unwrap_or(0.0), 1.0, 1.0, 1.0]
+        }
         _ => open,
     }
 }
@@ -222,7 +224,7 @@ pub fn follow_filled(shown: &[bool]) -> Option<Vec<usize>> {
 
 /// `follow`'s rule for adding a keyframe path: the values differ somewhere.
 pub fn follow_changes<T: PartialEq>(values: &[T]) -> bool {
-    values.windows(2).any(|w| w[0] != w[1])
+    values.windows(2).any(|w| w.first() != w.get(1))
 }
 
 /// What `startMarquee` reads.

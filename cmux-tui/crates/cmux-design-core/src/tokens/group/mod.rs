@@ -427,7 +427,9 @@ pub fn call(name: &str, request: &Value) -> OpResult {
             })
             .map_err(|e| OpError::Invalid(e.to_string()))?;
             if !r.steps.is_empty() {
-                out["painted"] = json!(color(bg.painted(&rgbs(&r.steps))));
+                if let Some(object) = out.as_object_mut() {
+                    object.insert("painted".into(), json!(color(bg.painted(&rgbs(&r.steps)))));
+                }
             }
             Ok(out)
         }

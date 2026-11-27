@@ -39,7 +39,7 @@ pub fn header_rgb(color: GroupColor, theme: &GroupTheme) -> Rgb {
 /// The fewest-used palette color, the earlier on a tie (Swift `GroupColor.automatic(existing:)`).
 pub fn automatic(existing: &[GroupTint]) -> GroupColor {
     let count = |c: GroupColor| existing.iter().filter(|t| **t == GroupTint::Palette(c)).count();
-    let mut best = PALETTE_ORDER[0];
+    let mut best = PALETTE_ORDER.first().copied().unwrap_or(GroupColor::Purple);
     for c in PALETTE_ORDER {
         if count(c) < count(best) {
             best = c;
@@ -63,7 +63,7 @@ pub fn automatic_after(existing: &[String]) -> GroupColor {
     if reference.is_empty() {
         return open.first().copied().unwrap_or(GroupColor::Purple);
     }
-    let mut best = open[0];
+    let mut best = open.first().copied().unwrap_or(GroupColor::Purple);
     let mut best_distance = -1.0;
     for color in open {
         let distance = reference
@@ -122,22 +122,23 @@ pub fn theme_rgb(color: GroupColor, theme: &GroupTheme) -> Option<Rgb> {
     if p.len() < 8 {
         return None;
     }
+    let ansi = |index: usize| p.get(index).copied().unwrap_or(Rgb::WHITE);
     let rgb = match color {
         GroupColor::Grey => return None,
-        GroupColor::Red => p[1],
-        GroupColor::Green => p[2],
-        GroupColor::Yellow => p[3],
-        GroupColor::Blue => p[4],
-        GroupColor::Purple => p[5],
-        GroupColor::Cyan => p[6],
+        GroupColor::Red => ansi(1),
+        GroupColor::Green => ansi(2),
+        GroupColor::Yellow => ansi(3),
+        GroupColor::Blue => ansi(4),
+        GroupColor::Purple => ansi(5),
+        GroupColor::Cyan => ansi(6),
         GroupColor::Pink => {
             if p.len() > 13 {
-                p[13]
+                ansi(13)
             } else {
-                p[5].mixed(p[1], 0.35)
+                ansi(5).mixed(ansi(1), 0.35)
             }
         }
-        GroupColor::Orange => p[1].mixed(p[3], 0.5),
+        GroupColor::Orange => ansi(1).mixed(ansi(3), 0.5),
     };
     Some(readable(rgb.with_alpha(1.0), theme.sidebar(), MINIMUM_MARK_CONTRAST))
 }
@@ -245,7 +246,7 @@ pub fn pictorial_rgb(bands: &[Wallpaper], place: f64) -> Rgb {
     }
     let index =
         ((place.clamp(0.0, 1.0) * bands.len() as f64).floor() as usize).min(bands.len() - 1);
-    let band = bands[index].clamped();
+    let band = bands.get(index).cloned().unwrap_or_default().clamped();
     let lch = oklch(Rgb::new(band.red, band.green, band.blue, 1.0));
     let chroma = if lch.c < 0.02 { lch.c } else { (lch.c * 1.4).clamp(0.08, 0.18) };
     from_oklch(Oklch { l: 0.72, c: chroma, h: lch.h })
