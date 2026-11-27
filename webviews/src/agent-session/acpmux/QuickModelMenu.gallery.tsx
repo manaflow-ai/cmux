@@ -103,8 +103,20 @@ const routeFamilies: QuickFamily[] = [
 
 /// Gemini CLI (`gemini`) and Antigravity (`agy`): two routes of one Google tab.
 const googleFamilies: QuickFamily[] = [
-  { id: "gemini", name: "Antigravity", mark: "gemini", models: models("gemini", ["Gemini 4 Neon", "Gemini 4 Argon"]), more: [] },
-  { id: "antigravity", name: "Antigravity", mark: "antigravity", models: models("antigravity", ["Gemini 4 Carbon"]), more: [] },
+  {
+    id: "gemini",
+    name: "Antigravity",
+    mark: "gemini",
+    models: models("gemini", ["Gemini 4 Neon", "Gemini 4 Argon"]),
+    more: [],
+  },
+  {
+    id: "antigravity",
+    name: "Antigravity",
+    mark: "antigravity",
+    models: models("antigravity", ["Gemini 4 Carbon"]),
+    more: [],
+  },
 ];
 
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
