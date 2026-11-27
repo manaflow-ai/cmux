@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Control disconnect notice | No command; sent to a client another participant (or the client itself) disconnected with `detach-client` | `client-disconnected-by` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 | Cloud machine state watch | Verified app `apps-machine-state-watch` with `apps-v1` | `apps-cloud-machine` |
 
@@ -93,6 +94,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `client-disconnected-by` | control (targeted) | session | protocol 12 additive; only to the disconnected client, before its connection closes |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
@@ -102,7 +104,6 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
-| `client-disconnected-by` | control (targeted) | connection | protocol 12; sent before intentional disconnection |
 | `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
 | `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
@@ -1515,32 +1516,6 @@ Example:
 
 ## Control Events
 
-### client-disconnected-by
-
-| Field | Value |
-| --- | --- |
-| event | `client-disconnected-by` |
-| status | implemented control lifecycle event |
-| since | protocol 12 |
-
-Payload:
-
-```text
-object{event:"client-disconnected-by",by?:SizeDetachActor}
-```
-
-Sent to the client being intentionally disconnected, before its attached
-streams receive `detached` and its control connection closes. This notice
-also reaches clients with no attached streams. Clients must not reconnect
-automatically after receiving it. `by` identifies the participant requesting
-the disconnect and is omitted when no actor fields are available.
-
-Example:
-
-```json
-{"event":"client-disconnected-by","by":{"display_name":"Maya"}}
-```
-
 ### daemon-shutdown
 
 | Field | Value |
@@ -1572,6 +1547,34 @@ Example:
 
 ```json
 {"event":"daemon-shutdown"}
+```
+
+### client-disconnected-by
+
+| Field | Value |
+| --- | --- |
+| event | `client-disconnected-by` |
+| status | implemented control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"client-disconnected-by",by?:SizeDetachActor}
+```
+
+Meaning: Sent on the control queue of a client that a participant disconnected with
+`detach-client` (the whole client, not one view), before its connection closes. It is sent
+even when the client has not attached a terminal yet, so a client with no stream still learns
+why it was closed. `by` names the participant that asked (`user_id`, `display_name`,
+`device_name`); it is absent when the request named nobody. A client that receives it does not
+reconnect by itself. Each attached stream of the client also gets `detached` with
+`reason:"disconnected-by"`.
+
+Example:
+
+```json
+{"event":"client-disconnected-by","by":{"display_name":"Lawrence","device_name":"iPhone"}}
 ```
 
 ### terminal-input-unclaimed

@@ -812,6 +812,12 @@
       ]
     },
     {
+      "name": "client-disconnected-by",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "client-list-invalidated",
       "streams": [
         "subscribe"
@@ -894,12 +900,6 @@
       "name": "conversation-scheduled-changed",
       "streams": [
         "subscribe"
-      ]
-    },
-    {
-      "name": "client-disconnected-by",
-      "streams": [
-        "control"
       ]
     },
     {

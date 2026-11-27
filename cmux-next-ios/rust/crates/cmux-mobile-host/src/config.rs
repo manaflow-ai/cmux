@@ -519,7 +519,7 @@ impl HostConfig {
                 browser,
                 surface,
                 viewport_sync: crate::viewport_sync::enabled()
-                    .then(crate::viewport_sync::SelectorConfig::default),
+                    .then(crate::viewport_sync::SelectorConfig::from_env),
             },
         })
     }

@@ -1,7 +1,7 @@
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
-import type { ChatAccountList } from "./chatAccounts";
+import { signInName, type ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
@@ -61,7 +61,7 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<
   QuickMenu,
-  "effort" | "account" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement"
+  "effort" | "account" | "signIn" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement"
 >;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
@@ -551,14 +551,20 @@ export function QuickModelMenu({
       event.stopPropagation();
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
+  // No route bound: the sign-in acpmux reports for the chat, else the harness's own login (cmux#63167).
+  // Only while the chat is on its default: a bound route's sign-in is that route's, and one picked
+  // here is not reported until the agent restarts on it.
+  const login = t("picker.harnessLogin");
+  const defaultSignIn = (!accounts.list?.active && !accounts.picked && signInName(menu.signIn)) || login;
   const accountValue = accounts.switchFailed
     ? t("picker.accountSwitchFailed")
     : accounts.list
-      ? (activeAccount?.name ?? t("picker.harnessLogin"))
+      ? (activeAccount?.name ?? defaultSignIn)
       : undefined;
   const routeRows = account && (
     <AccountRows
       list={accounts.list}
+      defaultName={defaultSignIn}
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}
@@ -1354,8 +1360,11 @@ function AccountRows({
   onPick,
   grouped = false,
   onAdd,
+  defaultName,
 }: {
   list?: ChatAccountList;
+  /// The default row's name: the chat's reported sign-in while it is the one in force.
+  defaultName?: string;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
@@ -1404,7 +1413,7 @@ function AccountRows({
           className="acpmux-quick-item"
           disabled={list.scope !== "chat" && !!list.active}
         >
-          <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
+          <span className="acpmux-menu-label">{defaultName ?? t("picker.harnessLogin")}</span>
         </MenuRadioItem>
         {grouped ? (
           <>

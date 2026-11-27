@@ -168,6 +168,7 @@ export function ComposerContext({
   environments = false,
   started = false,
   onProject,
+  onFolderPicked,
   projectChoices,
   pickedBefore,
   machineFolders,
@@ -243,6 +244,9 @@ export function ComposerContext({
   environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
+  /// The person picked `cwd`, a folder of this Mac, from the folder menu (never a machine switch's first folder,
+  /// another machine's folder or a GitHub repository): New Tab keeps it as the next page's default.
+  onFolderPicked?(cwd: string): void;
   projectChoices?: Project[];
   /// A folder the person picked before (New Tab's Cloud default, their last pick): with Cloud picked it is
   /// itself on the chip, as a pick made here is (cmux#53226).
@@ -941,6 +945,7 @@ export function ComposerContext({
     // One of this Mac's folders, listed with Cloud picked while the chip held a machine: the chat is this Mac's.
     if (cloudListsThisMac && selectedComputer !== "local" && !repo) setSelectedComputer("local");
     onProject?.(cwd);
+    if (!repo && !routeElsewhere && (selectedComputer === "local" || cloudListsThisMac)) onFolderPicked?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
   };
@@ -1232,6 +1237,8 @@ export function ComposerContext({
                 />
               }
               folders={menuFolders}
+              // Another machine's folders (its own menu, or a route that reaches it) ask this Mac for no icon.
+              remote={!cloudListsThisMac && (selectedComputer !== "local" || routeElsewhere)}
               current={currentFolder}
               currentPeer={cloudSide ? selectedComputer : undefined}
               onPick={pickFolder}
