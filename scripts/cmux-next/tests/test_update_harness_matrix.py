@@ -27,6 +27,7 @@ class UpdateHarnessMatrixTests(unittest.TestCase):
             "read-only-install",
             "required-update",
             "session-handoff",
+            "idle-install",
         })
 
     def test_shared_preference_rows_keep_download_choice_explicit(self):
@@ -52,6 +53,15 @@ class UpdateHarnessMatrixTests(unittest.TestCase):
             0,
             {"scenario": {"status": {"card": {"kind": "check_failed"}}}},
         ))
+
+    def test_idle_row_requires_the_real_result_verdicts(self):
+        case = next(case for case in matrix.CASES if case.name == "idle-install")
+        self.assertEqual(case.runner, "idle")
+        self.assertEqual(case.artifact, "result.json")
+        details = {"passed": True, "verdicts": {key: True for key in matrix.IDLE_VERDICTS}}
+        self.assertTrue(matrix.case_passed(case, 0, details))
+        details["verdicts"].pop("agents_survived")
+        self.assertFalse(matrix.case_passed(case, 0, details))
 
     def test_every_case_has_a_unique_runner_tag_and_output(self):
         paths = []
