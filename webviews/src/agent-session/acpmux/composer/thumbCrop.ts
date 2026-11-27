@@ -23,11 +23,22 @@ export function cropAxis(natural: { width: number; height: number }, box: { widt
 }
 
 /// Marks a decoded thumbnail with the side its tile cuts, for its fade (composerAttachments.css).
+/// A tile still zero wide when its picture decodes (a pasted chip held unseen while its shape is read,
+/// attachmentIntakeModel.ts `sizing`) is marked once it has a size, then no longer watched.
 export function markCrop(image: HTMLImageElement): void {
-  const axis = cropAxis(
-    { width: image.naturalWidth, height: image.naturalHeight },
-    { width: image.clientWidth, height: image.clientHeight },
-  );
-  if (axis) image.dataset.crop = axis;
-  else delete image.dataset.crop;
+  const mark = () => {
+    const box = { width: image.clientWidth, height: image.clientHeight };
+    if (!(box.width > 0 && box.height > 0)) return false;
+    const axis = cropAxis({ width: image.naturalWidth, height: image.naturalHeight }, box);
+    if (axis) image.dataset.crop = axis;
+    else delete image.dataset.crop;
+    return true;
+  };
+  if (mark()) return;
+  const View = image.ownerDocument.defaultView?.ResizeObserver;
+  if (!View) return;
+  const watch = new View(() => {
+    if (mark() || !image.isConnected) watch.disconnect();
+  });
+  watch.observe(image);
 }
