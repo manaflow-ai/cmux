@@ -29,6 +29,7 @@ pub mod cache;
 pub mod diagnostics;
 pub mod domains;
 pub mod effective;
+pub mod explain;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
