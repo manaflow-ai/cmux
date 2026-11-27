@@ -823,3 +823,41 @@ class KnownVerdictTest(unittest.TestCase):
     def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
         sent, _ = self.judge({"c": "cancelled"})
         self.assertEqual([p.sha for p in sent], ["c" * 40])
+
+
+class ListRunsLookbackTest(unittest.TestCase):
+    """The judge pages past probes until it holds LOOKBACK_BATCHES batch runs older than its own run."""
+
+    def runs_api(self, kinds: str, calls: list):
+        runs = [{"id": 1000 - i, "display_title": f"{'batch' if k == 'b' else 'probe'} x", "created_at": f"2026-11-27T{23 - i // 60:02d}:{59 - i % 60:02d}:00Z"}
+                for i, k in enumerate(kinds)]
+
+        def api(path, **_kw):
+            calls.append(path)
+            page = int(path.rpartition("&page=")[2]) if "&page=" in path else 1
+            return {"workflow_runs": runs[(page - 1) * pmb.RUNS_PAGE: page * pmb.RUNS_PAGE]}
+        return api
+
+    def test_pages_past_probes_to_the_batches_it_needs(self) -> None:
+        calls: list = []
+        # 250 runs, a batch every 50th; run 1000 (the judging batch) is excluded, so page 1 holds one older
+        # batch run and three need page 2.
+        api = self.runs_api("".join("b" if i % 50 == 0 else "p" for i in range(250)), calls)
+        got = pmb.list_runs("o/r", "feat", api=api, before=1000, batches=3)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sum(map(pmb.is_batch, got)), 3)
+        self.assertTrue(all(r["id"] < 1000 for r in got))
+        self.assertTrue(pmb.is_batch(got[-1]))
+
+    def test_stops_at_the_last_page_and_at_the_page_cap(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 150, calls), batches=3)), 150)
+        self.assertEqual(len(calls), 2)
+        calls = []
+        pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 2000, calls), batches=3)
+        self.assertEqual(len(calls), pmb.MAX_RUNS_PAGES)
+
+    def test_one_page_without_batches(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 250, calls))), 100)
+        self.assertEqual(len(calls), 1)

@@ -59,9 +59,14 @@ DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
-# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
+# Runs read back to find the last batch run where a job ran, a page at a time (GitHub's largest page).
 RUNS_PAGE = 100
+# The judge reads back this many batch runs (about a day at one every ~55 min), paging past the probes between them,
+# at most MAX_RUNS_PAGES pages. One page was the whole reach before 2026-11-27: at 01:57Z its 100 runs were 94 probes
+# and 6 batch runs (5.5 h), so a red older than that had no green in reach and stuck_reds skipped it; the 01:2xZ batch
+# run 45919537854 called 25 of its 28 reds "a known red, no bisect" (cmuxterm-hq goals/base-batch-reverts-culprit.md).
+LOOKBACK_BATCHES = 24
+MAX_RUNS_PAGES = 8
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
 # At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
@@ -329,13 +334,34 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=None) -> list[dict]:
-    """This workflow's runs on branch, newest first (one page)."""
+def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0) -> list[dict]:
+    """This workflow's runs on branch, newest first: one page, or with batches, the runs older than run id before
+    (all, when 0) back to and including the batches-th batch run among them, paging at most MAX_RUNS_PAGES pages.
+    A batch run's judge and its probes' judges pass the same before and batches, so they read the same batch runs."""
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
-    data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
-    runs = list((data or {}).get("workflow_runs") or [])
+    runs: list[dict] = []
+    for page in range(1, (MAX_RUNS_PAGES if batches else 1) + 1):
+        data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}"
+                   + (f"&page={page}" if page > 1 else ""))
+        got = list((data or {}).get("workflow_runs") or [])
+        runs += got
+        older = [r for r in runs if not before or (r.get("id") or 0) < before]
+        if not batches or len(got) < RUNS_PAGE or sum(map(is_batch, older)) >= batches:
+            break
+    seen: set = set()
+    runs = [r for r in runs if not (r.get("id") in seen or seen.add(r.get("id")))]
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
-    return runs
+    if not batches:
+        return runs
+    out, count = [], 0
+    for r in runs:
+        if before and (r.get("id") or 0) >= before:
+            continue
+        if count >= batches:
+            break
+        out.append(r)
+        count += is_batch(r)
+    return out
 
 
 def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
@@ -900,7 +926,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
     if args.mode != PROBE:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
-        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
+        runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
         stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
         stuck_names = {name for name, *_ in stuck}
@@ -933,7 +959,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
         if origin and is_batch(origin):
-            before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
+            before = list_runs(args.repo, args.branch, before=origin["id"], batches=LOOKBACK_BATCHES)
             origin_verdicts = jobs_of(origin["id"])[0]
             found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
