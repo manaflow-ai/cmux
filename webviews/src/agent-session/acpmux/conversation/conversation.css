@@ -9257,7 +9257,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow: hidden;
   white-space: nowrap;
 }
-.cv-worked__toggle:is(:hover, :focus-visible) * {
+/* With nothing under the fold yet (`disabled`, WorkingFor.tsx) the label opens nothing, so it does not light. */
+.cv-worked__toggle:not(:disabled):is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked__toggle:focus-visible {
