@@ -171,7 +171,7 @@ class NightlyJobSdkroot(unittest.TestCase):
             "build-nightly-app", "build-sign-notarize-nightly", "verify-signed-nightly",
             "verify-final-dmg-nightly", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
             "visual-gate-nightly", "build-nightly-deltas", "generate-nightly-deltas", "nightly-next-one",
-            "build-live-code-variant", "sign-live-code-variant",
+            "build-live-code-variant", "sign-live-code-variant", "nightly-next-pkg",
         ]))
 
     def test_a_link_in_each_compiling_job_takes_the_selected_xcodes_sdk(self) -> None:

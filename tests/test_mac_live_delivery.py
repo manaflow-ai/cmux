@@ -100,7 +100,8 @@ echo "$name" >> "$CALLS"
             point.write_text(stub)
             point.chmod(0o755)
             env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}",
-                   "RUNNER_TEMP": tmp, "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ID": "1", "GITHUB_REF": "refs/heads/some-pr-head",
+                   "RUNNER_TEMP": tmp, "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ID": "1",
+                   "GITHUB_REF": "refs/heads/some-pr-head",
                    "CALLS": str(root / "calls"), "FAIL_AT": failure}
             result = subprocess.run(["bash", "-euo", "pipefail", "-c", self.step["run"]],
                                     cwd=root, env=env, capture_output=True, text=True, timeout=10)

@@ -1385,7 +1385,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1415,7 +1415,7 @@ jobs:
           key: ${{ steps.r2-zig-local-key.outputs.key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1484,7 +1484,9 @@ jobs:
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: echo "version=$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
@@ -1503,8 +1505,9 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Restore the reviewed MinGW-Builds sysroot
+        id: mingw-sysroot
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
           key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
@@ -1526,6 +1529,13 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           bash scripts/ci/windows-gnu-cross-build.sh build dist
+
+      - name: Save the reviewed MinGW-Builds sysroot
+        if: ${{ (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.mingw-sysroot.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: ${{ steps.mingw-sysroot.outputs.cache-primary-key }}
 
       # The cmux-tui-core unit tests that must run on Windows, built here, run by build-windows.
       - name: Build the Windows long-path test binary

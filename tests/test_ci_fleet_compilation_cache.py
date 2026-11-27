@@ -47,7 +47,7 @@ class FleetCacheTests(unittest.TestCase):
         self.env = {**os.environ, "CMUX_FLEET_CAS_ROOT": str(self.cache),
                     "CMUX_FLEET_CAS_SETTINGS": str(self.helper),
                     "CMUX_FLEET_CAS_SOCKET": str(self.cache / "fleet-cas.sock"),
-                    "CMUX_CI_DISABLE_COMPILATION_CACHE": ""}
+                    "CMUX_GITHUB_EGRESS_PROBE": "0", "CMUX_CI_DISABLE_COMPILATION_CACHE": ""}
         self.helper.write_text('#!/bin/bash\nprintf "%s\\n" COMPILATION_CACHE_ENABLE_PLUGIN=YES '
                                '"COMPILATION_CACHE_REMOTE_SERVICE_PATH=$1" '
                                'COMPILATION_CACHE_CAS_PATH=/untrusted '
@@ -89,19 +89,12 @@ class FleetCacheTests(unittest.TestCase):
         self.assert_local()
         self.assertFalse(marker.exists())
 
-    def test_nightly_xcode_command_receives_shared_settings(self):
-        # Execute the workflow's actual compile command through tiny pass-through
-        # wrappers. No Xcode or compiler runs; the last executable records argv.
-        workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
-        step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
-        command = step[step.index("          fleet_cache_settings=()") :]
-        command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
-        command = warm_cache(step, command)
+    def _stage_nightly_release_scripts(self):
         scripts = self.root / "scripts/ci"
-        scripts.mkdir(parents=True)
+        scripts.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SETTINGS, scripts / SETTINGS.name)
         cache_lib = self.root / "scripts/cmux-next/lib"
-        cache_lib.mkdir(parents=True)
+        cache_lib.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "scripts/cmux-next/lib/compilation-cache.sh",
                         cache_lib / "compilation-cache.sh")
         # Sourced by the build; off here (no CMUX_NIGHTLY_HOST_BUILD_ROOT), so it builds in place.
@@ -120,6 +113,12 @@ class FleetCacheTests(unittest.TestCase):
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
         wrapper.write_text('#!/bin/bash\nshift\nexec "$@"\n')
         wrapper.chmod(0o755)
+
+    def test_nightly_xcode_command_receives_shared_settings(self):
+        # Execute the workflow's actual compile command through tiny pass-through
+        # wrappers. No Xcode or compiler runs; the last executable records argv.
+        command = self._nightly_release_command()
+        self._stage_nightly_release_scripts()
         xcode = self.root / "xcodebuild"
         xcode.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
         xcode.chmod(0o755)
@@ -151,29 +150,7 @@ class FleetCacheTests(unittest.TestCase):
         return warm_cache(step, command)
 
     def _run_nightly_release_stub(self, diagnostic, **extra_env):
-        scripts = self.root / "scripts/ci"
-        scripts.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SETTINGS, scripts / SETTINGS.name)
-        cache_lib = self.root / "scripts/cmux-next/lib"
-        cache_lib.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / "scripts/cmux-next/lib/compilation-cache.sh",
-                        cache_lib / "compilation-cache.sh")
-        # Sourced by the build; off here (no CMUX_NIGHTLY_HOST_BUILD_ROOT), so it builds in place.
-        (scripts / "nightly-steps").mkdir(exist_ok=True)
-        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
-                        scripts / "nightly-steps/app-host-build-root.sh")
-        # Writes the job summary after a build; the real one, so its cache label is checked too.
-        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
-                        scripts / "nightly-steps/release-build-summary.sh")
-        # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
-        shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
-        # Sourced before the preflight (a dead github.com proxy is probed and routed around).
-        shutil.copyfile(ROOT / "scripts/ci/github-egress-direct.sh", scripts / "github-egress-direct.sh")
-        (scripts / "run-with-helper-prebuild.py").write_text(
-            "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
-        wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
-        wrapper.write_text('#!/bin/bash\nshift\nexec "$@"\n')
-        wrapper.chmod(0o755)
+        self._stage_nightly_release_scripts()
         count = self.root / "build-count"
         count.unlink(missing_ok=True)
         args_log = self.root / "xcode-args"
