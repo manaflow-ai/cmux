@@ -71,13 +71,6 @@ def xcode_label(pins: Path = XCODE_PINS) -> str | None:
     return f"xcode-{max(rows)[1]}" if rows else None
 
 
-def step_key(pr: int, head: str, step: dict, strict: bool) -> str:
-    """The controller's step_key: one per (PR, head, mode, worker, pin mode). A key without the head or the pin mode
-    names an earlier step, so a rerun with --pin-strict at the same head was refused (HTTP 409, "step_key already
-    names a different step")."""
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{step['worker']}" + ("-strict" if strict else "")
-
-
 def now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -132,9 +125,18 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def step_key(step: dict, head: str, pr: int, strict: bool = False) -> str:
+    """The controller's idempotency key for STEP. It names the head, the shard and the pin mode: a key is bound to
+    the first step it named, so a key without the head answers a re-verify after a push (or a base merge) with
+    HTTP 409 "step_key already names a different step", two shards of one mode on one worker would share one, and
+    a rerun with --pin-strict at the same head was refused the same way."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}" + ("-strict" if strict else "")
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(pr, head, step, strict), "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     label = xcode_label()
