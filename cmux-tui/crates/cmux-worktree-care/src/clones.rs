@@ -131,6 +131,29 @@ mod tests {
     }
 
     #[test]
+    fn detached_commits_keep_the_clone() {
+        let (base, clone) = clone_pair("clone-detached-preserve");
+        git(&clone, &["checkout", "--detach", "-q"]);
+        std::fs::write(clone.join("a"), "detached work").unwrap();
+        git(&clone, &["commit", "-qam", "detached"]);
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
+    fn ignored_local_data_keeps_the_clone() {
+        let (base, clone) = clone_pair("clone-ignored-preserve");
+        std::fs::write(clone.join(".git/info/exclude"), ".env\nlocal-db/\n").unwrap();
+        std::fs::create_dir_all(clone.join("local-db")).unwrap();
+        std::fs::write(clone.join("local-db/data"), "local data").unwrap();
+        std::fs::write(clone.join(".env"), "local config").unwrap();
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
     fn dirty_stashed_or_remoteless_clones_are_kept() {
         let (base, clone) = clone_pair("clone-dirty");
         std::fs::write(clone.join("loose"), "x").unwrap();
