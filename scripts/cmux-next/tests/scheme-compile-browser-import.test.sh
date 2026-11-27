@@ -14,6 +14,8 @@ repo="$TMP/repo"
 sources="$repo/Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 mkdir -p "$repo/scripts/cmux-next/lib" "$repo/scripts/ci" "$(dirname "$sources")" "$TMP/bin" "$TMP/steptmp"
 cp "$ROOT/scripts/cmux-next/check-cmux-scheme-compile.sh" "$repo/scripts/cmux-next/"
+# check-cmux-scheme-compile.sh sources the SwiftPM guard for github_git_auth_env and the module guard.
+cp "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$ROOT/scripts/ci/github-egress-direct.sh" "$repo/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/lib/fleet-only.sh" "$ROOT/scripts/cmux-next/lib/workspace-resolved.sh" "$ROOT/scripts/cmux-next/lib/compilation-cache.sh" "$ROOT/scripts/cmux-next/lib/browser-sources-compiled-out.json" "$repo/scripts/cmux-next/lib/"
 cat > "$repo/scripts/ci/run-xcodebuild-with-diagnostics.sh" <<'EOF'
 #!/bin/bash

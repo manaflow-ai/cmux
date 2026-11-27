@@ -18,13 +18,16 @@ struct Launcher {
     script: &'static str,
     /// Only a Debug or DEV cmux runs it.
     dev_only: bool,
+    /// It opens windows, so only a Mac runs it.
+    macos_only: bool,
 }
 
-const LAUNCHERS: [Launcher; 2] = [
+const LAUNCHERS: [Launcher; 3] = [
     Launcher {
         words: ["dev", "ui-host"],
         script: "Prototypes/UiLayerHost/launch.sh",
         dev_only: true,
+        macos_only: true,
     },
     // The view shell: the UI in real windows on the mock host (Prototypes/ViewShell/README.md). It
     // reads nothing of the person's data but their theme, so any build may open it.
@@ -32,10 +35,20 @@ const LAUNCHERS: [Launcher; 2] = [
         words: ["preview", "open"],
         script: "Prototypes/ViewShell/launch.sh",
         dev_only: false,
+        macos_only: true,
+    },
+    // The iOS verify loop (scripts/ci/ios_verify.py): proves a pull request's affected iOS flows on its
+    // head on the fleet's warm simulators and posts the proof the `cmux/ios-fast` gate needs. It drives
+    // fleet Macs through cmux-ci, so it runs from any checkout, a Linux lane VM included.
+    Launcher {
+        words: ["ios", "verify"],
+        script: "scripts/ci/ios-verify.sh",
+        dev_only: false,
+        macos_only: false,
     },
 ];
 
-/// Handles `cmux dev ui-host` and `cmux preview open` before the normal daemon/resource parser.
+/// Handles `cmux dev ui-host`, `cmux preview open` and `cmux ios verify` before the normal daemon/resource parser.
 ///
 /// The commands are available only through the curated `cmux` surface. A
 /// `cmux-tui` invocation with the same words remains an ordinary usage error.
@@ -67,7 +80,7 @@ fn run_launcher(launcher: &Launcher, args: &[String]) -> i32 {
         );
         return 1;
     }
-    if env::consts::OS != "macos" {
+    if launcher.macos_only && env::consts::OS != "macos" {
         eprintln!("cmux: `{name}` runs on a developer Mac; this host is not macOS");
         return 1;
     }

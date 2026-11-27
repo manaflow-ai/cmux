@@ -166,6 +166,17 @@ on:
         required: false
       ASC_API_KEY_P8_BASE64:
         required: false
+      # Declared so a called run's references resolve; the INTERNAL builder
+      # passes none of these (only the ASC key), so a called run mints no
+      # routing token and saves no R2 cache, as before: both steps continue on error.
+      GLAEDA_ROUTE_APP_KEY:
+        required: false
+      CI_CACHE_R2_ACCESS_KEY_ID:
+        required: false
+      CI_CACHE_R2_SECRET_ACCESS_KEY:
+        required: false
+      CI_CACHE_R2_ACCOUNT_ID:
+        required: false
     outputs:
       blocking:
         description: Number of blocking findings
@@ -594,7 +605,10 @@ jobs:
             fi
           done
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || { echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"; exit 0; }
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"
+            exit 0
+          fi
           out="$RUNNER_TEMP/out"
           status=0
           "$client" ios-build --what gate-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?
@@ -642,7 +656,7 @@ jobs:
         family: ${{ fromJSON(needs.plan.outputs.families) }}
     # An owned simulator mini from the plan job's picker on attempt 1, ephemeral Blacksmith macOS 26 on a
     # re-run or a fork pull request (which reads no repository variables).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
