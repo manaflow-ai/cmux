@@ -99,7 +99,7 @@ public final class ImportSuggestionsCenter {
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if !refreshIfOfferChanged() { rescanIfStale() }
+                if !self.refreshIfOfferChanged() { self.rescanIfStale() }
             }
         }
         scan { [weak self] in self?.resumeInterrupted() }
