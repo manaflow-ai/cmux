@@ -204,23 +204,45 @@ export function createWorkflowAdapter() {
   };
 }
 
+const WORKFLOW_SIGNAL_MS = 120_000;
+
+function isCapacityError(error: WorkflowCapacitySignal["errors"][number], daemonId: string): boolean {
+  return error.daemonId === daemonId && /(?:\b503\b|\b429\b|exhausted)/i.test(error.reason);
+}
+
+export function workflowSignalBoundaries(
+  workflows: readonly WorkflowSummary[],
+  daemon?: WorkflowCapacitySignal,
+): number[] {
+  const boundaries: number[] = [];
+  for (const workflow of workflows) {
+    for (const agent of workflow.agents) {
+      if (agent.state === "running" && agent.lastProgressAt !== undefined)
+        boundaries.push(agent.lastProgressAt + WORKFLOW_SIGNAL_MS);
+    }
+  }
+  if (daemon) {
+    for (const error of daemon.errors) {
+      // A capacity error still counts at exactly two minutes.
+      if (isCapacityError(error, daemon.daemonId)) boundaries.push(error.at, error.at + WORKFLOW_SIGNAL_MS + 1);
+    }
+  }
+  return boundaries.sort((a, b) => a - b);
+}
+
 export function workflowSignals(workflows: readonly WorkflowSummary[], now: number, daemon?: WorkflowCapacitySignal) {
   const idle = new Set<string>();
   const erroring = new Set(
     daemon?.errors
       .filter(
-        (error) =>
-          error.daemonId === daemon.daemonId &&
-          now >= error.at &&
-          now - error.at <= 120_000 &&
-          /(?:\b503\b|\b429\b|exhausted)/i.test(error.reason),
+        (error) => now >= error.at && now - error.at <= WORKFLOW_SIGNAL_MS && isCapacityError(error, daemon.daemonId),
       )
       .map((error) => error.agentId),
   );
   for (const workflow of workflows)
     for (const agent of workflow.agents) {
       const age = agent.lastProgressAt === undefined ? undefined : now - agent.lastProgressAt;
-      if (agent.state === "running" && age !== undefined && age >= 120_000) idle.add(agent.id);
+      if (agent.state === "running" && age !== undefined && age >= WORKFLOW_SIGNAL_MS) idle.add(agent.id);
     }
   return { capacity: erroring.size >= 2, idle };
 }
