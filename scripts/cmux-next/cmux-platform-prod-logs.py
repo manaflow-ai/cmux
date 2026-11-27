@@ -152,6 +152,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # A guest still unbound two minutes into its create, read and maybe restarted (cmux-platform CloudCore
+    # nudgeLateBinds): kept with its bind_probe projection and `kicked`.
     "cloud.machine.bind_late",
     # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
     # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
@@ -509,6 +511,11 @@ BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
 UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+# The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                        r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
 
 
 def probe_facts(out):
@@ -544,10 +551,64 @@ def probe_facts(out):
                 https.append("no_answer")
         elif ln == "curl=absent":
             https = ["curl_absent", "curl_absent"]
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            facts["bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            facts["host_service"] = v if v in HOST_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            facts["journal"] = "absent"
     for name, got in (("dns", dns), ("https", https)):
         for target, v in zip(("api", "edge"), got):
             facts[f"{name}_{target}"] = v
     return facts
+
+
+# "cloud provider call failed" (cmux-platform src/server/cloud/CloudCore.ts) carries the DriverError's message, which
+# the platform builds from its own literals (vmapi/CloudProvider.ts unavailable("...")) or "HTTP <status>" plus
+# cmux-vm's error. Only the class leaves the line: an exact platform phrase (whole, or before ": " or " ("), the
+# leading HTTP status, or "other"; never the text after it. A create that failed final at attempt 1 (live-fork copy,
+# production 2026-11-27 00:09Z) otherwise read only `"error": true`, which said nothing of which check refused it.
+PROVIDER_ERROR_PHRASES = frozenset({
+    "VM discovery page limit", "ambiguous VM name", "ambiguous snapshot name",
+    "an egress allowlist needs publicEgress false", "create VM: HTTP 409 and no VM under the name",
+    "create VM: wrong VM answer", "find VM: invalid answer", "find VM: wrong VM answer", "invalid VM cursor",
+    "invalid VM id", "invalid VM list", "invalid VM name", "invalid VM resources", "invalid restore snapshot",
+    "invalid snapshot cursor", "invalid snapshot list", "invalid snapshot name", "list VMs: invalid answer",
+    "network routing is not configured", "no readable answer", "read VM: unreadable resources",
+    "read VM: wrong VM answer", "read snapshot: wrong answer", "restore snapshot is missing",
+    "snapshot discovery page limit", "snapshot source is missing", "snapshot: no boot disk on the VM",
+    "the VM this machine's first create made is not there yet",
+    "the VM this machine's first create made was deleted; its key cannot make another",
+    "the creation receipt names another VM", "this machine's first create cannot be resolved",
+    "this machine's first create is not confirmed yet",
+    "this machine's first create made another VM than it asks for", "this machine's first create was cancelled",
+    "unconfirmed VM ownership", "unconfirmed VM selector", "unconfirmed create", "unconfirmed growth",
+    "unconfirmed restore", "unconfirmed snapshot selector", "unconfirmed snapshot source",
+    "unreadable HTTPS proxies", "unreadable public egress", "unsupported HTTPS proxy", "wrong Cloud team",
+    "wrong VM answer", "HTTP 404 (the team's mesh is not found)",
+})
+PROVIDER_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?![0-9])")
+
+
+def provider_error_class(message):
+    """A fixed class for a provider call's error message: a PROVIDER_ERROR_PHRASES phrase, "HTTP <status>" or other."""
+    if not isinstance(message, str):
+        return "other"
+    if message in PROVIDER_ERROR_PHRASES:
+        return message
+    heads = [p for p in PROVIDER_ERROR_PHRASES if message.startswith(p + ": ") or message.startswith(p + " (")]
+    if heads:
+        return max(heads, key=len)
+    m = PROVIDER_HTTP.match(message)
+    return f"HTTP {m.group(1)}" if m else "other"
 
 
 def bind_probe(p):
@@ -710,12 +771,14 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+    if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
+        out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
         for k in ("skipped", "ms"):
             counts = token_counts(j.get(k))
             if counts is not None:
                 out[k] = counts
-    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
             out["bind_probe"] = probe
@@ -726,6 +789,8 @@ def public_log(j):
             out["why"] = j["why"]
     if "error" in j:
         out["error"] = True
+        if msg == "cloud provider call failed":
+            out["error_class"] = provider_error_class(j["error"])
     return out, None
 
 

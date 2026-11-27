@@ -416,6 +416,30 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_late_bind_line_keeps_the_agent_state_and_whether_it_was_kicked(self):
+        # cmux-platform#2182: a guest unbound at 120 s is read and its stuck bind agent restarted; the line says which
+        # hold it was (Noise key, restart gate, unit down) as fixed tokens, never the agent's text.
+        out = ("uptime_s=121\nbind_file=present\nbound_file=missing\nhost_service=active\nnoise_identity=0\n"
+               "agent_bind=noise_key_wait\nagent_bind_lines=1\nnameservers=10.0.0.53,\n")
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "team": TEAM, "machine": VM, "ms": 120400,
+                               "kicked": "yes", "bind_probe": {"outcome": "ran", "ms": 900, "exit": 0, "out": out}}))
+        log = row["log"]
+        self.assertEqual(log["msg"], "cloud.machine.bind_late")
+        self.assertEqual(log["kicked"], "yes")
+        probe = log["bind_probe"]
+        self.assertEqual((probe["bound_file"], probe["host_service"], probe["noise_identity"],
+                          probe["agent_bind"], probe["agent_bind_lines"]),
+                         ("missing", "active", 0, "noise_key_wait", 1))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "kicked": "maybe /etc/x",
+                               "bind_probe": {"outcome": "ran", "out": "agent_bind=bind: bound machine=m_1\n"
+                                                                       "host_service=Active!\n"}}))
+        self.assertNotIn("kicked", row["log"])
+        self.assertEqual((row["log"]["bind_probe"]["agent_bind"], row["log"]["bind_probe"]["host_service"]),
+                         ("other", "other"))
+        self.assertNotIn("m_1", json.dumps(row))
+        self.assertNotIn("10.0.0", json.dumps(logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM,
+                                                               "bind_probe": {"outcome": "ran", "out": out}}))))
+
     def test_the_edge_dns_check_keeps_outcome_exit_and_why_but_no_upstream(self):
         # Production 2026-11-26 21:46Z: a fresh create's agents had no edge route and this line was dropped unlisted (hq#30520).
         row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
@@ -529,6 +553,37 @@ class NeverBoundTests(unittest.TestCase):
         text = json.dumps(row)
         for secret in ("203.0.113", "10.0.0", "cmux.example", "coderouter.cmux.internal", "eth0", VM, TEAM):
             self.assertNotIn(secret, text)
+
+    def test_a_provider_call_failure_keeps_only_its_error_class(self):
+        cases = (("restore snapshot is missing", "restore snapshot is missing"),
+                 ("HTTP 409 (still running) secret-tenant-words", "HTTP 409"),
+                 ("HTTP 4291", "other"),
+                 ("unconfirmed create", "unconfirmed create"),
+                 ("read snapshot: wrong answer: " + VM, "read snapshot: wrong answer"),
+                 ("the VM this machine's first create made is not there yet",
+                  "the VM this machine's first create made is not there yet"),
+                 ("restore snapshot is missing because tenant-x", "other"),
+                 (None, "other"))
+        for message, want in cases:
+            with self.subTest(message=message):
+                row = logs.line(event({"msg": "cloud provider call failed", "team": TEAM, "machine": VM, "op": "create",
+                                       "attempt": 1, "code": "cloud.provider.unavailable", "error": message}))
+                self.assertEqual(row["log"]["error_class"], want)
+                self.assertIs(row["log"]["error"], True)
+                text = json.dumps(row)
+                for secret in ("secret-tenant-words", "tenant-x", VM, TEAM):
+                    self.assertNotIn(secret, text)
+
+    def test_a_window_total_groups_provider_failures_by_error_class(self):
+        events = [event({"msg": "cloud provider call failed", "machine": VM, "op": "create", "attempt": 1,
+                         "code": "cloud.provider.unavailable", "error": "restore snapshot is missing"})]
+        rows = logs.window_totals(events, ["cloud provider call failed"])[1]
+        self.assertEqual([r["log"]["error_class"] for r in rows], ["restore snapshot is missing"])
+        self.assertNotIn(VM, json.dumps(rows))
+
+    def test_other_lines_never_get_an_error_class(self):
+        row = logs.line(event({"msg": "cloud slow call failed", "machine": VM, "error": "restore snapshot is missing"}))
+        self.assertNotIn("error_class", row.get("log", {}))
 
     def test_every_probe_outcome_and_odd_out_text_stays_typed(self):
         cases = (({"outcome": "failed", "ms": 15, "error": "VmNotRunning"}, {"outcome": "failed", "ms": 15,
