@@ -108,12 +108,12 @@ pub fn snapshot(request: &Value) -> Value {
         .collect();
     let mut ordered = Vec::new();
     for row in seed {
-        if let Some(cwd) = row["cwd"].as_str() {
-            if remaining.remove(cwd).is_some() {
-                // Repository identity controls grouping. Keep it for this opening;
-                // refreshed metadata is cached for the next opening.
-                ordered.push(row);
-            }
+        if let Some(cwd) = row["cwd"].as_str()
+            && remaining.remove(cwd).is_some()
+        {
+            // Repository identity controls grouping. Keep it for this opening;
+            // refreshed metadata is cached for the next opening.
+            ordered.push(row);
         }
     }
     for row in rows {
