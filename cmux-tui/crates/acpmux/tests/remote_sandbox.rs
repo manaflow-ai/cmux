@@ -897,6 +897,33 @@ async fn a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else() 
     let _ = std::fs::remove_dir_all(&d);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn local_profile_keeps_home_ssh_metadata_and_closes_escape_boundaries() {
+    let profile = include_str!("../sandbox/local-agent.sb");
+    // A relocated agent HOME contains untrusted prompt-controlled files. Only
+    // the account HOME's SSH config and known_hosts are safe metadata reads.
+    assert!(profile.contains(r#"(literal (string-append (param "HOME") "/.ssh/config"))"#));
+    assert!(profile.contains(r#"(literal (string-append (param "HOME") "/.ssh/known_hosts"))"#));
+    assert!(!profile.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/config"))"#));
+    assert!(
+        !profile.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/known_hosts"))"#)
+    );
+
+    // Docker and other Unix sockets can proxy unrestricted host access. The
+    // resolver exception is the only socket path left open.
+    assert!(
+        profile.contains(r#"(remote unix-socket (path-literal "/private/var/run/mDNSResponder"))"#)
+    );
+    assert!(!profile.contains("  (remote unix-socket))"));
+
+    // Toolchain state remains writable only in cache/build subtrees. Its
+    // executable and configuration roots must remain denied.
+    for root in ["/.rustup", "/Library/pnpm", "/.deno", "/go", "/Library/Developer"] {
+        assert!(!profile.contains(root), "profile widened toolchain root {root}");
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn linux_unavailable_bwrap_refuses_the_spawn_with_its_reason() {

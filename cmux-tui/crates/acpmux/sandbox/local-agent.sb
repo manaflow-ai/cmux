@@ -47,18 +47,14 @@
   (subpath (string-append (param "AGENT_HOME") "/.cargo/registry"))
   (subpath (string-append (param "AGENT_HOME") "/.cargo/git"))
   (subpath (string-append (param "AGENT_HOME") "/.cargo/.package-cache"))
-  (subpath (string-append (param "AGENT_HOME") "/.rustup"))
-  (subpath (string-append (param "AGENT_HOME") "/.npm"))
-  (subpath (string-append (param "AGENT_HOME") "/.bun"))
+  (subpath (string-append (param "AGENT_HOME") "/.npm/_cacache"))
+  (subpath (string-append (param "AGENT_HOME") "/.npm/_logs"))
+  (subpath (string-append (param "AGENT_HOME") "/.bun/install/cache"))
   (subpath (string-append (param "AGENT_HOME") "/.pnpm-store"))
-  (subpath (string-append (param "AGENT_HOME") "/Library/pnpm"))
-  (subpath (string-append (param "AGENT_HOME") "/.yarn"))
-  (subpath (string-append (param "AGENT_HOME") "/.deno"))
-  (subpath (string-append (param "AGENT_HOME") "/.gradle"))
-  (subpath (string-append (param "AGENT_HOME") "/.m2"))
-  (subpath (string-append (param "AGENT_HOME") "/go"))
-  (subpath (string-append (param "AGENT_HOME") "/.swiftpm"))
-  (subpath (string-append (param "AGENT_HOME") "/Library/Developer"))
+  (subpath (string-append (param "AGENT_HOME") "/.yarn/cache"))
+  (subpath (string-append (param "AGENT_HOME") "/.gradle/caches"))
+  (subpath (string-append (param "AGENT_HOME") "/.gradle/wrapper/dists"))
+  (subpath (string-append (param "AGENT_HOME") "/.m2/repository"))
   (subpath (string-append (param "AGENT_HOME") "/Library/org.swift.swiftpm"))
 ;; @FOLDERS@
   )
@@ -141,9 +137,6 @@
   (literal (string-append (param "HOME") "/.ssh"))
   (literal (string-append (param "HOME") "/.ssh/config"))
   (literal (string-append (param "HOME") "/.ssh/known_hosts"))
-  (literal (string-append (param "AGENT_HOME") "/.ssh"))
-  (literal (string-append (param "AGENT_HOME") "/.ssh/config"))
-  (literal (string-append (param "AGENT_HOME") "/.ssh/known_hosts"))
   (regex (string-append "^" (param "HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
   (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
   (literal (string-append (param "HOME") "/.aws/config"))
@@ -153,14 +146,15 @@
 (deny job-creation)
 (deny lsopen)
 
-;; Network: loopback (dev servers, local model routes), Unix sockets (the
-;; acpmux socket, ssh-agent, docker), and outbound only to ports 443, 80 and
-;; 22 (git over ssh). Anything else leaving the Mac is refused.
+;; Network: loopback (dev servers, local model routes) and outbound only to
+;; ports 443, 80 and 22 (git over ssh). Unix sockets stay closed except for
+;; macOS's resolver socket. In particular, Docker's socket must not proxy
+;; unrestricted host access into this profile.
 (deny network-outbound)
 (allow network-outbound
   (remote ip "*:443")
   (remote ip "*:80")
   (remote ip "*:22")
   (remote ip "localhost:*")
-  (remote unix-socket))
+  (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
 ;; @API_PORT@
