@@ -6,7 +6,7 @@
 
 use super::super::host_self_update::{
     Channel, Controller, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Source, Step,
-    apply, channel_url, prepare, refresh_tui, tui::TuiOutcome, unpack,
+    apply, channel_url, ensure_timer, prepare, refresh_tui, tui::TuiOutcome, unpack,
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
@@ -1558,6 +1558,49 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, _) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// fs-agent-lane-44 to 47, 2026-11-27: a host whose acpmux and
+/// `acpmux.service` came from its image had no acpmux-update.timer, and
+/// `host self-update` found its binary current and never installed one. A
+/// self-update that restarts nothing now installs it, without a restart; a
+/// running timer, the opt-out and a daemon not under `acpmux.service` are
+/// left as they are.
+#[test]
+fn a_current_host_without_the_timer_gets_it() {
+    let timer = format!("{UNITS}/acpmux-update.timer");
+    let enable = "systemctl --user enable --now acpmux-update.timer".to_owned();
+    let peer = FakePeer::new("self-timer");
+    assert_eq!(ensure_timer(&peer), None);
+    assert_eq!(peer.read(&timer), UPDATE_TIMER);
+    assert_eq!(peer.read(&format!("{UNITS}/acpmux-update.service")), UPDATE_SERVICE);
+    let calls = peer.take_calls();
+    assert!(calls.contains(&enable), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.contains("restart")), "{calls:?}");
+    assert_eq!(peer.daemon(), OLD);
+    assert!(peer.exists("agents"));
+
+    // Running: the check and nothing else.
+    peer.write("active-acpmux-update.timer", "");
+    assert_eq!(ensure_timer(&peer), None);
+    assert_eq!(peer.take_calls(), ["systemctl --user is-active --quiet acpmux-update.timer"]);
+
+    let off = FakePeer::new("self-timer-off");
+    off.write(&format!(".acpmux/{NO_AUTO_UPDATE}"), "");
+    assert_eq!(ensure_timer(&off), None, "an opt-out is no reason to report");
+    assert!(!off.exists(&timer));
+    assert!(!off.take_calls().contains(&enable));
+
+    let detached = FakePeer::new("self-timer-detached");
+    std::fs::remove_file(detached.home.join("active-acpmux.service")).unwrap();
+    assert_eq!(ensure_timer(&detached), None);
+    assert!(!detached.exists(&timer));
+
+    let theirs = FakePeer::new("self-timer-theirs");
+    theirs.write(&format!("{UNITS}/acpmux-update.service"), "[Service]\nExecStart=/bin/true\n");
+    let why = ensure_timer(&theirs).unwrap_or_default();
+    assert!(why.contains("acpmux-update.service is a unit acpmux did not write"), "{why}");
+    assert!(!theirs.exists(&timer));
 }
 
 /// A host that does not update itself says why in `host update`'s row, not
