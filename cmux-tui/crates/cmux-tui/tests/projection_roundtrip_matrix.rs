@@ -722,6 +722,12 @@ fn a_commit_on_the_machine_fast_forwards_the_macs_branch() {
     let t = trip_or_skip!("commit", repo);
     write(&t.at("src/a.txt"), "alpha, committed on the machine\n");
     t.machine.side.git(&t.folder, &["commit", "-qam", "on the machine"]);
+    assert_eq!(
+        t.machine_status(),
+        "",
+        "machine index must match its commit before Bring Back: {}",
+        t.machine.side.git(&t.folder, &["diff", "--cached"])
+    );
     let answer = t.brought_back();
     assert_eq!(answer["fast_forwarded"], true, "{answer}");
     assert_eq!(
@@ -729,7 +735,14 @@ fn a_commit_on_the_machine_fast_forwards_the_macs_branch() {
         t.machine.side.git(&t.folder, &["rev-parse", "HEAD"])
     );
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, committed on the machine\n");
-    assert_eq!(t.mac_status(), "");
+    assert_eq!(
+        t.mac_status(),
+        "",
+        "Bring Back: {answer}; machine index: {}; Mac index: {}; Mac staged diff: {}",
+        t.machine.side.git(&t.folder, &["ls-files", "--stage"]),
+        t.mac.git(&t.local, &["ls-files", "--stage"]),
+        t.mac.git(&t.local, &["diff", "--cached"])
+    );
     t.statuses_agree();
 }
 

@@ -611,6 +611,112 @@ fn detach_draining_a_write_does_not_seal_a_replacement() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn an_extend_finishing_after_detach_does_not_refresh_the_removed_or_replacement_mount() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use std::time::{Duration, Instant};
+
+    let item = |path: &str| Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 4,
+        mtime_ns: 1,
+        link: None,
+    };
+    for replace in [false, true] {
+        let home = cmux_unix_socket::short_test_dir("extlate");
+        let name = home.path().file_name().unwrap().to_str().unwrap().to_owned();
+        let at = home.path().join("mount");
+        std::fs::create_dir(&at).unwrap();
+        // attach resolves its real state path; use a unique name and remove only our folder.
+        let state = state_of(&name).unwrap();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::create_dir(&state).unwrap();
+        std::fs::create_dir(state.join("upper")).unwrap();
+        std::fs::write(state.join("upper/file"), b"kept").unwrap();
+        cmux_projection::state::update(&state, &at, |record| record.attached_ms = 1).unwrap();
+        let head = Arc::new(Manifest::build(1, vec![item("file")]).unwrap());
+        let full = Manifest::build(1, vec![item("file"), item("tail")]).unwrap().encode().unwrap();
+        let digest = fnv(&full);
+        let make = |dir: &Path| {
+            Arc::new(Projected {
+                link: Arc::new(cmux_projection::link::Link::default()),
+                digest: AtomicU64::new(0),
+                at: at.clone(),
+                mounted: Mutex::new(None),
+                overlay: Arc::new(
+                    cmux_projection::overlay::Overlay::open(
+                        head.clone(),
+                        dir,
+                        Arc::new(cmux_projection::link::Link::default()),
+                        (0, 0),
+                    )
+                    .unwrap(),
+                ),
+                ext: Mutex::new(None),
+                barrier: Mutex::new(None),
+                away: cmux_projection::away::Away::new(|_| {}),
+            })
+        };
+        let old = make(&state);
+        projections().lock().unwrap().insert(name.clone(), old.clone());
+        // extend stores the digest after changing the lower manifest, then takes this mutex.
+        // Holding it forces the race before attach can recheck the mount table.
+        let held = old.ext.lock().unwrap();
+        let first = json!({
+            "id": 1, "cmd": SERVE, "name": name, "at": at,
+            "manifest_bytes": full.len(), "extend": true,
+        })
+        .to_string();
+        let roots = vec![home.path().to_path_buf()];
+        let extending = std::thread::spawn(move || attach(&first, &mut full.as_slice(), &roots));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while old.digest.load(Ordering::Relaxed) != digest && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(old.digest.load(Ordering::Relaxed), digest, "extend reached its handoff");
+        assert!(old.overlay.lookup(1, "tail").is_ok(), "the old manifest was extended");
+        detach(&control_line(&name, None, None), &state).unwrap();
+        assert!(old.overlay.is_sealed());
+        assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+        let replacement = replace.then(|| {
+            std::fs::create_dir(&at).unwrap();
+            let dir = home.path().join("replacement");
+            std::fs::create_dir_all(dir.join("upper")).unwrap();
+            std::fs::write(dir.join("upper/file"), b"live").unwrap();
+            let replacement = make(&dir);
+            projections().lock().unwrap().insert(name.clone(), replacement.clone());
+            cmux_projection::state::update(&state, &at, |record| {
+                record.detached = None;
+                record.attached_ms = 2;
+            })
+            .unwrap();
+            replacement
+        });
+        let record = cmux_projection::state::read(&state).unwrap();
+        drop(held);
+        let refused = extending.join().unwrap().err().expect("late extend must refuse");
+        assert_eq!(refused.0, "projection.unknown");
+        assert_eq!(cmux_projection::state::read(&state).unwrap(), record);
+        assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+        let current = projections().lock().unwrap().remove(&name);
+        if let Some(replacement) = replacement {
+            assert!(Arc::ptr_eq(&current.unwrap(), &replacement));
+            assert!(!replacement.overlay.is_sealed());
+            assert!(replacement.overlay.lookup(1, "tail").is_err());
+            let ino = replacement.overlay.lookup(1, "file").unwrap().ino;
+            assert_eq!(replacement.overlay.write(ino, 0, b"next"), Ok(4));
+            assert_eq!(replacement.overlay.read(ino, 0, 4).unwrap(), b"next");
+        } else {
+            assert!(current.is_none());
+            assert!(!at.exists());
+        }
+        std::fs::remove_dir_all(&state).unwrap();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn a_detached_projection_rejects_redial() {
     let home = cmux_unix_socket::short_test_dir("proj");
     let name = "p-late-redial";
