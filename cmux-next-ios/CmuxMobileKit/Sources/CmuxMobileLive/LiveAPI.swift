@@ -318,6 +318,32 @@ public struct LiveAPI: Sendable {
         return request
     }
 
+    /// `POST` `pathAndQuery` (from Rust's `PhoneCatchUp.relayRequest`: `/v1/relay-cache/...?deviceId=`)
+    /// with a JSON body already encoded, bearer refreshed once on a 401 like ``call(_:_:body:)``.
+    func relayCache(pathAndQuery: String, json: String) async throws -> Data {
+        let parts = pathAndQuery.split(separator: "?", maxSplits: 1)
+        var components = URLComponents(url: baseURL.appending(path: String(parts.first ?? "")), resolvingAgainstBaseURL: false)
+        if parts.count == 2 { components?.percentEncodedQuery = String(parts[1]) }
+        guard let url = components?.url else { throw Failure(status: 0, code: "bad_request", message: "relay cache path") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(json.utf8)
+        try buildSpace.apply(to: &request)
+        for forceRefresh in [false, true] {
+            request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401, !forceRefresh { continue }
+            guard (200..<300).contains(status) else {
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+            }
+            return data
+        }
+        throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
+    }
+
     /// The request ``call(_:_:body:)`` sends, before its bearer.
     func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
