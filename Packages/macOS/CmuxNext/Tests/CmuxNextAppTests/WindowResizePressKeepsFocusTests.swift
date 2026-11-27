@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
+import ObjectiveC
 import Testing
 
 /// Only the pane AppKit gives a press to takes the focus.
@@ -127,6 +129,49 @@ struct WindowResizePressKeepsFocusTests {
         try #require(try harness.paneUnder(center) == "right")
         harness.press(at: center)
         #expect(harness.model.focusedPane == "right", "AppKit's hit test there: \(harness.hit(at: center))")
+    }
+
+    /// Views' content view as the fork's `CmuxViewsBridgedContentView` answers a hit: a page under the point, or nil.
+    final class BridgedStandIn: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let hit = super.hitTest(point)
+            return hit === self ? nil : hit
+        }
+    }
+
+    /// Stands for the page's `RenderWidgetHostViewCocoa`, the view a press on the page is delivered to.
+    final class PageContentStandIn: NSView {}
+
+    /// Views window mode (approach 3 of the Chromium integration study, a prototype): the fork shows a page as a Views
+    /// child in the window's slot, over its pane's container but not inside it, and names the container on the page's
+    /// view. A press on the page reaches the page's view in the slot, and the pane that holds the page's container takes
+    /// the focus, as it does for a press on any page. On the views window bench (vw4a-func-h-r3) a press on page B left
+    /// page A's view first responder and the focus model on A, so the next keys went to the page the person did not
+    /// click; approach 1 on the same build moved both to B.
+    @Test func aPressOnAViewsWindowPageFocusesItsPane() throws {
+        let harness = Harness(focused: "left")
+        defer { harness.close() }
+        let host = try #require(harness.root.context.hosts["right"])
+        // The page's container in the right pane, and the page over it in the window's slot, as the fork places it.
+        let container = NSView(frame: host.bounds)
+        host.addSubview(container)
+        let slot = ViewsWindowSlotView(frame: harness.content.bounds)
+        harness.content.addSubview(slot, positioned: .above, relativeTo: harness.root)
+        let bridged = BridgedStandIn(frame: slot.bounds)
+        slot.addSubview(bridged)
+        let page = NSView(frame: slot.convert(container.convert(container.bounds, to: nil), from: nil))
+        bridged.addSubview(page)
+        let content = PageContentStandIn(frame: page.bounds)
+        page.addSubview(content)
+        let key = unsafeBitCast(sel_registerName("cmuxViewsContainer"), to: UnsafeRawPointer.self)
+        objc_setAssociatedObject(page, key, container, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let center = page.convert(CGPoint(x: page.bounds.midX, y: page.bounds.midY), to: nil)
+        try #require(try harness.paneUnder(center) == "right")
+        try #require(harness.hit(at: center).hasPrefix("PageContentStandIn"),
+                     "the press must reach the page's view in the slot, not \(harness.hit(at: center))")
+        harness.press(at: center)
+        #expect(harness.model.focusedPane == "right",
+                "a press on a views window page focused \(String(describing: harness.model.focusedPane)); AppKit's hit test there: \(harness.hit(at: center))")
     }
 
     /// Not a check: prints where AppKit's hit test sends presses near the window's edges, for the record.
