@@ -62,6 +62,8 @@
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -108,6 +110,7 @@ mod cloud_sequence;
 mod cloud_task;
 mod dock_model;
 pub mod drag_handle;
+mod empty_workspace;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -199,6 +202,7 @@ const MODULE_HANDLERS: &[(&str, Handles, Respond)] = &[
     ("cloud_sequence", cloud_sequence::handles, cloud_sequence::respond),
     ("cloud_task", cloud_task::handles, cloud_task::respond),
     ("dock_model", dock_model::handles, dock_model::respond),
+    ("empty_workspace", empty_workspace::handles, empty_workspace::respond),
     ("notification_rings", notification_rings::handles, notification_rings::respond),
     ("onboarding", onboarding::handles, onboarding::respond),
     ("pane_focus", pane_focus::handles, |_, request| pane_focus::respond(request)),
