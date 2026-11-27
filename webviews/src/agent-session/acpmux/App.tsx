@@ -310,6 +310,7 @@ import { tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import {
+  BACKGROUND_PANE,
   type BackgroundPanel,
   backgroundPanelFor,
   isBackgroundPane,
@@ -3247,6 +3248,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentDraftChat = shownSessionId ?? chatName;
   const subagentDraftChatRef = useRef(subagentDraftChat);
   subagentDraftChatRef.current = subagentDraftChat;
+  // The subagent a pane opened on one shows now (one it opened in place, else the one it opened on),
+  // or its background tasks, for the wake state: a page built again after the hidden one let go shows
+  // it, never the chat (pane/paneSnapshot.ts).
+  const subagentPaneNow = useRef<string | undefined>(undefined);
+  subagentPaneNow.current = ownBackgroundPane
+    ? BACKGROUND_PANE
+    : ownSubagentPane
+      ? (subagentView ?? requestedSubagent)
+      : undefined;
   /// Opens the turn's changes in a diff tab right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"; Leo, 2026-11-03: "just put it in a tab???"): the chat folder's diff, on the chat's
@@ -8101,6 +8111,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       toggleInspector,
       sessionIdRef,
       subagentDraftChatRef,
+      subagentPaneNow,
       openChangesTab,
       setClientEpoch,
       folderContinuation,
