@@ -386,7 +386,10 @@ def is_attribution(block):
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
+# The "where you are" card (`agent_card.rs`) rides the first message too: fixtures and echoes
+# match the person's words, not it.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
+                 "<cmux-card-context>")
 
 
 def guidance_text(text):
@@ -403,7 +406,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
         return True
     return guidance_text(block.get("text", ""))
 
