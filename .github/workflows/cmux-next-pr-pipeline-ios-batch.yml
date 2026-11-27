@@ -123,8 +123,8 @@ jobs:
           retention-days: 1
 
   # pr-pipeline.yml's ios job: every ios step but ios-kit-macos, on the Mac ios-runner picked, one iPhone simulator,
-  # with its fleet pool steps. The kit's push run had them on every merge (kit-tests' sim-pool steps, then
-  # kit-sim-pool), so vars.CMUX_IOS_SIM_LINUX unset means "shadow" here, as it did there: both sides stay timed.
+  # with its fleet pool steps (the kit's push run had them on every merge: kit-tests' sim-pool steps, then
+  # kit-sim-pool).
   ios:
     name: ios
     needs: [ios-runner]
@@ -181,12 +181,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/github_fetch_auth.py
-      # pr-pipeline.yml's fleet pool steps (scripts/ci/ios-sim-pool.sh): this Mac builds the kit's simulator tests for
-      # testing and the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow (unset) times
-      # both, on uses the pool's verdict with this Mac as the fallback, off skips it.
+      # pr-pipeline.yml's fleet pool steps (scripts/ci/ios-sim-pool.sh), the same vars: this Mac builds the kit's
+      # simulator tests for testing and the pool runs them; the ios-kit step reads the verdict, with this Mac as the
+      # fallback when the pool gives none. vars.CMUX_IOS_SIM_LINUX=off leaves the pool out.
       - name: Fleet pool, build the kit's simulator tests
         id: sim-pool
-        if: ${{ contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && vars.CMUX_FLEET_CONTROLLER != '' }}
+        if: ${{ vars.CMUX_IOS_SIM_LINUX != 'off' && vars.CMUX_FLEET_CONTROLLER != '' }}
         continue-on-error: true
         timeout-minutes: 25
         run: |
@@ -214,7 +214,7 @@ jobs:
       # Every routed ios step but ios-kit-macos, which the `ios macos` job runs; `none` names no step.
       - name: Run the routed ios steps (ci/steps.toml)
         env:
-          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX == 'off' && 'off' || 'on' }}
           CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -241,7 +241,7 @@ jobs:
             echo "no xcframework built on these inputs in this job: nothing to save"
           fi
       - name: Save CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() && steps.xcf-key.outputs.key != '' }}
+        if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -305,13 +305,13 @@ jobs:
         run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only ios-kit-macos
 
   # cmux-next-ios-kit.yml's kit-sim-fleet, shadow only: the build fleet builds the kit's simulator tests and the fleet
-  # pool runs them, timed beside the Mac's build above (the `ios` job's fleet pool steps). Advisory: it never fails the
+  # pool runs them, timed beside the Mac's build in the `ios` job's fleet pool steps. Advisory: it never fails the
   # batch, and the table's ios-kit step does not read it (its "on" hand-off, the Mac taking these products, has no table
   # step, as on pull requests). The fleet builds the commit in this job's OIDC token (github.sha, the dispatched tip),
   # so a bisect probe at an older commit leaves it out.
   kit-sim-fleet:
     name: CmuxMobileKit iOS simulator test build (build fleet, shadow)
-    if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' && (inputs.sha == '' || inputs.sha == github.sha) && (vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') == 'shadow' && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && vars.CMUX_FLEET_CONTROLLER != '' }}
+    if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' && (inputs.sha == '' || inputs.sha == github.sha) && (vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') == 'shadow' && vars.CMUX_IOS_SIM_LINUX != 'off' && vars.CMUX_FLEET_CONTROLLER != '' }}
     runs-on: cmux-linux
     timeout-minutes: 90  # the build waits up to 600 s queued plus 1500 s running; the shadow pool run up to 2400 s
     permissions:

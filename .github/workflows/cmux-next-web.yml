@@ -216,12 +216,18 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Saved only on feat-cmux-next, whose scope every ref reads; a hand dispatch on another ref (tick=true) only
       # restores, so it adds no copy that only that ref reads again (handbook run-scoped-cache-key-evicts-the-store).
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -231,7 +237,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 5
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache

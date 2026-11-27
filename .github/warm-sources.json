@@ -20,7 +20,7 @@
     "ios-sim-linux-build.yml:build": {"class": "ios", "warm": ["actions-cache"]},
     "migrate-journey-pr.yml:migrate": {"class": "linux-rust", "warm": ["actions-cache"]},
     "nightly.yml:nightly-next-pkg": {"class": "mac-sign", "warm": [], "exempt": "cold: packages, signs and notarizes the already-built Nightly NEXT app from its run artifact; it compiles nothing"},
-    "cmux-next-pr-pipeline-ios-batch.yml:ios": {"class": "ios", "warm": [], "exempt": "cold: pr-pipeline.yml's ios job at a merged commit; on an owned Mac the workspace's ignored cargo target is kept, so the xcframework builds incrementally"},
+    "cmux-next-pr-pipeline-ios-batch.yml:ios": {"class": "ios", "warm": ["actions-cache"]},
     "cmux-next-pr-pipeline-ios-batch.yml:ios-macos": {"class": "ios", "warm": [], "exempt": "cold: the table's ios-kit-macos swift test at a merged commit, like pr-pipeline.yml's ios-macos; swift build starts from the runner's .build"},
     "cmux-next-pr-pipeline-mac-batch.yml:mac": {"class": "mac-build", "warm": ["deriveddata-reuse", "spm-shared", "actions-cache"]},
     "pr-pipeline.yml:ios": {"class": "ios", "warm": [], "exempt": "cold: on an owned Mac the workspace's ignored cargo target is kept, so the xcframework builds incrementally; on a hosted Mac it builds from empty"},
