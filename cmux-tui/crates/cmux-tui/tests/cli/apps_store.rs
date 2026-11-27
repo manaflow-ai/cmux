@@ -1751,6 +1751,12 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
                 .map(|tile| format!("widget tile {} in {place}", tile["size"]))
         });
     }
+    // A setting-backed first-party entry (#46903's Auto cleanup) is its switch: on and off write
+    // the cmux setting it names (store.rs `setting_of`; supervisor_tests
+    // `the_auto_cleanup_entry_switches_its_cmux_setting` proves the write and the read-back).
+    if let Some(key) = manifest.pointer("/setting/key").and_then(Value::as_str) {
+        return Some(format!("setting switch {key}"));
+    }
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
         let app = entry["id"].as_str().unwrap_or_default();
@@ -1832,7 +1838,8 @@ fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Optio
 /// anythin / stop shipping these into the app store if they're fucking busted".
 /// Every app the shipped App Store lists (the first-party directory as the Mac
 /// app hands it to its daemon, with no other app directory, as after #44290) installs for the
-/// person and then has something to open: a pane or a web page. A
+/// person and then has something to open: a pane, a web page, or (first-party) the cmux
+/// setting its switch writes (#46903's Auto cleanup). A
 /// command-only package (the old Standup sample) fails here.
 ///
 /// The shelf is built the way a build builds it: the BUNDLED first-party apps,
