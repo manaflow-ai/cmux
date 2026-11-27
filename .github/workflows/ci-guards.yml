@@ -455,6 +455,10 @@ jobs:
           bash tests/test_ci_fleet_compilation_cache.sh
           python3 tests/test_ci_fleet_compilation_cache.py
 
+      - name: Validate the VM runner guest Bun cache marker check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_fsr_bun_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
@@ -2312,6 +2316,10 @@ jobs:
       - name: Validate the warm nightly-next builder's git fetches are bounded and retried
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_git_fetch_retry.py
+
+      - name: Validate every git request to github.com from one Mac shares one gate (slots, budget, backoff)
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 -I tests/test_github_git_gate.py
 
       - name: Validate the warm nightly-next checkout reads GitHub only with the release App's token
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
