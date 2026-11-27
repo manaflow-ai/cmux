@@ -687,7 +687,11 @@ final class CEFRuntime {
         }
         chromiumUsesMockKeychain = switchSet.useMockKeychain
         // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
-        launchSwitches = switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : []
+        launchSwitches = (switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : [])
+            + (switchSet.forcesRendererAccessibility ? [CEFSwitches.forceRendererAccessibility] : [])
+        if switchSet.forcesRendererAccessibility {
+            logger.notice("page accessibility forced on from launch (\(AssistiveClientRequests.environmentKey, privacy: .public)=1)")
+        }
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

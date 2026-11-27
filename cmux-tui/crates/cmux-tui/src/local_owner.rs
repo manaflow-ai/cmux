@@ -968,6 +968,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let launcher = std::env::var_os(OWNER_LAUNCHER_ENV);
     let mut command = owner_command(&program, launcher.as_deref());
     let direct = command.get_program() == program.as_os_str();
+    // The daemon's freed pages go back as it frees them (macOS; malloc_space.rs).
+    command.envs(cmux_tui_platform::malloc_space::child_env());
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
     command.arg("--socket").arg(&spec.socket);

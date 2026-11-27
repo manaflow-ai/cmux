@@ -21,10 +21,17 @@
 # Falls back to the members alone (all their test targets) when a match is in
 # a file it cannot place in one target, and to `--workspace` when a match is
 # outside a member it can name.
-# Usage (from the repository root or cmux-tui/): scripts/ci/cmux-next-daemon-test-packages.sh
+# Usage (from the repository root or cmux-tui/): scripts/ci/cmux-next-daemon-test-packages.sh [MEMBER_DIR]
+# MEMBER_DIR (a member's directory under cmux-tui/, e.g. crates/acpmux) prints that one member's package and
+# targets only: the per-member pull request steps of ci/steps.toml (cmux-next-acpmux and the rest) run those.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)/cmux-tui"
 cd "$root"
+member="${1:-}"
+if [[ -n "$member" && ! -f "$member/Cargo.toml" ]]; then
+  echo "$0: $member is not a member directory under cmux-tui/" >&2
+  exit 2
+fi
 # The [[test]] target of an `autotests = false` member that builds tests/... file REL, or nothing.
 declared_test() {
   local manifest="$1" rel="$2" top entries name path gather="" gathers=0
@@ -86,7 +93,7 @@ while IFS= read -r file; do
       ;;
     *) placed=0 ;;
   esac
-done < <(git grep -l 'cmux_next_' -- '*.rs')
+done < <(git grep -l 'cmux_next_' -- "${member:+$member/}*.rs")
 if (( ${#packages[@]} == 0 )); then echo "--workspace"; exit 0; fi
 pairs() { printf '%s %s\n' "$@" | sort -u | tr '\n' ' '; }
 out="$(pairs "${packages[@]}")"
