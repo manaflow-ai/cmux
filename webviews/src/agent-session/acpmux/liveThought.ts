@@ -17,6 +17,7 @@ import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
 import { drewRunningTurn, hiddenUnderFold } from "./drawnRows";
+import { lineCalledNow } from "./liveCallLine";
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
 /// last item is still `from` draws `to`. `ahead`: the chunks since `from`, which the row's version
@@ -231,8 +232,11 @@ export const liveThoughtHeard = {
 };
 
 /// The live line as it is now: a thought chunk drawn without the pane moves its `heardKey` on
-/// (Thinking.tsx reads a new key as an event heard). The same row while none was.
-export function lineHeardNow(row: AcpmuxRow): AcpmuxRow {
+/// (Thinking.tsx reads a new key as an event heard), after the calls drawn without it moved the
+/// line (liveCallLine.ts). The same row while none was.
+export function lineHeardNow(drawnLine: AcpmuxRow): AcpmuxRow {
+  // A hidden call's start or end drawn without the pane moved the line itself (liveCallLine.ts).
+  const row = lineCalledNow(drawnLine);
   if (heard === 0 || row.kind !== "thinking" || typeof row.heardKey !== "string") return row;
   return { ...row, heardKey: `${row.heardKey}~${heard}`, version: row.version + heard };
 }

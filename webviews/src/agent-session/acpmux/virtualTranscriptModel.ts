@@ -56,7 +56,7 @@ const PULSE_HEARD: ReadonlySet<string> = new Set(PULSE_FIELDS);
 /// Whether a row draws the same: renderers use id and version as their draw identity, so a clone of
 /// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
 /// frame's own flags (`below`, `ended`) are compared too, as they are read outside the renderer.
-export function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
+function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
   // with a version that does not cover all they say (the call in flight, who a send goes to, its
   // time, the clock offset): those are in their fields, so they redraw whenever a field changes.

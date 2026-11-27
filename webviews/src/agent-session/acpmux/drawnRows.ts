@@ -1,8 +1,8 @@
 // Which of the running turn's rows the transcript draws, for the bypasses that keep the pane's
 // snapshot when a record changes only a row nobody sees (liveThought.ts `thoughtOnly`), and for
 // the pane's per-kind counts (`changeHidden`). A hidden call is still read by the live line
-// (turns.ts `lineCall`, `liveClock`: "Reading x", then "Thinking" from its end), so a call's
-// start or end redraws the pane until the line hears calls on its own. Under the running turn's closed "Working for" (turns.ts
+// (turns.ts `lineCall`, `liveClock`: "Reading x", then "Thinking" from its end), which hears it
+// without the pane (liveCallLine.ts). Under the running turn's closed "Working for" (turns.ts
 // `shapeLiveTurn`, liveTurnWork `folded` with the fold shut) the transcript draws none of the
 // turn's activity rows but the few that keep their own row (a call waiting on its permission).
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
