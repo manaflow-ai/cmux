@@ -224,13 +224,15 @@ export function useUiAnchor(
 ): CSSProperties {
   const { align, boundary, direction: requestedDirection, gap, margin, minHeight, side } = options;
   const [style, setStyle] = useState<CSSProperties>(HIDDEN_ANCHOR_STYLE);
-  const heightOwner = useRef<{ node: HTMLElement; caller: boolean } | null>(null);
+  const heightOwner = useRef<{ node: HTMLElement; caller: boolean; cssCap?: number } | null>(null);
   useLayoutEffect(() => {
     if (!open) {
       setStyle(HIDDEN_ANCHOR_STYLE);
       return;
     }
-    const update = () => {
+    // `scrolledOnly`: a scroller moved the anchor, which changes neither the overlay's rows nor its
+    // stylesheet cap.
+    const update = (scrolledOnly = false) => {
       const anchorNode = anchor.current;
       const overlayNode = overlay.current;
       if (!anchorNode || !overlayNode) return;
@@ -242,11 +244,25 @@ export function useUiAnchor(
       // Measuring takes the inline bound off, and an overlay that then grows past its rows clamps
       // its scroll: keep where its rows were scrolled to and put it back once it is bounded again.
       const scrolled = overlayNode.scrollTop;
-      if (!callerHeight) {
+      // On a scroll, an overlay whose rows its bound does not clip already shows its natural
+      // height: measure it as it is. Taking the bound off and putting it back would lay the page out
+      // twice, synchronously, on every scroll event (web.dev, avoid layout thrashing).
+      const owner = heightOwner.current!;
+      const asIs =
+        scrolledOnly &&
+        !callerHeight &&
+        owner.cssCap !== undefined &&
+        overlayNode.style.maxHeight !== "" &&
+        overlayNode.scrollHeight <= overlayNode.clientHeight;
+      if (!callerHeight && !asIs) {
         overlayNode.style.visibility = "hidden";
         overlayNode.style.maxHeight = "";
       }
-      const cssCap = callerHeight ? Number.POSITIVE_INFINITY : cssMaxHeight(overlayNode);
+      const cssCap = callerHeight
+        ? Number.POSITIVE_INFINITY
+        : asIs
+          ? owner.cssCap!
+          : (owner.cssCap = cssMaxHeight(overlayNode));
       const a = anchorNode.getBoundingClientRect();
       const o = overlayNode.getBoundingClientRect();
       const direction =
@@ -274,8 +290,9 @@ export function useUiAnchor(
       const maxHeight = Math.min(inBox.maxHeight / scale.y, cssCap);
       // Constraining the height can change an above-menu's top. Measure that final box before
       // revealing it, rather than asking ResizeObserver to correct the next visible frame.
+      // A bound at or above the natural height changes nothing: that box is the one already read.
       if (!callerHeight) overlayNode.style.maxHeight = `${maxHeight}px`;
-      const sized = callerHeight ? o : overlayNode.getBoundingClientRect();
+      const sized = callerHeight || o.height / scale.y <= maxHeight ? o : overlayNode.getBoundingClientRect();
       const placed = resolveUiOverlayPosition(
         { left: a.left - box.left, top: a.top - box.top, right: a.right - box.left, bottom: a.bottom - box.top },
         { width: sized.width, height: sized.height },
@@ -304,23 +321,24 @@ export function useUiAnchor(
           maxHeight: `${maxHeight}px`,
           visibility: "visible",
         });
-        if (overlayNode.scrollTop !== scrolled) overlayNode.scrollTop = scrolled;
+        if (!asIs && overlayNode.scrollTop !== scrolled) overlayNode.scrollTop = scrolled;
       }
       setStyle(nextStyle);
     };
-    update();
+    const relayout = () => update();
+    relayout();
     // A scroller around the anchor moves it; the overlay's own rows scrolling moves nothing.
     const onScroll = (event: Event) => {
       if (event.target instanceof Node && overlay.current?.contains(event.target)) return;
-      update();
+      update(true);
     };
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", relayout);
     window.addEventListener("scroll", onScroll, true);
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(relayout);
     observer?.observe(anchor.current!);
     observer?.observe(overlay.current!);
     return () => {
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", relayout);
       window.removeEventListener("scroll", onScroll, true);
       observer?.disconnect();
     };
