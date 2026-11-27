@@ -42,8 +42,7 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     assert!(r.zstd_ratio > 0.95, "noise does not compress: {}", r.zstd_ratio);
 }
 
-/// Unix counts a hardlinked inode's blocks once. Windows has no stable inode or
-/// allocated-byte API in `std`, so each name falls back to its apparent size.
+/// Allocation is exact on Unix and explicitly unavailable elsewhere.
 #[test]
 fn allocated_counts_hardlinks_portably() {
     let root = tempfile::tempdir().unwrap();
@@ -57,9 +56,35 @@ fn allocated_counts_hardlinks_portably() {
     );
     assert_eq!(r.files, 2);
     assert_eq!(r.logical, (bytes.len() * 2) as u64);
-    if cfg!(unix) {
-        assert!(r.allocated < r.logical, "hardlink counted twice: {}", r.allocated);
-    } else {
-        assert_eq!(r.allocated, r.logical);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let expected = std::fs::metadata(root.path().join("x")).unwrap().blocks() * 512;
+        assert_eq!(r.allocated, Some(expected), "hardlink must count once");
     }
+    #[cfg(not(unix))]
+    {
+        assert_eq!(r.allocated, None);
+        assert!(serde_json::to_value(&r).unwrap()["allocated"].is_null());
+    }
+}
+
+#[test]
+fn sparse_file_allocation_is_never_replaced_with_length() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("sparse");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(1 << 20).unwrap();
+    let r = measure(
+        &[("root".into(), root.path().into())],
+        &Options { sample_every: 0, ..Options::default() },
+    );
+    assert_eq!(r.logical, 1 << 20);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        assert_eq!(r.allocated, Some(file.metadata().unwrap().blocks() * 512));
+    }
+    #[cfg(not(unix))]
+    assert_eq!(r.allocated, None);
 }
