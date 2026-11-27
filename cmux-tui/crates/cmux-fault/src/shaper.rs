@@ -613,9 +613,11 @@ pub const WIRE_TEXT_BYTES: usize = 96;
 
 /// A read's first bytes for the wire trace: printable ASCII as is, anything else `.`.
 fn wire_text(chunk: &[u8]) -> String {
-    let shown = &chunk[..chunk.len().min(WIRE_TEXT_BYTES)];
-    let text: String =
-        shown.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' }).collect();
+    let text: String = chunk
+        .iter()
+        .take(WIRE_TEXT_BYTES)
+        .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+        .collect();
     format!("|{text}|")
 }
 
