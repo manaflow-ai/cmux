@@ -10,6 +10,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { WaitSpinner } from "./conversation/WaitSpinner";
 import {
+  DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   ServerIcon,
@@ -17,7 +18,6 @@ import {
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
   type MoveTarget,
-  DevicesIcon,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -36,6 +36,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -45,7 +46,6 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
-  environmentPickable,
   type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
@@ -85,12 +85,12 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
-  folderChipState,
-  type FolderChipState,
   chatFolderChoices,
   shownChatFolder,
+  folderChipState,
   startedCloudFolderName,
   folderMenu,
+  type FolderChipState,
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
