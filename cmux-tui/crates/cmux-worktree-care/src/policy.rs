@@ -5,7 +5,8 @@
 //! The order of the rules is the order of the guarantees:
 //!
 //! 1. Never touch what is in use: a locked worktree, a git operation under
-//!    way, an open acpmux session in it, a process working in it.
+//!    way, an open acpmux session in it, a process working in it, an owner
+//!    (`wt-owner.json`) that is alive wherever it works.
 //! 2. Never lose work: a worktree whose work no archive can keep (a nested
 //!    repository, a changed submodule, too much data) is only trimmed.
 //! 3. Leave recent work alone: nothing was used for `recent`.
@@ -109,6 +110,9 @@ pub struct Session {
     pub open: bool,
     /// Milliseconds since the epoch of its last change.
     pub updated_ms: u64,
+    /// Every id it goes by (acpmux's, its harness's), which a worktree's
+    /// owner record may name.
+    pub ids: Vec<String>,
 }
 
 /// What happens to a worktree.
@@ -131,10 +135,13 @@ pub enum Action {
 pub struct Verdict {
     pub action: Action,
     pub reason: String,
+    /// Milliseconds since its last use, once a rule read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_ms: Option<u64>,
 }
 
 fn verdict(action: Action, reason: impl Into<String>) -> Verdict {
-    Verdict { action, reason: reason.into() }
+    Verdict { action, reason: reason.into(), idle_ms: None }
 }
 
 /// The verdict for `worktree` at `now_ms`.
@@ -176,6 +183,13 @@ pub fn decide(
             return verdict(Keep, format!("process {} works in it", process.pid));
         }
     }
+    // An owner may work in it from elsewhere (`git -C`, a loop whose folder
+    // is another): while it lives, the worktree is in use.
+    if let Some(why) =
+        facts.owner.as_ref().and_then(|owner| owner_alive(owner, sessions, processes))
+    {
+        return verdict(Keep, why);
+    }
     // A session working in the main checkout may also work in worktrees it
     // made (Claude Code's own, a subagent's) between its tool calls: while
     // one was active in the last day, the repository's worktrees get the
@@ -192,6 +206,9 @@ pub fn decide(
     };
     let idle = now_ms.saturating_sub(last_use);
     let idle_hours = idle / HOUR_MS;
+    // Every verdict from here on carries the idle time it was decided at.
+    let verdict =
+        |action, reason: String| Verdict { idle_ms: Some(idle), ..verdict(action, reason) };
     let trim = |reason: String| {
         if !facts.build_output.is_empty() && idle >= hours(settings.trim_hours, pressure) {
             verdict(Trim, format!("{reason}; build output idle {idle_hours} h"))
@@ -221,6 +238,29 @@ pub fn decide(
         return verdict(Archive, format!("{}; idle {idle_hours} h", only_here_reason(facts)));
     }
     trim(format!("idle {idle_hours} h"))
+}
+
+/// Why `owner` is alive: its recorded process runs, an open session goes
+/// by one of its ids, or a registered process runs its session. `None`
+/// when none of these says so.
+fn owner_alive(
+    owner: &crate::inventory::Owner,
+    sessions: &[Session],
+    processes: &[Process],
+) -> Option<String> {
+    let name = owner.session_id.as_deref().unwrap_or("?");
+    if owner.runs
+        && let Some(pid) = owner.pid
+    {
+        return Some(format!("owner {name}'s process {pid} runs"));
+    }
+    if let Some(session) = sessions.iter().find(|s| s.open && s.ids.iter().any(|id| owner.is(id))) {
+        return Some(format!("owner session {} is open", session.name));
+    }
+    processes
+        .iter()
+        .find(|p| p.session_id.as_deref().is_some_and(|id| owner.is(id)))
+        .map(|p| format!("owner {name} runs as process {}", p.pid))
 }
 
 fn only_here_reason(facts: &crate::Facts) -> String {

@@ -27,7 +27,9 @@
 //!
 //! A session that starts again in a reclaimed worktree gets it back first
 //! (`care_restore_for`, from `cold_start`): its files, index and archived
-//! work, before the harness starts in the folder.
+//! work, before the harness starts in the folder. A folder evicted to a
+//! verified cloud copy (`cmux_worktree_care::cold`) comes back the same way
+//! (`cold_recall_for`).
 
 use super::*;
 
@@ -117,6 +119,8 @@ use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::policy::{self as care_policy, Settings as CareSettings};
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 
+const MINUTE_MS: u64 = 60 * 1000;
+
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
 
@@ -157,6 +161,37 @@ impl Drop for Running<'_> {
 /// Whether automatic passes are on (`care_machine`).
 pub fn auto_cleanup_enabled() -> bool {
     crate::care_machine::auto_cleanup_enabled()
+}
+
+/// A pass report's line for each folder it removed: its path, why, how
+/// long it had been idle, its archive id (`acpmux worktree restore <id>`)
+/// and the bytes freed. A trim, a kept folder and a failed removal have
+/// none.
+fn removals(report: &Value) -> Vec<String> {
+    let items = report.get("items").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    items
+        .iter()
+        .filter_map(|item| {
+            let action = item.pointer("/verdict/action")?.as_str()?;
+            let outcome = item.get("outcome")?;
+            let ok = outcome.get("ok").and_then(Value::as_bool) == Some(true);
+            if !ok || !matches!(action, "reclaim" | "archive") {
+                return None;
+            }
+            let path = item.get("path")?.as_str()?;
+            let reason = item.pointer("/verdict/reason").and_then(Value::as_str).unwrap_or("?");
+            let idle = item
+                .pointer("/verdict/idleMs")
+                .and_then(Value::as_u64)
+                .map_or_else(|| "?".to_string(), |ms| (ms / (60 * MINUTE_MS)).to_string());
+            let archive = outcome.get("archive").and_then(Value::as_str).unwrap_or("none");
+            let freed = outcome.get("freed").and_then(Value::as_u64).unwrap_or(0);
+            Some(format!(
+                "worktree removed: {path} ({action}: {reason}); idle {idle} h; archive {archive}; \
+                 freed {freed} bytes"
+            ))
+        })
+        .collect()
 }
 
 fn archive_store() -> Result<ArchiveStore, RpcError> {
@@ -247,11 +282,18 @@ impl Hub {
         let Some((claim, look)) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
         match self.care_run(claim, true, Vec::new(), Some(look)).await {
-            Ok(report) => tracing::info!(
-                why,
-                freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
-                "worktree cleanup pass"
-            ),
+            Ok(report) => {
+                // One line per folder that went, so a search of the journal
+                // for a missing checkout finds what removed it (hq#13316).
+                for line in removals(&report) {
+                    tracing::info!(why, "{line}");
+                }
+                tracing::info!(
+                    why,
+                    freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
+                    "worktree cleanup pass"
+                )
+            }
             Err(e) => tracing::warn!(why, "worktree cleanup pass failed: {}", e.message),
         }
     }
@@ -394,6 +436,11 @@ impl Hub {
                     cwd: meta.cwd.clone(),
                     open: meta.status != SessionStatus::Closed,
                     updated_ms: meta.updated_at,
+                    ids: std::iter::once(&meta.id)
+                        .chain(meta.agent_session_id.as_ref())
+                        .chain(&meta.previous_agent_session_ids)
+                        .cloned()
+                        .collect(),
                 }
             })
             .collect()
@@ -523,7 +570,7 @@ impl Hub {
         })
         .await;
         let (kind, detail) = match restored {
-            Ok(None) => return false,
+            Ok(None) => return self.cold_recall_for(session).await,
             Ok(Some((id, Ok(restored)))) => (
                 "worktree_restored",
                 json!({"archive": id, "path": restored.path, "notes": restored.notes}),
@@ -532,6 +579,30 @@ impl Hub {
                 ("worktree_restore_failed", json!({"archive": id, "error": error}))
             }
             Err(error) => ("worktree_restore_failed", json!({"error": error.to_string()})),
+        };
+        self.append(session, "mux", kind, detail);
+        true
+    }
+
+    /// Brings back the evicted folder (`cmux_worktree_care::cold`, "optimize storage") that holds
+    /// the missing folder of `session`, from its verified cloud copy. Logged as `folder_recalled`
+    /// or `folder_recall_failed`. Whether an evicted folder held it. A few stats when none does;
+    /// nothing evicts unless a caller asks, so this is a no-op by default.
+    async fn cold_recall_for(&self, session: &Arc<Session>) -> bool {
+        let cwd = session.meta().cwd.clone();
+        let Some(records) = cmux_worktree_care::cold::default_records() else { return false };
+        let recalled = tokio::task::spawn_blocking(move || {
+            cmux_worktree_care::cold::recall_for(&cwd, &records)
+        })
+        .await;
+        let (kind, detail) = match recalled {
+            Ok(Ok(None)) => return false,
+            Ok(Ok(Some(record))) => (
+                "folder_recalled",
+                json!({"path": record.path, "bytes": record.bytes, "manifest": record.manifest_id}),
+            ),
+            Ok(Err(error)) => ("folder_recall_failed", json!({"error": error})),
+            Err(error) => ("folder_recall_failed", json!({"error": error.to_string()})),
         };
         self.append(session, "mux", kind, detail);
         true
@@ -563,6 +634,71 @@ mod care_tests {
         }));
         assert!(caught.is_err());
         assert!(Running::claim(&flag).is_some(), "the panic cleared it");
+    }
+
+    /// hq#13316: the journal had only the pass's total for 14 removed
+    /// checkouts. Each removal is its own line, from the report as
+    /// `care_run` serializes it; what stays, is trimmed or failed to go
+    /// has none.
+    #[test]
+    fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archive() {
+        use cmux_worktree_care::pass::{Item, Outcome, Report};
+        use cmux_worktree_care::{Action, Pressure, Verdict};
+        let item = |path: &str, action, reason: &str, outcome| Item {
+            path: path.into(),
+            repository: "/m/cmux.git".into(),
+            branch: None,
+            verdict: Verdict { action, reason: reason.into(), idle_ms: Some(25 * 60 * MINUTE_MS) },
+            facts: None,
+            bytes: None,
+            outcome,
+        };
+        let done = |archive: &str| {
+            Some(Outcome {
+                ok: true,
+                freed: 1_359_519_744,
+                archive: Some(archive.into()),
+                error: None,
+            })
+        };
+        let report = Report {
+            disk: None,
+            pressure: Pressure::High,
+            applied: true,
+            items: vec![
+                item(
+                    "/c/lane--a",
+                    Action::Reclaim,
+                    "everything pushed; idle 25 h",
+                    done("1794973645972-lane--a"),
+                ),
+                item("/c/lane--b", Action::Keep, "owner session loop is open", None),
+                item("/c/lane--c", Action::Trim, "idle 25 h", done("unused")),
+                item(
+                    "/c/lane--d",
+                    Action::Archive,
+                    "1 unpushed commits; idle 25 h",
+                    Some(Outcome {
+                        ok: false,
+                        freed: 0,
+                        archive: None,
+                        error: Some("it changed since the scan".into()),
+                    }),
+                ),
+            ],
+            freed: 1_359_519_744,
+            reclaimable: 0,
+            errors: Vec::new(),
+            expired: Vec::new(),
+        };
+        assert_eq!(
+            removals(&serde_json::to_value(&report).unwrap()),
+            vec![
+                "worktree removed: /c/lane--a (reclaim: everything pushed; idle 25 h); idle 25 h; \
+                 archive 1794973645972-lane--a; freed 1359519744 bytes"
+                    .to_string()
+            ]
+        );
     }
 
     /// #54378: a care pass that panicked ended the daemon's one cleanup worker for good. The

@@ -586,6 +586,7 @@ mod tests {
             cwd: repo.clone(),
             open: false,
             updated_ms: 0,
+            ids: Vec::new(),
         }];
         let report = run(&config, None).unwrap();
         assert!(report.worktrees.items.is_empty(), "{:?}", report.worktrees.items);

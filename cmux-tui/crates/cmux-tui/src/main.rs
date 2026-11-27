@@ -687,6 +687,8 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
+    freeing_idle: Option<std::time::Duration>,
     exit_with_pid: Option<local_owner::ExitWith>,
 }
 
@@ -800,6 +802,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        freeing_idle: None,
         exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
@@ -908,6 +911,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err("--ws-allow-host needs a host name with no port".into());
                 }
                 out.ws_access.hosts.push(host);
+            }
+            "--freeing-idle-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--freeing-idle-seconds needs a value".to_string())?;
+                let seconds =
+                    value.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        "--freeing-idle-seconds must be a positive integer".to_string()
+                    })?;
+                if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
+                    return Err("--freeing-idle-seconds may be supplied only once".into());
+                }
             }
             "--terminal-reap-grace-seconds" => {
                 let value = args
@@ -1628,6 +1643,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-resume-lease-seconds",
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
+    "--freeing-idle-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -2848,6 +2864,9 @@ fn run_server(
             }
         });
     // `identify` answers from the attach below: announce the reaper first.
+    if let Some(idle) = args.freeing_idle {
+        mux.set_freeing_idle_override(idle);
+    }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;
         mux.announce_terminal_reaper();
@@ -2965,6 +2984,7 @@ fn run_server(
         );
     }
     loopback_policy::install(&mux, loopback_forward_policy);
+    mux.start_terminal_warm_compact();
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]

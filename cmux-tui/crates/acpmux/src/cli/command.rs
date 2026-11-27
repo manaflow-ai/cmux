@@ -748,7 +748,7 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    /// files (~/.config/cmux-next/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
@@ -1076,6 +1076,12 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
+        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
+        /// with no person's step, under NAME unless the chat has a name already. Nothing when
+        /// the chat is registered with this process; else a one-time code goes to the chat's
+        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
+        auto: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
@@ -1557,6 +1563,13 @@ pub struct HistoryDeleteArgs {
     /// fails is kept.
     #[arg(long)]
     pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args, Clone, Debug)]
