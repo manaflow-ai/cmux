@@ -444,6 +444,42 @@ struct CloudSetupTests {
         #expect(connections.reads == 1, "another account's sign-in did not satisfy the wait")
     }
 
+    /// cmux#63349: the ChatGPT sign-in the card's one click started in place failed (its token exchange was
+    /// refused): the wait ends with that failure instead of waiting on a sign-in no longer out. Another
+    /// family's failure, or one before this set up, does not end it; a set up that only opened Settings
+    /// waits on.
+    @Test func aFailedInPlaceSignInEndsOnlyItsOwnFamilysWait() async {
+        let connections = Connections(.init(personal: [], organization: []))
+        var inPlace = true
+        let rule = CloudSetup(read: {
+            connections.reads += 1
+            return connections.snapshot
+        })
+        rule.connectInPlace = { _ in inPlace }
+        rule.signInFailed("network", family: "codex") // before this set up: not its failure
+        let ready = Task { await rule.setUpResult(.connectChatGPT, family: "codex") }
+        while connections.reads < 1 { await Task.yield() }
+        await Task.yield()
+        rule.signInFailed("access_denied", family: "claude")
+        while connections.reads < 2 { await Task.yield() }
+        await Task.yield()
+        rule.signInFailed("network", family: "codex")
+        let result = await ready.value
+        #expect(result == .failure(.failed("network")))
+        #expect(CloudSetup.SetUpEnd.failed("network").failureText == "this Mac could not reach the sign-in service")
+        #expect(CloudSetup.SetUpEnd.withdrawn.failureText == nil)
+
+        inPlace = false
+        let settings = Task { await rule.setUpResult(.connectChatGPT, family: "codex") }
+        while connections.reads < 3 { await Task.yield() }
+        await Task.yield()
+        rule.signInFailed("network", family: "codex")
+        while connections.reads < 4 { await Task.yield() }
+        connections.snapshot.personal = [.init(id: "chatgpt-plan:1", families: ["codex"])]
+        rule.connectionsChanged()
+        #expect(await settings.value == .success(CloudSetup.SetupCompletion(bindsEnvironment: true)))
+    }
+
     @Test func aConnectionThatAppearsStartsTheChat() async {
         let connections = Connections(.init(personal: [], organization: []))
         let rule = setup(connections)
