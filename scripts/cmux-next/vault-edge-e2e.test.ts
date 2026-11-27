@@ -24,12 +24,15 @@ describe("vault-edge-e2e harness", () => {
   })
 
   test("scanPasses needs a clean, finished scan that saw processes", () => {
-    const ok = { uid: 0, files_rc: 1, file_hits: [], proc_hits: [], procs: 90, acpmux_dirs: [] }
+    const ok = { uid: 0, files_rc: 1, unread: 0, file_hits: [], proc_hits: [], procs: 90, acpmux_dirs: [] }
     expect(scanPasses(ok)).toBe(true)
     expect(scanPasses({ ...ok, file_hits: ["/etc/x"] })).toBe(false)
     expect(scanPasses({ ...ok, proc_hits: ["/proc/1/environ"] })).toBe(false)
     expect(scanPasses({ ...ok, procs: 0 })).toBe(false)
     expect(scanPasses({ ...ok, files_rc: 2 })).toBe(false)
+    expect(scanPasses({ ...ok, files_rc: 123 })).toBe(true)
+    expect(scanPasses({ ...ok, files_rc: 123, unread: 3 })).toBe(false)
+    expect(scanPasses({ ...ok, uid: 1000 })).toBe(false)
   })
 
   test("redact hides every secret of 8+ characters", () => {

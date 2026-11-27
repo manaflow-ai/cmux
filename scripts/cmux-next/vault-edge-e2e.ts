@@ -77,8 +77,10 @@ export function scanStartCommand(): string {
     `d=${d}`,
     'n="$d/needle"',
     // Files: every regular file outside the kernel's views, skipping this run's own dir.
-    `find / \\( -path /proc -o -path /sys -o -path /dev -o -path "$d" \\) -prune -o -type f -print0 2>/dev/null | xargs -0 -r grep -lsF -f "$n" -- 2>/dev/null > "$d/files.hits"`,
+    `find / \\( -path /proc -o -path /sys -o -path /dev -o -path "$d" \\) -prune -o -type f -print0 2>/dev/null | xargs -0 -r grep -lF -f "$n" -- 2> "$d/files.err" > "$d/files.hits"`,
     'echo "$?" > "$d/files.rc"',
+    // xargs answers 123 for both "no match" and "could not read": count the reads that failed (a file gone mid-walk is not one).
+    'grep -v "No such file or directory" "$d/files.err" | wc -l > "$d/files.unread"',
     // Every process's environment and command line (the scan's own read needs the needle file, not its value).
     ': > "$d/proc.hits"',
     'for p in /proc/[0-9]*; do for f in environ cmdline; do grep -qsF -f "$n" "$p/$f" && echo "$p/$f" >> "$d/proc.hits"; done; done',
@@ -112,7 +114,7 @@ export function scanReadCommand(): string {
 d=sys.argv[1]
 r=lambda f:open(os.path.join(d,f)).read()
 lines=lambda f:[l for l in r(f).splitlines() if l]
-print(json.dumps({"uid":int(r("uid").strip()),"files_rc":int(r("files.rc").strip()),"file_hits":lines("files.hits")[:50],"proc_hits":lines("proc.hits")[:50],"procs":int(r("proc.count").strip()),"acpmux_dirs":lines("acpmux.dirs")}))' "$d"`,
+print(json.dumps({"uid":int(r("uid").strip()),"files_rc":int(r("files.rc").strip()),"unread":int(r("files.unread").strip()),"file_hits":lines("files.hits")[:50],"proc_hits":lines("proc.hits")[:50],"procs":int(r("proc.count").strip()),"acpmux_dirs":lines("acpmux.dirs")}))' "$d"`,
     '$s rm -rf "$d"',
   ].join("\n")
 }
@@ -139,7 +141,7 @@ export interface EchoAnswer { status: number; error?: string; headers: Record<st
 /** The header names whose value hashes to `want`. */
 export const carriers = (a: EchoAnswer, want: string) => Object.entries(a.headers).filter(([, h]) => h === want).map(([k]) => k)
 
-export interface ScanAnswer { uid: number; files_rc: number; file_hits: string[]; proc_hits: string[]; procs: number; acpmux_dirs: string[] }
+export interface ScanAnswer { uid: number; files_rc: number; unread: number; file_hits: string[]; proc_hits: string[]; procs: number; acpmux_dirs: string[] }
 
 export type Verdict = "pass" | "fail" | "not_run"
 export interface Evidence {
@@ -157,8 +159,8 @@ export interface Evidence {
   cleanup: { machine: boolean | null; environments: number; install: boolean | null; signedOut: boolean | null }
 }
 
-/** (a): a scan that finished (its grep walked the files: rc 0 found, 1 none) with no hit anywhere. */
-export const scanPasses = (s: ScanAnswer) => (s.files_rc === 0 || s.files_rc === 1 || s.files_rc === 123) && s.file_hits.length === 0 && s.proc_hits.length === 0 && s.procs > 0
+/** (a): a root scan that read every file (rc 0/1/123 with no unreadable file) and found no hit anywhere. */
+export const scanPasses = (s: ScanAnswer) => s.uid === 0 && s.unread === 0 && (s.files_rc === 0 || s.files_rc === 1 || s.files_rc === 123) && s.file_hits.length === 0 && s.proc_hits.length === 0 && s.procs > 0
 
 interface Options { backend: BackendName; out: string; runId: string }
 export function parseCli(argv: string[]): Options {
@@ -282,6 +284,10 @@ export async function main(opts: Options): Promise<number> {
   const ensure = async (environment: string) => {
     const r = await platform("POST", `/v1/workspaces/${workspace}/machine`, { clientKey: workspace, environment }, 180_000)
     if (r.status !== 200 || typeof r.json?.machine?.id !== "string") throw new Failed(`workspace ensure: ${codeOf(r)}`)
+    // The answer does not name the cloud environment it applied; a grant that failed is named (platform#2329).
+    const errs = Array.isArray(r.json?.secretErrors) ? r.json.secretErrors : []
+    if (errs.length) throw new Failed(`workspace ensure: secret grant failed: ${errs.map((e: { code?: string }) => String(e?.code ?? "?")).join(", ")}`)
+    say(`ensure ${environment}: machine ${r.json.machine.id}, created ${r.json.created}`)
     return r.json
   }
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -349,7 +355,7 @@ export async function main(opts: Options): Promise<number> {
       }
       evidence.assertions.a_not_on_vm = { verdict: scanPasses(scan) ? "pass" : "fail", scan }
       say(`scan: uid ${scan.uid}, ${scan.file_hits.length} file hits, ${scan.proc_hits.length} process hits over ${scan.procs} processes, acpmux dirs ${scan.acpmux_dirs.length}`)
-      if (!scanPasses(scan)) throw new Failed("the value (its first characters) is on the VM")
+      if (!scanPasses(scan)) throw new Failed(scan.uid !== 0 || scan.unread !== 0 ? `scan incomplete: uid ${scan.uid}, ${scan.unread} unreadable files` : "the value (its first characters) is on the VM")
     })
 
     await step("(b) the pinned host gets the secret", async () => {
@@ -382,7 +388,7 @@ export async function main(opts: Options): Promise<number> {
         const ok = a.status === 200 && c.length === 0
         evidence.assertions.d_after_revoke = { verdict: ok ? "pass" : "fail", status: a.status, carriers: c, tries, how: "ensure with an environment without the secret" }
         if (ok) return
-        if (Date.now() > until) throw new Failed(`${PINNED_HOST} still got the value ${REVOKE_WAIT_MS / 1000} s after the revoke (${tries} tries)`)
+        if (Date.now() > until) throw new Failed(`${PINNED_HOST} still got the value ${REVOKE_WAIT_MS / 1000} s after the ensure with the secretless environment (${tries} tries): the revoke, or the ensure not reconciling the existing machine's environment`)
         await sleep(10_000)
       }
     })
@@ -394,8 +400,8 @@ export async function main(opts: Options): Promise<number> {
       const del = await platform("DELETE", `/v1/machines/${machine}`).catch(() => null)
       let ok = !!del && ((del.status >= 200 && del.status < 300) || del.status === 404)
       if (!ok) {
-        const r = await http("POST", `${backend.api}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: `vault-edge-e2e-${opts.runId}-delete` }, { authorization: `Bearer ${await token().catch(() => "")}` }).catch(() => null)
-        ok = !!r && r.status === 200 && r.json?.ok === true
+        // /v1/ops takes the Stack access token with origin cli, as op() sends it.
+        ok = !!stack && (await op("cloud.machine.delete", { machine }).then(() => true, () => false))
       }
       evidence.cleanup.machine = ok
       say(ok ? `cleanup: machine ${machine} deleted` : `cleanup: could not delete machine ${machine} (${del ? codeOf(del) : "no answer"})`)
