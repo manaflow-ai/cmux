@@ -331,6 +331,9 @@ enum Event {
     /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
     /// `host/orphan.rs`).
     Orphan(u64, Option<bool>),
+    /// The Claude translator has stdin replies it worked out off the stdout reader (a
+    /// repo-sync hook's answer, `claude_stdio/hook_callback.rs`): write them now.
+    ClaudeReplies,
 }
 
 /// How long a pooled host waits for its first controller. A daemon may be
@@ -863,6 +866,19 @@ impl Started {
             });
         }
 
+        if let Some(tr) = &state.translator {
+            let ready = tr.replies_ready();
+            let tx = events_tx.clone();
+            // Ends with the event loop (its channel closes) or the translator.
+            tr.scope().spawn_until_cancelled("claude-replies-ready", async move {
+                loop {
+                    ready.notified().await;
+                    if tx.send(Event::ClaudeReplies).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
         state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
@@ -924,6 +940,7 @@ impl Started {
                         state.maybe_push_exit();
                     }
                 }
+                Event::ClaudeReplies => state.write_late_claude_replies().await,
                 Event::OwnerWaitOver => {
                     if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
                         tracing::warn!("no daemon attached to this pooled host; ending it");
@@ -1436,6 +1453,15 @@ impl State {
             dir: TapDir::Out,
             msg: Message::notification(super::WRITTEN_METHOD, note).to_value(),
         });
+    }
+
+    /// The translator's stdin replies worked out off the stdout reader ([`Event::ClaudeReplies`]).
+    async fn write_late_claude_replies(&mut self) {
+        let Some(tr) = self.translator.clone() else { return };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
+        }
     }
 
     fn write_claude_line(&mut self, line: Value) {
