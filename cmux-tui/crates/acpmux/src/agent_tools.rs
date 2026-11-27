@@ -561,9 +561,7 @@ const DESKTOP_LEASE_SOCKET_ENV: &str = "DESKTOP_LEASE_SOCKET";
 impl Inputs {
     pub fn current() -> Self {
         let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
-        let bin_dir = var(BIN_DIR_ENV).map(PathBuf::from).or_else(|| {
-            std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf))
-        });
+        let bin_dir = own_bin_dir_now();
         Inputs {
             enabled: var(SWITCH_ENV).is_none_or(|v| v != "0"),
             bin_dir,
@@ -1802,6 +1800,42 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;
     crate::config::write_atomic(path, bytes)
+}
+
+/// The `cmux` CLI's file name in a bundle's binary folder.
+const CMUX_CLI: &str = "cmux";
+
+/// The folder this daemon's bundled binaries (`cmux`, `optchat-chief`, ...) are found in:
+/// `CMUX_AGENT_TOOLS_BIN_DIR`, else [`own_bin_dir`] of this process.
+fn own_bin_dir_now() -> Option<PathBuf> {
+    std::env::var_os(BIN_DIR_ENV)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| own_bin_dir(&std::env::current_exe().ok()?))
+}
+
+/// The folder of the file `exe` (this daemon's `current_exe`) really is, when a `cmux` is there,
+/// else the folder of the path it was started by. A daemon started through a link (a
+/// `~/.local/bin/acpmux` that points into the app) would otherwise name the link's folder in
+/// every chat's MCP launch (`~/.local/bin/cmux`), a path anyone may replace: once a wrapper took
+/// it, each chat's `cmux` server ran a CLI with no `mcp serve`, and every `cmux_exec` failed with
+/// "the server ended before it answered initialize" ([`own_mcp_cmux`] heals those chats).
+pub(crate) fn own_bin_dir(exe: &Path) -> Option<PathBuf> {
+    let started = exe.parent()?.to_path_buf();
+    let real = std::fs::canonicalize(exe).ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    Some(real.filter(|dir| is_executable(&dir.join(CMUX_CLI))).unwrap_or(started))
+}
+
+/// This daemon's own `cmux` ([`own_bin_dir_now`]) when it serves MCP: what a chat's kept
+/// `cmux mcp serve` launch moves to once its command no longer does (`mcp_gateway.rs`).
+pub(crate) fn own_mcp_cmux() -> Option<PathBuf> {
+    let cmux = own_bin_dir_now()?.join(CMUX_CLI);
+    (is_executable(&cmux) && cmux_mcp::serves_mcp(&cmux)).then_some(cmux)
+}
+
+/// Whether the `cmux` at `path` has `mcp serve` ([`cmux_mcp::serves_mcp`]).
+pub(crate) fn serves_mcp(path: &Path) -> bool {
+    cmux_mcp::serves_mcp(path)
 }
 
 #[cfg(unix)]

@@ -156,6 +156,25 @@ fn stamp(launch: &Launch) -> String {
     format!("{}:{}:{modified}", launch.command.display(), at.map_or(0, |m| m.len()))
 }
 
+/// `launch` with its command moved to `own` (this daemon's `cmux`), when it is a `cmux mcp serve`
+/// whose command no longer `serves` MCP. A chat keeps the launch it registered with for its whole
+/// life, across daemon restarts and app updates; a command the update or a wrapper replaced (a
+/// `~/.local/bin/cmux` link turned into a script that runs another CLI) would fail every call with
+/// "the server ended before it answered initialize". `None` keeps the launch as it is.
+fn healed(
+    launch: &Launch,
+    serves: impl Fn(&Path) -> bool,
+    own: impl FnOnce() -> Option<PathBuf>,
+) -> Option<Launch> {
+    let cmux_serve =
+        matches!(launch.args.as_slice(), [mcp, serve, ..] if mcp == "mcp" && serve == "serve");
+    if !cmux_serve || serves(&launch.command) {
+        return None;
+    }
+    let own = own().filter(|own| *own != launch.command)?;
+    Some(Launch { command: own, ..launch.clone() })
+}
+
 /// The methods a kept answer may stand in for.
 fn answered_from_kept(method: &str) -> bool {
     matches!(method, "initialize" | "tools/list")
@@ -996,7 +1015,7 @@ impl Chat {
         if let Some(server) = slot.as_ref().filter(|s| s.live()) {
             return Ok(server.clone());
         }
-        let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let kept = self.launch_to_start().await;
         let server = Arc::new(Server::spawn(&kept.launch, &self.scope).with_context(|| {
             format!("starting {} for {}", kept.launch.command.display(), self.id)
         })?);
@@ -1017,6 +1036,32 @@ impl Chat {
         }
         *slot = Some(server.clone());
         Ok(server)
+    }
+
+    /// The kept launch to start, its command moved to this daemon's own `cmux` when the kept one
+    /// no longer serves MCP ([`healed`]); the move is kept, so the next daemon starts it too.
+    async fn launch_to_start(&self) -> Kept {
+        let launch = self.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+        let healed = tokio::task::spawn_blocking(move || {
+            healed(&launch, crate::agent_tools::serves_mcp, crate::agent_tools::own_mcp_cmux)
+                .map(|new| (launch.command, new))
+        })
+        .await
+        .ok()
+        .flatten();
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((was, launch)) = healed.filter(|(was, _)| *was == kept.launch.command) {
+            tracing::warn!(
+                "mcp gateway: {} has no `mcp serve` now; chat {} starts {} instead",
+                was.display(),
+                self.id,
+                launch.command.display()
+            );
+            kept.launch = launch;
+            let bytes = serde_json::to_vec(&*kept).unwrap_or_default();
+            let _ = crate::agent_tools::write_private(&self.file, &bytes);
+        }
+        kept.clone()
     }
 
     async fn stop(&self) {

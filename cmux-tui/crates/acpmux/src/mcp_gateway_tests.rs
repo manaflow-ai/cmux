@@ -1218,3 +1218,32 @@ async fn another_shape_or_an_old_shared_answer_asks_the_server() {
     }
     assert_eq!(chat.start_answer("tools/list", &json!({})), None, "an old answer is not used");
 }
+
+/// A kept `cmux mcp serve` launch whose command lost `mcp serve` (an app relaunch after a wrapper
+/// replaced the linked `cmux`) starts this daemon's own `cmux`; one that still serves, another
+/// server's launch, or no own `cmux` stays as kept.
+#[test]
+fn a_kept_cmux_launch_that_lost_mcp_serve_moves_to_the_daemons_own_cmux() {
+    let kept = Launch {
+        command: PathBuf::from("/home/u/.local/bin/cmux"),
+        args: vec!["mcp".into(), "serve".into()],
+        env: vec![("CMUX_AGENT_SESSION".into(), "s-1".into())],
+        cwd: Some(PathBuf::from("/home/u/work")),
+    };
+    let own = || Some(PathBuf::from("/app/bin/cmux"));
+    let lost = |p: &Path| p != Path::new("/home/u/.local/bin/cmux");
+    let moved = healed(&kept, lost, own).expect("moved to the own cmux");
+    assert_eq!(moved.command, PathBuf::from("/app/bin/cmux"));
+    assert_eq!(
+        (moved.args.clone(), moved.env.clone(), moved.cwd.clone()),
+        (kept.args.clone(), kept.env.clone(), kept.cwd.clone())
+    );
+    // Still serving: kept as is, and the own cmux is not even looked for.
+    assert_eq!(healed(&kept, |_| true, || panic!("not asked")), None);
+    // No own cmux that serves, or the own one is the kept one: nothing better to start.
+    assert_eq!(healed(&kept, |_| false, || None), None);
+    assert_eq!(healed(&kept, |_| false, || Some(kept.command.clone())), None);
+    // Another server's launch is never rewritten.
+    let other = Launch { args: vec!["computer-use-mcp".into()], ..kept.clone() };
+    assert_eq!(healed(&other, |_| false, own), None);
+}
