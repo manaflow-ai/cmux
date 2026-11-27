@@ -97,7 +97,14 @@ fn counters(m: &Value) -> String {
     let Some(o) = m["harnessMagic"].as_object().filter(|o| !o.is_empty()) else {
         return String::new();
     };
-    let list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // RFD 0160's hit rate: attached files the turns then read or edited, over those attached.
+    if let (Some(hits), Some(files)) = (
+        o.get("prefetch.hits").and_then(Value::as_f64),
+        o.get("prefetch.files").and_then(Value::as_f64).filter(|f| *f > 0.0),
+    ) {
+        list.push(format!("prefetch.hitRate={:.2}", hits / files));
+    }
     format!("  harnessMagic: {}\n", list.join(" "))
 }
 

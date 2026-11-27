@@ -13,8 +13,8 @@ fn listeners_go_through_the_side_socket() {
     offer(unix.as_fd(), Some(tcp.as_fd()));
     let side = Side::open(&home).unwrap();
     let path = side.path().to_path_buf();
-    assert!(hand(&home, &home.join("elsewhere.sock"), std::process::id()).is_err());
-    let sent = hand(&home, &path, std::process::id()).unwrap();
+    assert!(hand(&home, &home.join("elsewhere.sock"), std::process::id(), false).is_err());
+    let sent = hand(&home, &path, std::process::id(), false).unwrap();
     assert_eq!(sent, ["unix", "ws"]);
     side.receive(&["unix".into(), "ws".into()], Some(std::process::id()));
     assert!(!path.exists(), "the side socket is removed once used");

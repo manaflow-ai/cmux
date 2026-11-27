@@ -35,3 +35,16 @@ fn text_says_when_no_feature_ran() {
     assert!(t.contains("every turn is the baseline"), "{t}");
     assert!(t.contains("0.500"), "{t}");
 }
+
+#[test]
+fn text_shows_the_prefetch_hit_rate() {
+    let args = ScorecardArgs { by: "feature".into(), ..ScorecardArgs::default() };
+    let on = json!({"turns": 2, "ttfu": {}, "firstModel": {},
+        "harnessMagic": {"prefetch.files": 4, "prefetch.hits": 3}});
+    let a = json!({"since": 1, "until": 2, "steerWindowS": 60,
+        "totals": {"turns": 3, "ttfu": {}, "firstModel": {}},
+        "byFeature": {"prefetch": {"on": on, "off": {"turns": 1, "ttfu": {}, "firstModel": {}}}}});
+    let t = text(&args, &a);
+    assert!(t.contains("prefetch on"), "{t}");
+    assert!(t.contains("prefetch.hitRate=0.75"), "{t}");
+}

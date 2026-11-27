@@ -480,9 +480,12 @@ async fn scoped_output_with_budget(
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
+    // Only the counts and peers (`listCounts`): the full status waits on its host, disk and
+    // agent reads, and this read runs before the list (#58414).
     if walks_all && status_read.is_none() {
-        status_read =
-            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+        let mut counts = json!({});
+        counts.set(crate::rpc::LIST_COUNTS, json!(true));
+        status_read = Some(request_bounded(client, method::MUX_STATUS, counts, budget).await.ok());
     }
     let closed_listed = status_read
         .as_ref()
