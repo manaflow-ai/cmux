@@ -3,6 +3,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextDesign
+@testable import CmuxNextSettings
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -134,5 +136,126 @@ struct NotificationRevealHoldsTests {
         Self.deltas(services, selecting: Self.chats.last!)
         let last = Self.id(Self.chats.last!, services)
         #expect(services.windows.controllers.contains { $0.state.workspaceID == last }, "the last click lost to a delta: \(Self.describe(services))")
+    }
+}
+
+/// The probe's cause: Spaces is off (#48355, the default) and each window shows its own space (New Window gave each
+/// one), so a chat the daemon made (the default space) is listed by the window but not in its space. The click's
+/// reveal selects it and pins it to the window's space (`WindowManager.pin`); the click's own read ack is a delta
+/// that lands before the pin, and its selection repair ("reconcile-repair") put the window on the chat's neighbor,
+/// for good (`landedPins` then found the window moved on). Each case clicks the chat's second tab.
+@MainActor @Suite(.serialized, .closesItsWindows)
+struct NotificationRevealBeforeItsPinTests {
+    static let work = ProfileID(rawValue: "room-work")
+    static let keys = ["w0", "c0", "c1", "c2", "c3"]
+
+    /// w0 is pinned to Work; the chats are in no space but the default unless `pinned` names them.
+    static func snapshot(pinned: [String] = []) -> DaemonTree {
+        var tree = NotificationRevealHoldsTests.snapshot(keys)
+        tree.personal = PersonalState(
+            sessions: [SessionRecord(id: "s-local")],
+            profiles: [ProfileSnapshot(id: .defaultProfile, name: "Default", index: 0), ProfileSnapshot(id: work, name: "Work", index: 1)],
+            pins: (["w0"] + pinned).sorted().map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $0), profile: work) },
+            workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
+        return tree
+    }
+
+    @MainActor final class Fixture {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let directory: URL
+        var controller: WindowController!
+        var store: DaemonStore { services.machines.local.store }
+        var windows: WindowManager { services.windows }
+
+        /// `restored`: the window opens listing every chat (a relaunch's restore); else the chats join it by reconcile.
+        @MainActor init(restored: Bool) async throws {
+            _ = NSApplication.shared
+            directory = FileManager.default.temporaryDirectory.appending(path: "cnc-reveal-pin-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appending(path: "cmux.json")
+            try Data("{}".utf8).write(to: file)
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(),
+                                              fileURL: file, managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            services.settings = settings
+            await settings.reload()
+            let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(
+                #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["profiles-v1","personal-mixed-order-v1"]}"#.utf8))
+            store.noteHandshake(identity)
+            store.connectionState = .connected(identity)
+            services.windows.ordersWindowsIn = false
+            services.windows.isOnScreen = { _ in true }
+            store.apply(snapshot: restored ? NotificationRevealBeforeItsPinTests.snapshot() : NotificationRevealHoldsTests.snapshot(["w0"]).withPersonal(of: NotificationRevealBeforeItsPinTests.snapshot()))
+            let listed = restored ? NotificationRevealBeforeItsPinTests.keys : ["w0"]
+            controller = try #require(services.windows.openWindow(workspaces: listed.compactMap(id), frame: CGRect(x: 120, y: 120, width: 900, height: 600)))
+            controller.state.enterProfile(NotificationRevealBeforeItsPinTests.work)
+            #expect(!windows.spacesOn)
+            if !restored {
+                store.apply(snapshot: NotificationRevealBeforeItsPinTests.snapshot())
+                windows.reconcileMembership()
+            }
+        }
+
+        @MainActor func id(_ key: String) -> String? { store.workspaces.first { $0.key?.rawValue == key }?.id }
+        @MainActor var shown: String? { controller.state.workspaceID.flatMap { id in store.workspaces.first { $0.id == id }?.key?.rawValue } }
+
+        /// A banner click on `key`'s second tab.
+        @MainActor func click(_ key: String) throws {
+            let index = try #require(NotificationRevealBeforeItsPinTests.keys.firstIndex(of: key))
+            let surface = SurfaceID(rawValue: UInt64(100 + index * 10) + 2)
+            let located = try #require(services.notifications.locate(surface: surface, in: store))
+            #expect(located.workspace.key?.rawValue == key)
+            AppActionContext(services: services).reveal(located, front: true)
+        }
+
+        /// A delta before any pin lands (the click's read ack): the same tree again, then its reconcile.
+        @MainActor func delta(pinned: [String] = []) {
+            store.apply(snapshot: NotificationRevealBeforeItsPinTests.snapshot(pinned: pinned))
+            windows.reconcileMembership()
+        }
+
+        @MainActor func close() {
+            controller.teardown()
+            controller.window?.close()
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func aClickedChatStaysShownThroughADeltaBeforeItsPin(restored: Bool) async throws {
+        let fixture = try await Fixture(restored: restored)
+        defer { fixture.close() }
+        #expect(fixture.windows.registry.value.lists(try #require(fixture.id("c1")), in: fixture.controller.state.id), "setup: the window does not list c1")
+        try fixture.click("c1")
+        #expect(fixture.shown == "c1")
+        fixture.delta()
+        #expect(fixture.shown == "c1", "a delta before the pin moved the window to \(fixture.shown ?? "nil")")
+        fixture.delta(pinned: ["c1"])
+        #expect(fixture.shown == "c1", "the landed pin moved the window to \(fixture.shown ?? "nil")")
+        #expect(fixture.windows.pinSelections.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func aBurstOfClicksBeforeTheirPinsShowsTheLast(restored: Bool) async throws {
+        let fixture = try await Fixture(restored: restored)
+        defer { fixture.close() }
+        var pinned: [String] = []
+        for chat in ["c0", "c1", "c2", "c3"] {
+            try fixture.click(chat)
+            #expect(fixture.shown == chat, "\(chat) not shown after its click")
+            fixture.delta(pinned: pinned) // the ack of this click; the pins of the clicks before landed
+            #expect(fixture.shown == chat, "\(chat): a delta before its pin moved the window to \(fixture.shown ?? "nil")")
+            pinned.append(chat)
+        }
+        fixture.delta(pinned: pinned)
+        #expect(fixture.shown == "c3")
+    }
+}
+
+extension DaemonTree {
+    /// This tree with `other`'s personal state.
+    func withPersonal(of other: DaemonTree) -> DaemonTree {
+        var tree = self
+        tree.personal = other.personal
+        return tree
     }
 }
