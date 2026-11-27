@@ -88,6 +88,12 @@ class SelectTests(unittest.TestCase):
             self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
         self.assertNotIn("reconnect-after-drop", self.sel("cmux-tui/crates/cmux-tui/src/main.rs")["flows"])
 
+    def test_a_bool_pair_e2e_flag_does_not_break_selection(self):
+        # workspaces-empty-mac-loads sets `"pair_e2e": true` (a flag, not a list of legs); selecting it crashed union().
+        r = self.sel("cmux-tui/crates/cmux-braid-path/Cargo.toml")
+        self.assertIn("workspaces-empty-mac-loads", r["flows"])
+        self.assertEqual(r["pair_e2e"], [])
+
     def test_shared_swift_package_the_app_links_is_ios_affecting(self):
         r = self.sel("Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/AuthCoordinator.swift")
         self.assertTrue(r["compile"])

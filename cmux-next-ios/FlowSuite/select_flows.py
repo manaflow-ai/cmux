@@ -182,7 +182,9 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
     def union(key: str) -> list:
         out: list = []
         for f in selected:
-            for x in f.get(key, []):
+            value = f.get(key, [])
+            # A flag such as `"pair_e2e": true` is a bool, not a list of entries: it adds nothing to the union.
+            for x in value if isinstance(value, list) else []:
                 if x not in out:
                     out.append(x)
         return out
