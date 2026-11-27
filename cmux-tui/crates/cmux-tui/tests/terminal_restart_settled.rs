@@ -567,7 +567,8 @@ impl SnapshotTerm {
                 coordinate: sys::GhosttyPointCoordinate { x, y: u32::from(y) },
             },
         };
-        let mut out = sys::GhosttyGridRef::default();
+        let mut out =
+            sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
         // SAFETY: the terminal is live; `out` is sized.
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.0, point, &mut out) };
         assert_eq!(result, sys::GHOSTTY_SUCCESS, "grid ref {x},{y}");
@@ -580,33 +581,28 @@ impl SnapshotTerm {
         let cols = self.get_u16(sys::GHOSTTY_TERMINAL_DATA_COLS);
         let rows = self.get_u16(sys::GHOSTTY_TERMINAL_DATA_ROWS);
         let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
             start: self.grid_ref(0, 0),
             end: self.grid_ref(cols.saturating_sub(1), rows.saturating_sub(1)),
             rectangle: false,
         };
+        let options = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: false,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: &selection,
+        };
         let mut formatter: sys::GhosttyFormatter = std::ptr::null_mut();
         // SAFETY: the terminal outlives the formatter, freed below.
         let result = unsafe {
-            sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, self.0)
+            sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, self.0, options)
         };
         assert_eq!(result, sys::GHOSTTY_SUCCESS, "formatter");
-        // The options `Terminal::viewport_text` sets: plain, wrapped rows kept,
-        // trimmed, no extras, the viewport selection.
-        let emit = sys::GHOSTTY_FORMATTER_FORMAT_PLAIN;
-        let unwrap = false;
-        let trim = true;
-        let extras: sys::GhosttyFormatterExtras = 0;
-        for (option, value) in [
-            (sys::GHOSTTY_FORMATTER_OPT_EMIT, std::ptr::from_ref(&emit).cast::<std::ffi::c_void>()),
-            (sys::GHOSTTY_FORMATTER_OPT_UNWRAP, std::ptr::from_ref(&unwrap).cast()),
-            (sys::GHOSTTY_FORMATTER_OPT_TRIM, std::ptr::from_ref(&trim).cast()),
-            (sys::GHOSTTY_FORMATTER_OPT_EXTRAS, std::ptr::from_ref(&extras).cast()),
-            (sys::GHOSTTY_FORMATTER_OPT_SELECTION, std::ptr::from_ref(&selection).cast()),
-        ] {
-            // SAFETY: each value has the type its option names.
-            let result = unsafe { sys::ghostty_formatter_set(formatter, option, value) };
-            assert_eq!(result, sys::GHOSTTY_SUCCESS, "formatter option");
-        }
         let mut needed = 0usize;
         // SAFETY: a size query with no buffer.
         unsafe {

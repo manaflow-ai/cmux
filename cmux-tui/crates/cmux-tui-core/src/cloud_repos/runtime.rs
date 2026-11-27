@@ -321,7 +321,7 @@ impl Backend for Runtime<'_> {
             {
                 let mut saved =
                     json!({"job":job,"repo":repo,"ref":reference,"state":status.get("state")});
-                for key in ["phase", "progress", "notes", "mirror"] {
+                for key in ["phase", "progress", "notes"] {
                     if let Some(value) = status.get(key) {
                         saved.set(key, value.clone());
                     }
@@ -338,10 +338,8 @@ impl Backend for Runtime<'_> {
                         .ok_or_else(transport_error)?;
                     let mut result =
                         json!({"state":"done","repo":repo,"folder":folder,"head":head});
-                    for key in ["notes", "mirror"] {
-                        if let Some(value) = status.get(key) {
-                            result.set(key, value.clone());
-                        }
+                    if let Some(notes) = status.get("notes") {
+                        result.set("notes", notes.clone());
                     }
                     store::set_job(
                         self.mux,

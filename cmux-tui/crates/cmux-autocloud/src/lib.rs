@@ -564,13 +564,6 @@ async fn run_loop(
             break;
         }
     }
-    // `--until-idle` is how scripts and the Cloud journey run one turn: a failed turn exits
-    // non-zero with the daemon's reason instead of looking like a reply.
-    if ctx.args.until_idle
-        && let Some(why) = &app.transcript.turn_error
-    {
-        bail!("the agent's turn failed: {why}");
-    }
     Ok(())
 }
 

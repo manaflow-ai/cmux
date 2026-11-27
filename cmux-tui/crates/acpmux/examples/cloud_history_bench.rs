@@ -16,27 +16,15 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-/// The bytes `meta` holds on disk: its allocated blocks.
-#[cfg(unix)]
-fn on_disk(meta: &std::fs::Metadata) -> u64 {
-    use std::os::unix::fs::MetadataExt;
-    meta.blocks() * 512
-}
-
-/// Windows reports no allocated blocks, so the logical size stands in.
-#[cfg(not(unix))]
-fn on_disk(meta: &std::fs::Metadata) -> u64 {
-    meta.len()
-}
-
 fn disk_bytes(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
     let Ok(meta) = std::fs::symlink_metadata(path) else { return 0 };
     if meta.is_dir() {
         let entries =
             std::fs::read_dir(path).map(|d| d.flatten().collect::<Vec<_>>()).unwrap_or_default();
-        on_disk(&meta) + entries.iter().map(|e| disk_bytes(&e.path())).sum::<u64>()
+        meta.blocks() * 512 + entries.iter().map(|e| disk_bytes(&e.path())).sum::<u64>()
     } else {
-        on_disk(&meta)
+        meta.blocks() * 512
     }
 }
 

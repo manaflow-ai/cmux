@@ -1,4 +1,4 @@
-//! Braid's path manager (RFD 0164, slices B1, B2, B3 and B4).
+//! Braid's path manager (RFD 0164, slices B1, B3 and B4).
 //!
 //! One racer for every dial ([`race`]), one memory of the route that won per peer
 //! ([`LastGood`]), and one path set per peer ([`PathSet`]). Today's racers (cmux-remote's
@@ -9,11 +9,9 @@
 //! stack wrapped around `cmux_transport::Selector` on its own (routes to path ids, the probe
 //! schedule, lost probes and silences, per-path stats), written once. [`Standby`] keeps the
 //! race's losers warm, one per peer and path kind, so a reconnect after the live path dies
-//! skips the race. [`network::Fingerprint`] names the network a dial starts from, so a
-//! last good route is kept per network (B2).
+//! skips the race.
 
 pub mod last_good;
-pub mod network;
 pub mod path_set;
 pub mod probe;
 pub mod race;
@@ -21,7 +19,6 @@ pub mod remembered;
 pub mod standby;
 
 pub use last_good::{LastGood, Remembered};
-pub use network::Fingerprint;
 pub use path_set::{IdPolicy, Path, PathSet, PathSetError, PathStats, earliest};
 pub use probe::{DueProbes, PathWatch, ProbeConfig, WatchStep, silence_window};
 pub use race::{Losers, Lost, RacePolicy, Won, race, race_keeping_losers, stagger_after};

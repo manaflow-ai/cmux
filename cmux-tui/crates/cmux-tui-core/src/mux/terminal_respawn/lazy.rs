@@ -520,9 +520,6 @@ impl Mux {
             failed("surface-insert-failed", Some(&incarnation));
             return Err(error);
         }
-        // Never started, it holds a blank screen until its tab is shown;
-        // the start makes a new runtime, so park this one's mirror now.
-        surface.park_exited_mirror();
         Ok(surface)
     }
 

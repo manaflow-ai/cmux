@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 public import AppKit
 
 extension NSMenuItem {
@@ -23,4 +22,3 @@ extension NSMenuItem {
         attributedTitle = text
     }
 }
-#endif

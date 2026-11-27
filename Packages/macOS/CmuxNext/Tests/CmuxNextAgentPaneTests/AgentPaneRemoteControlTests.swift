@@ -55,32 +55,6 @@ struct AgentPaneRemoteControlTests {
         #expect(box.writes == [true])
     }
 
-    /// Remote Control is one app-wide switch (Leo: "just go all or nothing"): a click in any chat
-    /// writes the app-wide setting, and every other chat's row shows that same switch.
-    @Test func anyChatsClickWritesTheAppWideSwitchAndEveryChatFollowsIt() async {
-        let control = AgentPaneRemoteControl()
-        let box = WriteBox()
-        control.set = { on in box.writes.append(on) }
-        control.state = { .init(on: box.writes.last ?? false) }
-        let first = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
-        let second = AgentPaneModel(host: NoHost(), sessionId: "chat-b")
-        first.remoteControl = control
-        second.remoteControl = control
-
-        let on = await first.respond(to: .remoteControl(on: true), userGesture: true)
-        #expect(on["ok"] as? Bool == true)
-        #expect(box.writes == [true])
-        // The second chat was never clicked; its row is the app-wide switch, now on.
-        #expect(control.state() == .init(on: true))
-        #expect(AgentPaneRemoteControl.event(control.state()) == AgentPageEvent(kind: "remoteControl", value: ["on": .bool(true)]))
-
-        // Turning it off from the second chat turns it off for the first too.
-        let off = await second.respond(to: .remoteControl(on: false), userGesture: true)
-        #expect(off["ok"] as? Bool == true)
-        #expect(box.writes == [true, false])
-        #expect(control.state() == .init(on: false))
-    }
-
     @Test func noSwitchOrARemoteChatWritesNothing() async {
         let control = AgentPaneRemoteControl()
         let box = WriteBox()

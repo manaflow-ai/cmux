@@ -35,11 +35,8 @@
 //!
 //! `quiet` says how the transcript draws it, and is decided here only: a turn whose reply is at
 //! most one short line ([`SHORT_LINE`] characters), with no question and no link, is quiet and
-//! draws as one muted line that opens on a click. A turn that changed a file (a call of kind
-//! [`CHANGES`]) is never quiet, whatever its reply says: the person must see what it did and why
-//! (claude-97, 2026-11-25: a finished review woke the agent, it edited two files and committed,
-//! and its one-line reply hid under the muted line, so the edits looked as if no prompt started
-//! them). Any other one draws in full, still without a ping. Turns the person started are unchanged.
+//! draws as one muted line that opens on a click. Any other one draws in full, still without a
+//! ping. Turns the person started are unchanged.
 
 use super::*;
 use std::collections::VecDeque;
@@ -52,9 +49,6 @@ pub const SHORT_LINE: usize = 160;
 
 /// The most reply text kept to decide `quiet`: past it the reply is long anyway.
 const TEXT_KEPT: usize = 4 * SHORT_LINE;
-
-/// The ACP tool kinds that change files: a background turn with one of these calls is never quiet.
-const CHANGES: [&str; 3] = ["edit", "delete", "move"];
 
 /// The updates that start a pending background turn: the model at work.
 const WORK: [&str; 4] = ["agent_message_chunk", "agent_thought_chunk", "tool_call", "plan"];
@@ -73,8 +67,6 @@ pub(super) struct Running {
     long: bool,
     /// A permission or structured question needs the person's attention.
     attention: bool,
-    /// It called a tool that changes files ([`CHANGES`]): never quiet.
-    changed: bool,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -164,21 +156,10 @@ impl BackgroundTurns {
                 fields.insert("cause".into(), cause);
             }
             started = Some(record);
-            self.running = Some(Running {
-                id,
-                trigger,
-                text: String::new(),
-                long: false,
-                attention: false,
-                changed: false,
-            });
+            self.running =
+                Some(Running { id, trigger, text: String::new(), long: false, attention: false });
         }
         let Some(running) = self.running.as_mut() else { return started };
-        if matches!(kind, "tool_call" | "tool_call_update")
-            && update.get("kind").and_then(Value::as_str).is_some_and(|k| CHANGES.contains(&k))
-        {
-            running.changed = true;
-        }
         if kind != "agent_message_chunk" {
             return started;
         }
@@ -206,7 +187,7 @@ impl BackgroundTurns {
         let r = self.running.take()?;
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
-            "quiet": !r.attention && !r.long && !r.changed && is_quiet(&r.text), "reason": reason,
+            "quiet": !r.attention && !r.long && is_quiet(&r.text), "reason": reason,
         }))
     }
 
@@ -246,7 +227,6 @@ impl Hub {
                 text: String::new(),
                 long: true,
                 attention: false,
-                changed: false,
             });
     }
 
@@ -265,7 +245,6 @@ impl Hub {
             text: String::new(),
             long: false,
             attention: false,
-            changed: false,
         });
         drop(state);
         if let Some(msg) = previous {
@@ -560,38 +539,6 @@ mod tests {
         b.on_update(&chunk("m1", "Done"), false, 0);
         let ended = b.on_line("claude.result.success", &json!({}), false, 3);
         assert_eq!(ended[0]["quiet"], false);
-    }
-
-    #[test]
-    fn a_turn_that_changed_a_file_is_never_quiet() {
-        let call = |kind: &str| json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": kind, "title": "Edit"});
-        // A finished review woke the agent: it read, edited and replied in one short line.
-        let mut b = BackgroundTurns::default();
-        b.on_line("claude.system.task_notification", &json!({}), false, 1);
-        b.on_line("claude.system.init", &json!({}), false, 2);
-        b.on_update(&call("read"), false, 3).unwrap();
-        b.on_update(&call("edit"), false, 0);
-        b.on_update(&chunk("m1", "The fix is committed locally."), false, 0);
-        let ended = b.on_line("claude.result.success", &json!({}), false, 5);
-        assert_eq!(ended[0]["quiet"], false);
-        // A turn whose calls only read or ran stays quiet on a short reply.
-        b.on_line("claude.system.init", &json!({}), false, 6);
-        b.on_update(&call("execute"), false, 7).unwrap();
-        b.on_update(&chunk("m2", "Still waiting on CI."), false, 0);
-        let ended = b.on_line("claude.result.success", &json!({}), false, 9);
-        assert_eq!(ended[0]["quiet"], true);
-        // The kind can come on the call's update; a delete or a move changes files too.
-        for kind in ["delete", "move"] {
-            b.on_line("claude.system.init", &json!({}), false, 10);
-            b.on_update(&chunk("m3", "Done."), false, 11).unwrap();
-            b.on_update(
-                &json!({"sessionUpdate": "tool_call_update", "toolCallId": "t2", "kind": kind}),
-                false,
-                0,
-            );
-            let ended = b.on_line("claude.result.success", &json!({}), false, 12);
-            assert_eq!(ended[0]["quiet"], false, "{kind}");
-        }
     }
 
     #[test]

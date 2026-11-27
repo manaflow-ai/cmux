@@ -174,12 +174,7 @@ class WarmCheckoutTest(unittest.TestCase):
         script = self.temp / "runner-temp/warm-checkout.sh"
         script.write_text(warm["run"])
         env = {**self.env, "BUILD_SHA": self.new, "WORKFLOW_SHA": self.new, "REPO_URL": str(self.origin),
-               "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"), "GITHUB_REPOSITORY": "o/r",
-               "GITHUB_SERVER_URL": "https://github.com",
-               # No mirror here: the step fetches from origin, which it does only with the release App's token.
-               "FETCH_TOKEN": "test-token",
-               "GLAEDA_GIT_MIRROR_DIR": str(self.temp / "no-fleet-git"), "CHECKOUT_MIRROR_WAIT_SECONDS": "0",
-               "CHECKOUT_FETCH_BACKOFF_SECONDS": "0", "GLAEDA_GIT_MIRROR_TOOL": str(self.temp / "no-mirror-tool")}
+               "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"), "GITHUB_REPOSITORY": "o/r"}
         # The runner's default for a `run:` step with no `shell:` is `bash -e {0}`.
         return subprocess.run(["bash", "-e", str(script)], cwd=self.temp, env=env, capture_output=True, text=True)
 

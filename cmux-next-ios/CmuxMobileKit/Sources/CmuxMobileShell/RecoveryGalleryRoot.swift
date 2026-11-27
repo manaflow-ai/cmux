@@ -55,8 +55,6 @@ import SwiftUI
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
-/// - `notsent`: a chat message the Mac never took within the send deadline (``NotSentGallery``):
-///   A, the inline line the chat shows, then B and C.
 /// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
 ///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
 ///   Feed-like rows (`AgentAvatarHostGallery`).
@@ -106,8 +104,6 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
-            case "notsent":
-                NotSentGallery().background(CmuxMobileTheme.standard.colors.bg.color)
             case "skeleton":
                 skeletons
             case "chip":
@@ -187,7 +183,7 @@ public struct RecoveryGalleryRoot: View {
     private var states: some View {
         VStack(spacing: 0) {
             EmptyState(symbol: "wifi.exclamationmark", title: "Couldn't load this Mac's Home.",
-                       message: "Check that the Mac is awake and online.")
+                       message: "Check that the Mac is awake and online.", retry: {})
             Divider()
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -244,7 +240,7 @@ public struct RecoveryGalleryRoot: View {
                 }
                 .padding(.horizontal, 20)
                 galleryLabel("Timed out")
-                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.", autoRetry: AutoRetry())
+                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.") {}
                     .frame(height: 300)
                 galleryLabel("No Mac")
                 CloudChatsConnectMac {}
@@ -326,12 +322,12 @@ public struct RecoveryGalleryRoot: View {
         }
         return ScrollView {
             VStack(spacing: 12) {
-                galleryLabel("A · picked · reconnecting: nothing (Leo 2026-11-22)")
-                list(nil)
+                galleryLabel("A · picked · reconnecting")
+                list(.reconnecting)
                 galleryLabel("A · past the bound, rows kept")
                 list(.stale)
-                galleryLabel("A · empty list, loading")
-                CmuxSpinner(label: Text("Loading chats…")).frame(height: 120)
+                galleryLabel("A · empty list, connecting")
+                CmuxSpinner(label: Text("Connecting to your Mac…")).frame(height: 120)
                 galleryLabel("B · floating pill")
                 list(nil)
                     .overlay(alignment: .bottom) {
@@ -428,8 +424,7 @@ public struct RecoveryGalleryRoot: View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
             ConnectionBanner(.signedOut, retry: {})
-            // retry-prompt-ok: signing in again is the person's step
-            FailureCard(title: "This device was signed out", message: "Sign in again to load your teams.", actionTitle: "Sign In") {}
+            FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {
                 Text("The simulator closed on your Mac.").font(.footnote).foregroundStyle(.secondary)

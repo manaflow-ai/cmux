@@ -270,18 +270,6 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
         } else {
             tracing::info!("hub carrier off: this machine is not joined");
         }
-        // RFD 0060 Weft move 3, off unless `laneGhCarrier` names owners: lane-gh's socket over the
-        // carrier this join keeps (`cli/host_broker_forward.rs`, `hold`), once per daemon.
-        #[cfg(unix)]
-        if hub.hub_carrier_serve.lock_or_recover().is_some()
-            && let Some(owners) = hub.config.read().await.lane_gh_carrier.clone()
-        {
-            crate::cli::host_broker_forward::hold(
-                &hub.scope,
-                &owners,
-                crate::cli::host_broker_forward::held_socket_path(),
-            );
-        }
     }
     // A joined machine whose build left the carrier out says so: the app's and the packages'
     // acpmux once shipped without it and logged nothing (scripts/ci/acpmux-build-features.sh).

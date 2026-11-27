@@ -17,7 +17,6 @@ nonisolated extension RefusalStrings {
 
     /// Move Pane to Dock with no pane focused or named.
     public static var noPaneForDock: String {
-        // retry-prompt-ok: refuses the person's own dock command until they pick a tab (their choice, no button)
         text("handlers.refusal.noPaneForDock", "Click a tab first, then try again.")
     }
 

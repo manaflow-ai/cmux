@@ -123,9 +123,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      clientName: clientName, device: device,
-                                      // A `cmux link dial` bridge relays lines; only a direct socket is byte-clean.
-                                      outputFrames: endpoint.bridge == nil)
+                                      clientName: clientName, device: device)
         } catch {
             transport.close()
             throw error
@@ -146,7 +144,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, clientName: String,
-                      device: TerminalSizingDevice?, outputFrames: Bool) async throws {
+                      device: TerminalSizingDevice?) async throws {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
@@ -194,9 +192,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 name: clientName, kind: "frontend",
                 // A view that names its device joins shared sizing: `size-state` events, and its
                 // device in the size state ("Sized for <device>" on every other view).
-                // `attach-frames-v1`: plain output as binary OUTPUT frames, no base64 JSON (an older daemon ignores it).
-                capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue])
-                    + (outputFrames ? [AttachOutputFrame.capability] : []),
+                capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)

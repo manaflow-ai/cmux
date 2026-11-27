@@ -808,8 +808,6 @@ fn write_segment(
 
 /// At the swap: packs every staged record after `after` into segments from
 /// `start`, the last one through `head`. Returns (segments, pruned ranges).
-/// An output cleanup may have no records left, in which case the whole tail
-/// is one pruned range.
 pub(super) fn pack_rest(
     staging: &Connection,
     source: &Connection,
@@ -823,17 +821,9 @@ pub(super) fn pack_rest(
     // Each pass packs at least one staged record (or fails), so it ends.
     loop {
         let (segment, full) = collect_segment(staging, after, start, fold.as_ref())?;
-        if segment.sequences.is_empty() {
-            if after < head {
-                insert_pruned(staging, after + 1, head)?;
-                pruned += 1;
-            }
-            return Ok((segments, pruned));
-        }
         anyhow::ensure!(
-            segment.last <= head,
-            "kept journal record {} is after the journal head {head}",
-            segment.last
+            !segment.sequences.is_empty(),
+            "no kept record is left for the last journal segment"
         );
         let end = if full { segment.last } else { head };
         let (ranges, compacted) = write_segment(staging, source, segment, end)?;

@@ -489,8 +489,7 @@ def queue_bound(text: str, step_class: str = "light") -> int:
 # ---------------------------------------------------------------- the nightly and the controller's result
 
 PICKER = Path(__file__).resolve().parents[1] / "ci" / "nightly_next_launch_smoke.py"
-# The writer binds cmux: inline (<cmux:sourceCommit xmlns:cmux="...">), so attributes must match too.
-SOURCE_COMMIT = re.compile(r"<cmux:sourceCommit(?:\s[^>]*)?>\s*([0-9a-f]{40})\s*</cmux:sourceCommit>")
+SOURCE_COMMIT = re.compile(r"<cmux:sourceCommit>\s*([0-9a-f]{40})\s*</cmux:sourceCommit>")
 
 
 def nightly_commit(feed: str, picker: Path = PICKER) -> str:

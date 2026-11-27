@@ -379,10 +379,6 @@ impl PeerRow {
         self.hot.alias.as_deref()
     }
 
-    pub(super) fn former_names(&self) -> &[Box<str>] {
-        self.hot.former_names.as_deref().unwrap_or_default()
-    }
-
     /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).
     pub fn has_former_name(&self, name: &str) -> bool {
         self.hot.former_names.as_deref().is_some_and(|names| names.iter().any(|n| &**n == name))

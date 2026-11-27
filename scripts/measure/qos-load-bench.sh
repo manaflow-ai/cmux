@@ -12,15 +12,10 @@
 # disk policy acpmux applies to agent hosts and everything they start).
 # Load: 4-thread CPU spinners to more than every core, 2 dd writers, 2 find metadata storms,
 # 2 readers. Fleet Macs only, never an interactive machine:
-#   scripts/measure/qos-load-bench.sh DIR [SECONDS=30] [ROUNDS=3] [SPIN_X=1] [TIERS=agent_tier]
-# SPIN_X multiplies the spinner threads (1: ~1.2 per core; 8: ~8.4 per core, a load average near
-# 8x cores, as air-blue and cosmic-gray report at their starved hangs: field-hang-seconds-tenth).
-# TIERS is a comma- or space-separated list of load cells after load_default: agent_tier (`taskpolicy -c
-# utility -d utility`), nice10 (`nice -n 10`, what reach and air-blue-build-guard give a build) and
-# bg (`taskpolicy -b`, PRIO_DARWIN_BG: throttled CPU and disk).
+#   scripts/measure/qos-load-bench.sh DIR [SECONDS=30] [ROUNDS=3]
 # Everything it starts is its own job, stopped at the end of each cell; DIR is its scratch.
 set -u
-D=${1:?scratch directory}; S=${2:-30}; R=${3:-3}; X=${4:-1}; TIERS=${5:-agent_tier}; TIERS=${TIERS//,/ }
+D=${1:?scratch directory}; S=${2:-30}; R=${3:-3}
 here="$(cd "$(dirname "$0")" && pwd)/qos-load-bench"
 mkdir -p "$D" && D=$(cd "$D" && pwd -P) && cd "$D" || exit 1
 cc -O2 -o probe "$here/probe.c" && cc -O2 -o spin "$here/spin.c" || exit 1
@@ -36,7 +31,7 @@ set -m
 pgids=()
 start() { "$@" & pgids+=("$!"); }
 load() {
-  for _ in $(seq 1 $((NCPU * X / 4 + 1))); do start $1 ./spin; done
+  for _ in $(seq 1 $((NCPU / 4 + 1))); do start $1 ./spin; done
   for _ in 1 2; do start $1 /bin/sh -c 'while :; do dd if=/dev/zero of="$1/w$$" bs=1m count=256 2>/dev/null; rm -f "$1/w$$"; done' sh "$RUN"; done
   for _ in 1 2; do start $1 /bin/sh -c 'while :; do find /System/Library /usr -type f -size +1k >/dev/null 2>&1; done'; done
   for _ in 1 2; do start $1 /bin/sh -c 'while :; do cat "$1"/loadtree/f* | shasum >/dev/null; done' sh "$D"; done
@@ -47,19 +42,11 @@ stop() {
   wait 2>/dev/null; pgids=(); rm -f "$RUN"/w*; sleep 8
 }
 trap 'stop; rmdir "$RUN" 2>/dev/null' EXIT
-echo "host $(sysctl -n hw.model) cores $NCPU seconds $S rounds $R spin_x $X tiers $TIERS"
+echo "host $(sysctl -n hw.model) cores $NCPU seconds $S rounds $R"
 for r in $(seq 1 "$R"); do
   echo "== round $r idle"; ./probe "$S" "$D" || exit 1
   load ""; sleep 5
   echo "== round $r load_default $(uptime | sed 's/.*averages: //')"; ./probe "$S" "$D" || exit 1; stop
-  for t in $TIERS; do
-    case $t in
-      agent_tier) pre="taskpolicy -c utility -d utility" ;;
-      nice10) pre="nice -n 10" ;;
-      bg) pre="taskpolicy -b" ;;
-      *) echo "unknown tier $t" >&2; exit 2 ;;
-    esac
-    load "$pre"; sleep 5
-    echo "== round $r load_$t $(uptime | sed 's/.*averages: //')"; ./probe "$S" "$D" || exit 1; stop
-  done
+  load "taskpolicy -c utility -d utility"; sleep 5
+  echo "== round $r load_agent_tier $(uptime | sed 's/.*averages: //')"; ./probe "$S" "$D" || exit 1; stop
 done

@@ -55,7 +55,6 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.machine.create",
         MUTATION,
         &[
-            "cloud.machine.not_found",
             "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
@@ -191,7 +190,6 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
-    ("cloud.allotment.get", READ, &["cloud.allotment.off"]),
     ("cloud.usage.current", READ, &[]),
     ("cloud.billing.checkout", MUTATION, &["cloud.billing.off"]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),

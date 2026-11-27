@@ -30,7 +30,7 @@ extension WindowController {
         if let shown = root.content as? CloudProgressHost, shown.source === creation { return true }
         parkContentForPage()
         let view = CloudProgressHost(source: creation, actions: .progress(
-            retry: { [weak self, weak creation] in  // retry-prompt-ok: a failed creation's Retry creates a paid Cloud machine again
+            retry: { [weak self, weak creation] in
                 guard let self, let creation else { return }
                 CloudHandlers.creationFlow(AppActionContext(services: self.services)).retry(creation)
             },

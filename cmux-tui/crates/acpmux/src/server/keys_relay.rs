@@ -281,9 +281,8 @@ pub(super) async fn mint(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                     format!("no machine named {machine:?}; see acpmux machine ls"),
                 )
             })?;
-            let answer = super::peer_targeted::request(&peer, method::MUX_KEYS_MINT, ask.onward())
-                .await
-                .map_err(link_error)?;
+            let answer =
+                peer.request(method::MUX_KEYS_MINT, ask.onward()).await.map_err(link_error)?;
             // The next hop's reply, held to the same fields again.
             reply(&answer)
                 .ok_or_else(|| refused("keys_refused", "the machine answered without a whole key"))

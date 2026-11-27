@@ -46,6 +46,9 @@ import Testing
         let home = try HomePinnedRowAlignmentTests.item(list, SidebarLeadingEdgeTests.home.id)
         out.append(("Home's house", list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home),
                     SidebarLeadingEdgeTests.x(list, home.titleFrame.minX, in: home)))
+        let pinRow = try HomePinnedRowAlignmentTests.item(list, SidebarLeadingEdgeTests.pins[0].id)
+        out.append(("a pin", list.convert(try #require(pinRow.pinInkFrame, "no pin drew"), from: pinRow),
+                    SidebarLeadingEdgeTests.x(list, pinRow.titleFrame.minX, in: pinRow)))
         for (name, id) in [("a margined favicon (an app icon)", SidebarLeadingEdgeTests.web), ("a symbol (the globe's kind)", SidebarLeadingEdgeTests.symbol)] {
             let row = try HomePinnedRowAlignmentTests.row(list, id)
             let ink = try #require(try inkBox(row.icon), "\(name) drew nothing")

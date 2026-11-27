@@ -1,9 +1,5 @@
-#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
-#if canImport(Darwin)
+#if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
-#else
-internal import Glibc
-#endif
 internal import Foundation
 internal import MachO
 

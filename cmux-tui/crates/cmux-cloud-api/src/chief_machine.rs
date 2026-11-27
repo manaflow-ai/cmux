@@ -154,8 +154,6 @@ const MACHINE_WAIT: Duration = Duration::from_secs(420);
 /// How long the pairing may take to print its code, and then to write the placed Chief.
 const PAIR_WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
-/// `cloud.machine.create` tries when its answer is lost: 7 x 60 s fits in [`MACHINE_WAIT`].
-const CREATE_TRIES: u32 = 7;
 const EXEC_MS: u64 = 25_000;
 /// A Chief machine's idle policy unless `keep_awake`: about three minutes after its last activity
 /// (RFD 0037: the Chief stays awake about 3 minutes after it acts, then pauses). Where the machine's
@@ -481,46 +479,17 @@ async fn create<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<V
         matches!(made, Err(Failure::Http { code: Some(code), .. }) if code == "idempotency.conflict")
     }
     let key = format!("chief-machine-{}-create", start.key);
-    let first = create_once(cloud, start, size, &key).await;
+    let first = cloud.op("cloud.machine.create", create_params(start, size), &key).await;
     if !conflict(&first) {
         return first;
     }
     for other in ChiefSize::ALL.into_iter().filter(|s| *s != size) {
-        let made = create_once(cloud, start, other, &key).await;
+        let made = cloud.op("cloud.machine.create", create_params(start, other), &key).await;
         if !conflict(&made) {
             return made;
         }
     }
     first
-}
-
-/// One `cloud.machine.create` at `size`, sent again under the same key while the answer is lost: a
-/// request past its 60 s window (`timed_out`) or `mutation.indeterminate`. The op's contract says
-/// the same key then answers the machine it made (replayed), never a second one; staging's create
-/// answered past 60 s on 2026-11-25 (cloud-chief-start run 45613696385, twice). At most
-/// [`MACHINE_WAIT`] of tries.
-async fn create_once<C: Cloud>(
-    cloud: &C,
-    start: &Start,
-    size: ChiefSize,
-    key: &str,
-) -> Result<Value, Failure> {
-    fn lost(made: &Result<Value, Failure>) -> bool {
-        match made {
-            Err(Failure::TimedOut(_)) => true,
-            Err(Failure::Http { code: Some(code), .. }) => code == "mutation.indeterminate",
-            _ => false,
-        }
-    }
-    let mut tries = 1;
-    loop {
-        let made = cloud.op("cloud.machine.create", create_params(start, size), key).await;
-        if !lost(&made) || tries >= CREATE_TRIES {
-            return made;
-        }
-        tries += 1;
-        cloud.pause(POLL).await;
-    }
 }
 
 /// The machine, made at `size` or found by its key, running with a host.

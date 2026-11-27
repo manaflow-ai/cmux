@@ -5,7 +5,7 @@
 //! the latest release (and the `next` tag on npm) at most once a day and caches the answer in
 //! `update-check.json` at the state root; the interactive client prints one
 //! localized line with the update command when it exits. The check is off
-//! with `updates.automatic: "off"`, under `CI`, and for the app's
+//! with `updates.checkAutomatically: false`, under `CI`, and for the app's
 //! bundled binary (Sparkle updates it). Debug builds take the registry URL
 //! and the install channel from the environment.
 
@@ -165,11 +165,12 @@ fn tester_rollout_update_notice_the_owner_caches_the_latest_release_once_a_day()
 fn tester_rollout_update_notice_is_off_when_the_setting_turns_it_off() {
     let (url, requests) = registry(&[LATEST]);
     let dir = temp_dir("off");
-    fs::write(dir.join("cmux-next.json"), r#"{ "updates": { "automatic": "off" } }"#).unwrap();
+    fs::write(dir.join("cmux-next.json"), r#"{ "updates": { "checkAutomatically": false } }"#)
+        .unwrap();
     let owner = Owner::start(&dir, &url, "un-off");
     let outcome = owner.outcome(0);
     assert!(
-        outcome.contains("update-check: off") && outcome.contains("updates.automatic"),
+        outcome.contains("update-check: off") && outcome.contains("updates.checkAutomatically"),
         "{outcome}"
     );
     assert!(requests.try_recv().is_err(), "the registry was asked with the check off");

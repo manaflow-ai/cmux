@@ -66,7 +66,7 @@ extension SettingsModels: PageProvider {
                                   openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?) -> SettingsModels {
         SettingsModels(environment: environment, keys: KeychainModelKeyStore(),
                        openURL: { NSWorkspace.shared.openInBackground($0) },
-                       harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: { url, _ in await openSignInPage(url) }))
+                       harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: openSignInPage))
     }
 
     /// ``CloudSetup/run`` for the app: Set up Claude and Continue with ChatGPT connect in place, with no

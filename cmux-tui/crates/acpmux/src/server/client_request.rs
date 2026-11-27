@@ -61,30 +61,19 @@ impl Conn {
             waiting.insert(id.clone(), tx);
         }
         let mut ended = self.ended.subscribe();
-        // `reason` says whether the request could have run: `client.not_sent` never left this
-        // machine, `client.ended` and `client.timeout` were sent and may have (the GitHub
-        // broker's failover reads it, `server/github_lane.rs`).
-        let gone = |reason: &str| {
-            RpcError::internal("the connection that would answer ended")
-                .with_data(serde_json::json!({"reason": reason}))
-        };
+        let gone = || RpcError::internal("the connection that would answer ended");
         let request = Message::request(Value::String(id.clone()), method, params);
         let reply = if !self.is_open() {
-            Err(gone("client.not_sent"))
+            Err(gone())
         } else if let Err(e) = self.send_request_in_order(&request) {
-            Err(if e.data.is_none() {
-                e.with_data(serde_json::json!({"reason": "client.not_sent"}))
-            } else {
-                e
-            })
+            Err(e)
         } else {
             tokio::select! {
-                reply = rx => reply.unwrap_or_else(|_| Err(gone("client.ended"))),
-                _ = ended.wait_for(|ended| *ended) => Err(gone("client.ended")),
+                reply = rx => reply.unwrap_or_else(|_| Err(gone())),
+                _ = ended.wait_for(|ended| *ended) => Err(gone()),
                 _ = tokio::time::sleep(budget) => Err(RpcError::internal(format!(
                     "no answer within {}s", budget.as_secs()
-                ))
-                .with_data(serde_json::json!({"reason": "client.timeout"}))),
+                ))),
             }
         };
         self.client_requests.waiting().remove(&id);

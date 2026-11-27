@@ -44,7 +44,6 @@ EXCLUDED_FILES = {
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
 # Each x64 Blacksmith Linux size and the sizes it may fail over to, the first preferred.
 FAILOVER_SIZES = {2: (4, 8), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
-ALLOWLIST = re.compile(r"contains\(fromJSON\('\[[^']*\]'\), vars\.LINUX_RUNNER\)")
 FAILOVER_PREFIX = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-"
 
 
@@ -98,12 +97,6 @@ def covered(value: str) -> bool:
         return True
     if "${{" not in value:
         return LABEL.search(value) is None
-    # `contains(fromJSON('["blacksmith-..."]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER`
-    # reads the switched variable through an allowlist: its double-quoted labels are JSON,
-    # not runner literals (12 workflows since #49215; their fallback names no literal).
-    value = re.sub(r'"' + LABEL.pattern + r'"', '""', value)
-    if LABEL.search(value) is None:
-        return True
     # A failover target is itself a Blacksmith literal; it is the fallback, not a primary,
     # but at least one primary must remain (a lone failover resolves empty when unset).
     primaries = [
@@ -122,9 +115,6 @@ def offenders() -> list[str]:
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
-            # An allowlist of labels vars.LINUX_RUNNER may name is double-quoted JSON, not a
-            # runner literal: the switch points that variable at another Blacksmith size.
-            code = ALLOWLIST.sub("", code)
             if not LABEL.search(code) or "runner.name" in code:
                 continue
             if not covered(code):

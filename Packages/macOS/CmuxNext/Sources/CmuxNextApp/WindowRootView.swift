@@ -168,14 +168,14 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3] + TitlebarBandButton.lookMetrics + [
+                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.hidesControlsUntilHover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.floatOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
-                self.map { $0.applyTitlebarButtonsMode(); TitlebarBandButton.relayoutAll(in: $0) } // a look's button gap and corner too
+                self?.applyTitlebarButtonsMode()
             }
         }
         placementObservation = observePlacement()

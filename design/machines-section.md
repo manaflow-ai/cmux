@@ -1,9 +1,10 @@
 # Machines section: the right sidebar's machine list
 
 The right sidebar's Machines section (the cloud icon in its bar): this Mac, the Cloud, SSH and
-server machines the app connects to, and the person's machines joined through the hub. Its React page
-(`cmux-page://cmux.machines/`) went with the right sidebar; the native hosts sidebar (`HostsSidebar`,
-CmuxNextAgentLanes) draws these rows now, and `MachineRowActions` (CmuxNextApp) binds their actions.
+server machines the app connects to, and the person's machines joined through the hub. It is a
+React page, `cmux-page://cmux.machines/` (`webviews/src/pages/machines/`), hosted in the section's slot by
+`PageSectionHost` (CmuxNextPages, the generic sidebar page host) and served by
+`MachineSectionPageProvider` (CmuxNextServer); `MachineSectionHostView` (CmuxNextApp) wires its actions.
 The floating cards it opens (Add Device, Check Machine, Revoke's question) are their own surfaces.
 
 Leo: "we ought to have a lot of that ui in react and not swift".

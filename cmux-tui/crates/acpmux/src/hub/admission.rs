@@ -500,9 +500,7 @@ impl Hub {
             && peers.as_ref().is_some_and(|verdict| {
                 super::admission_scale_up::room_elsewhere(verdict).is_none()
             });
-        // A create that may move (`reason`) waits for the added machine as an Auto one does:
-        // a cap routes the start elsewhere and never only warns (cmuxterm-hq lane-router RFD).
-        if should_wait_for_scale_up(ask.auto || reason.is_some(), no_peer_room)
+        if should_wait_for_scale_up(ask.auto, no_peer_room)
             && let Some(over) = verdict.over.as_ref()
         {
             // Subscribe before triggering the provider so a fast join cannot be missed.
@@ -761,11 +759,8 @@ fn waiting_note(over: &OverCap, ask: &Ask<'_>) -> Value {
     })
 }
 
-/// `movable`: the caller chose Auto, or a create past this lane host's cap that may move
-/// (`admission_redirect::considered`). Only a create tied here (a person's, an explicit
-/// machine, a named folder) never waits.
-fn should_wait_for_scale_up(movable: bool, no_peer_room: bool) -> bool {
-    movable && no_peer_room
+fn should_wait_for_scale_up(auto: bool, no_peer_room: bool) -> bool {
+    auto && no_peer_room
 }
 
 /// Waits for the provider to fail or for a connected peer notification.
@@ -1199,7 +1194,6 @@ mod tests {
         assert!(!failed, "a provider failure falls back immediately");
 
         assert!(!should_wait_for_scale_up(false, true), "an explicit machine never waits");
-        assert!(should_wait_for_scale_up(true, true), "a movable create waits with no room");
-        assert!(!should_wait_for_scale_up(true, false), "a peer with room takes it at once");
+        assert!(should_wait_for_scale_up(true, true), "only Auto waits with no room");
     }
 }

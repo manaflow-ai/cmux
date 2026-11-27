@@ -132,7 +132,10 @@ fn make_private_dir(path: &Path) -> std::io::Result<()> {
     if private_dir(path) {
         return Ok(());
     }
-    crate::home_fs::create_dir(path, 0o700)
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
 }
 
 /// The reserved folder under `home`, canonical, made if there is none unclaimed: the one a
@@ -154,11 +157,13 @@ pub(super) fn ensure_folder(home: &Path) -> Option<PathBuf> {
             let name = fresh_name();
             make_private_dir(&chats.join(&name)).ok()?;
             let tmp = chats.join(format!("{TICKET}.{name}"));
-            let mut options = crate::home_fs::OpenOptions::new();
-            options.write(true).create_new(true).mode(0o600);
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
             std::io::Write::write_all(&mut options.open(&tmp).ok()?, name.as_bytes()).ok()?;
             // Atomic: a reader sees the old ticket or the new one, never half of it.
-            crate::home_fs::rename(&tmp, &ticket).ok()?;
+            std::fs::rename(&tmp, &ticket).ok()?;
             name
         }
     };

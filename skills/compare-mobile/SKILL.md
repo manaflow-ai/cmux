@@ -24,8 +24,8 @@ scripts/mobile-bench/compare-mobile composer-grow --ours DIR   # re-measure clip
   manaflow-ai/cmux-design-references at `~/Projects/cmux-design-references` (or `--refs DIR`,
   `CMUX_DESIGN_REFS`). It builds nothing locally; the capture is one `cmux-ci run --class simulator`
   step, about 15 minutes with the queue.
-- `OUT/table.md` lists the measurements and flows missing either recording. The verdict covers
-  flows with paired measurements, and `OUT/slower.json` lists slower apps for those flows.
+- Output: the table on stdout, then each clip's path, then `We are slower in: ...`. `OUT/table.md`
+  and `OUT/slower.json` keep them (`--out DIR`, default a temp folder).
 - A bold cell is worse than the best app by more than 10% and two frames; dropped frames, any more.
 
 ## Before and after for a PR
@@ -47,29 +47,13 @@ scripts/mobile-bench/compare-mobile keyboard-show --ref "$(git rev-parse HEAD)" 
 
 ## The competitors' clips
 
-Use the same flow ID, stimulus and end state from `scripts/mobile-bench/flows.json` for both apps.
-Keep comparison recordings in the private reference checkout. Screenshots can document layout.
-Timing a transition needs the original recording and the time of the input on its timeline.
-
-For layout references, save the publisher's current iPhone screenshots from the App Store:
-
-```sh
-python3 scripts/mobile-bench/storefront.py "$OUT/iphone-screenshots.zip" APP_STORE_ID [APP_STORE_ID ...]
-```
-
-The ZIP includes the images in listing order and a manifest with each version, storefront link,
-image URL and retrieval time. Keep these publisher-selected screens alongside the device captures.
-
-- For an iPhone app installed on a test Mac, run `scripts/measure/mobile-bench-mac-capture.sh` via
-  the fleet. Its header gives the command and the `profile=` argument for the app's private input
-  profile. Check the returned recorder rate and input timestamps.
-- On a test iPhone, record the flow with idle frames on both sides. Record the input time relative
-  to the first video frame. If that timestamp is unavailable, keep the clip as a visual reference.
-- Save each timed recording as `apps/<app>-mobile/bench/<flow>/clip.mp4` with its `meta.json`.
-  Use the clip contract in the benchmark README for device, OS, app version, source and
-  `stimulus_t`. Run `compare-mobile <flow> --ours DIR --refs REFS --out OUT` to measure the
-  saved clips and write `OUT/table.md` without starting another simulator. Inspect both clips
-  at the reported response and settle frames before sharing a comparison.
+- They come from the weekly capture (leo-workspace `machines/scheduled-briefs/mobile-reference-bench.md`):
+  iPhone apps that the App Store offers on the Mac run on a fleet Mac mini at 120 Hz
+  (`scripts/measure/mobile-bench-mac-capture.sh`). Claude's iPhone app is not offered on the Mac,
+  so its clips need a test iPhone.
+- Each clip is `apps/<app>-mobile/bench/<flow>/clip.mp4` with `meta.json` and `result.json`, listed
+  in the references' `index.json` (`kind: video`, topic `motion`), and every app folder has a
+  `bench/TIMINGS.md`. The side-by-side table is `research/mobile-bench.md` there.
 - Compare like with like: the `Source` column says simulator, Mac-hosted iPhone app or device.
   A simulator runs on a Mac GPU and its input comes through XCUITest; read small differences
   (a frame or two) as noise, and confirm a real gap on a phone before calling it a regression.

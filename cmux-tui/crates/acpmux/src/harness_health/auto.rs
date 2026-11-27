@@ -83,15 +83,9 @@ fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
 
 /// Runs one updater: whether it succeeded, and its last output line (or why
 /// it did not finish).
-async fn run_updater(
-    argv: &[String],
-    channel: super::channel::Channel,
-    guard: super::turns::Install,
-) -> (bool, String) {
+async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool, String) {
     let run = argv.to_vec();
     let outcome = tokio::task::spawn_blocking(move || {
-        // Cancellation of the waiter cannot release the install lock while the subprocess runs.
-        let _install = guard;
         let run = if channel == super::channel::Channel::Bun {
             super::channel::bun::pin_manager(&run, crate::config::which)
                 .ok_or_else(|| "harness_update_plan.unavailable".to_owned())?
@@ -192,12 +186,7 @@ impl HealthService {
             let result = match done.get(&argv) {
                 Some(result) => result.clone(),
                 None => {
-                    let program = self.turns.program(&row.program);
-                    let guard = program.install().await;
-                    if !read(path.as_deref()).contains(&row.id) {
-                        continue;
-                    }
-                    let (ok, detail) = run_updater(&argv, row.channel, guard).await;
+                    let (ok, detail) = run_updater(&argv, row.channel).await;
                     tracing::info!(harness = %row.id, ok, "auto-update ran");
                     let result = AutoUpdateResult {
                         at: now_ms(),
@@ -284,9 +273,7 @@ impl HealthService {
             let (ok, detail) = match done.get(&argv) {
                 Some(result) => result.clone(),
                 None => {
-                    let program = self.turns.program(&row.program);
-                    let guard = program.install().await;
-                    let result = run_updater(&argv, row.channel, guard).await;
+                    let result = run_updater(&argv, row.channel).await;
                     tracing::info!(harness = %id, ok = result.0, "requested update ran");
                     done.insert(argv, result.clone());
                     result

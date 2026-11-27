@@ -126,7 +126,7 @@ impl Aside {
             let moved = to
                 .parent()
                 .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| crate::home_fs::rename(&file, &to));
+                .and_then(|()| std::fs::rename(&file, &to));
             if let Err(e) = moved {
                 aside.put_back();
                 return Err(format!("keep {} aside: {e}", entry.path.display()));
@@ -142,7 +142,7 @@ impl Aside {
         let mut kept = Vec::new();
         for moved in self.moved {
             if moved.same {
-                let _ = crate::home_fs::remove_file(&moved.aside);
+                let _ = std::fs::remove_file(&moved.aside);
             } else {
                 kept.push(moved.path);
             }
@@ -154,8 +154,8 @@ impl Aside {
     pub fn put_back(&mut self) {
         for moved in self.moved.drain(..) {
             let file = self.root.join(&moved.path);
-            let _ = crate::home_fs::remove_file(&file);
-            let _ = crate::home_fs::rename(&moved.aside, &file);
+            let _ = std::fs::remove_file(&file);
+            let _ = std::fs::rename(&moved.aside, &file);
         }
     }
 }

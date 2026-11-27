@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 public import AppKit
 internal import ObjectiveC
 
@@ -25,4 +24,3 @@ extension NSApplication {
         unsafeBitCast(implementation, to: Report.self)(self, selector, exception)
     }
 }
-#endif

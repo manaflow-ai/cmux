@@ -202,14 +202,13 @@ import Testing
                     #expect(pinned.isHovered, "\(c): debug pointer did not hover the pinned workspace")
                     pinned.layoutSubtreeIfNeeded()
                     defer { PointerHover.setDebugPointer(nil, in: h.window); pinned.layoutSubtreeIfNeeded() }
-                    // A pinned row keeps its hover close on the column, as a workspace row does (Leo 2026-11-23, ask
-                    // c-b5d3e0efb6); its more button sits one slot in.
-                    let pinnedControls: [(String, NSView?)] = [("pinned-close", pinned.hoverClose), ("pinned-more", pinned.hoverMore)]
+                    // A pinned row has no hover close (Lawrence msg 19392): its more button takes the column.
+                    let pinnedControls: [(String, NSView?)] = [("pinned-more", pinned.hoverMore)]
                     #expect(pinnedControls.contains { $0.1 != nil }, "\(c): pinned workspace did not create hover controls")
                     for (name, view) in pinnedControls.compactMap({ name, view in
                         view.map { (name, $0 as NSView) }
                     }) where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
-                        accessories.append((name, h.list.convert(view.frame, from: pinned), name == "pinned-close"))
+                        accessories.append((name, h.list.convert(view.frame, from: pinned), name == "pinned-more"))
                     }
 
                     // A hovered group header exposes its disclosure, menu and add controls on

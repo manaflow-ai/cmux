@@ -34,11 +34,6 @@ pub struct PeerConfig {
     /// machine; a plain `peer_add` and a Cloud lease never do.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github_broker: bool,
-    /// `group`: `"own"` or `"agent"`, where the person put this machine in their machine
-    /// pickers. Wins over what acpmux derives (`hub/agent_vm.rs` `group_of`); unset, nothing
-    /// is overridden. Edit config.json, or `acpmux machine group NAME own|agent`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group: Option<String>,
 }
 
 impl PeerConfig {

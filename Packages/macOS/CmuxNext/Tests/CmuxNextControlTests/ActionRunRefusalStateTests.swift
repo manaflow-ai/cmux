@@ -72,37 +72,6 @@ import Testing
         #expect(error.data?["reason"] == nil)
     }
 
-    @Test func joinOnlyWithAnUnknownKeyDoesNotRunTheAction() async throws {
-        let executor = RefusingExecutor(.refused(Self.chatDock))
-        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
-        router.snapshots.publish { $0 = BrowserOpenSplitTests.snapshot() }
-        let reply = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
-            "action": "openBrowser", "idempotency_key": "missing", "join_only": true,
-        ]))
-        let error = try #require(reply.failure)
-        #expect(error.code == "idempotency_unknown")
-        #expect(error.data?["not_run"]?.boolValue == true)
-        #expect(executor.calls == 0)
-    }
-
-    @Test func joinOnlyReplaysAFinishedRefusal() async throws {
-        let executor = RefusingExecutor(.refused(Self.chatDock))
-        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
-        router.snapshots.publish { $0 = BrowserOpenSplitTests.snapshot() }
-        let first = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
-            "action": "openBrowser", "idempotency_key": "finished-refusal",
-        ]))
-        let firstError = try #require(first.failure)
-        let second = await router.handle(ControlRequest(id: "2", method: "action.run", params: [
-            "action": "openBrowser", "idempotency_key": "finished-refusal", "join_only": true,
-        ]))
-        let secondError = try #require(second.failure)
-        #expect(firstError.code == "unavailable")
-        #expect(secondError.code == firstError.code)
-        #expect(secondError.message == firstError.message)
-        #expect(executor.calls == 1)
-    }
-
     /// A refusal from the action's work may have applied part of the change: it says neither.
     @Test func aRefusalFromTheWorkSaysNeither() async throws {
         let failure = ActionWorkFailure(refusal: .unavailable, reason: "the group was made but its replies were not set")

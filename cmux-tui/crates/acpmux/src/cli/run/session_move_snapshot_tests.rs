@@ -76,7 +76,6 @@ fn no_kept_row_is_no_move() {
 /// a real hub's `transfer_receive`, `transfer_write` and `transfer_finish`, is a chat there with
 /// the copy's name and transcript, under its new id.
 #[tokio::test]
-#[cfg(unix)]
 async fn a_move_from_the_copy_lands_as_a_chat_with_its_transcript_and_name() {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().join("app");

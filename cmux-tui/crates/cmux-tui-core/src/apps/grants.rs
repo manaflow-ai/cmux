@@ -85,10 +85,7 @@ impl ScopeTable {
                     None => grant.scopes.iter().any(|s| s.starts_with("integration:")),
                 }
             }
-            (OpScope::Named(scope), None) => {
-                grant.scopes.contains(scope)
-                    || capability.also.iter().any(|s| grant.scopes.contains(s))
-            }
+            (OpScope::Named(scope), None) => grant.scopes.contains(scope),
         };
         if granted {
             Decision::Allow(capability.class)

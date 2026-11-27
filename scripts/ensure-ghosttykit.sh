@@ -270,14 +270,6 @@ else
     if [[ -x "$SCRIPT_DIR/ensure-metal-toolchain.sh" ]]; then
       "$SCRIPT_DIR/ensure-metal-toolchain.sh"
     fi
-    # Ghostty's packages from our mirror first, under bounded retries, so the
-    # build never fetches from deps.files.ghostty.org itself (one failed TLS
-    # handshake there failed nightly-next run 45594076083). In CI a failure
-    # stops here; on a dev Mac the build fetches what is still missing.
-    if [[ "${CMUX_GHOSTTY_PREFETCH:-1}" != 0 ]] && ! "$SCRIPT_DIR/cmux-next/zig-fetch-all.sh" ghostty; then
-      [[ "${CI:-}" != true ]] || { echo "error: could not put Ghostty's Zig packages in the cache from the mirror" >&2; exit 1; }
-      echo "warning: Ghostty Zig package prefetch failed; the build fetches what it lacks" >&2
-    fi
     (
       cd ghostty
       # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's

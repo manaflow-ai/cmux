@@ -186,30 +186,6 @@ fn protocol(values: &[&str]) -> RequestPlan {
 }
 
 #[test]
-fn settings_project_flag_names_the_project_folder() {
-    let get = protocol(&["settings", "get", "agents.promptCache", "--project", "/p/app"]);
-    assert_eq!(operation(&get), "settings.get");
-    assert_eq!(get.params["project"], "/p/app");
-    assert_eq!(get.params["key"], "agents.promptCache");
-    let set = protocol(&["settings", "set", "agents.promptCache", "5m", "--project", "/p/app"]);
-    assert_eq!(operation(&set), "settings.set");
-    assert_eq!(
-        (set.params["project"].clone(), set.params["value"].clone()),
-        (json!("/p/app"), json!("5m"))
-    );
-    let reset = protocol(&["settings", "unset", "agents.promptCache", "--project", "rel"]);
-    let folder = reset.params["project"].as_str().unwrap().to_owned();
-    assert!(std::path::Path::new(&folder).is_absolute() && folder.ends_with("rel"), "{folder}");
-    assert!(
-        parse(
-            &strings(&["settings", "edit", "[]", "--project", "/p"]),
-            super::super::Surface::CmuxTui
-        )
-        .is_err()
-    );
-}
-
-#[test]
 fn settings_crud_routes_to_daemon_operations() {
     let get = protocol(&["settings", "get", "appearance.theme"]);
     assert_eq!(operation(&get), "settings.get");

@@ -72,6 +72,7 @@ OWN_REPOSITORY = {
         "clean_merge_tree fetches into a scratch `git init --bare` TemporaryDirectory it just made (#44253)",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
+    "scripts/cmux-next/generate-third-party-notices.sh": "fetches into fresh `git init` cache directories",
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
@@ -82,8 +83,6 @@ OWN_REPOSITORY = {
     "scripts/measure/warm-tree.sh": "fetches only into its own `git init --bare` repository under the measurement root",
     "scripts/measure/git-carry-ready.sh": "run_deepen deepens only its own throwaway borrow clone $d, never the caller's checkout",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
-    "scripts/measure/lane-start-qos-macos.sh":
-        "fetch_arm fetches only into the `git init --bare` directory it just made under the measurement root",
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",

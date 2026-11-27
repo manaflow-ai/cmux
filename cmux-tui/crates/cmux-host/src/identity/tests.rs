@@ -74,7 +74,6 @@ fn identity_requires_receipt_current_binding_and_key() {
     assert!(enrolled(&store, "provider-a").is_err());
 }
 
-#[cfg(unix)]
 #[test]
 fn scoped_identity_does_not_block_on_bound_machine_before_scope_read() {
     let (mut store, _) = enrolled_store();
@@ -88,7 +87,6 @@ fn scoped_identity_does_not_block_on_bound_machine_before_scope_read() {
     assert!(store.read(SCOPED_RECEIPT).is_none());
 }
 
-#[cfg(unix)]
 #[test]
 fn scoped_identity_refuses_bound_machine_without_rotating_legacy_key() {
     let (mut store, _) = enrolled_store();

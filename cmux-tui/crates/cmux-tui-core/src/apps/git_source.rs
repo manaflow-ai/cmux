@@ -440,11 +440,7 @@ pub fn download(
     commit: &str,
 ) -> Result<Vec<u8>, String> {
     match reference.archive_url(commit) {
-        // The machine's git cache proxy first when it runs (it serves only the bytes GitHub
-        // still names), then GitHub itself. `CMUX_TRANSPORT_REWRITE=0` skips the proxy.
-        Some(url) => cmux_transport_rewrite::cached_url(&url)
-            .and_then(|cached| get_ok(transport, &cached, MAX_ARCHIVE).ok())
-            .map_or_else(|| get_ok(transport, &url, MAX_ARCHIVE), Ok),
+        Some(url) => get_ok(transport, &url, MAX_ARCHIVE),
         None => transport.git_archive(&reference.clone_url(), commit, MAX_ARCHIVE),
     }
 }

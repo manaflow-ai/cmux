@@ -360,25 +360,13 @@ impl Session {
 
     /// The pressure probe's block (`pressure.rs`; None: nothing is short). A report goes when it
     /// changed, so the Cloud's sizer looks at the machine within seconds of it running short.
-    /// A block that names something newly short goes at once, past the report's floor
-    /// (`pressure::rose`, `Reporter::trigger_now`).
     pub fn pressure(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
         if block == self.pressure {
             return Vec::new();
         }
-        let urgent = super::pressure::rose(self.pressure.as_ref(), block.as_ref());
         self.pressure = block;
         let activity = self.activity();
-        if urgent {
-            let _ = self.reporter.set_activity(activity, false, now);
-            return self.reporter.trigger_now("pressure", now).into_iter().collect();
-        }
         self.reporter.set_activity(activity, true, now).into_iter().collect()
-    }
-
-    /// The pressure block as last set (None: nothing short).
-    pub fn pressure_block(&self) -> Option<&Value> {
-        self.pressure.as_ref()
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report

@@ -95,7 +95,6 @@ impl LinkGroup for UnixLinkGroup {
                 kind: TransportPathKind::Local,
                 remote: None,
                 rtt_micros: None,
-                outer: None,
             }),
         }
     }

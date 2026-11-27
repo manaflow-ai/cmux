@@ -10,22 +10,18 @@ nonisolated private let retryLogger = Logger(subsystem: "com.cmuxterm.app.next",
 /// this??? why doens't it just retry on its own").
 ///
 /// Each end within ``window`` of the first retries, after the ``backoff`` of its turn, up to
-/// ``limit`` retries; the next end in the window shows the notice, and the page still loads again
-/// by itself after ``noticeRetryDelay`` (no Reload button: Leo, 2026-11-22, "vacuous decisions like
-/// that should be just done"). A page that loads and ends again counts too: that is the crash loop
-/// the notice is for.
+/// ``limit`` retries; the next end in the window shows the notice. A page that loads and ends
+/// again counts too: that is the crash loop the notice is for.
 nonisolated struct AgentPageCrashBudget: Equatable, Sendable {
     static let limit = 3
     static let window: TimeInterval = 60
     /// The wait before the first, second and third retry in a window.
     static let backoff: [TimeInterval] = [0, 1, 4]
-    /// The wait before each retry while the notice shows: a crash loop retries slowly, not never.
-    static let noticeRetryDelay: TimeInterval = 30
 
     enum Step: Equatable, Sendable {
         /// Load the page again in a new process after `delay` seconds.
         case retry(delay: TimeInterval)
-        /// It kept ending: the crash notice, and a retry after ``noticeRetryDelay``.
+        /// It kept ending: the crash notice, with Reload.
         case notice
     }
 
@@ -40,7 +36,7 @@ nonisolated struct AgentPageCrashBudget: Equatable, Sendable {
         return .retry(delay: delay)
     }
 
-    /// A reload that started over (``AgentPaneView/reloadAfterCrash()``): the next end retries again.
+    /// The person pressed Reload: the next end retries again.
     mutating func reset() { retries.removeAll() }
 }
 
@@ -67,15 +63,12 @@ final class AgentPageCrashRetry {
     /// Whether nobody can see the pane (tests set it).
     var nobodySees: @MainActor (NSView) -> Bool = AgentPaneFramePacer.nobodySees
 
-    /// `view`'s page ended: true when it retries quietly (``AgentPaneView/retryAfterCrash()``),
-    /// false when it kept ending and shows the crash notice; then it still retries, after
-    /// ``AgentPageCrashBudget/noticeRetryDelay``.
+    /// `view`'s page ended: true when it retries (``AgentPaneView/retryAfterCrash()``), false when
+    /// it kept ending and shows the crash notice.
     func ended(_ view: AgentPaneView) -> Bool {
-        let quiet: Bool
-        let delay: TimeInterval
-        switch budget.ended(at: now()) {
-        case .retry(let wait): (quiet, delay) = (true, wait)
-        case .notice: (quiet, delay) = (false, AgentPageCrashBudget.noticeRetryDelay)
+        guard case .retry(let delay) = budget.ended(at: now()) else {
+            cancel()
+            return false
         }
         owed = true
         waiting = true
@@ -87,10 +80,10 @@ final class AgentPageCrashRetry {
             self.waiting = false
             self.runIfShown(view)
         }
-        return quiet
+        return true
     }
 
-    /// A reload started over, or the page loaded again or closed: no owed retry runs.
+    /// The person pressed Reload, or the page loaded again or closed: no owed retry runs.
     func cancel() {
         owed = false
         waiting = false

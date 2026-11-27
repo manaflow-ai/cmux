@@ -183,12 +183,8 @@ pub fn host_label() -> String {
 /// address (`cmux chat --on NAME`). A machine joined by a pasted line or by Door A
 /// (`cmux device add HOST --yes --hub --name NAME`, which runs that line over ssh) uses the name it
 /// joined with, so two fresh VMs whose host names are both `ubuntu` are two hosts. A sign-in
-/// join does too: an untagged build signs in as its host name, so nothing changes for it, and a
-/// tagged build (`<host>-<tag>`, `enroll_name`) is a host of its own, so two builds signed in on
-/// one Mac are two hosts. It used to keep the host name, and then both heartbeat `mac` while
-/// `cmux chat --on` named the one it meant by its join name, which the hub never heard
-/// (`mesh.unknown_recipient`, own-machine-parity run 45761196106). No join, or a revoked or
-/// copied one, keeps the host name.
+/// join, which names itself after the host name ([`machine_name`]), and no join keep the host
+/// name.
 pub fn mesh_host() -> String {
     mesh_host_of(crate::machine_record::load().ok().flatten().as_ref(), machine_name())
 }
@@ -199,7 +195,11 @@ pub(crate) fn mesh_host_of(
     machine: String,
 ) -> String {
     record
-        .filter(|record| !record.revoked && !record.cloned)
+        .filter(|record| {
+            !record.revoked
+                && !record.cloned
+                && record.joined_by.as_deref() != Some(crate::machine_record::JOINED_BY_SIGN_IN)
+        })
         .map(|record| record.name.trim().to_ascii_lowercase())
         .filter(|name| name != "host" && crate::session_name::validate(name).is_ok())
         .unwrap_or(machine)

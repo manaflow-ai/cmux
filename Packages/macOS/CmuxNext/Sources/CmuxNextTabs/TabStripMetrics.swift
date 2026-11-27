@@ -46,8 +46,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
-    /// The theme's close button colors (`appearance.tabClose.*`); unset is today's.
-    public var closeColors = ThemeFlourishes.TabClose()
     /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
@@ -238,7 +236,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
-        closeColors = DesignSettings.shared.flourishes.tabClose
         agentBadges = DesignSettings.shared.agentBadges
         terminalAgentMarks = DesignSettings.shared.terminalAgentMarks
     }

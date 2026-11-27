@@ -493,60 +493,6 @@ class SwiftLogicDeltaTests(Repo):
             logic_delta.main(["--repo", str(self.repo), "--base", "0" * 40, "--head", "HEAD"])
 
 
-class SwiftLogicRatchetTests(Repo):
-    """swift-logic-delta.py --gate: growth fails without a `Swift-growth:` line; a fall, a reason or no count passes."""
-
-    def gate(self, base, head, body):
-        path = self.repo.parent / "body.md"
-        path.write_text(body)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            code = logic_delta.main(["--repo", str(self.repo), "--base", base, "--head", head, "--gate",
-                                     "--body-file", str(path)])
-        return code, out.getvalue()
-
-    def grown(self):
-        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
-        base = self.commit("base")
-        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n    var m = 0\n}\n")
-        return base, self.commit("grow")
-
-    def test_growth_without_a_reason_fails_naming_the_way_out(self):
-        base, head = self.grown()
-        code, out = self.gate(base, head, "## Summary\nsome change\n")
-        self.assertEqual(code, 1, out)
-        self.assertIn("::error title=Swift logic ratchet::Swift logic + mirror grows by +1 lines", out)
-        self.assertIn("`Store.swift:1` class Store (+1)", out)
-        self.assertIn("Swift-growth: <reason>", out)
-
-    def test_growth_with_a_reason_line_passes(self):
-        base, head = self.grown()
-        for body in ("Swift-growth: the new pane's view state\n", "intro\n- swift-growth:   a mirror until #1 lands \n"):
-            code, out = self.gate(base, head, body)
-            self.assertEqual(code, 0, out)
-            self.assertIn("with the reason", out)
-
-    def test_an_empty_reason_or_a_mention_inside_a_line_is_no_reason(self):
-        base, head = self.grown()
-        for body in ("Swift-growth:\n", "this PR needs no Swift-growth: line\n"):
-            self.assertEqual(self.gate(base, head, body)[0], 1, body)
-
-    def test_a_fall_or_no_change_passes_without_a_reason(self):
-        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
-        base = self.commit("base")
-        (self.repo / SRC / "CmuxNextDomain" / "Store.swift").unlink()
-        cut = self.commit("cut")
-        self.assertEqual(self.gate(base, cut, "")[0], 0)
-        self.write("README", "docs\n")
-        self.assertEqual(self.gate(cut, self.commit("docs"), "")[0], 0)
-
-    def test_a_count_that_cannot_be_made_passes_with_a_notice(self):
-        self.commit("base")
-        code, out = self.gate("0" * 40, "HEAD", "")
-        self.assertEqual(code, 0)
-        self.assertTrue(out.startswith("::notice title=Swift logic ratchet::not counted"), out)
-
-
 pr_status = load("cmux_next_swift_logic_pr_status_under_test", SCRIPTS / "swift-logic-pr-status.py")
 
 

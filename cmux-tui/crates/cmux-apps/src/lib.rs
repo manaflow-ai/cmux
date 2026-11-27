@@ -10,7 +10,6 @@
 //! probe, the platform's HTTP and the VM's credential), so the whole flow is tested with fakes;
 //! [`system`] holds the real implementations, except HTTPS, which the CLI binary supplies.
 
-pub mod account;
 pub mod cli;
 pub mod frame;
 pub mod infer;

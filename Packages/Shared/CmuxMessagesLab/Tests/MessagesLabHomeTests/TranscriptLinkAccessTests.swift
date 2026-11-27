@@ -56,8 +56,6 @@ import Testing
         let link = try #require(children.first)
         #expect(link.accessibilityRole() == .link)
         #expect(link.isAccessibilityElement())
-        // AXEnabled: without it CuaDriver leaves the link unindexed and the onboarding walk cannot press it.
-        #expect(link.isAccessibilityEnabled())
         #expect((link.accessibilityParent() as? NSAccessibilityElement) === message)
         #expect(link.accessibilityURL()?.absoluteString == Self.anyApp)
         let frame = link.accessibilityFrame()

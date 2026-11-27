@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextAgentPane
@@ -29,7 +28,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
-    var wallpaperBadge: AccountWallpaperBadge? // shows the signed-in account on its own art view's badge (`AppServices.wallpaperBadge`)
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = PaneContentAreaView()
     private(set) weak var content: NSView?
@@ -113,7 +111,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     /// over a page that has already painted.
     var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
-    let launchReveal: LaunchReveal // holds `contentHost` clear; a launch image releases it
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
@@ -124,7 +121,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     ///   the content until the first terminal frame (launch load-in).
     init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
         stripView = TabStripView(model: stripModel)
-        launchReveal = reveal
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder
@@ -145,7 +141,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             }
         }
         paneBackgroundsObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.paneBackgrounds, DesignSettings.shared.flourishes.paneArt) }) { self?.paintPaneBackdrop() }
+            for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
         placementObservation = Task { [weak self] in
             for await (position, order, toolbar) in ObservationStream({
@@ -361,7 +357,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         var leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
-        contentHost.easesGround(TabSwitchMorph.isOn) { if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) } } // TabSwitchMorph
+        if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
         if holds || (kept == nil && !isBandActive && PanePaintHold.holds(view, replacing: hosted)), let shown, let view { leaving = nil; beginPaintHold(outgoing: shown, incoming: view) } // asked again once in: a chat back from drawn parking learns its move here (`AgentPaneView.movedPageWaits`)
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()

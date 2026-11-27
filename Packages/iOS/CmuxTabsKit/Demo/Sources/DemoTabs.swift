@@ -143,7 +143,6 @@ final class DemoTabs: TabsDataSource {
         let web = webPages[tab.id]?.webView
         return [
             [
-                // retry-prompt-ok: the browser's own Reload control, used on purpose
                 TabsKitMenuItem(title: tab.navigation.isLoading ? "Stop Loading" : "Reload",
                                 systemImage: tab.navigation.isLoading ? "xmark" : "arrow.clockwise") { [weak self] in self?.reloadOrStop(tab.id) },
                 TabsKitMenuItem(title: "Copy URL", systemImage: "doc.on.doc", isEnabled: web?.url != nil) {

@@ -1,4 +1,3 @@
-#if canImport(MachO)
 import Foundation
 import MachO
 import Testing
@@ -30,4 +29,3 @@ struct OpaqueTypeTests {
         #expect(arrays.compactMap { Interposer.underlyingTypeNames($0) } == [["Swift.Array<Swift.Optional<Swift.String>>"]])
     }
 }
-#endif

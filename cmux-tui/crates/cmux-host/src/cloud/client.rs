@@ -506,41 +506,11 @@ pub struct CloudClient<H: Http> {
     key: InstallKey,
     rng: SystemRandom,
     cached: Option<(String, u64)>,
-    edge: Edge,
-}
-
-/// The machine's platform edge sign-in (cmux-platform `MachineEdgeTokenRoute.ts`): the Freestyle
-/// rule pinned to this VM adds the machine's edge token, so the bearer is minted without the
-/// install key at all. Asked first on a machine whose edge name resolves; any failure falls back
-/// to the install key's challenge.
-pub const EDGE_TOKEN_URL: &str = "https://platform.cmux.internal/v1/cloud/machine-identity/token";
-const EDGE_HOST: &str = "platform.cmux.internal:443";
-
-/// Whether this client signs in through the platform edge: asked once per client.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Edge {
-    Unprobed,
-    Absent,
-    At(String),
 }
 
 impl<H: Http> CloudClient<H> {
     pub fn new(http: H, bound: Bound, key: InstallKey) -> CloudClient<H> {
-        CloudClient {
-            http,
-            bound,
-            key,
-            rng: SystemRandom::new(),
-            cached: None,
-            edge: Edge::Unprobed,
-        }
-    }
-
-    /// Signs in through the edge at `url` instead of probing for it (tests, and a caller
-    /// that already knows the edge answers).
-    pub fn with_edge(mut self, url: Option<&str>) -> CloudClient<H> {
-        self.edge = url.map_or(Edge::Absent, |u| Edge::At(u.to_owned()));
-        self
+        CloudClient { http, bound, key, rng: SystemRandom::new(), cached: None }
     }
 
     pub fn bound(&self) -> &Bound {
@@ -560,7 +530,6 @@ impl<H: Http> CloudClient<H> {
         let key = InstallKey::from_pkcs8(self.key.pkcs8(), &self.rng).ok()?;
         let mut client = CloudClient::new(http, self.bound.clone(), key);
         client.cached = self.cached.clone();
-        client.edge = self.edge.clone();
         Some(client)
     }
 
@@ -579,9 +548,6 @@ impl<H: Http> CloudClient<H> {
             && expires.saturating_sub(60_000) > now_wall_ms
         {
             return Ok(token.clone());
-        }
-        if let Some(access) = self.edge_token() {
-            return Ok(access);
         }
         let ids = json!({ "user": self.bound.user, "install": self.bound.install });
         let (status, challenge): (_, Challenge) = self.auth_post("/v1/auth/challenge", &ids)?;
@@ -611,40 +577,6 @@ impl<H: Http> CloudClient<H> {
             "signature": signature,
         });
         let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body)?;
-        self.accept(status, token)
-            .ok_or_else(|| "Cloud token differs from the original enrollment".to_owned())
-    }
-
-    /// A bearer minted through the platform edge, when this machine has one and it answers with
-    /// a token for exactly this enrollment. None falls back to the install key.
-    fn edge_token(&mut self) -> Option<String> {
-        if self.edge == Edge::Unprobed {
-            // Unit tests never reach a real edge, even on a Cloud machine whose name resolves.
-            let resolves = !cfg!(test)
-                && std::net::ToSocketAddrs::to_socket_addrs(EDGE_HOST)
-                    .is_ok_and(|mut a| a.next().is_some());
-            self.edge = if resolves { Edge::At(EDGE_TOKEN_URL.to_owned()) } else { Edge::Absent };
-        }
-        let Edge::At(url) = &self.edge else { return None };
-        let (status, value) = self.http.post(url, &json!({}), None).ok()?;
-        if status != 200 {
-            eprintln!(
-                "cmux-host: cloud: edge sign-in refused (HTTP {status}); using the install key"
-            );
-            return None;
-        }
-        let token: Token = serde_json::from_value(value).ok()?;
-        let access = self.accept(status, token);
-        if access.is_none() {
-            eprintln!(
-                "cmux-host: cloud: edge sign-in answered another enrollment; using the install key"
-            );
-        }
-        access
-    }
-
-    /// Caches and answers `token` when it is a bearer for exactly this enrollment.
-    fn accept(&mut self, status: u16, token: Token) -> Option<String> {
         // A team SSH binding (team_ssh::sync::client_bound) records no grant,
         // so it pins user, install and team only.
         let grant_ok = self.bound.grant.is_empty() || token.grant == self.bound.grant;
@@ -661,11 +593,11 @@ impl<H: Http> CloudClient<H> {
             || token.expires_at > 9_007_199_254_740_991
         {
             self.cached = None;
-            return None;
+            return Err("Cloud token differs from the original enrollment".into());
         }
         let access = token.access_token;
         self.cached = Some((access.clone(), token.expires_at));
-        Some(access)
+        Ok(access)
     }
 
     fn auth_post<T: serde::de::DeserializeOwned>(

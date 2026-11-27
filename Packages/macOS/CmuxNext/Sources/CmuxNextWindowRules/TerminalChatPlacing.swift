@@ -48,49 +48,46 @@ public struct TerminalChatPlacing {
         return chat.togglePlaceAtLatest && viewport.atBottom
     }
 
-    /// Before the terminal shows (it is hidden): to the row of the chat's turn, or its newest rows. What it reads and
-    /// where it scrolls are Rust's (cmux-window-rules `tabs::place::terminal_read`, `terminal_scroll`).
+    /// Before the terminal shows (it is hidden): to the row of the chat's turn, or its newest rows.
     public func placeTerminal() async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
         let deadline = ContinuousClock.now + Self.budget
-        guard let read = await chat.togglePlacePrompts(by: deadline),
-              let plan = rules.terminalRead(.init(at: read.at, total: viewport.total, rows: rowCap)) else { return }
-        guard case let .screen(base, fromViewportTop) = plan else { return terminal.togglePlaceScroll(toRow: nil) }
-        if fromViewportTop { terminal.togglePlaceScroll(toRow: base) }
-        let scroll = terminal.togglePlaceRead(fromViewportTop: fromViewportTop, throughViewportBottom: false).flatMap { screen in
-            rules.terminalScroll(.init(prompts: read.prompts, at: read.at, screen: screen.screen, base: base, columns: screen.columns,
-                                       top: viewport.top, atBottom: viewport.atBottom))
+        guard let read = await chat.togglePlacePrompts(by: deadline) else { return }
+        guard read.at != nil else { return terminal.togglePlaceScroll(toRow: nil) }
+        // The newest `rowCap` rows: all of a short screen, else read with the viewport at their top.
+        let base = max(0, viewport.total - rowCap)
+        if base > 0 { terminal.togglePlaceScroll(toRow: base) }
+        let place = terminal.togglePlaceRead(fromViewportTop: base > 0, throughViewportBottom: false).flatMap { screen in
+            rules.terminalPlace(.init(prompts: read.prompts, at: read.at, screen: screen.screen, base: base, columns: screen.columns))
         }
-        switch scroll {
+        switch place {
         case .row(let row)?: terminal.togglePlaceScroll(toRow: row)
         case .latest?: terminal.togglePlaceScroll(toRow: nil)
-        case .keep?: break
-        // No screen or no answer: back where it was, when the read moved it.
-        case nil: if fromViewportTop { terminal.togglePlaceScroll(toRow: viewport.atBottom ? nil : viewport.top) }
+        // Nothing to land on: back where it was.
+        case .stay?, nil: if base > 0 { terminal.togglePlaceScroll(toRow: viewport.atBottom ? nil : viewport.top) }
         }
     }
 
-    /// Before the chat shows (the terminal still shows): to the turn of the terminal's top row, or its latest message.
-    /// What it reads and shows are Rust's (`tabs::place::chat_read`, `chat_show`).
+    /// Before the chat shows (the terminal still shows): to the turn of the terminal's top row, or
+    /// its latest message.
     public func placeChat() async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
         let deadline = ContinuousClock.now + Self.budget
-        let facts = TogglePlaceRules.ChatReadFacts(top: viewport.top, visible: viewport.visible, total: viewport.total,
-                                                   atBottom: viewport.atBottom, atLatest: chat.togglePlaceAtLatest, rows: rowCap)
-        switch rules.chatRead(facts) {
-        case .latest(let show)?: if show { await chat.togglePlaceShow(prompt: nil, by: deadline) }
-        case let .screen(base, fromViewportTop, throughViewportBottom)?:
-            guard let read = await chat.togglePlacePrompts(by: deadline),
-                  let screen = terminal.togglePlaceRead(fromViewportTop: fromViewportTop, throughViewportBottom: throughViewportBottom)
-            else { return }
-            let show = rules.chatShow(.init(prompts: read.prompts, screen: screen.screen, base: base, columns: screen.columns,
-                                            top: viewport.top, atBottom: false, at: read.at))
-            switch show {
-            case .latest?: await chat.togglePlaceShow(prompt: nil, by: deadline)
-            case .turn(let index)?: await chat.togglePlaceShow(prompt: index, by: deadline)
-            case .stay?, nil: break
-            }
-        case .stay?, nil: break
+        if viewport.atBottom {
+            if !chat.togglePlaceAtLatest { await chat.togglePlaceShow(prompt: nil, by: deadline) }
+            return
+        }
+        guard let read = await chat.togglePlacePrompts(by: deadline) else { return }
+        // Through the viewport when what is above it fits, else from its top; neither: it stays.
+        let fromTop = viewport.top + viewport.visible > rowCap
+        guard !fromTop || viewport.total - viewport.top <= rowCap,
+              let screen = terminal.togglePlaceRead(fromViewportTop: fromTop, throughViewportBottom: !fromTop) else { return }
+        let facts = TogglePlaceRules.ToChatPlace(prompts: read.prompts, screen: screen.screen, base: fromTop ? viewport.top : 0,
+                                            columns: screen.columns, top: viewport.top, atBottom: false)
+        switch rules.chatPlace(facts) {
+        case .latest?: if read.at != nil { await chat.togglePlaceShow(prompt: nil, by: deadline) }
+        case .turn(let index)? where index != read.at: await chat.togglePlaceShow(prompt: index, by: deadline)
+        case .turn?, .stay?, nil: break
         }
     }
 }

@@ -7,127 +7,127 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "معرّف الوكيل، مثل claude أو codex"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID agenta, npr. claude ili codex"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent-id, fx claude eller codex"
+            "state" : "needs_review",
+            "value" : "Agent-id, f.eks. claude eller codex"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Agent-ID, etwa claude oder codex"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent id, like claude or codex"
+            "value" : "Agent id, such as claude or codex"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID del agente, como claude o codex"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Identifiant, comme claude ou codex"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID agente, come claude o codex"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "エージェント ID（claude、codex など）"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "លេខសម្គាល់ភ្នាក់ងារ ដូចជា claude ឬ codex"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "에이전트 ID(예: claude, codex)"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Agent-ID, f.eks. claude eller codex"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ID agenta, np. claude lub codex"
+            "state" : "needs_review",
+            "value" : "Identyfikator, np. claude lub codex"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID do agente, como claude ou codex"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID агента, например claude или codex"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "รหัสเอเจนต์ เช่น claude หรือ codex"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajan kimliği, ör. claude veya codex"
+            "state" : "needs_review",
+            "value" : "Ajan kimliği, örneğin claude veya codex"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ID агента, напр. claude або codex"
+            "state" : "needs_review",
+            "value" : "ID агента, як-от claude або codex"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "ID tác tử, như claude hoặc codex"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "代理 ID，例如 claude 或 codex"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "代理 ID，例如 claude 或 codex"
           }
         }

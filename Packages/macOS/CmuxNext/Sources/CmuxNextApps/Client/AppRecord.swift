@@ -86,11 +86,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         /// Single browser-page keys (`page_keys`), with `cmux.keys` overrides applied by the daemon.
         public var pageKeys: [String]
         /// The raw catalog predicate for each page key (`page_key_when`).
-        public var pageKeyWhen: [String: String] {
-            didSet { pageKeyClauses = Self.parsed(pageKeyWhen) }
-        }
-        /// `pageKeyWhen` parsed once (here, not on each key event); a predicate that does not parse is absent.
-        private var pageKeyClauses: [String: WhenClause]
+        public var pageKeyWhen: [String: String]
         public var id: String { op }
 
         public init(op: String, title: AppLocalizedText, when: String? = nil, keys: [Key] = [], pageKeys: [String] = [], pageKeyWhen: [String: String] = [:]) {
@@ -100,11 +96,6 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             self.keys = keys
             self.pageKeys = pageKeys
             self.pageKeyWhen = pageKeyWhen
-            pageKeyClauses = Self.parsed(pageKeyWhen)
-        }
-
-        private static func parsed(_ when: [String: String]) -> [String: WhenClause] {
-            when.compactMapValues { try? WhenClause.parse($0) }
         }
 
         /// Whether a bare page key runs this command under the live context.
@@ -115,7 +106,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         public func answers(pageKey character: String, shift: Bool, context: KeyContext) -> Bool {
             let key = shift ? "shift+\(character)" : character
             guard pageKeys.contains(key) else { return false }
-            guard let clause = pageKeyClauses[key] else {
+            guard let raw = pageKeyWhen[key], let clause = try? WhenClause.parse(raw) else {
                 return pageKeyWhen[key] == nil
             }
             return clause.evaluate(context)

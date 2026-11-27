@@ -10,14 +10,9 @@ import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { ByteTerminal } from "./ByteTerminal";
-import { GhosttyTerminal } from "./GhosttyTerminal";
 import { ContextMenu } from "./ContextMenu";
 import { InlineRename } from "./InlineRename";
 import { RenderTerminal } from "./RenderTerminal";
-import { terminalRendererChoice } from "../lib/terminalRenderer";
-
-/** Read once per page load: `?terminal=ghostty` opts into ghostty-web. */
-const TERMINAL_RENDERER = terminalRendererChoice(typeof window === "undefined" ? "" : window.location.search);
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
@@ -232,15 +227,7 @@ function PaneLeaf({
       <div className="pane-body">
         <span className="pane-side" aria-hidden="true" />
         <div className="pane-content">
-          {surface !== null && TERMINAL_RENDERER === "ghostty" ? (
-            <GhosttyTerminal
-              client={client}
-              surface={surface}
-              error={terminalError}
-              focusOnMount={focusTerminalOnMount}
-              onError={reportError}
-            />
-          ) : surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
             <RenderTerminal
               client={client}
               surface={surface}

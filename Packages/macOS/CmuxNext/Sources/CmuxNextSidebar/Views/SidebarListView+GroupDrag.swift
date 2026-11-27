@@ -110,10 +110,6 @@ extension SidebarListViewComponents {
         }
         guard let geometry else { return head.section == section ? SidebarGroupDrag.Drop(position: position) : nil }
         guard let key, let hit = geometry.beside(key, after: after), let target = hit.target else { return nil }
-        // The document reducer may snap a whole-group drop to another section. Keep the list
-        // reorder beside that accepted target so the two projections cannot land apart.
-        var accepted = position
-        accepted.section = model.sections.first { model.docDrag?.section($0.id) == target.section }?.id ?? position.section
-        return SidebarGroupDrag.Drop(position: accepted, doc: target)
+        return SidebarGroupDrag.Drop(position: position, doc: target)
     }
 }

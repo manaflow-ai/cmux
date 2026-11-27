@@ -175,9 +175,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
-        if args.get(1).map(String::as_str) == Some("workspace-remote") {
-            return seed::workspace_remote::run(args.get(2..).unwrap_or_default());
-        }
         return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.

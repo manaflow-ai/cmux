@@ -61,7 +61,7 @@ impl BudgetSource for MeterSource {
 
 /// The daemon's mover: `session move ID --host auto`'s steps, driven over this daemon's own
 /// socket, exactly as the CLI drives them.
-pub(crate) struct SessionMove;
+struct SessionMove;
 
 impl Mover for SessionMove {
     fn move_off<'a>(&'a self, id: &'a str) -> Boxed<'a, Result<String, String>> {

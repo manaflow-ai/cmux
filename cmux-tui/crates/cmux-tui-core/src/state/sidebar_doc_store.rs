@@ -382,9 +382,6 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
             eprintln!("cmux-tui: repaired the stored sidebar document");
         }
         changed |= lift_icon_urls(&mut repaired);
-        // An older daemon's in-group pins: the rows stay first in their group,
-        // with no pin mark or Unpin (a pin now goes to the Pinned band).
-        changed |= cmux_layout_reducer::sidebar_doc::reduce::clear_in_group_pins(&mut repaired);
         if meta(&tx, ARRANGEMENT_KEY)?.is_none() {
             let layout = super::sidebar_layout_store::document(&tx)?;
             changed |= backfill_arrangement(&layout, &mut repaired);
@@ -399,8 +396,7 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
         return Ok(());
     }
     let input = super::sidebar_doc_legacy::legacy_input(&tx)?;
-    let mut doc = migrate::migrate(&input);
-    cmux_layout_reducer::sidebar_doc::reduce::clear_in_group_pins(&mut doc);
+    let doc = migrate::migrate(&input);
     if let Err(refusal) = cmux_layout_reducer::sidebar_doc::reduce::check(&doc) {
         eprintln!("cmux-tui: the migrated sidebar document breaks an invariant ({refusal})");
     }

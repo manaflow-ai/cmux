@@ -1,13 +1,6 @@
 {
   "family": "cloud",
   "ops": {
-    "cloud.allotment.get": {
-      "source": "cloud",
-      "owner": "cloud:CloudDO",
-      "class": "read",
-      "risk": "read",
-      "digest": "a24f88a2f0799132"
-    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -175,7 +168,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "8b49f3a3ff528f5b"
+      "digest": "0e5c01ef5e37ba4e"
     },
     "cloud.machine.delete": {
       "source": "cloud",
@@ -264,11 +257,6 @@
       "risk": "money",
       "digest": "ede6fe44ffcb2a4a"
     },
-    "cloud.machine.setup_desktop": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "e8130d729b74d5ac"
-    },
     "cloud.machine.share_chat": {
       "source": "local",
       "class": "mutation",
@@ -329,25 +317,10 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
-    "cloud.owner.github_clone_token": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "48c3cf7f287ca4e2"
-    },
-    "cloud.owner.github_complete": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "48c3cf7f287ca4e2"
-    },
     "cloud.owner.github_connect": {
       "source": "local",
       "class": "mutation",
       "digest": "48c3cf7f287ca4e2"
-    },
-    "cloud.owner.github_list": {
-      "source": "local",
-      "class": "read",
-      "digest": "3d8680b859d23639"
     },
     "cloud.owner.github_repos": {
       "source": "local",
@@ -378,21 +351,6 @@
       "source": "local",
       "class": "read",
       "digest": "3d8680b859d23639"
-    },
-    "cloud.owner.op": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "873bd350087e96c1"
-    },
-    "cloud.owner.slack": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "48c3cf7f287ca4e2"
-    },
-    "cloud.owner.slack_awake": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "48c3cf7f287ca4e2"
     },
     "cloud.owner.turn_checkpoint": {
       "source": "local",
@@ -428,7 +386,7 @@
       "owner": "app:cmux/cloud",
       "class": "mutation",
       "risk": "mutate-own",
-      "digest": "68cbc6bebc57a65f"
+      "digest": "5c87af31e3f9543f"
     },
     "cloud.port.list": {
       "source": "app",

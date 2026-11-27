@@ -115,14 +115,6 @@ fn resize_audit_viewer_resize_reaches_the_pty_before_queued_output_is_parsed() {
         let term = host.term.lock().unwrap();
         assert_eq!((term.cols(), term.rows()), (80, 24), "the grid waits for the parser");
     }
-    // The host noted the drag when it took the size, not when the parser
-    // reaches it: the parser has not run, and the output queued ahead of the
-    // resize parses at the focused pane's class (Leo: resizing "in lockstep").
-    assert!(
-        cmux_interactivity::global()
-            .is_kind_active(cmux_interactivity::InteractionKind::Drag, Instant::now()),
-        "a viewer resize noted no drag until the parser reached it"
-    );
     let parser = start_parser(&host, receiver);
     resizer.join().unwrap().unwrap();
     {

@@ -1,4 +1,3 @@
-#if canImport(Darwin)
 package import Darwin
 
 /// A caught signal returns to its default action in every program the
@@ -41,4 +40,3 @@ package struct ChildSignalDefaults {
         }
     }
 }
-#endif

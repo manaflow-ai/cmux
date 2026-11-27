@@ -55,7 +55,7 @@ extension CloudService {
                          persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
         if let environment, let cli = move.cli {
-            await onSent(); let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: try await identity.installToken()) // the platform's machine route verifies a team claim, which only the install token has
+            await onSent(); let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: try await auth.tokens().access)
             if let name, !name.isEmpty { try? await renameMachine(id, to: name) }; return try await machineRecord(id)
         }
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }

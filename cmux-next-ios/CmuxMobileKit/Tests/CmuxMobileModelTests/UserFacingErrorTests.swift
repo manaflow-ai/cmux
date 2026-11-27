@@ -23,12 +23,12 @@ import Testing
     }
 
     @Test func networkErrorsSayWhatToDo() {
-        #expect(UserFacingError.message(URLError(.notConnectedToInternet)) == "You're offline. Connect to the internet.")
-        #expect(UserFacingError.message(URLError(.timedOut)) == "The connection is slow right now.")
+        #expect(UserFacingError.message(URLError(.notConnectedToInternet)) == "You're offline. Connect to the internet and try again.")
+        #expect(UserFacingError.message(URLError(.timedOut)) == "The connection is slow right now. Try again.")
     }
 
     @Test func proseIsASentenceWithNoCodeOrMarkup() {
-        #expect(UserFacingError.isProse("Couldn't connect to your Mac."))
+        #expect(UserFacingError.isProse("Couldn't connect. Try again."))
         #expect(!UserFacingError.isProse("token refresh failed"))
         #expect(!UserFacingError.isProse("permission.person_required"))
         #expect(!UserFacingError.isProse("HTTP 500"))

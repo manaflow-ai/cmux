@@ -76,10 +76,6 @@ pub struct Setting {
     pub includes_pinned_tabs: bool,
     /// `browser.freezeHiddenTabs`: seconds hidden before a page freezes; `None` never.
     pub freeze_seconds: Option<f64>,
-    /// False: hidden pages only freeze and keep their state; none is discarded on its own (the
-    /// macOS app's fallback when cmux.json does not set `browser.hibernation`). The person's
-    /// Hibernate Tab still discards.
-    pub discards_automatically: bool,
 }
 
 impl Default for Setting {
@@ -89,7 +85,6 @@ impl Default for Setting {
             exclusions: Vec::new(),
             includes_pinned_tabs: false,
             freeze_seconds: Some(30.0),
-            discards_automatically: true,
         }
     }
 }

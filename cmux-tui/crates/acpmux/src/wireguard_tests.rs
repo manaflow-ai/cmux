@@ -17,7 +17,6 @@ fn peer(key: String, endpoint: SocketAddr, address: SocketAddr) -> PeerConfig {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
-        group: None,
     }
 }
 

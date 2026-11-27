@@ -14,7 +14,7 @@ extension AppServices: ChiefComputerHost {
     var cloudMachinesListed: Bool { machines.cloudLimits != nil }
     func cloudMachineRecord(_ id: String) -> CloudMachine? { machines.session(id)?.machine }
     var computerControl: ChiefComputerControlStore { cloud.computerControl }
-    var cloudMachineAPI: CloudDaemon { cloud.machineAPI }
+    var cloudMachineAPI: CloudAPIClient { cloud.machineAPI }
     var chiefBrainRoute: HomeChiefHostedEngine.Send { home.hostedChief.brainRoute }
     func createCloudMachine(name: String?) async throws -> String { try await cloud.createMachine(name: name, startedByPerson: true).machineID }
     func showChiefSettings() { try? settingsWindow.show(section: nil, focus: true, route: "#/settings/chief") }

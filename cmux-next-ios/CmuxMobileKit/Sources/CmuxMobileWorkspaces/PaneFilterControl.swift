@@ -122,7 +122,7 @@ public struct PaneFilterControl: View {
                 .background(on ? theme.colors.label.color.opacity(0.12) : .clear, in: .capsule)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressFillCapsule)
+        .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
@@ -149,7 +149,7 @@ public struct PaneFilterControl: View {
                 .frame(height: 30)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressGlass)
+        .buttonStyle(.plain)
         .glassEffect(on ? .regular.tint(theme.colors.accent.color).interactive() : .regular.interactive(), in: .capsule)
         .accessibilityAddTraits(on ? .isSelected : [])
     }

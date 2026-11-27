@@ -44,7 +44,6 @@ public struct UIPointerNativeElement: Equatable {
             if view === content { break }
             next = view.superview
         }
-        // main-actor-ok: one hit-test's superview chain (tens of views), on a picking move only.
         let inPane = chain.contains { $0.accessibilityIdentifier().hasPrefix(Self.paneID) }
         var found: [Self] = []
         for view in chain {

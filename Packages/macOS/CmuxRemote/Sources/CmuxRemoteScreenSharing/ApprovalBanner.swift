@@ -67,7 +67,6 @@ final class ApprovalBanner {
             } catch {
                 guard let self else { return }
                 answering = false
-                // retry-prompt-ok: a screen-sharing approval is a security answer only the person gives
                 self.error = RemoteText.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
                 render()
             }

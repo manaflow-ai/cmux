@@ -1,7 +1,7 @@
 {
   "$comment": "The one token file of Instrument, the cmux design system (cmuxterm-hq docs/rfd/0034-design-instrument.md, 'Adopted 2026-11-22', its token table between instrument-tokens:begin/end). Each token has the value Instrument names (`instrument`) and the value the app draws today (`today`), read from the source that sets it now. Where the two differ the Instrument value is recorded, not applied: the generated CSS (webviews/src/ui/instrument.generated.css) carries today's value, so this file moves no pixel. A default moves when its own source moves; scripts/cmux-next/gen-instrument-tokens.py --check then fails until `today` here says the new value, and the pending list (pending-baseline.json) may only shrink. CHANGELOG.md beside this file records every version.",
   "system": "Instrument",
-  "version": "0.1.4",
+  "version": "0.1.3",
   "rfd": "cmuxterm-hq docs/rfd/0034-design-instrument.md",
   "questions": {
     "leo-1": "Two tones on by default, or one colour by default with two tones as the first toggle.",
@@ -123,7 +123,7 @@
     {"name": "elevation.high.dark", "instrument": 16, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "elevation[name=2].dark", "value": 16}, "drawnOn": "--elevation-2 shadow ink in dark (black at this share)"},
     {"name": "ink.tool-row", "instrument": 58, "unit": "%", "today": {"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "path": "--instrument-ink-tool-row", "value": 58}, "drawnOn": "background activity text: tool rows, progress (--cv-activity-text, the text colour at this share)", "note": "The gallery-only activity-tone arms (52% tertiary, 64% readable) keep their literals; they are capture arms, never the default."},
     {"name": "ink.pill", "instrument": 16, "unit": "%", "today": {"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "path": "--instrument-ink-pill", "value": 16}, "drawnOn": "the needs-you pill fill (.cv-waiting__pill, the needs-you mark at this share)"},
-    {"name": "ink.shortcut", "instrument": 62, "unit": "%", "today": {"file": "webviews/src/ui/keyHint.css", "path": "--instrument-ink-shortcut", "value": 62}, "drawnOn": "every web shortcut's key hint (ui/KeyHint, .ui-key-hint, currentColor at this share); a host that sets its own color wins"},
+    {"name": "ink.shortcut", "instrument": 62, "unit": "%", "today": {"file": "webviews/src/agent-session/acpmux/styles.css", "path": "--instrument-ink-shortcut", "value": 62}, "drawnOn": "a permission ask's key hint and the inbox row's (.acpmux-permission-action-shortcut, currentColor at this share)", "note": "The base .acpmux-permission-action-shortcut rule (60%, drawn in the permission panel) and the ask's \"or\" between keys (75%) keep their literals."},
     {"name": "ink.effort-label", "instrument": 88, "unit": "%", "today": {"file": "webviews/src/agent-session/acpmux/composerLocation.css", "path": "--instrument-ink-effort-label", "value": 88}, "drawnOn": "the effort beside the model name in the composer foot (.acpmux-model-detail, currentColor at this share)"}
   ]
 }

@@ -8,21 +8,19 @@ extension GhosttyRuntime {
     public nonisolated struct FontOverride: Equatable, Sendable {
         public var family: String?
         public var size: Double?
-        /// `terminal.cursorStyle` / `terminal.cursorBlink` as Ghostty lines (`TerminalCursorSetting.ghosttyLines`),
-        /// loaded after the font's; empty keeps the config's cursor.
-        public var cursorLines: [String]
 
-        public init(family: String? = nil, size: Double? = nil, cursorLines: [String] = []) {
+        public init(family: String? = nil, size: Double? = nil) {
             self.family = family
             self.size = size
-            self.cursorLines = cursorLines
         }
     }
 
     public static var fontOverride = FontOverride()
 
-    /// Optional faces used after the person's chosen face. Ghostty ignores a family that is not installed, so these
-    /// keep a config portable while giving Nerd Font private-use and CJK glyphs a monospace fallback when the face is available.
+    /// Optional faces used after the person's chosen face. Ghostty ignores a
+    /// family that is not installed, so these keep a config portable while
+    /// giving Nerd Font private-use and CJK glyphs a monospace fallback when
+    /// the face is available.
     public nonisolated static let knownFallbackFamilies = [
         "Symbols Nerd Font Mono",
         "Noto Sans Mono CJK JP",

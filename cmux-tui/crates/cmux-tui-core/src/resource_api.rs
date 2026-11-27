@@ -140,10 +140,6 @@ pub(crate) struct LocalResourceContext {
     pub session_name: String,
     pub generation: String,
     pub revision: u64,
-    /// The session journal head at this read (`session-journal.md`, "Session
-    /// list rows"). A viewer holds a row's "new" state and notifications while
-    /// its own journal cursor for the session is below it.
-    pub journal_head: u64,
 }
 
 pub(crate) struct LocalResourceMachineService {
@@ -191,11 +187,11 @@ impl ResourceMachineService for LocalResourceMachineService {
                     "session",
                     "session.list does not select one session",
                 )?;
-                Ok(json!([session_list_row(&context)]))
+                Ok(json!([session_snapshot(&context)]))
             }
             ResourceOperation::SessionGet => {
                 resolve_local_session(&request.selectors, &context)?;
-                Ok(session_list_row(&context))
+                Ok(session_snapshot(&context))
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
@@ -382,23 +378,6 @@ fn session_snapshot(context: &LocalResourceContext) -> Value {
         "revision": context.revision.to_string(),
         "connected": true,
     })
-}
-
-/// A `session.list` / `session.get` row: the snapshot and the journal head of
-/// the read (`session-journal.md`, "Session list rows"). In `extra`, not a
-/// sibling field: an SDK that predates it rejects unknown siblings but keeps
-/// `extra` (`SessionSnapshot` in resource-operations-v2.json). Decimal, like
-/// every journal cursor. The full `session.snapshot` leaves it out: its cut
-/// already names its own cursor.
-fn session_list_row(context: &LocalResourceContext) -> Value {
-    let mut row = session_snapshot(context);
-    if let Some(fields) = row.as_object_mut() {
-        fields.insert(
-            "extra".to_owned(),
-            json!({"journal_head_sequence": context.journal_head.to_string()}),
-        );
-    }
-    row
 }
 
 fn resolve_local_session(
@@ -639,7 +618,6 @@ fn session_snapshot_with_journal_head(
             session_name: mux.session.clone(),
             generation: topology.generation.clone(),
             revision: topology.revision,
-            journal_head,
         };
         let sidebar_id = sidebar_view_id(&context.session_id)?;
         let sidebar_views = if sidebar_configured || sidebar_last_size.is_some() {

@@ -268,10 +268,9 @@ impl CursorSink for Host {
 }
 
 impl cmux_computer_use::preview::PreviewSource for Host {
-    fn stream(&self, windows: &[String], long_side: u32, fps: u32, generation: u64) {
+    fn stream(&self, windows: &[String], long_side: u32, fps: u32) {
         if let Some(f) = self.0.preview {
-            let text = json!({"windows": windows, "long_side": long_side, "fps": fps,
-                "generation": generation}).to_string();
+            let text = json!({"windows": windows, "long_side": long_side, "fps": fps}).to_string();
             // SAFETY: valid for the call; the host returns at once (header contract).
             unsafe { f(self.0.context, text.as_ptr(), text.len()) };
         }
@@ -522,25 +521,6 @@ pub unsafe extern "C" fn cmux_cu_engine_preview_frame(
     }
 }
 
-/// A new frame carrying the source generation requested by the preview host.
-/// This separate symbol keeps the v1 callback ABI usable by older hosts.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_cu_engine_preview_frame_for_generation(
-    engine: *mut CmuxCuEngine,
-    window: *const u8,
-    window_len: usize,
-    generation: u64,
-    jpeg: *const u8,
-    jpeg_len: usize,
-) {
-    // SAFETY: from create / header contract.
-    if let Some(engine) = unsafe { engine.as_ref() } {
-        let window = unsafe { text(window, window_len) };
-        let jpeg = unsafe { bytes(jpeg, jpeg_len) };
-        engine.engine.preview().frame_for_generation(window, generation, jpeg);
-    }
-}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_cu_engine_preview_closed(
     engine: *mut CmuxCuEngine,
@@ -550,20 +530,6 @@ pub unsafe extern "C" fn cmux_cu_engine_preview_closed(
     // SAFETY: from create / header contract.
     if let Some(engine) = unsafe { engine.as_ref() } {
         engine.engine.preview().window_closed(unsafe { text(window, window_len) });
-    }
-}
-
-/// A stream closure carrying its source generation.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_cu_engine_preview_closed_for_generation(
-    engine: *mut CmuxCuEngine,
-    window: *const u8,
-    window_len: usize,
-    generation: u64,
-) {
-    // SAFETY: from create / header contract.
-    if let Some(engine) = unsafe { engine.as_ref() } {
-        engine.engine.preview().window_closed_for_generation(unsafe { text(window, window_len) }, generation);
     }
 }
 

@@ -618,11 +618,6 @@ impl Saved {
         let failed = answer.is_err();
         let answered = self.answered.load(std::sync::atomic::Ordering::SeqCst);
         let resent_held = flag("held");
-        // The caller retries a pre-acceptance deadline with the same upload references.
-        // Inline files belong to this attempt and are reconstructed from the retry.
-        let retry_deadline = flag("retryable")
-            && data.and_then(|d| d.get("reason")).and_then(Value::as_str)
-                == Some("deadline_exceeded");
         let (hub, session) = (hub.clone(), self.session.clone());
         let (dir, owned) = (self.dir.take(), std::mem::take(&mut self.owned));
         let _ = tokio::task::spawn_blocking(move || {
@@ -643,8 +638,7 @@ impl Saved {
             };
             // Not taken: a duplicate (answered) or the resend of a held message keeps the uploads
             // the first one reads; one refused before the session answered it does not.
-            let keep_owned =
-                keep || (!taken && (!failed || answered || resent_held || retry_deadline));
+            let keep_owned = keep || (!taken && (!failed || answered || resent_held));
             if !keep_owned {
                 remove_uploads(&owned);
             }

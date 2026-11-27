@@ -1038,7 +1038,6 @@ pub fn open_desktop(
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
-        sharp_text: cfg.sharp_text,
     })?;
     let frames = PortalFrames {
         frames: cap.frames(),
@@ -1149,10 +1148,6 @@ impl crate::desktop::FrameSource for PortalFrames {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
-    }
-
-    fn constrained_baseline(&self) -> bool {
-        self.enc.constrained_baseline()
     }
 
     fn idr_cause(&self) -> Option<&'static str> {

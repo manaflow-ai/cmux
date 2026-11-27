@@ -55,7 +55,10 @@ build_app() {
   local xg="$EVAL_STATE/xcodegen" version=2.46.0 sha=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   rm -rf "$xg"
   mkdir -p "$xg"
-  bash "$EVAL_ROOT/scripts/ci/fetch-xcodegen.sh" "$version" "$sha" "$xg" >/dev/null || return 1
+  curl -fsSL --retry 3 --retry-delay 2 -o "$xg/xcodegen.zip" \
+    "https://github.com/yonaskolb/XcodeGen/releases/download/$version/xcodegen.zip"
+  [[ "$(shasum -a 256 "$xg/xcodegen.zip" | awk '{ print $1 }')" == "$sha" ]] || { echo "iphone-sim: xcodegen checksum mismatch" >&2; return 1; }
+  unzip -q "$xg/xcodegen.zip" -d "$xg"
   (cd "$ios" && "$xg/xcodegen/bin/xcodegen" generate -q)
   # Demo: optimized like Release, with DEBUG (the link viewer and the probe exist only there).
   # $(inherited) is xcodebuild's, not the shell's.

@@ -112,10 +112,7 @@ public final class BusyWatchdog: Sendable {
         self.ledger = ledger
         self.activity = activity
         self.helpers = Mutex(HelperSource(list: { [] }))
-        // A window may end up to half its length early on a wake that already happened (``WakeCoalescer``): its
-        // shares are per wall second, so a shorter window reads the same.
-        self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger,
-                                 early: configuration.window / 2)
+        self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
     }
 
     /// Sets the thread whose CPU and stack are watched (call on the main thread).

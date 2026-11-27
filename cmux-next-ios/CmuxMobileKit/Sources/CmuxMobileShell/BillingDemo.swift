@@ -9,8 +9,7 @@ import Foundation
 ///
 /// `CMUX_MOBILE_BILLING_DEMO` picks the state: `free` (Free, Go/Pro/Max
 /// offers), `pro` (an App Store Pro subscriber), `stripe` (pays on the web: no
-/// purchase buttons), `stripe-past-due` (the same, with its latest renewal
-/// failed), `team` (team billing), `unavailable` (the server sells
+/// purchase buttons), `team` (team billing), `unavailable` (the server sells
 /// nothing to this bundle, today's state for cmux NEXT), `testflight` (production's
 /// answer to a TestFlight or dev build: not eligible, `purchases_unavailable`, no
 /// products, on Pro) and `testflight-free` (the same on Free). `CMUX_MOBILE_BILLING_DEMO_OPEN=1`
@@ -44,7 +43,7 @@ private actor DemoBillingServer: BillingAPI {
         self.bundleIdentifier = bundleIdentifier
         switch state {
         case "pro": plan = BillingCurrentPlan(planID: .pro, source: .apple)
-        case "stripe", "stripe-past-due": plan = BillingCurrentPlan(planID: .pro, source: .stripe)
+        case "stripe": plan = BillingCurrentPlan(planID: .pro, source: .stripe)
         case "testflight": plan = BillingCurrentPlan(planID: .pro, source: .none)
         default: plan = BillingCurrentPlan(planID: .free, source: .none)
         }
@@ -59,7 +58,7 @@ private actor DemoBillingServer: BillingAPI {
             }
         }
         let reason: BillingIneligibilityReason? = switch state {
-        case "stripe", "stripe-past-due": .stripeSubscriptionActive
+        case "stripe": .stripeSubscriptionActive
         case "team": .teamBilling
         case "testflight", "testflight-free": .purchasesUnavailable
         default: nil
@@ -67,8 +66,6 @@ private actor DemoBillingServer: BillingAPI {
         return BillingAccount(appAccountToken: UUID(),
                               eligible: reason == nil, reason: reason, currentPlan: plan, products: products)
     }
-
-    func paymentPastDue() async throws -> Bool { state == "stripe-past-due" }
 
     func submitTransaction(signedTransactionInfo: String) async throws -> BillingTransactionReceipt {
         let planID = BillingPlanID(rawValue: signedTransactionInfo.split(separator: ".").dropLast().last.map(String.init) ?? "pro")

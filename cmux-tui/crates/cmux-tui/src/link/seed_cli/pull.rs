@@ -243,7 +243,6 @@ pub(super) fn keep(
         // The export answered, so the machine's checkout is whole.
         filling: None,
         hop: None,
-        snapshot: None,
     };
     // A record that could not be kept only makes the next pull merge from
     // the older base, where what came back already matches both sides.

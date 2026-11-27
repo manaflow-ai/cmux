@@ -32,11 +32,7 @@ public struct MacWorkspaceGroup: Identifiable, Hashable, Sendable, Codable {
 
     /// The name, else "Unnamed Group" (the Mac's `unnamedGroup`).
     public var displayName: String {
-        #if os(iOS)
-        workspaceGroupDisplayName(name: name)
-        #else
-        name
-        #endif
+        name.trimmingCharacters(in: .whitespaces).isEmpty ? "Unnamed Group" : name
     }
 
     /// The Mac's name for a group made without one (`SidebarGroup.named`).
@@ -45,29 +41,8 @@ public struct MacWorkspaceGroup: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's next group color (`GroupColor.automatic`): the first of its
     /// automatic order no group uses, never blue or grey; grey when all are used.
     public static func nextColor(used: Set<String>) -> WorkspaceColor {
-        #if os(iOS)
-        WorkspaceColor(rawValue: workspaceGroupNextColor(used: used.sorted())) ?? .grey
-        #else
-        .grey
-        #endif
-    }
-
-    /// Move Workspace to New Group's name: what was typed, trimmed; "New Group" when blank.
-    public static func chosenName(typed: String) -> String {
-        #if os(iOS)
-        workspaceGroupNewName(typed: typed)
-        #else
-        newGroupName
-        #endif
-    }
-
-    /// Rename Group…'s new name: what was typed, trimmed; nil when blank or unchanged.
-    func renamed(to typed: String) -> String? {
-        #if os(iOS)
-        workspaceGroupRename(current: name, typed: typed)
-        #else
-        nil
-        #endif
+        let order: [WorkspaceColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
+        return order.first { !used.contains($0.rawValue) } ?? .grey
     }
 }
 
@@ -137,42 +112,48 @@ extension SidebarArrangement {
     /// empty), in the Mac's group order: the groups a phone may change and move
     /// this Mac's workspaces into (a Mac group holds one machine's workspaces).
     public func ownGroups(registryID: String) -> [MacWorkspaceGroup] {
-        #if os(iOS)
-        workspaceGroupOwn(rows: phoneRows, groups: groups.map(\.phone), registryId: registryID).map { groups[Int($0)] }
-        #else
-        []
-        #endif
+        let others = Set((rows ?? []).filter { $0.session != registryID }.compactMap(\.group))
+        return groups.filter { !others.contains($0.id) }.sorted { $0.index < $1.index }
     }
 
     /// The room a new group for workspace `key` goes to, as the Mac's window
     /// that shows it: the room it is pinned to, else the first room (in room
     /// order) that follows this session, else the default room.
     public func room(forWorkspace key: String, registryID: String) -> String {
-        #if os(iOS)
-        workspaceGroupRoom(rooms: rooms.map { WorkspaceGroupRoom(id: $0.id, index: Int64($0.index), follows: $0.follows) },
-                           pins: roomPins.map { WorkspaceGroupRoomPin(session: $0.session, key: $0.key, room: $0.room) },
-                           key: key, registryId: registryID)
-        #else
-        Self.defaultRoom
-        #endif
+        if let pin = roomPins.first(where: { $0.session == registryID && $0.key == key }) { return pin.room }
+        return rooms.sorted { $0.index < $1.index }.first { $0.follows.contains(registryID) }?.id ?? Self.defaultRoom
     }
 
     /// The Mac's mixed sidebar order with groups (cmux-next
-    /// `PersonalSidebar.mixedSections`): each workspace gets its place in that
-    /// order and its group. The rule is Rust's `workspace_group_slots` (its
-    /// tests hold every case); where the Rust library does not link (the
-    /// macOS and Linux package builds) workspaces keep their personal order
-    /// and show no group.
+    /// `PersonalSidebar.mixedSections`): walk every personal row by place;
+    /// before row i come the groups whose `top_index` is i (members in personal
+    /// order), then row i when it is loose. Workspaces without a row follow,
+    /// then the groups placed after every row. Each workspace gets its place
+    /// in that order and its group.
     func applyGroups(to workspaces: inout [Workspace], registryID: String) {
-        #if os(iOS)
+        let ordered = (rows ?? []).sorted { $0.index < $1.index }
         let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let slots = workspaceGroupSlots(
-            rows: phoneRows, groups: groups.map(\.phone), workspaceIds: workspaces.map(\.id), registryId: registryID)
-        for (i, slot) in zip(workspaces.indices, slots) {
-            workspaces[i].sidebarIndex = Int(slot.sidebarIndex)
-            workspaces[i].group = slot.group.flatMap { byID[$0] }
+        let mine = ordered.filter { $0.session == registryID }
+        let groupOf: [String: String] = Dictionary(
+            mine.compactMap { row in row.group.flatMap { byID[$0] != nil ? (row.key, $0) : nil } }, uniquingKeysWith: { first, _ in first })
+        let sortedGroups = groups.sorted { $0.index < $1.index }
+        var sequence: [String] = []
+        func emit(_ group: MacWorkspaceGroup) {
+            sequence += mine.filter { groupOf[$0.key] == group.id }.map(\.key)
         }
-        #endif
+        for (index, row) in ordered.enumerated() {
+            for group in sortedGroups where group.topIndex == index { emit(group) }
+            if row.session == registryID, groupOf[row.key] == nil { sequence.append(row.key) }
+        }
+        let rowed = Set(mine.map(\.key))
+        sequence += workspaces.map(\.id).filter { !rowed.contains($0) }
+        for group in sortedGroups where group.topIndex.map({ $0 >= ordered.count }) ?? true { emit(group) }
+        let position = Dictionary(sequence.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        for i in workspaces.indices {
+            let id = workspaces[i].id
+            workspaces[i].sidebarIndex = position[id] ?? sequence.count + i
+            workspaces[i].group = groupOf[id].flatMap { byID[$0] }
+        }
     }
 }
 
@@ -185,88 +166,108 @@ extension SidebarArrangement {
 /// group opened again by itself, and a second tap seemed to be needed
 /// ("disclosure groups not being properly closable"). An edit holds its
 /// members' group over refreshes while it is in flight, and after the Mac's
-/// yes until a refresh shows it or its confirm window passes; then the Mac's
+/// yes until a refresh shows it or `confirmWindow` passes; then the Mac's
 /// state wins again (another device may change it). Only the latest edit of
-/// a workspace counts: a refused earlier tap does not undo a later one. The
-/// hold rule and its windows are Rust's `pending_group_edit_step`.
+/// a workspace counts: a refused earlier tap does not undo a later one.
 struct PendingGroupEdits: Sendable {
-    #if os(iOS)
-    /// Rust's `GroupEditLedger` (begin, sent, answered, refused, the holds and their windows).
-    private let ledger = GroupEditLedger()
+    /// How long an answered edit outlasts refreshes that do not show it.
+    static let confirmWindow: TimeInterval = 10
+    /// An edit the Mac never answered gives way after this long.
+    static let unansweredWindow: TimeInterval = 30
 
-    var isEmpty: Bool { ledger.isEmpty() }
+    private struct Edit: Sendable {
+        var group: MacWorkspaceGroup?
+        var generation: Int
+        /// When its request left for the Mac (nil: queued behind earlier ones).
+        var sentAt: Date?
+        var answeredAt: Date?
+        /// False: the edit only marks the latest one (a new group, which
+        /// the Mac names with its own id); refreshes show the Mac's group.
+        var holds: Bool
+    }
+
+    private var edits: [String: Edit] = [:]
+    private var generation = 0
+
+    var isEmpty: Bool { edits.isEmpty }
 
     /// The workspaces now show `group` (nil: no group); returns the edit's
     /// generation. It replaces any earlier edit of those workspaces.
     mutating func begin(_ workspaceIDs: [String], group: MacWorkspaceGroup?, holds: Bool = true) -> Int {
-        Int(ledger.begin(workspaceIds: workspaceIDs, group: group?.phone, holds: holds))
+        generation += 1
+        for id in workspaceIDs { edits[id] = Edit(group: group, generation: generation, holds: holds) }
+        return generation
     }
 
     /// The edit's request left for the Mac (after the Mac's earlier group
     /// requests): the unanswered window counts from here.
     mutating func sent(_ workspaceIDs: [String], generation: Int, at date: Date) {
-        ledger.sent(workspaceIds: workspaceIDs, generation: UInt64(generation), at: date.timeIntervalSinceReferenceDate)
+        for id in workspaceIDs where edits[id]?.generation == generation { edits[id]?.sentAt = date }
     }
 
     /// The Mac accepted the edit: refreshes keep it until one shows it (a
     /// non-holding edit is done).
     mutating func answered(_ workspaceIDs: [String], generation: Int, at date: Date) {
-        ledger.answered(workspaceIds: workspaceIDs, generation: UInt64(generation), at: date.timeIntervalSinceReferenceDate)
+        for id in workspaceIDs where edits[id]?.generation == generation {
+            if edits[id]?.holds == false { edits[id] = nil } else { edits[id]?.answeredAt = date }
+        }
     }
 
     /// Forgets every edit (sign-in); generations keep counting, so a request
     /// from before never matches a later edit.
     mutating func removeAll() {
-        ledger.removeAll()
+        edits.removeAll()
     }
 
     /// The Mac refused the edit: the workspaces it was still the latest edit
     /// of (those to roll back).
     mutating func refused(_ workspaceIDs: [String], generation: Int) -> Set<String> {
-        Set(ledger.refused(workspaceIds: workspaceIDs, generation: UInt64(generation)))
+        var latest: Set<String> = []
+        for id in workspaceIDs where edits[id]?.generation == generation {
+            edits[id] = nil
+            latest.insert(id)
+        }
+        return latest
     }
 
     /// One Mac's refreshed rows, with the edits they do not show yet.
     mutating func apply(to rows: inout [Workspace], now: Date) {
-        guard !ledger.isEmpty() else { return }
-        let held = ledger.apply(rows: rows.map { GroupEditRow(id: $0.id, group: $0.group?.phone) },
-                                now: now.timeIntervalSinceReferenceDate)
-        for edit in held { rows[Int(edit.index)].group = edit.group.map(MacWorkspaceGroup.init(phone:)) }
-    }
-    #else
-    // No Rust library (the macOS and Linux package builds): no edit holds, and a refusal rolls back every row.
-    var isEmpty: Bool { true }
-    mutating func begin(_ workspaceIDs: [String], group: MacWorkspaceGroup?, holds: Bool = true) -> Int { 0 }
-    mutating func sent(_ workspaceIDs: [String], generation: Int, at date: Date) {}
-    mutating func answered(_ workspaceIDs: [String], generation: Int, at date: Date) {}
-    mutating func removeAll() {}
-    mutating func refused(_ workspaceIDs: [String], generation: Int) -> Set<String> { Set(workspaceIDs) }
-    mutating func apply(to rows: inout [Workspace], now: Date) {}
-    #endif
-}
-
-#if os(iOS)
-import CmuxMobileLinkFFI
-
-extension MacWorkspaceGroup {
-    /// The group as Rust's `PhoneWorkspaceGroup`.
-    var phone: PhoneWorkspaceGroup {
-        PhoneWorkspaceGroup(id: id, name: name, color: color, isCollapsed: isCollapsed, index: Int64(index),
-                            topIndex: topIndex.map(Int64.init), room: room, isPinned: isPinned)
+        guard !edits.isEmpty else { return }
+        for index in rows.indices {
+            let id = rows[index].id
+            guard let edit = edits[id] else { continue }
+            let incoming = rows[index].group
+            guard edit.holds else { continue }
+            let expired = edit.answeredAt.map { now.timeIntervalSince($0) > Self.confirmWindow }
+                ?? edit.sentAt.map { now.timeIntervalSince($0) > Self.unansweredWindow } ?? false
+            if expired || (edit.answeredAt != nil && Self.shows(incoming, edit.group)) {
+                edits[id] = nil
+                continue
+            }
+            rows[index].group = Self.merged(incoming, edit.group)
+        }
     }
 
-    init(phone: PhoneWorkspaceGroup) {
-        self.init(id: phone.id, name: phone.name, color: phone.color, isCollapsed: phone.isCollapsed, index: Int(phone.index),
-                  topIndex: phone.topIndex.map(Int.init), room: phone.room, isPinned: phone.isPinned)
+    /// The Mac's group carries the edit (its place among groups may differ).
+    static func shows(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> Bool {
+        guard let incoming, let expected else { return incoming == nil && expected == nil }
+        return incoming.id == expected.id && incoming.name == expected.name && incoming.color == expected.color
+            && incoming.isCollapsed == expected.isCollapsed
+    }
+
+    /// The edit over the Mac's group: the Mac's place, the edit's fields.
+    static func merged(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> MacWorkspaceGroup? {
+        guard var expected else { return nil }
+        guard var incoming, incoming.id == expected.id else {
+            expected.index = incoming?.index ?? expected.index
+            return expected
+        }
+        incoming.name = expected.name
+        incoming.color = expected.color
+        incoming.isCollapsed = expected.isCollapsed
+        return incoming
     }
 }
-extension SidebarArrangement {
-    /// The personal rows as Rust's `PhoneSidebarRow`.
-    var phoneRows: [PhoneSidebarRow] {
-        (rows ?? []).map { PhoneSidebarRow(session: $0.session, key: $0.key, index: Int64($0.index), group: $0.group) }
-    }
-}
-#endif
 
 /// The Mac's workspace group actions, for a backend that can send them
 /// (cmux-next-ios/SECURITY.md "Workspace groups").
@@ -317,7 +318,8 @@ extension WorkspaceCreator {
     /// Group" when no name is given) shows at once with the workspace in it.
     public func moveToNewGroup(_ workspace: Workspace, name: String) {
         guard canGroup(workspace), let grouper else { return }
-        let name = MacWorkspaceGroup.chosenName(typed: name)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? MacWorkspaceGroup.newGroupName : trimmed
         let used = Set(grouper.groups(on: workspace.macID).compactMap(\.color))
         let color = MacWorkspaceGroup.nextColor(used: used)
         let pending = MacWorkspaceGroup(id: "pending-\(UUID().uuidString)", name: name, color: color.rawValue)
@@ -332,7 +334,8 @@ extension WorkspaceCreator {
 
     /// Rename Group…: every member shows the new name at once.
     public func renameGroup(_ group: MacWorkspaceGroup, on macID: String, to name: String) {
-        guard let name = group.renamed(to: name) else { return }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != group.name else { return }
         updateGroup(group, on: macID, failure: "Couldn't rename \(group.displayName)", { $0.name = name }) { grouper in
             try await grouper.updateGroup(group, on: macID, name: name, color: nil, collapsed: nil)
         }
@@ -365,46 +368,28 @@ extension WorkspaceCreator {
 
     /// The groups one Mac's rows show on this phone, in the order their first rows show.
     public func shownGroups(on macID: String) -> [MacWorkspaceGroup] {
-        #if os(iOS)
-        let rows = store.workspaces.filter { $0.macID == macID }
-        return workspaceGroupShown(rows: rows.map { WorkspaceGroupShownRow(sidebarIndex: $0.sidebarIndex.map(Int64.init), group: $0.group?.id) })
-            .compactMap { rows[Int($0)].group }
-        #else
-        []
-        #endif
+        var seen = Set<String>()
+        return store.workspaces.filter { $0.macID == macID }
+            .enumerated()
+            .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
+            .compactMap { $0.element.group }
+            .filter { seen.insert($0.id).inserted }
     }
 
     /// Collapse All Groups (true) / Expand All Groups (false) on one Mac.
     public func setAllGroupsCollapsed(on macID: String, _ collapsed: Bool) {
-        foldGroups(on: macID, keeping: nil, collapsed)
+        for group in shownGroups(on: macID) { setGroupCollapsed(group, on: macID, collapsed) }
     }
 
     /// Collapse Other Groups: every other group of the Mac folds and this one opens (the
     /// Mac's `groupsToggledByCollapsingOthers`).
     public func collapseOtherGroups(keeping group: MacWorkspaceGroup, on macID: String) {
-        foldGroups(on: macID, keeping: group.id, true)
-    }
-
-    /// The shown groups whose fold Collapse Others (`keeping`) or Collapse / Expand All changes, and to what.
-    private func foldChanges(on macID: String, keeping: String?, _ collapsed: Bool) -> [(MacWorkspaceGroup, Bool)] {
-        #if os(iOS)
-        let shown = shownGroups(on: macID)
-        let byID = Dictionary(shown.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return workspaceGroupFoldChanges(shown: shown.map { WorkspaceGroupFold(id: $0.id, collapsed: $0.isCollapsed) },
-                                         keeping: keeping, collapsed: collapsed)
-            .compactMap { fold in byID[fold.id].map { ($0, fold.collapsed) } }
-        #else
-        []
-        #endif
-    }
-
-    private func foldGroups(on macID: String, keeping: String?, _ collapsed: Bool) {
-        for (group, fold) in foldChanges(on: macID, keeping: keeping, collapsed) { setGroupCollapsed(group, on: macID, fold) }
+        for other in shownGroups(on: macID) { setGroupCollapsed(other, on: macID, other.id != group.id) }
     }
 
     /// Whether Collapse Other Groups would change anything for `group`.
     public func canCollapseOthers(keeping group: MacWorkspaceGroup, on macID: String) -> Bool {
-        !foldChanges(on: macID, keeping: group.id, true).isEmpty
+        shownGroups(on: macID).contains { $0.id == group.id ? $0.isCollapsed : !$0.isCollapsed }
     }
 
     /// The open workspaces of `groups` on one Mac (Close Workspaces in Group, Close Other Groups).

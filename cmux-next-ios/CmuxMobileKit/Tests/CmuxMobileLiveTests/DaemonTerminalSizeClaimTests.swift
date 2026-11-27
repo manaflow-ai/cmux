@@ -74,26 +74,6 @@ import Testing
         #expect(order == ["resize-surface", "release-surface-size", "resize-surface"])
     }
 
-    /// Hidden and shown again while its first claim is still being
-    /// answered: the release written at once and the claim queued behind
-    /// that answer raced for the channel, and the claim sometimes went first
-    /// (2 in 30 tries), so the Mac kept no claim. Many tries, one order.
-    @Test func aTerminalShownAgainAlwaysReleasesBeforeItClaimsAgain() async throws {
-        for _ in 0..<30 {
-            let daemon = FakeTerminalDaemon()
-            let session = session(daemon)
-            session.start { _ in }
-            session.resize(columns: 54, rows: 42)
-            try await waitUntil { commands(daemon, "resize-surface").count == 1 }
-            session.setClaimsSize(false)
-            session.setClaimsSize(true)
-            try await waitUntil { commands(daemon, "resize-surface").count == 2 }
-            let order = daemon.recorded.compactMap { $0["cmd"] as? String }.filter { $0 == "release-surface-size" || $0 == "resize-surface" }
-            #expect(order == ["resize-surface", "release-surface-size", "resize-surface"])
-            session.stop()
-        }
-    }
-
     @Test func stoppingReleasesTheSizeBeforeTheChannelCloses() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)

@@ -1,7 +1,7 @@
-//! `acpmux memory`: the memory mount shared by your machines (`memory_mount.rs`) from a shell.
-//! `sync` runs a pass (or the daemon's loop with `--watch`), `put`/`get`/`ls`/`history` reach the
-//! store, `status` says how far this machine is behind, and `link` points a harness's memory
-//! folder into the mount.
+//! `acpmux memory`: the fleet memory mount (`memory_mount.rs`) from a shell. `sync` runs a pass
+//! (or the daemon's loop with `--watch`), `put`/`get`/`ls`/`history` reach the store, `status`
+//! says how far this machine is behind, and `link` points a harness's memory folder into the
+//! mount.
 
 use std::path::PathBuf;
 

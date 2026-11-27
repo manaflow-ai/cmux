@@ -2,7 +2,7 @@
 # Builds this checkout's cmux-tui client set on a build host whose tree is not
 # published: cmux-tui and the companions the bundle scripts install beside it
 # (cmux-tui-host, cmux-cloud, cmux-holder,
-# cmux-agent-screen-detection, cmux-launch-preread).
+# cmux-agent-screen-detection).
 # reload.sh uses it for an
 # nx-remote build (NX_JOB_ID) or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: the
 # scripts/measure/ benches) when pin-cmux-tui.sh probe does not report the
@@ -79,11 +79,11 @@ install -m 755 "$target_dir/release/cmux-tui-host" "$stage/cmux-tui-host"
 
 # The companions this source bundles beside cmux-tui: the ones its bundle
 # scripts name (the fleet recipe decides the same way).
-# The terminal holder and the login-time pre-read build on their own (std and
-# libc only): with cmux-tui their libc features would unify with the daemon's.
+# The terminal holder builds on its own (std and libc only): with cmux-tui its
+# libc features would unify with the daemon's.
 # The app host and the browser host are not built here: cmux-tui runs both by
 # argv[0], and the bundle scripts link them to it (link-folded-hosts.sh).
-for name in cmux-cloud cmux-holder cmux-agent-screen-detection cmux-launch-preread; do
+for name in cmux-cloud cmux-holder cmux-agent-screen-detection; do
   named=0
   for script in scripts/cmux-next/bundle-cmux-tui.sh scripts/install-cmux-tui-client.sh; do
     if [[ -f "$repo_root/$script" ]] && grep -q -- "$name" "$repo_root/$script"; then named=1; fi
@@ -95,8 +95,6 @@ for name in cmux-cloud cmux-holder cmux-agent-screen-detection cmux-launch-prere
     cmux-agent-screen-detection) dir="cmux-tui/bindings/examples/rust-agent-screen-detection" ;;
     *) dir="cmux-tui/crates/$name" ;;
   esac
-  # The pre-read reader lands in its own cmux-tui change: a tree without it bundles none.
-  [[ "$name" == cmux-launch-preread && ! -f "$repo_root/$dir/Cargo.toml" ]] && continue
   [[ -f "$repo_root/$dir/Cargo.toml" ]] || { echo "error: this source bundles $name but has no $dir/Cargo.toml" >&2; exit 1; }
   say "==> building $name beside cmux-tui"
   if [[ "$name" == cmux-cloud || "$name" == cmux-agent-screen-detection ]]; then

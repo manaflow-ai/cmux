@@ -476,7 +476,6 @@ class TailnetHostIpTests(unittest.TestCase):
             py="python3", me="screen-share-vs.py",
             host=types.SimpleNamespace(popen=lambda cmd: srv),
             viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
-        me.clock_over_peer = lambda: False
         me.clock_once = lambda: vs.Orchestrator.clock_once(me)
         with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
             vs.Orchestrator.clock(me)
@@ -1114,80 +1113,6 @@ class ClockProbeDeadline(unittest.TestCase):
         self.assertLess(time.time() - t0, 3.0)
         self.assertEqual(json.loads(out.getvalue())["replies"], 1)
 
-
-
-class ClockOverPeerTcp(unittest.TestCase):
-    """A fleet pair job's clock: clock-serve --tcp on the viewer, the probe from the host, over the
-    path the host's peer-serve calls use (2026-11-27: the UDP probe from the viewer got Errno 65 to
-    the host's LAN address and no answer over the tailnet)."""
-
-    def test_tcp_serve_and_probe_round_trip_on_loopback(self):
-        import subprocess
-        import time
-        here = os.path.dirname(os.path.abspath(__file__))
-        srv = subprocess.Popen([sys.executable, "-I", os.path.join(here, "screen-share-vs.py"), "clock-serve",
-                                "--tcp", "--bind", "127.0.0.1", "--port", "0", "--seconds", "20"],
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        try:
-            port = json.loads(srv.stdout.readline())["listening"]
-            args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=20, gap_ms=0, max_seconds=5, tcp=True)
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                vs.cmd_clock_probe(args)
-            r = json.loads(out.getvalue())
-            self.assertEqual(r["replies"], 20)
-            # One Mac, one monotonic clock: the offset is about zero.
-            self.assertLess(abs(r["offset_ns"]), 50_000_000)
-        finally:
-            srv.stdin.close()
-            srv.wait(10)
-
-    def test_a_tcp_probe_with_nothing_listening_says_so(self):
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-        s.close()
-        args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=5, gap_ms=0, max_seconds=2, tcp=True)
-        out = io.StringIO()
-        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out):
-            vs.cmd_clock_probe(args)
-        self.assertIn("clock connect", out.getvalue())
-
-    def orchestrator(self, viewer, host):
-        import types
-        me = types.SimpleNamespace(a=types.SimpleNamespace(viewer="cmux20", host="mini", host_ip="172.20.21.199",
-                                                           clock_count=5),
-                                   py="python3", me="screen-share-vs.py", viewer=viewer, host=host)
-        me.clock_over_peer = lambda: vs.Orchestrator.clock_over_peer(me)
-        me.clock_once_tcp = lambda: vs.Orchestrator.clock_once_tcp(me)
-        return me
-
-    def test_a_pair_job_probes_the_viewer_over_tcp_and_flips_the_sign(self):
-        import queue
-        import types
-        srv = types.SimpleNamespace(lines=queue.Queue(), terminate=lambda: None)
-        srv.lines.put('{"listening": 4555, "tcp": true}')
-        viewer = vs.PeerRemote.__new__(vs.PeerRemote)
-        viewer.url, viewer.name = "http://172.20.21.250:4181", "cmux20"
-        seen = {}
-        viewer.popen = lambda cmd: seen.setdefault("serve", cmd) and srv
-
-        def host_run(cmd, timeout=120):
-            seen["probe"] = cmd
-            return '{"offset_ns": 7000, "rtt_min_ms": 0.4, "replies": 5}\n'
-        host = types.SimpleNamespace(via="local", run=host_run)
-        me = self.orchestrator(viewer, host)
-        self.assertTrue(me.clock_over_peer())
-        r = vs.Orchestrator.clock_once(me)
-        self.assertIn("clock-serve --tcp --bind 172.20.21.250", seen["serve"])
-        self.assertIn("clock-probe --tcp --addr 172.20.21.250:4555", seen["probe"])
-        self.assertEqual(r["offset_ns"], -7000)
-        self.assertEqual(r["path"], "tcp host->viewer")
-
-    def test_a_non_pair_run_keeps_the_udp_probe(self):
-        import types
-        me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
-        self.assertFalse(me.clock_over_peer())
 
 if __name__ == "__main__":
     unittest.main()

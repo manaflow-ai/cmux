@@ -14,9 +14,6 @@ public struct HangLoad: Sendable, Equatable {
     public var host: HostLoad?
     /// The main thread was parked in a nested run loop taking no input (``StallVerdict/waiting``).
     public var idleWait: Bool
-    /// The checked blocking call the main thread was inside when the hang was sampled
-    /// (``BlockingOpenCall/summary``: `file-io at CmuxNextFiles/FileStore.swift:42`); nil when none was open.
-    public var blockingCall: String?
 
     /// - Parameters:
     ///   - mainThreadCPU: CPU the main thread used since the stall began.
@@ -24,15 +21,13 @@ public struct HangLoad: Sendable, Equatable {
     ///   - faults: The process's page faults since the stall's first sample.
     ///   - host: The host's load averages and core count.
     ///   - idleWait: The main thread sat in a nested run loop.
-    ///   - blockingCall: The checked blocking call the main thread was inside.
     public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil, host: HostLoad? = nil,
-                idleWait: Bool = false, blockingCall: String? = nil) {
+                idleWait: Bool = false) {
         self.mainThreadCPU = mainThreadCPU
         self.pageIns = pageIns
         self.faults = faults
         self.host = host
         self.idleWait = idleWait
-        self.blockingCall = blockingCall
     }
 
     /// Who held up a hang `duration` long (``StallVerdict/classify(wall:mainThreadCPU:host:idleWait:)``).
@@ -49,10 +44,7 @@ extension HangLoad {
     /// main thread cpu: 0.100 s of 2.000 s (5%): blocked (waited: page-ins, WindowServer, a lock or another process)
     /// host load: 205.1 / 172.0 / 144.3 on 10 cores (overloaded)
     /// page-ins: 812, faults: 30500 (this process, since the stall's first sample)
-    /// blocking call: file-io at CmuxNextFiles/FileStore.swift:42 (move it off the main thread: ...)
     /// ```
-    ///
-    /// The last line only when a checked blocking call was open (``BlockingOpenCall``).
     ///
     /// Busy is CPU for at least half of the hang, the line the debug busy-hang fault draws too
     /// (``MainThreadWatchdog/hangIsBusy(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
@@ -68,9 +60,7 @@ extension HangLoad {
         let pageLine = pageIns.map { "page-ins: \($0), faults: \(faults.map(String.init) ?? "?") (this process, since the stall's first sample)" }
             ?? "page-ins: unknown"
         let who = verdict(duration: duration)
-        let lines = ["verdict: \(who.rawValue) (\(who.explanation))", cpuLine, host?.line ?? "host load: unknown", pageLine]
-        guard let blockingCall else { return lines }
-        return lines + ["blocking call: \(blockingCall) (move it off the main thread: plans/cmux-next/threading-model.md)"]
+        return ["verdict: \(who.rawValue) (\(who.explanation))", cpuLine, host?.line ?? "host load: unknown", pageLine]
     }
 }
 

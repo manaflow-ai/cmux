@@ -45,7 +45,6 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
     ] + (targetsLinux ? [] : [
         .package(path: "../CmuxMobileSupport"),
-        .package(path: "../../Shared/CmuxSpinner"),
     ]),
     targets: [
         .target(
@@ -64,7 +63,6 @@ let package = Package(
             dependencies: [
                 "CmuxMobileBilling",
                 "CmuxMobileSupport",
-                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             swiftSettings: swiftSettings
         ),

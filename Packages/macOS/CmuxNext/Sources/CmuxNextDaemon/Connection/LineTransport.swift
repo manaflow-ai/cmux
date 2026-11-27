@@ -33,9 +33,6 @@ final class LineTransport: Sendable {
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
-    /// The event name an `attach-frames-v1` binary frame is routed under (no JSON event has it); its
-    /// `line` is the whole frame, header and payload (``AttachOutputFrame``).
-    static let outputFrameEvent = "attach-frames-v1 frame"
 
     enum Waiter {
         case reply(cmd: String, ReplySlot)
@@ -472,8 +469,7 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk.prefix(count), line: { route($0, decoder: decoder, onEvent: onEvent) },
-                         frame: { routeFrame($0, onEvent: onEvent) })
+            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
             // Part of a line is still on its way: a reply arriving is progress for the requests waiting on it.
             if !lines.pending.isEmpty { progress.note() }
             if lines.pending.count > Self.maxLineBytes {
@@ -505,16 +501,6 @@ final class LineTransport: Sendable {
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
-
-    /// An `attach-frames-v1` binary frame (header and payload): an event named ``outputFrameEvent``, in
-    /// wire order with the lines. The daemon counts it in `lines_written` like a line.
-    private func routeFrame(_ frame: Data, onEvent: EventHandler) {
-        let index = state.withLock { state -> UInt64 in
-            state.lineCount += 1
-            return state.noteEvent(line: state.lineCount)
-        }
-        onEvent(Self.outputFrameEvent, frame, index)
-    }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         let lineNumber = state.withLock { state -> UInt64 in

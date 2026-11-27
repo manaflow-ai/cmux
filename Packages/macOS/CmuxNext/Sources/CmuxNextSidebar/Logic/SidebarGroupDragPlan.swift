@@ -100,19 +100,6 @@ nonisolated struct SidebarGroupDragPlan: Sendable, Equatable {
         return low
     }
 
-    /// A whole group entering this list goes between top-level blocks. The section header is its first slot.
-    static func externalDrop(at y: CGFloat, in blocks: [Block]) -> SidebarTabDrop? {
-        guard !blocks.isEmpty else { return nil }
-        let slot = rawSlot(top: y, in: blocks)
-        let block = blocks[max(0, slot - 1)]
-        let index: Int
-        switch block.head.key {
-        case .section, .emptySection: index = 0
-        default: index = slot == 0 ? block.head.siblingIndex : block.nextIndex
-        }
-        return .newWorkspace(section: block.head.section, group: nil, index: index)
-    }
-
     /// The top of the card standing in `slot` (base and drawn coordinates: nothing above it moves).
     func top(of slot: Int) -> CGFloat {
         if blocks.indices.contains(slot) { return blocks[slot].range.lowerBound }

@@ -58,10 +58,7 @@ ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHT
 hdiutil detach "$mnt" >/dev/null; mnt=""
 "$side" make "$name" --from "$work/app/cmux NIGHTLY.app" --label "cmux customizer toggle" >&2 || exit 3
 app="$("$side" path "$name")"
-# --skip-onboarding: a fresh profile's first run opens Make cmux Yours over the main window, and its sheet hides
-# Settings from the walk (run 12608e55, cmux21: no Advanced link). The path measured is a person's who already set up
-# cmux, not a first run's.
-"$side" launch "$name" --front -- --skip-onboarding >&2 || exit 3
+"$side" launch "$name" --front >&2 || exit 3
 python3 scripts/measure/customizer-toggle-readback.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
   --control-socket "$("$side" socket "$name")" --dmg "$dmg" --out "$out" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}

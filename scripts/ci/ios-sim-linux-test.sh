@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a build-for-testing product's XCTest targets on a fleet pool phone (the fleet phone tool) instead of a simulator Mac.
+# Run a build-for-testing product's XCTest targets on a fleet pool phone (agent-sim) instead of a simulator Mac.
 #
 # Input: a directory (CMUX_CI_PRODUCTS_DIR, or $1) holding ios-sim-build.tar.gz (Build/Products of
 # `xcodebuild build-for-testing`, with its .xctestrun) and ios-sim-xctest-platform.tar.gz (the simulator platform's
@@ -74,7 +74,7 @@ logic="${run%.xctestrun}.logic.xctestrun"
 python3 -I "$(dirname "${BASH_SOURCE[0]}")/ios_sim_logic_xctestrun.py" "$run" "$logic" 2>&1 | tee -a "$log"
 run="$logic"
 
-# The fleet phone tool has -only-testing but no -skip-testing: a skip becomes the list of every other target in the xctestrun.
+# agent-sim has -only-testing but no -skip-testing: a skip becomes the list of every other target in the xctestrun.
 if [[ ${#onlys[@]} -eq 0 ]]; then
   mapfile -t onlys < <(python3 -I - "$run" "${skips[@]}" <<'PY'
 import plistlib, sys
@@ -99,23 +99,22 @@ PY
   fi
 fi
 
-# The runner supplies the phone tool path (FLEET_PHONE_CLI) and its XCTest helper path.
-phone="${FLEET_PHONE_CLI:?ios-sim-linux-test: FLEET_PHONE_CLI unset (not a fleet phone runner)}"
-command -v "$phone" >/dev/null || { echo "ios-sim-linux-test: FLEET_PHONE_CLI=$phone is not on this host (not a linux-simsdk VM)" >&2; exit 2; }
+command -v agent-sim >/dev/null || { echo "ios-sim-linux-test: no agent-sim on this host (not a linux-simsdk VM)" >&2; exit 2; }
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[[ -d "$HOME/agent-sim/tools/xct-dtx" ]] && export AGENT_SIM_XCT_DTX="${AGENT_SIM_XCT_DTX:-$HOME/agent-sim/tools/xct-dtx}"
 
 start=$(date +%s)
-"$phone" pool up 1 2>&1 | tee -a "$log"
+agent-sim pool up 1 2>&1 | tee -a "$log"
 up=$(( $(date +%s) - start ))
 
 only_args=()
 for id in "${onlys[@]}"; do only_args+=(--only-testing "$id"); done
-# A UI test target (Target ending UITests, e.g. CmuxMobileAppUITests) needs the fleet phone tool's UI runner mode.
+# A UI test target (Target ending UITests, e.g. CmuxMobileAppUITests) needs agent-sim's UI runner mode.
 ui_args=()
 for id in "${onlys[@]}"; do [[ "${id%%/*}" == *UITests ]] && ui_args=(--ui); done
 rc=0
-# pool up 1 makes the phone pool1 and the fleet phone tool's default device is p, so the run names pool1.
-"$phone" -d pool1 test --xctestrun "$run" --platform "$work/plat" "${ui_args[@]}" "${only_args[@]}" \
+# pool up 1 makes the phone pool1 and agent-sim's default device is p, so the run names pool1.
+agent-sim -d pool1 test --xctestrun "$run" --platform "$work/plat" "${ui_args[@]}" "${only_args[@]}" \
   --junit "$out/junit.xml" --timeout "$timeout" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
 total=$(( $(date +%s) - start ))
 

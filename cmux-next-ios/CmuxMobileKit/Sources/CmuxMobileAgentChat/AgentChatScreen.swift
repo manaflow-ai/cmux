@@ -567,7 +567,7 @@ public struct AgentChatTranscript: View {
 
     public var body: some View {
         // The chat in the light or dark style of the Mac's theme while it follows the Mac.
-        transcript.cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
+        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
     }
 
     private var transcript: some View {
@@ -919,10 +919,6 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
-                        // The layout-shift count: the drawn composer must not move or resize in
-                        // its dock on its own (the offline-send stall flipped it between one and
-                        // two rows every frame). Before the entrance, which is render only.
-                        .layoutShiftTracked(inHost: "composer")
                         // The space between the composer and a raised keyboard is darkened from the
                         // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
                         // 2026-11-23: "they properly darken the ... space between the ios composer
@@ -1463,7 +1459,7 @@ struct RetryModelChoice {
     }
 
     /// The Mac's title (`turn.retryWith`).
-    static let title = "Retry with another model" // retry-prompt-ok: a choice of model, and a re-run turn spends tokens
+    static let title = "Retry with another model"
     static let systemImage = "arrow.triangle.2.circlepath"
 
     /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
@@ -1534,7 +1530,7 @@ struct AnswerActionRow: View {
                 .accessibilityLabel("Share")
             }
             if isLast {
-                IconAction("arrow.clockwise", label: "Retry", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
+                IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
             if still {
                 IconActionLabel("ellipsis")
@@ -1560,7 +1556,7 @@ struct AnswerActionRow: View {
         Menu {
             Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                 Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                Button("Retry", systemImage: "arrow.clockwise", action: retry) // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 retryWith?.menu
                 polish
             }

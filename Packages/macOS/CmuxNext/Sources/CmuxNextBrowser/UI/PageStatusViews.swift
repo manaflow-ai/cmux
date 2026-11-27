@@ -23,14 +23,6 @@ final class PageStatusViews {
     private weak var parent: NSView?
     private weak var content: NSView?
     private var tab: () -> (any BrowserTab)? = { nil }
-    /// Loads a page that failed for the network again by itself while the error page is in sight (Chrome's
-    /// `NetErrorAutoReloader`), instead of a Try Again the person would only ever press.
-    let loadRetry = AutoRetry(owner: "browser.loadError")
-    /// The phase last rendered: a failure counts once, when the phase turns to it.
-    private var renderedPhase: BrowserLoadPhase?
-    /// ``loadRetry`` started a load that has not been rendered failing yet (its start and failure can reach one
-    /// render together, leaving the phase as it was).
-    private var retryPending = false
 
     /// The views currently shown (occlusion holes).
     var shown: [NSView] {
@@ -60,14 +52,6 @@ final class PageStatusViews {
         fill(view)
         let tab = tab
         view.onRetry = { tab()?.reload() }
-        view.onSightChanged = { [loadRetry] in loadRetry.setInSight($0) }
-        loadRetry.setAttempt { [weak self] in
-            guard let self, let tab = tab(), case .failed(let error) = tab.state.phase else { return }
-            retryPending = true
-            // The failed address, not the page still on screen: WebKit's reload after a failed provisional load
-            // loads the committed page again. Loading the same address as the shown document replaces its entry.
-            if let url = error.failingURL { tab.load(url) } else { tab.reload() }
-        }
         // The warning page's buttons run their registry action when routed.
         let send: (CertificateWarningCommand) -> Void = { [weak self] command in
             if let router = self?.certificateWarningRouter, router(command) { return }
@@ -114,26 +98,6 @@ final class PageStatusViews {
         return view
     }
 
-    /// Feeds ``loadRetry``: a network failure shown on the error page fails once per load; a load that commits or
-    /// finishes succeeds; any other failure, or none, stops it.
-    private func renderLoadRetry(_ state: BrowserTabState) {
-        let phase = state.phase
-        defer { renderedPhase = phase }
-        switch phase {
-        case .failed(let error):
-            let reloads = state.processExit == nil && !error.engineShowsPage && !error.isCertificateError
-                && error.isTransientNetworkFailure && !error.sentForm
-            guard reloads else { retryPending = false; loadRetry.stop(); return }
-            if phase != renderedPhase || retryPending { loadRetry.failed() }
-            retryPending = false
-        case .provisional:
-            break
-        case .committed, .finished, .idle:
-            retryPending = false
-            if loadRetry.isFailing { loadRetry.succeeded() }
-        }
-    }
-
     /// Adds `view`, hidden, over the whole page.
     private func fill(_ view: NSView) {
         view.isHidden = true
@@ -157,17 +121,11 @@ final class PageStatusViews {
         }
         // cmux's error page or certificate warning, unless the engine draws
         // its own (Chromium's net error page and interstitial).
-        // A load ``loadRetry`` started keeps the error page until it commits, as Chrome's error page stays the
-        // committed document: the old page does not flash in at every attempt.
-        let retrying = loadRetry.isFailing && state.phase == .provisional && state.processExit == nil
         if state.processExit == nil, let error = state.loadError, !error.engineShowsPage {
             errorView.show(error)
-        } else if retrying, errorViewIfMade?.isHidden == false {
-            // Still the error page.
         } else if let shownError = errorViewIfMade, !shownError.isHidden {
             shownError.isHidden = true
         }
-        renderLoadRetry(state)
         if state.isUnresponsive {
             unresponsiveView.isHidden = false
         } else {

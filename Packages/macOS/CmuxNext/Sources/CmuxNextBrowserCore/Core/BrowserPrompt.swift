@@ -34,7 +34,7 @@ public final class BrowserPrompt: Identifiable {
         case .alert: .accept
         // A tab closed without asking (quit, a replaced page) leaves the page.
         case .beforeUnload: .accept
-        case .confirm, .textInput, .credentials, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer: .cancel
+        case .confirm, .textInput, .credentials, .openExternalApp, .savePassword, .verificationOffer: .cancel
         }
     }
 }

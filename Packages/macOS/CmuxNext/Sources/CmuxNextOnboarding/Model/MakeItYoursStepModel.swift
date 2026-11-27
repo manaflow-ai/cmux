@@ -123,8 +123,6 @@ public protocol FirstRunChoicesSource: AnyObject {
     func settled() async
     /// `experiments.introWalk`: the step shows the intro walk's four screens (off: today's one screen).
     func introWalk() -> Bool
-    /// `experiments.setupShelf`: the step offers the setups shelf (off: no shelf).
-    func setupShelf() -> Bool
 }
 
 public extension FirstRunChoicesSource {
@@ -136,7 +134,6 @@ public extension FirstRunChoicesSource {
     func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool { false }
     func settled() async {}
     func introWalk() -> Bool { false }
-    func setupShelf() -> Bool { false }
 }
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
@@ -161,8 +158,6 @@ public final class MakeItYoursStepModel {
     public private(set) var walk: [String: JSONValue] = [:]
     /// `experiments.introWalk`, read once when the step opens so the walk does not change shape under the person.
     public private(set) var introWalk = false
-    /// `experiments.setupShelf`, read once when the step opens, like `introWalk`.
-    public private(set) var setupShelf = false
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
@@ -183,7 +178,6 @@ public final class MakeItYoursStepModel {
             choices = source.currentChoices()
             opened = choices
             introWalk = source.introWalk()
-            setupShelf = source.setupShelf()
             source.markOpened()
             source.observeWriteFailures { [weak self] reason in
                 guard let self, let source = self.source else { return }

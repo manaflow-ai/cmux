@@ -3,7 +3,6 @@
   "families": [
     "agent",
     "agents",
-    "appkv",
     "automation",
     "browser",
     "browser_import",

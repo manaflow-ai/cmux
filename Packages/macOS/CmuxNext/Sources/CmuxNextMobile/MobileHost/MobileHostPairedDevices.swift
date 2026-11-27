@@ -186,10 +186,9 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
     /// Settings > Devices joins the phone's row to for its Full-access setting
-    /// (`DeviceDirectory.phoneRecordName`, kept equal by a test). The rule is Rust's
-    /// (`cmux-mobile-host-core` `record_name`, ``MobileHostRules``).
+    /// (`DeviceDirectory.phoneRecordName`, kept equal by a test).
     public static func acpmuxRecordName(_ id: String) -> String {
-        MobileHostRules.ask("record_name", ["id": id])?["name"] as? String ?? "phone-"
+        "phone-" + String(id.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(74))
     }
 
     /// The approvers acpmux gets (`_acpmux/approvers_set`).

@@ -114,10 +114,6 @@ pub(crate) struct Device {
     /// may run chats here in Full access. None for every other row, which has no such setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
-    /// An acpmux peer down a day or more (acpmux `parked`): offline, retried hourly. The CLI
-    /// adds how to remove it (`print_listing`); `detail` itself stays plain for every surface.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub parked: bool,
     /// What the Screen Sharing page offers for it (`cmux_device_kind::screen::offer`): View, or
     /// nothing with the reason. None for a row that is not a machine (a person's login).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -250,22 +246,11 @@ fn fold_pools(available: Vec<(bool, Available)>) -> (Vec<(bool, Available)>, Vec
     (kept, counts.into_iter().map(|(stem, count)| Pool { stem, count }).collect())
 }
 
-/// What a peer down for over a day says: it is not failing now, it is gone quiet, and the last
-/// reason it failed stays visible, since a failure that lasted a day may be one to fix. Plain
-/// for every surface: the CLI adds its own remove hint (`print_listing`).
-fn parked_detail(error: Option<&str>) -> String {
-    let base = "Not reachable for over a day; tried again hourly.";
-    match error.filter(|e| !acpmux_parking_line(e)) {
-        Some(reason) => format!("{base} Last error: {reason}"),
-        None => base.to_owned(),
-    }
-}
-
-/// acpmux's own words for a parked link (this build's, and an older build's frozen
-/// countdown), not a reason the link failed.
-fn acpmux_parking_line(error: &str) -> bool {
-    error.starts_with("peer unreachable for over a day")
-        || error.starts_with("peer unavailable; next automatic retry")
+/// What a peer down for over a day says: it is not failing now, it is gone.
+fn parked_detail(name: &str) -> String {
+    format!(
+        "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
+    )
 }
 
 /// The person's ssh config alias for network computer `node`: one whose
@@ -347,14 +332,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if parked {
-                Some(parked_detail(error.as_deref()))
+                Some(parked_detail(&name))
             } else if state == State::Error {
                 error
             } else {
                 None
             },
             full_access: None,
-            parked,
             screen,
             hub_device: hub.as_ref().and_then(HubScreen::id).map(str::to_owned),
         });
@@ -399,7 +383,6 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
-            parked: false,
             screen: None,
             hub_device: None,
         });
@@ -429,7 +412,6 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             added_at: text(row, "createdAt"),
             detail: None,
             full_access: None,
-            parked: false,
             screen: None,
             hub_device: None,
         });
@@ -585,7 +567,6 @@ fn login_row(
         added_at,
         detail,
         full_access: None,
-        parked: false,
         screen: None,
         hub_device: None,
     }
@@ -650,11 +631,8 @@ enum HubScreen {
     /// No device hub record has its name: no screen host signed in for it.
     Absent,
     /// Its record: its hub id (empty from an acpmux before it sent one), the platform it
-    /// registered as, whether it shares its screen, and whether its screen host holds the hub's
-    /// socket (`online`; true from an acpmux before it sent one). A screen host the hub lists
-    /// offline refuses a View with `host_offline` (the tab's "Is Offline"), however the mesh
-    /// reaches the machine.
-    Listed { id: String, platform: String, shared: bool, online: bool },
+    /// registered as, and whether it shares its screen.
+    Listed { id: String, platform: String, shared: bool },
 }
 
 impl HubScreen {
@@ -683,7 +661,6 @@ fn hub_screen(peer: &Value) -> Option<HubScreen> {
             id: text(hub, "id").unwrap_or_default(),
             platform: text(hub, "platform").unwrap_or_default(),
             shared: hub["screenShared"].as_bool() == Some(true),
-            online: hub["online"].as_bool() != Some(false),
         }),
     }
 }
@@ -701,9 +678,6 @@ fn hub_refusal(hub: Option<&HubScreen>, device: DeviceKind) -> Option<NoScreen> 
     }
     match hub? {
         HubScreen::Absent => Some(NoScreen::NoScreenHost),
-        // The machine answers the mesh, but its screen host is not on the hub: a View would
-        // open a tab that says it is offline (2026-11-26: listed online, tab "Is Offline").
-        HubScreen::Listed { online: false, .. } => Some(NoScreen::Offline),
         HubScreen::Listed { platform, shared: false, .. }
             if platform.eq_ignore_ascii_case("linux") =>
         {

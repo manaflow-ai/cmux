@@ -13,9 +13,8 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // build id stamped in the binary only (see that crate).
 /// mimalloc's options for a long-lived daemon, as measured (RFD 0156): freed pages go back at
 /// once (`purge_delay` 0, its default 10 ms kept 176 MB where musl kept 79 MB on the replay), and
-/// arenas commit only what they touch. Ids from mimalloc.h's `mi_option_e`. Not in a `dhat-heap`
-/// build: dhat replaces mimalloc there, so the symbol is not linked.
-#[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
+/// arenas commit only what they touch. Ids from mimalloc.h's `mi_option_e`.
+#[cfg(target_os = "linux")]
 fn tune_allocator() {
     const MI_OPTION_ARENA_EAGER_COMMIT: std::ffi::c_int = 4;
     const MI_OPTION_PURGE_DELAY: std::ffi::c_int = 15;
@@ -30,7 +29,7 @@ fn tune_allocator() {
 }
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
+    #[cfg(target_os = "linux")]
     tune_allocator();
     // SAFETY: the first statement of main; no other thread runs yet.
     unsafe { acpmux::cli::entry::process_main() }

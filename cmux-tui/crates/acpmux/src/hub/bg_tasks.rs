@@ -458,7 +458,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view.get("state").and_then(Value::as_str) != Some("running")
+            && view["state"] != "running"
         {
             self.bg_end_told(session, &dir, id);
         }

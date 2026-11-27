@@ -203,7 +203,6 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
-mod terminal_warm_compact;
 #[cfg(test)]
 use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
@@ -222,7 +221,6 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
-mod idle_freeing;
 mod journal;
 mod journal_maintenance;
 mod journal_plugin_demand;
@@ -233,7 +231,6 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod output_cleanup;
-mod park_eligibility;
 mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
@@ -741,8 +738,6 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
-    /// Terminal agents' warm compaction timer (`terminal_warm_compact.rs`).
-    terminal_warm_compact: terminal_warm_compact::TerminalWarmCompact,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// The chat-index project import's wake (`project_chats.rs`).
@@ -939,8 +934,6 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
     pty_reclaim_forced: AtomicBool,
-    /// The idle freeing timer (`workspaces.freeing.*`, `idle_freeing.rs`).
-    idle_freeing: idle_freeing::IdleFreeing,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.

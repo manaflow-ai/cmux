@@ -25,7 +25,7 @@ echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo '[package]' > "$src/cmux-tui/crates/cmux-app-host/Cargo.toml"
 echo '[package]' > "$src/cmux-tui/crates/cmux-holder/Cargo.toml"
 echo '[package]' > "$src/$detector/Cargo.toml"
-printf '#!/bin/sh\n# installs cmux-app-host, cmux-holder, cmux-agent-screen-detection and cmux-launch-preread beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
+printf '#!/bin/sh\n# installs cmux-app-host, cmux-holder and cmux-agent-screen-detection beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -80,20 +80,4 @@ run CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared" bas
   || fail "a fleet step did not build: $(cat "$TMP/err")"
 [[ "$(builds)" == 9 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
 [[ -x "$TMP/shared/cmux-tui-client-target/release/cmux-tui" ]] || fail "a fleet step did not build in the shared cache"
-# The optional reader can land after the bundle scripts. Absent source must
-# not leak a leftover shared-target binary into the newly staged set.
-[[ ! -e "$(dirname "$path")/cmux-launch-preread" ]] || fail "missing source bundled preread"
-mkdir -p "$src/cmux-tui/crates/cmux-launch-preread"
-echo '[package]' > "$src/cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-path=$(run NX_JOB_ID=job CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") \
-  || fail "reader source did not build: $(cat "$TMP/err")"
-[[ -x "$(dirname "$path")/cmux-launch-preread" ]] || fail "reader missing from client set"
-[[ "$(builds)" == 13 ]] || fail "reader did not build in its own invocation: $(cat "$TMP/cargo.log")"
-grep -qx "cmux-launch-preread $src/cmux-tui" "$TMP/cargo.log" || fail "reader not built in workspace"
-rm "$src/cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-echo dirty >> "$src/cmux-tui/a"
-path=$(run NX_JOB_ID=job CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") \
-  || fail "missing reader source failed: $(cat "$TMP/err")"
-[[ -f "$TMP/shared/cmux-tui-client-target/release/cmux-launch-preread" ]] || fail "stale fixture missing"
-[[ ! -e "$(dirname "$path")/cmux-launch-preread" ]] || fail "stale target reader bundled without source"
 echo "build-cmux-tui-client: ok"

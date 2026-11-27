@@ -72,35 +72,34 @@ def records(log_dir: Path, since: float, until: float) -> list[dict]:
 
 
 class TimedBuilder(rl.Builder):
-    """rust-live's Builder, with the wall time of each build and copy kept for the round (in `timed`: rust-live's
-    own classes keep monotonic `marks`, and Swapper.swap resets its `marks` on each call)."""
+    """rust-live's Builder, with the wall time of each build and copy kept for the round."""
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.timed: dict[str, float] = {}
+        self.marks: dict[str, float] = {}
 
     def build(self, daemons):
-        self.timed["build_start"] = time.time()
+        self.marks["build_start"] = time.time()
         result = super().build(daemons)
-        self.timed["build_end"] = time.time()
+        self.marks["build_end"] = time.time()
         return result
 
     def fetch(self, daemons, generation):
-        self.timed["fetch_start"] = time.time()
+        self.marks["fetch_start"] = time.time()
         result = super().fetch(daemons, generation)
-        self.timed["fetch_end"] = time.time()
+        self.marks["fetch_end"] = time.time()
         return result
 
 
 class TimedSwapper(rl.Swapper):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.timed: dict[str, float] = {}
+        self.marks: dict[str, float] = {}
 
     def swap(self, built):
-        self.timed["swap_start"] = time.time()
+        self.marks["swap_start"] = time.time()
         result = super().swap(built)
-        self.timed["swap_end"] = time.time()
+        self.marks["swap_end"] = time.time()
         return result
 
 
@@ -170,7 +169,7 @@ def main() -> int:
 
     def on_swap(entry: dict) -> None:
         with swapped:
-            entry["_marks"] = {**builder.timed, **swapper.timed}
+            entry["_marks"] = {**builder.marks, **swapper.marks}
             swaps.append(entry)
             swapped.notify_all()
 

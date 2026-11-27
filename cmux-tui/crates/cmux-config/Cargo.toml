@@ -20,8 +20,6 @@ cmux-app-host.workspace = true
 cmux-layout-reducer.workspace = true
 # The settings schema compiled in compressed (src/schema/mod.rs).
 cmux-embed.workspace = true
-# A Home reply's pipe tables (app_ops/home_table.rs).
-cmux-message-preview.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true

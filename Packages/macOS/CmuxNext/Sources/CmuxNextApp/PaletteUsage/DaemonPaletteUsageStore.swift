@@ -76,7 +76,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         let home = override.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? BuildStatePaths.current.classicImportDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let preferences = home.appending(path: "Library/Preferences")
-        let snapshot = try await Self.snapshot(try await client.get())
+        let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
         var firstFailure: (any Error)?
         for former in await PaletteUsageLegacyHistory.read(preferences: preferences, excluding: snapshot.imported) {
             do {
@@ -110,7 +110,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private func fetchOnce() async {
         guard case .daemon(let client, let id) = owner else { return }
         do {
-            let snapshot = try await Self.snapshot(try await client.get())
+            let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
             fetchedFrom = id
             guard snapshot.revision >= revision else { return }
             revision = snapshot.revision
@@ -119,13 +119,6 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         } catch {
             Self.logger.error("palette usage fetch failed: \(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// The daemon's history value as the mirror, re-encoded and decoded off the main actor: it holds one row per
-    /// palette entry ever run, so its size is not bounded here.
-    @concurrent nonisolated private static func snapshot(_ value: CmuxNextDaemon.JSONValue) async throws
-        -> (history: FrecencyStore, revision: UInt64, imported: Set<String>) {
-        try PaletteUsageWire.history(JSONEncoder().encode(value))
     }
 
     func recordUse(key: String, query: String, at now: Date) {

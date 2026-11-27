@@ -13,7 +13,6 @@ fn every_acpmux_link_state_maps_to_exactly_one_sidebar_state() {
         ("authFailed", LinkState::Offline, false),
         ("updateRequired", LinkState::Offline, false),
         ("paused", LinkState::Paused, false),
-        ("idle", LinkState::Connected, true),
     ];
     assert_eq!(table.len(), PeerLink::ALL.len(), "one row per acpmux state");
     for (link, (word, dot, reconnects)) in PeerLink::ALL.iter().zip(table) {

@@ -1591,127 +1591,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artifacts could not be loaded."
+            "value": "Artifacts could not be loaded. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحميل العناصر المحفوظة."
+            "value": "تعذّر تحميل العناصر المحفوظة. أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakti se nisu mogli učitati."
+            "value": "Artefakti se nisu mogli učitati. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakter kunne ikke indlæses."
+            "value": "Artefakter kunne ikke indlæses. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakte konnten nicht geladen werden."
+            "value": "Artefakte konnten nicht geladen werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron cargar los artefactos."
+            "value": "No se pudieron cargar los artefactos. Vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de charger les artefacts."
+            "value": "Impossible de charger les artefacts. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile caricare gli artefatti."
+            "value": "Impossibile caricare gli artefatti. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーティファクトを読み込めませんでした。"
+            "value": "アーティファクトを読み込めませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចផ្ទុកវត្ថុបុរាណបានទេ។"
+            "value": "មិនអាចផ្ទុកវត្ថុបុរាណបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아티팩트를 불러올 수 없습니다."
+            "value": "아티팩트를 불러올 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke laste inn artefakter."
+            "value": "Kunne ikke laste inn artefakter. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można wczytać artefaktów."
+            "value": "Nie można wczytać artefaktów. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível carregar os artefatos."
+            "value": "Não foi possível carregar os artefatos. Tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось загрузить артефакты."
+            "value": "Не удалось загрузить артефакты. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โหลดอาร์ติแฟกต์ไม่ได้"
+            "value": "โหลดอาร์ติแฟกต์ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapıtlar yüklenemedi."
+            "value": "Yapıtlar yüklenemedi. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося завантажити артефакти."
+            "value": "Не вдалося завантажити артефакти. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể tải tạo phẩm."
+            "value": "Không thể tải tạo phẩm. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法加载制品。"
+            "value": "无法加载制品。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法載入成品。"
+            "value": "無法載入成品。請再試一次。"
           }
         }
       }
@@ -2115,127 +2115,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artifacts could not be reached. Check that you are signed in and online."
+            "value": "Artifacts could not be reached. Check that you are signed in and online, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر الوصول إلى العناصر المحفوظة. تأكد من تسجيل الدخول ومن اتصالك بالإنترنت."
+            "value": "تعذّر الوصول إلى العناصر المحفوظة. تأكد من تسجيل الدخول ومن اتصالك بالإنترنت، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakti nisu dostupni. Provjerite jeste li prijavljeni i povezani na internet."
+            "value": "Artefakti nisu dostupni. Provjerite jeste li prijavljeni i povezani na internet, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakter kunne ikke nås. Tjek, at du er logget ind og online."
+            "value": "Artefakter kunne ikke nås. Tjek, at du er logget ind og online, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakte sind nicht erreichbar. Prüfe, ob du angemeldet und online bist."
+            "value": "Artefakte sind nicht erreichbar. Prüfe, ob du angemeldet und online bist, und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo acceder a los artefactos. Comprueba que has iniciado sesión y tienes conexión."
+            "value": "No se pudo acceder a los artefactos. Comprueba que has iniciado sesión y tienes conexión, y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible d'accéder aux artefacts. Vérifiez que vous êtes connecté à votre compte et à Internet."
+            "value": "Impossible d'accéder aux artefacts. Vérifiez que vous êtes connecté à votre compte et à Internet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile raggiungere gli artefatti. Verifica di aver effettuato l'accesso e di essere online."
+            "value": "Impossibile raggiungere gli artefatti. Verifica di aver effettuato l'accesso e di essere online, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーティファクトに接続できませんでした。サインインしてオンラインであることを確認してください。"
+            "value": "アーティファクトに接続できませんでした。サインインしてオンラインであることを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចភ្ជាប់ទៅវត្ថុបុរាណបានទេ។ សូមពិនិត្យថាអ្នកបានចូលគណនី និងមានអ៊ីនធឺណិត។"
+            "value": "មិនអាចភ្ជាប់ទៅវត្ថុបុរាណបានទេ។ សូមពិនិត្យថាអ្នកបានចូលគណនី និងមានអ៊ីនធឺណិត រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아티팩트에 연결할 수 없습니다. 로그인되어 있고 온라인인지 확인하세요."
+            "value": "아티팩트에 연결할 수 없습니다. 로그인되어 있고 온라인인지 확인한 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke nå artefakter. Sjekk at du er logget på og tilkoblet."
+            "value": "Kunne ikke nå artefakter. Sjekk at du er logget på og tilkoblet, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można połączyć się z artefaktami. Sprawdź, czy jesteś zalogowany i online."
+            "value": "Nie można połączyć się z artefaktami. Sprawdź, czy jesteś zalogowany i online, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível acessar os artefatos. Verifique se você entrou na conta e está online."
+            "value": "Não foi possível acessar os artefatos. Verifique se você entrou na conta e está online e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось подключиться к артефактам. Проверьте, что вы вошли в аккаунт и в сети."
+            "value": "Не удалось подключиться к артефактам. Проверьте, что вы вошли в аккаунт и в сети, и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เข้าถึงอาร์ติแฟกต์ไม่ได้ ตรวจสอบว่าคุณลงชื่อเข้าใช้และออนไลน์อยู่"
+            "value": "เข้าถึงอาร์ติแฟกต์ไม่ได้ ตรวจสอบว่าคุณลงชื่อเข้าใช้และออนไลน์อยู่ แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapıtlara ulaşılamadı. Oturum açtığınızdan ve çevrimiçi olduğunuzdan emin olun."
+            "value": "Yapıtlara ulaşılamadı. Oturum açtığınızdan ve çevrimiçi olduğunuzdan emin olup yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося під'єднатися до артефактів. Перевірте, що ви ввійшли в обліковий запис і в мережі."
+            "value": "Не вдалося під'єднатися до артефактів. Перевірте, що ви ввійшли в обліковий запис і в мережі, і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể kết nối tới tạo phẩm. Hãy kiểm tra bạn đã đăng nhập và đang trực tuyến."
+            "value": "Không thể kết nối tới tạo phẩm. Hãy kiểm tra bạn đã đăng nhập và đang trực tuyến, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法连接到制品。请确认你已登录并且网络正常。"
+            "value": "无法连接到制品。请确认你已登录并且网络正常，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法連線到成品。請確認你已登入且網路正常。"
+            "value": "無法連線到成品。請確認你已登入且網路正常，然後再試一次。"
           }
         }
       }
@@ -7747,133 +7747,133 @@
       }
     },
     "chiefUsage.failed": {
-      "comment": "Chief Usage page: reading the usage ledger failed",
+      "comment": "Chief Usage page: reading the usage ledger failed; the page offers to try again",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief's usage could not be read."
+            "value": "The Chief's usage could not be read. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت قراءة استخدام Chief."
+            "value": "تعذّرت قراءة استخدام Chief. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upotreba Chiefa nije mogla biti pročitana."
+            "value": "Upotreba Chiefa nije mogla biti pročitana. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefs forbrug kunne ikke læses."
+            "value": "Chiefs forbrug kunne ikke læses. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Nutzung des Chiefs konnte nicht gelesen werden."
+            "value": "Die Nutzung des Chiefs konnte nicht gelesen werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo leer el uso del Chief."
+            "value": "No se pudo leer el uso del Chief. Vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de lire l’utilisation du Chief."
+            "value": "Impossible de lire l’utilisation du Chief. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile leggere l’utilizzo del Chief."
+            "value": "Impossibile leggere l’utilizzo del Chief. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief の使用量を読み取れませんでした。"
+            "value": "Chief の使用量を読み取れませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចអានការប្រើប្រាស់របស់ Chief បានទេ។"
+            "value": "មិនអាចអានការប្រើប្រាស់របស់ Chief បានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief의 사용량을 읽을 수 없습니다."
+            "value": "Chief의 사용량을 읽을 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefs forbruk kunne ikke leses."
+            "value": "Chiefs forbruk kunne ikke leses. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się odczytać użycia Chiefa."
+            "value": "Nie udało się odczytać użycia Chiefa. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível ler o uso do Chief."
+            "value": "Não foi possível ler o uso do Chief. Tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось прочитать использование Chief."
+            "value": "Не удалось прочитать использование Chief. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อ่านการใช้งานของ Chief ไม่ได้"
+            "value": "อ่านการใช้งานของ Chief ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief’in kullanımı okunamadı."
+            "value": "Chief’in kullanımı okunamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося прочитати використання Chief."
+            "value": "Не вдалося прочитати використання Chief. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không đọc được mức sử dụng của Chief."
+            "value": "Không đọc được mức sử dụng của Chief. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法读取 Chief 的用量。"
+            "value": "无法读取 Chief 的用量。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法讀取 Chief 的用量。"
+            "value": "無法讀取 Chief 的用量。請再試一次。"
           }
         }
       }

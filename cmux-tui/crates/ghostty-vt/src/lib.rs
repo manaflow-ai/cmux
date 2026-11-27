@@ -19,7 +19,6 @@
     )
 )]
 
-mod formatter_options;
 mod key;
 mod kitty;
 mod kitty_replay;

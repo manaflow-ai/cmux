@@ -47,7 +47,7 @@ def route(expression: str, attempt: int, actor: str, **extra: str) -> object:
 
 class IOSBotRerunRoute(unittest.TestCase):
     def test_the_bot_s_re_run_takes_blacksmith_and_a_person_s_stays_owned(self):
-        for name in ("ios-simulator-build",):
+        for name in ("mobile-core-package", "ios-simulator-build"):
             runs_on = jobs()[name]["runs-on"]
             with self.subTest(job=name):
                 for bot in BOTS:
@@ -67,9 +67,12 @@ class IOSBotRerunRoute(unittest.TestCase):
         self.assertEqual(route(runs_on, 2, "teamleaderleo", build_runs_on=first), json.loads(OWNED))
         # A picker without the output: runs_on, as before.
         self.assertEqual(route(runs_on, 1, "teamleaderleo"), json.loads(OWNED))
+        # mobile-core-package never reads it.
+        self.assertEqual(route(jobs()["mobile-core-package"]["runs-on"], 1, BOTS[0], build_runs_on=first),
+                         "glaeda-std-xcode-26.6")
 
     def test_the_requested_runner_follows_the_same_route(self):
-        for name in ("ios-simulator-build",):
+        for name in ("mobile-core-package", "ios-simulator-build"):
             requested = [step["env"]["REQUESTED_RUNNER"] for step in jobs()[name]["steps"]
                          if "REQUESTED_RUNNER" in (step.get("env") or {})]
             with self.subTest(job=name):

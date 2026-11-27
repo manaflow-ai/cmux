@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -41,9 +40,8 @@ final class SettingsPageProvider: PageProvider {
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
     /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
-    var environments: CloudEnvironmentsSettings?
-    /// Settings > Cloud > Compute (``CloudAllotmentPage``): only the read; `cmux.settings.cloud.allotment.set` stays unknown here.
-    var allotment: CloudAllotmentPage?
+    var environmentsState: (@MainActor () -> JSONValue)?
+    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -225,9 +223,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
-        case "cmux.settings.environments.state": return try Self.host(environments, "environments").pageState
-        case "cmux.settings.environments.run": return try await Self.host(environments, "environments").runPage(params)
-        case "cmux.settings.cloud.allotment.get": return try await Self.host(allotment, "allotment").read()
+        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
+        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":
@@ -316,23 +313,20 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;
-            // the gesture's end writes it with cmux.settings.set, or preview.end restores. `also`
-            // ([{key, value}]) previews more keys with it as one preview (the whole-app theme preview).
-            let edits = try ([params] + (params["also"]?.arrayValue ?? [])).map { edit -> (SettingDescriptor, JSONValue?) in
-                let descriptor = try descriptor(edit)
-                try requirePerson(context, for: descriptor)
-                if let source = settings.managedSource(for: descriptor) {
-                    throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
-                }
-                guard Self.writer(context).mayWrite(descriptor) else {
-                    throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
-                }
-                return (descriptor, edit["value"].flatMap { $0 == .null ? nil : $0 })
+            // the gesture's end writes it with cmux.settings.set, or preview.end restores.
+            let descriptor = try descriptor(params)
+            let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            try requirePerson(context, for: descriptor)
+            if let source = settings.managedSource(for: descriptor) {
+                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
-            guard settings.preview(edits) else {
-                throw PageError(code: "cmux.settings.invalid", message: "\(edits.map(\.0.id).joined(separator: ", ")) does not accept this value")
+            guard Self.writer(context).mayWrite(descriptor) else {
+                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
             }
-            return ["previewing": .string(edits[0].0.id)]
+            guard settings.preview(descriptor, value) else {
+                throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
+            }
+            return ["previewing": .string(descriptor.id)]
         case "cmux.settings.preview.end":
             settings.endPreview()
             return .object([:])

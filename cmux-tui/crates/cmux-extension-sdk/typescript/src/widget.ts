@@ -271,7 +271,7 @@ export function Timeline(options: {
   label?: (hour: number) => string
 }): View {
   const hourHeight = options.hourHeight ?? 32
-  const labelWidth = options.labelWidth ?? 40
+  const labelWidth = options.labelWidth ?? 34
   const gridWidth = Math.max(0, options.width - labelWidth)
   const label = options.label ?? ((hour: number) => `${hour % 12 || 12} ${hour % 24 < 12 ? "AM" : "PM"}`)
   const hours: number[] = []
@@ -282,10 +282,8 @@ export function Timeline(options: {
     hours.map((hour) =>
       HStack({ spacing: 4, alignment: "top" }, [
         Text(label(hour)).font(WIDGET_TYPE.footnote).color("tertiary").lineLimit(1).frame({ width: labelWidth - 4 }).offset({ y: -6 }),
-        // The grid's width, not the parent's: a row that only wraps its content would leave a frameless
-        // Line no width and squeeze the hour label out.
-        Line({ stroke: "separator" }).frame({ width: gridWidth }),
-      ]).frame({ width: options.width, height: hour === options.endHour ? 1 : hourHeight })
+        Line({ stroke: "separator" }),
+      ]).frame({ height: hour === options.endHour ? 1 : hourHeight })
     )
   )
   const events = ForEach({ items: () => options.events(), key: (event) => event.id }, (event) => {

@@ -65,7 +65,7 @@ final class SettingsDeviceList {
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled, revision == request else { return }
-            loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices.", bundle: .module)
+            loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices. Pull to retry.", bundle: .module)
         }
     }
 
@@ -102,9 +102,6 @@ struct DevicesPage: View {
     @State private var removing: Set<String> = []
     /// "Scan QR on your Mac" (a Pair Another Machine invite) is open.
     @State private var scanning = false
-    /// A failed device list is read again on its own (no pull-to-refresh prompt); its row shows only
-    /// past the quiet bound.
-    @State private var autoRetry = AutoRetry()
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
@@ -183,14 +180,8 @@ struct DevicesPage: View {
                     Text(String(localized: "mobile.devices.approvalFooter", defaultValue: "Removal resets Mac approval; signing out keeps it.", bundle: .module))
                 }
             }
-            if let loadError = list.loadError, autoRetry.isQuietLineShown {
-                Section {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger)
-                        AutoRetryQuietLine(autoRetry)
-                    }
-                    .cmuxMobileTextColumn()
-                }
+            if let loadError = list.loadError {
+                Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger).cmuxMobileTextColumn() }
             }
         }
         .settingsPage("Devices")
@@ -198,7 +189,6 @@ struct DevicesPage: View {
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task(id: directory.map(ObjectIdentifier.init)) { await list.load(directory) }
-        .autoRetry(autoRetry, failing: list.loadError != nil) { await list.load(directory) }
         // A centered alert, with no arrow: a popover from the page pointed at
         // whichever row it chose, so with same-name Macs it could point at the
         // other Mac. A dialog attached to the swiped row does not present in a

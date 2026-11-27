@@ -20,7 +20,6 @@ extension LayoutRootView {
     public func keyboardResizeWillChange(screenContaining pane: PaneID, keeping column: ColumnID? = nil) {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
         view.holdsContentForKeyResize = true
-        view.releaseLanding = false
         view.scrollState.keptColumn = column
     }
 

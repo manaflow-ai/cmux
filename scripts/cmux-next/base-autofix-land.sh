@@ -327,16 +327,6 @@ none" >/dev/null; then
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
       exit 1
     }
-    # A successful repair process can leave a held output unchanged because its checker refused
-    # to write (not because the newer tip is current). Keep those paths unresolved; a no-diff
-    # round must not turn an uncovered ABI break into a successful repair.
-    while IFS= read -r path; do
-      [[ -n "$path" ]] || continue
-      if grep -qF "left: $path " "$work/repair.txt" \
-        || grep -qxF "skipped (frozen): $path" "$work/repair.txt"; then
-        waits+="$path"$'\n'
-      fi
-    done <<<"$again"
     # A submodule the job initialized (ghostty-next, for cargo clippy --fix) stays at the commit it
     # was checked out at, so a tip that moved its gitlink shows it modified: a repair never writes a
     # gitlink, and staging it would undo that move on the branch.
@@ -352,11 +342,7 @@ for meta, path in zip(parts[0::2], parts[1::2]):
         sys.stdout.buffer.write(path + b"\0")
 ')
     if git diff --cached --quiet; then
-      if [[ -z "$waits" ]]; then
-        echo "$branch at ${tip:0:12} needs none of it again."
-      else
-        echo "$branch at ${tip:0:12} has no new repair; unresolved outputs remain."
-      fi
+      echo "$branch at ${tip:0:12} needs none of it again."
       status=0
       break
     fi
@@ -368,7 +354,7 @@ for meta, path in zip(parts[0::2], parts[1::2]):
     push "$tip" || status=$?
   done
   if [[ -n "$waits" ]]; then
-    echo "::error::these wait for repair (their inputs moved, or regeneration was refused):" >&2
+    echo "::error::these wait for the next run (their Mac export, or what they are built from, moved):" >&2
     printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
     exit 1
   fi

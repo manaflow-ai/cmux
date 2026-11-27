@@ -320,7 +320,7 @@ impl Viewer {
                         }
                     }
                     Some(Command::Decoded(us)) => {
-                        let _ = self.session.note_decode(0, None, us);
+                        let _ = self.session.note_decode(0, us);
                     }
                     Some(Command::Close) | None => {
                         let _ = sender.close("eof", "closed by the app").await;

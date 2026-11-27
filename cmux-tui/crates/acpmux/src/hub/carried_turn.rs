@@ -146,14 +146,12 @@ impl NextTurn {
         let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
         let (client, prompt) =
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
+        let mut next =
+            TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
         // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
-        let (turn_id, prompt_id) = (text("turnId")?, text("promptId")?);
-        let mut next = match text("promptLine") {
-            Some(line) => {
-                TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, &line)
-            }
-            None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
-        };
+        if let Some(line) = text("promptLine") {
+            next.show(&line);
+        }
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
         next.trigger = flag("trigger");
         let continues = Continues {
@@ -283,7 +281,6 @@ impl Hub {
         from: &str,
         next: &NextTurn,
         slot: Option<RunSlot>,
-        install_turn: crate::harness_health::turns::Turn,
     ) {
         // The turn as it is now: a Web steer may have raised its control since it was put in
         // place (`check_steer`).
@@ -299,10 +296,7 @@ impl Hub {
         let continues = Some(next.continues.clone());
         self.scope.spawn_named(
             "carried-turn",
-            Box::pin(async move {
-                let _install_turn = install_turn;
-                hub.run_carried(session, child, turn, continues, slot).await
-            }),
+            Box::pin(async move { hub.run_carried(session, child, turn, continues, slot).await }),
         );
     }
 
@@ -352,10 +346,7 @@ impl Hub {
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         self.scope.spawn_named(
             "recovered-carried-turn",
-            Box::pin(async move {
-                let _install_turn = hub.harness_turn(&session).await;
-                hub.run_carried(session, child, turn, continues, None).await
-            }),
+            Box::pin(async move { hub.run_carried(session, child, turn, continues, None).await }),
         );
     }
 

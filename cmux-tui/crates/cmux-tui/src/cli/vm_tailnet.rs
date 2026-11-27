@@ -1,5 +1,5 @@
-//! `cmux vm tailnet join|leave VM`, `move FROM TO`: add a Cloud VM to the user's own tailnet, take
-//! it off again, or hand its node to another VM (RFD 0169) (`cmux vm rm` does that first for a VM this machine joined). The plan, its checks and the
+//! `cmux vm tailnet join|leave VM`: add a Cloud VM to the user's own tailnet, and take it off
+//! again (`cmux vm rm` does that first for a VM this machine joined). The plan, its checks and the
 //! scripts are crate cmux-tailnet-join; this runs them over the VM API's file write and exec
 //! (vm_bootstrap.rs's [`Guest`]). The key comes from a file or stdin, never an argument, and goes
 //! to the VM only as a 0600 file the join deletes.
@@ -23,12 +23,9 @@ use super::vm_bootstrap::Guest;
 pub(super) const HELP: &str = "\
 cmux vm tailnet join VM (--key-file FILE | --key-stdin) [options]
 cmux vm tailnet leave VM
-cmux vm tailnet move FROM TO [--timeout SECONDS]
 cmux vm tailnet mint-key (--key-file FILE | --key-stdin) (--oauth | --headscale-api ...) --out FILE
 
 Adds a Cloud VM to your own tailnet (Tailscale or Headscale), or takes it off.
-`move` hands the node FROM holds to TO: same name, addresses and node key, no new
-device and no key; FROM stops first and deletes its copy once TO is online.
 Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a VM joined here.
 
   --key-file FILE      your auth key (tskey-auth-…, or a Headscale key) or OAuth client secret
@@ -364,47 +361,23 @@ pub(super) fn join(
         .write(SCRIPT_FILE, cmux_tailnet_join::vm_join_script(checked).as_bytes(), 0o700)
         .map_err(|e| format!("writing the join script: {e}"))?;
     exec_ok(guest, &cmux_tailnet_join::start_command(), "started")?;
-    let (node, _) = await_detached(guest, deadline, timeout, Duration::from_secs(2), "join")?;
-    Ok(json!({
-        "dnsName": node.dns_name,
-        "ips": node.ips,
-        "tags": node.tags,
-        "online": node.online,
-        "elapsedMs": millis(started.elapsed()),
-        "notes": checked.notes(),
-    }))
-}
-
-fn millis(d: Duration) -> u64 {
-    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
-}
-
-/// Reads a detached join or adopt run (`start_command`) every `poll` until it ends: the node, and
-/// the run's last answer (for its clock lines).
-fn await_detached(
-    guest: &mut dyn Guest,
-    deadline: Instant,
-    timeout: Duration,
-    poll: Duration,
-    what: &str,
-) -> Result<(cmux_tailnet_join::Joined, String), String> {
     let read = cmux_tailnet_join::read_command();
     let mut failures = 0;
     loop {
         if Instant::now() >= deadline {
             return Err(format!(
-                "the {what} did not end in {} s (on the VM: systemctl status {})",
+                "the join did not end in {} s (on the VM: systemctl status {})",
                 timeout.as_secs(),
                 cmux_tailnet_join::UNIT
             ));
         }
-        guest.pause(poll);
+        guest.pause(Duration::from_secs(2));
         let answer = match guest.exec(&read) {
             Ok(answer) => answer,
             Err(error) => {
                 failures += 1;
                 if failures >= 3 {
-                    return Err(format!("reading the {what}: {error}"));
+                    return Err(format!("reading the join: {error}"));
                 }
                 continue;
             }
@@ -412,7 +385,16 @@ fn await_detached(
         failures = 0;
         match cmux_tailnet_join::read_answer(&answer.stdout) {
             Progress::Running => continue,
-            Progress::Ended(Outcome::Joined(node)) => return Ok((node, answer.stdout)),
+            Progress::Ended(Outcome::Joined(node)) => {
+                return Ok(json!({
+                    "dnsName": node.dns_name,
+                    "ips": node.ips,
+                    "tags": node.tags,
+                    "online": node.online,
+                    "elapsedMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "notes": checked.notes(),
+                }));
+            }
             Progress::Ended(Outcome::OtherTailnet { control_url }) => {
                 return Err(format!(
                     "the VM is already on another tailnet ({control_url}); nothing changed. Run again with --switch to add yours as a second profile."
@@ -421,103 +403,6 @@ fn await_detached(
             Progress::Ended(Outcome::Failed(why)) => return Err(why),
         }
     }
-}
-
-// MARK: Move the node to another VM (RFD 0169 identity handoff)
-
-/// `move`'s words: `FROM TO [--timeout SECONDS]`.
-pub(super) fn parse_move(words: &[String]) -> Result<(String, String, Duration), String> {
-    let mut ids = Vec::new();
-    let mut timeout = Duration::from_secs(180);
-    let mut it = words.iter();
-    while let Some(word) = it.next() {
-        let (flag, inline) = match word.split_once('=') {
-            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
-            _ => (word.as_str(), None),
-        };
-        match flag {
-            "--timeout" => {
-                let value =
-                    inline.or_else(|| it.next().cloned()).ok_or("--timeout needs seconds")?;
-                let secs: u64 =
-                    value.parse().map_err(|_| format!("--timeout {value} is not seconds"))?;
-                timeout = Duration::from_secs(secs.max(1));
-            }
-            other if other.starts_with('-') => {
-                return Err(format!("unknown option {other} (cmux vm tailnet --help)"));
-            }
-            id => ids.push(id.to_owned()),
-        }
-    }
-    match ids.as_slice() {
-        [from, to] if from != to => Ok((from.clone(), to.clone(), timeout)),
-        [_, _] => Err("cmux vm tailnet move needs two different VMs".to_owned()),
-        _ => Err("cmux vm tailnet move needs FROM and TO VM ids".to_owned()),
-    }
-}
-
-/// Moves the node `from` holds to `to`: release, adopt, forget (restore on a failed adopt). `Ok`
-/// is the node on `to` and the gap the user saw, measured on the machines.
-pub(super) fn move_node(
-    from: &mut dyn Guest,
-    to: &mut dyn Guest,
-    timeout: Duration,
-) -> Result<Value, String> {
-    use cmux_tailnet_join::handoff;
-    let started = Instant::now();
-    let deadline = started + timeout;
-    // Ready the new holder first, so the gap holds only the swap.
-    exec_ok(
-        to,
-        &cmux_tailnet_join::prepare_command(cmux_cloud_start_core::machine_bootstrap::USER),
-        "prepared",
-    )?;
-    to.write(SCRIPT_FILE, handoff::vm_adopt_script().as_bytes(), 0o700)
-        .map_err(|e| format!("writing the adopt script: {e}"))?;
-    let released_answer = from.exec(&handoff::release_command())?;
-    if released_answer.exit_code != 0 {
-        let detail = released_answer.stderr.trim();
-        return Err(format!(
-            "the old VM did not release the node (exit {}): {detail}",
-            released_answer.exit_code
-        ));
-    }
-    let released = handoff::parse_released(&released_answer.stdout)?;
-    let released_at = Instant::now();
-    let adopted = (|| {
-        to.write(handoff::STAGED_STATE_FILE, released.staged_contents().as_bytes(), 0o600)
-            .map_err(|e| format!("writing the node state: {e}"))?;
-        exec_ok(to, &cmux_tailnet_join::start_command(), "started")?;
-        await_detached(to, deadline, timeout, Duration::from_millis(250), "move")
-    })();
-    let (node, answer) = match adopted {
-        Ok(done) => done,
-        Err(why) => {
-            let back = match exec_ok(from, &handoff::restore_command(), "cmux-tailnet-restored") {
-                Ok(()) => "the node is back on the old VM".to_owned(),
-                Err(e) => format!("restarting it on the old VM failed too: {e}"),
-            };
-            return Err(format!("the new VM did not take the node ({why}); {back}"));
-        }
-    };
-    let online_at = Instant::now();
-    // The new holder is online: the old copy goes, so the node can never come up twice.
-    let forgot = exec_ok(from, &handoff::forget_command(), "cmux-tailnet-forgot");
-    let gap_ms = match (released.stopped_at_ms, handoff::online_at_ms(&answer)) {
-        (Some(stop), Some(online)) => Some(online.saturating_sub(stop)),
-        _ => None,
-    };
-    Ok(json!({
-        "dnsName": node.dns_name,
-        "ips": node.ips,
-        "tags": node.tags,
-        "online": node.online,
-        "gapMs": gap_ms,
-        "gapSeenMs": millis(online_at - released_at),
-        "elapsedMs": millis(started.elapsed()),
-        "oldCopyDeleted": forgot.is_ok(),
-        "notes": forgot.err().map(|e| vec![format!("the old VM still holds a copy of the node state ({e}); delete {} there", handoff::STATE_FILE)]).unwrap_or_default(),
-    }))
 }
 
 pub(super) fn leave(guest: &mut dyn Guest) -> Result<(), String> {
@@ -667,53 +552,6 @@ pub(super) fn run(
                 Err(message) => fail(&message, 1),
             }
         }
-        "move" => {
-            let (from, to, timeout) = match parse_move(tail) {
-                Ok(parsed) => parsed,
-                Err(message) => return fail(&message, 2),
-            };
-            let result = with_guest(&from, env, |from_guest| {
-                with_guest(&to, env, |to_guest| move_node(from_guest, to_guest, timeout))
-            });
-            match result {
-                Ok(node) => {
-                    let mut record = read_record(env);
-                    let name = record.remove(&from).unwrap_or_else(|| {
-                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned()
-                    });
-                    record.insert(to.clone(), name);
-                    write_record(env, &record);
-                    if json_output {
-                        println!("{}", json!({"ok": true, "from": from, "vm": to, "node": node}));
-                    } else {
-                        println!(
-                            "Moved {} from {from} to {to}.",
-                            node.get("dnsName")
-                                .and_then(Value::as_str)
-                                .unwrap_or("your tailnet node")
-                        );
-                        match node.get("gapMs").and_then(Value::as_u64) {
-                            Some(gap) => println!("Offline for {gap} ms (stop to online)."),
-                            None => println!(
-                                "Offline for about {} ms (seen from here).",
-                                node.get("gapSeenMs").and_then(Value::as_u64).unwrap_or(0)
-                            ),
-                        }
-                        for note in node
-                            .get("notes")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                        {
-                            println!("Note: {note}");
-                        }
-                    }
-                    0
-                }
-                Err(message) => fail(&message, 1),
-            }
-        }
         "mint-key" => {
             let (args, out) = match parse_mint(tail) {
                 Ok(parsed) => parsed,
@@ -746,10 +584,9 @@ pub(super) fn run(
                 Err(message) => fail(&message, 1),
             }
         }
-        other => fail(
-            &format!("unknown tailnet verb \"{other}\"; verbs: join, leave, move, mint-key"),
-            2,
-        ),
+        other => {
+            fail(&format!("unknown tailnet verb \"{other}\"; verbs: join, leave, mint-key"), 2)
+        }
     }
 }
 

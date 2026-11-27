@@ -18,8 +18,10 @@ nonisolated struct CmuxRemoteShareApproval: Equatable, Sendable {
     var nonce: String
     var signature = ""
 
-    /// The signed bytes, one field per line (`ShareApproval::canonical` in Rust, op `agents.approval`).
-    var canonical: String { rd?["canonical"] as? String ?? "" }
+    /// The signed bytes, one field per line (`ShareApproval::canonical` in Rust).
+    var canonical: String {
+        "\(Self.version)\ntarget=\(target)\nasker=\(asker)\nconfirmed_by=\(confirmedBy)\nconfirmed_at=\(confirmedAt)\nnonce=\(nonce)"
+    }
 
     /// Signs it with this device's key. Called only after the person's Allow click.
     func signed(by identity: DeviceIdentity) throws -> CmuxRemoteShareApproval {
@@ -28,12 +30,18 @@ nonisolated struct CmuxRemoteShareApproval: Equatable, Sendable {
         return copy
     }
 
-    /// The `approval` object of `remote.confirm`'s answer (`ShareApproval::wire`).
-    var json: CmuxNextSettings.JSONValue { RdUI.decode(rd?["wire"]) ?? .null }
-
-    private var rd: [String: Any]? {
-        RdUI.call("agents.approval", ["target": target, "targetName": targetName, "asker": asker, "askerName": askerName,
-                                      "confirmedBy": confirmedBy, "confirmedAt": confirmedAt, "nonce": nonce,
-                                      "signature": signature]) as? [String: Any]
+    /// The `approval` object of `remote.confirm`'s answer.
+    var json: CmuxNextSettings.JSONValue {
+        .object([
+            "v": .string(Self.version),
+            "target": .string(target),
+            "target_name": .string(targetName),
+            "asker": .string(asker),
+            "asker_name": .string(askerName),
+            "confirmed_by": .string(confirmedBy),
+            "confirmed_at": .string(String(confirmedAt)),
+            "nonce": .string(nonce),
+            "signature": .string(signature),
+        ])
     }
 }

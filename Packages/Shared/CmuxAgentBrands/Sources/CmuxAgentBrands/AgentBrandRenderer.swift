@@ -1,4 +1,3 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
 
 /// Draws marks with Core Graphics, so AppKit, UIKit and SwiftUI share one renderer.
@@ -182,4 +181,3 @@ public struct AgentBrandRenderer {
         }
     }
 }
-#endif

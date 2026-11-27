@@ -1,4 +1,4 @@
-//! `start_session` with its default fork (`hub/subsessions.rs`): an agent forks its own chat, as the
+//! `start_session` with `fork: true` (`hub/subsessions.rs`): an agent forks its own chat, as the
 //! person's Fork Conversation does. The fork has the chat's history and its `parentId` and
 //! `forkSeq` (the chat shows it was forked), it is the agent's sub-session (`startedBy`, its
 //! short name) that runs the prompt, and a fork that names its own harness, model, effort,
@@ -127,8 +127,9 @@ async fn an_agent_forks_its_own_chat_as_its_sub_session() {
     }
     assert_eq!(hub.sessions().len(), 1);
 
-    let started =
-        agent.ok(START, json!({"prompt": "echo you are the fork", "name": "Branch"})).await;
+    let started = agent
+        .ok(START, json!({"prompt": "echo you are the fork", "name": "Branch", "fork": true}))
+        .await;
     assert_eq!(started["shortName"], "branch", "{started}");
     assert_eq!(started["depth"], 1, "{started}");
     let fork = started["sessionId"].as_str().unwrap().to_owned();
@@ -160,13 +161,4 @@ async fn an_agent_forks_its_own_chat_as_its_sub_session() {
     assert_eq!(got["lastReply"], "echo: echo you are the fork", "{got}");
     let list = agent.ok("_acpmux/subsession/list", json!({})).await;
     assert_eq!(list["sessions"].as_array().unwrap().len(), 1, "{list}");
-    agent.ok("_acpmux/subsession/stop", json!({"sessionId": fork, "close": true})).await;
-    for options in [json!({"fork": false}), json!({"harness": "fake"})] {
-        let mut params = json!({"prompt": "echo separate"});
-        params.as_object_mut().unwrap().extend(options.as_object().unwrap().clone());
-        let started = agent.ok(START, params).await;
-        let child = hub.resolve(started["sessionId"].as_str().unwrap()).unwrap();
-        assert!(child.meta().fork_seq.is_none(), "{started}");
-        agent.ok("_acpmux/subsession/stop", json!({"sessionId": child.id, "close": true})).await;
-    }
 }

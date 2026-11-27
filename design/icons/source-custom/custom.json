@@ -39,8 +39,8 @@
   },
   {
    "name": "cloud",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'><path d='M7.5 19.25H17A4.5 4.5 0 0 0 18.48 10.5A6.25 6.25 0 0 0 6.2 9.42A5 5 0 0 0 7.5 19.25Z'/></g></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'><path d='M7.5 19.25H17A4.5 4.5 0 0 0 18.48 10.5A6.25 6.25 0 0 0 6.2 9.42A5 5 0 0 0 7.5 19.25Z'/></g></svg>"
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'><path d='M7 18.5h10.25a3.75 3.75 0 0 0 .4-7.48A5.75 5.75 0 0 0 6.6 10.6 4 4 0 0 0 7 18.5Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'><path d='M7 18.5h10.25a3.75 3.75 0 0 0 .4-7.48A5.75 5.75 0 0 0 6.6 10.6 4 4 0 0 0 7 18.5Z'/></g></svg>"
   },
   {
    "name": "composer.add",

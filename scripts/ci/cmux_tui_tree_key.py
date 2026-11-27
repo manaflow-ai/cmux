@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
 
@@ -154,16 +153,9 @@ def tree_key(revision: str, version: str = "v2") -> str:
         ["git", "-C", str(ROOT), "mktree", "--batch", "--missing"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=GIT_ENV,
     )
-    # Its reads block on git's answer, so one deadline bounds the whole batch: a git that never
-    # answers (a fake reading stdin to its end hung tests 60 s each) is killed, readline then
-    # returns nothing and the key fails fast instead of waiting.
-    watchdog = threading.Timer(GIT_TIMEOUT_SECONDS, mktree.kill)
-    watchdog.daemon = True
-    watchdog.start()
     try:
         return _make_tree((), entries, mktree)
     finally:
-        watchdog.cancel()
         if mktree.stdin is not None:
             mktree.stdin.close()
         try:
@@ -213,12 +205,6 @@ def _make_tree(
 
 def main() -> int:
     args = sys.argv[1:]
-    # `key` is the verb its callers name (cmux-machine-channel.yml, cmux_machine_channel_pr_head.py,
-    # cmux-machine-channel-point.sh). Before this it was a usage error (exit 2): every caller read an empty
-    # key, so PR_HEAD_FAST_LANE built both thin musl targets on every land-tier pull request head (about
-    # 90k runner-min/day from 2026-11-26 01Z) and the merge never found the head build it had paid for.
-    if args[:1] == ["key"]:
-        args = args[1:]
     version = "v2"
     if args[:1] == ["--version"]:
         if len(args) < 2 or args[1] not in KEY_VERSIONS:
@@ -226,7 +212,7 @@ def main() -> int:
             return 2
         version, args = args[1], args[2:]
     if len(args) > 1:
-        print(f"error: usage: {Path(sys.argv[0]).name} [key] [--version v1|v2|v2-legacy] [REV]; see {REPAIR}", file=sys.stderr)
+        print(f"error: usage: {Path(sys.argv[0]).name} [--version v1|v2|v2-legacy] [REV]; see {REPAIR}", file=sys.stderr)
         return 2
     revision = args[0] if args else "HEAD"
     try:

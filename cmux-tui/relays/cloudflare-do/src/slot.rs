@@ -35,7 +35,6 @@ use crate::park::{
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
 };
 use crate::placement::{REGION_HEADER, is_region};
-use crate::retire::{close_deadline_ms, closed_by_awake_daemon};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_circuit_id,
     valid_opaque_identifier, websocket_upgrade,
@@ -270,21 +269,6 @@ impl RelaySlot {
         }
     }
 
-    /// Closes the slot's retired standbys (`crate::retire::closed_by_awake_daemon`) but `socket`: its daemon just
-    /// sent a Register or Standby, so its machine is awake and the close frame wakes nothing.
-    fn close_retired_standbys(&self, socket: &WebSocket, slot: &str, now_ms: u64) {
-        for other in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            if other == *socket {
-                continue;
-            }
-            if Self::attachment(&other).is_ok_and(|attachment| {
-                closed_by_awake_daemon(&attachment, other.as_ref().ready_state(), slot, now_ms)
-            }) {
-                close(&other, CLOSE_POLICY, "relay socket expired");
-            }
-        }
-    }
-
     /// Whether `socket`, a registered daemon, is still its slot's current
     /// registration (`crate::daemon::current_registration`).
     fn is_current_registration(&self, socket: &WebSocket, attachment: &SlotAttachment) -> bool {
@@ -399,7 +383,7 @@ impl RelaySlot {
             .get_websockets()
             .into_iter()
             .filter_map(|socket| Self::attachment(&socket).ok())
-            .map(|attachment| close_deadline_ms(&attachment))
+            .map(|attachment| attachment.idle_deadline_ms)
             .filter(|deadline| *deadline > now_ms)
             .min();
         let mut ledger = self.circuits().await?;
@@ -479,7 +463,6 @@ impl RelaySlot {
                 Self::fail(other, "replaced", "daemon control connection was replaced", 4001);
             }
         }
-        self.close_retired_standbys(socket, &slot, now_ms);
 
         attachment.phase = SlotPhase::Registered;
         attachment.generation = number;
@@ -557,7 +540,6 @@ impl RelaySlot {
             }
         };
 
-        self.close_retired_standbys(socket, &slot, now_ms);
         // No await between this count and the attachment below: two standbys upgrading together cannot both
         // find room for the last place.
         let held = standby_count(
@@ -1408,9 +1390,7 @@ impl DurableObject for RelaySlot {
                     sockets.iter().map(|(_, other)| other),
                 )
             } else {
-                // A daemon socket past its idle deadline is retired, not closed: a close frame wakes a paused
-                // machine (`crate::retire`).
-                close_deadline_ms(attachment)
+                attachment.idle_deadline_ms
             };
             if deadline <= now_ms {
                 close(socket, CLOSE_POLICY, "relay socket expired");

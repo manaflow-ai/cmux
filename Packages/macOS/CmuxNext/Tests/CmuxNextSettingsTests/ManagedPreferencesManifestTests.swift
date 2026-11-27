@@ -14,7 +14,13 @@ import Testing
     }()
 
     static func generated() throws -> [(String, Data)] {
-        try ManagedPreferencesManifest.exportFiles()
+        [
+            ("com.manaflow.cmux.plist", try ManagedPreferencesManifest.profileManifest()),
+            ("com.manaflow.cmux.json", try ManagedPreferencesManifest.jamfSchema() + Data("\n".utf8)),
+            ("cmux-example.mobileconfig", try ManagedPreferencesManifest.exampleMobileconfig()),
+            ("com.manaflow.cmux.intune.plist", Data(try ManagedPreferencesManifest.intunePreferenceFile().utf8)),
+            ("managed-preferences.md", Data(ManagedPreferencesManifest.markdown().utf8)),
+        ]
     }
 
     @Test func checkedInSchemaMatchesTheCatalog() throws {

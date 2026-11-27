@@ -118,11 +118,6 @@ pub struct Request {
     pub workspace_onto_start: f64,
     #[serde(default)]
     pub workspace_onto_end: f64,
-    /// The machines the one dragged workspace's chat can move to (the chat's Move to… targets, as the app read them
-    /// when the drag began). A drop in such a machine's section, or on its remote group, moves the chat there (Leo,
-    /// 2026-11-19: a visible move between machines). Empty, the default: rows stay on their own machine, as before.
-    #[serde(default)]
-    pub move_to: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -456,24 +451,6 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
     })
 }
 
-/// Whether `target` moves the one dragged workspace's chat to another machine: a slot at the top level of a machine
-/// section (or in, or into, its remote group `host:<machine>`, which the app takes as that section) whose machine is
-/// not the workspace's and is one of `move_to`. Never into a document group or onto a row: a move lands loose.
-fn is_move(target: &Target, ids: &[String], sections: &[Section], move_to: &[String]) -> bool {
-    let [id] = ids else { return false };
-    let host = |group: &str| group.strip_prefix("host:").map(str::to_owned);
-    let machine = match target {
-        Target::Position { section, group: None, .. } => sections
-            .iter()
-            .find(|candidate| section_eq(&candidate.id, section))
-            .and_then(|section| section.machine.clone()),
-        Target::Position { group: Some(group), .. } | Target::IntoGroup { group } => host(group),
-        _ => None,
-    };
-    let (Some(machine), Some(workspace)) = (machine, workspace(id, sections)) else { return false };
-    machine != workspace.machine && move_to.contains(&machine)
-}
-
 /// Converts a displayed coordinate to base-layout coordinates.
 pub fn base_y(display_y: f64, gap_y: Option<f64>, gap_height: f64) -> Option<f64> {
     let Some(gap_y) = gap_y else { return Some(display_y) };
@@ -512,8 +489,6 @@ pub fn resolve(request: &Request) -> Option<Target> {
             if let Some(target) = onto_target(row, fraction, ids, request) {
                 return is_valid(&target, ids, &request.sections).then_some(target);
             }
-            // Over another machine's rows the slot they offer is that machine's; a chat that can move there takes it.
-            let moves = |target: &Target| is_move(target, ids, &request.sections, &request.move_to);
             let target = workspace_target(
                 row,
                 fraction,
@@ -528,7 +503,7 @@ pub fn resolve(request: &Request) -> Option<Target> {
             } else {
                 target
             };
-            return (is_valid(&target, ids, &request.sections) || moves(&target)).then_some(target);
+            return is_valid(&target, ids, &request.sections).then_some(target);
         }
         Payload::Group { id } => group_target(
             id,

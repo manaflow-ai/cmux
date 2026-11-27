@@ -240,7 +240,6 @@ public struct RemoteBrowserDialog: Sendable, Equatable {
     /// The accepting button: OK, or Leave / Reload for a page that asks before it goes.
     public var acceptTitle: String {
         guard kind == .beforeunload else { return String(localized: "OK") }
-        // retry-prompt-ok: the page's own leave-page question; Reload answers it (it may lose a form).
         return isReload ? String(localized: "Reload") : String(localized: "Leave")
     }
 

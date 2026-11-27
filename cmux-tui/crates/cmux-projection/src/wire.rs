@@ -6,11 +6,7 @@
 //!   [`OP_BATCH`] `count u32, entry u32 * count` (whole files, answered in that order); for
 //!   [`OP_PING`] nothing; for [`OP_STORED`] `since u32` (which files the Mac has put in the store,
 //!   from the `since`-th on: answered with an epoch part, `u64`, then one part per file, `entry u32`
-//!   and its blob id in hex; asked only of a Mac whose store is configured); for [`OP_LISTING`]
-//!   `since u64` (the journal sequence the machine's listing is at: answered with one part, the
-//!   encoded [`crate::listing_patch::Patch`] since then, or [`CHANGED`] when the Mac's journal no
-//!   longer reaches back that far and the machine must take the whole listing; asked only of a
-//!   Mac that advertised patches, an older Mac ends a stream on an ask it does not know).
+//!   and its blob id in hex; asked only of a Mac whose store is configured).
 //! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
 //!
 //! A packed answer (RFD 0065, "Projection answers compressed and binary") carries a file's bytes
@@ -28,7 +24,6 @@ pub const OP_READ: u8 = 1;
 pub const OP_BATCH: u8 = 2;
 pub const OP_PING: u8 = 3;
 pub const OP_STORED: u8 = 4;
-pub const OP_LISTING: u8 = 5;
 
 /// The bytes asked for.
 pub const OK: u8 = 0;
@@ -60,7 +55,6 @@ pub enum Ask {
     Batch { ask: u32, entries: Vec<u32> },
     Ping { ask: u32 },
     Stored { ask: u32, since: u32 },
-    Listing { ask: u32, since: u64 },
 }
 
 impl Ask {
@@ -70,8 +64,7 @@ impl Ask {
             Self::Read { ask, .. }
             | Self::Batch { ask, .. }
             | Self::Ping { ask }
-            | Self::Stored { ask, .. }
-            | Self::Listing { ask, .. } => *ask,
+            | Self::Stored { ask, .. } => *ask,
         }
     }
 
@@ -118,11 +111,6 @@ impl Ask {
                 bytes.extend_from_slice(&ask.to_le_bytes());
                 bytes.extend_from_slice(&since.to_le_bytes());
             }
-            Self::Listing { ask, since } => {
-                bytes.push(OP_LISTING);
-                bytes.extend_from_slice(&ask.to_le_bytes());
-                bytes.extend_from_slice(&since.to_le_bytes());
-            }
         }
         out.write_all(&bytes)
     }
@@ -156,7 +144,6 @@ impl Ask {
             }
             OP_PING => Self::Ping { ask },
             OP_STORED => Self::Stored { ask, since: u32_of(input)? },
-            OP_LISTING => Self::Listing { ask, since: u64_of(input)? },
             _ => return Err(bad("unknown ask")),
         }))
     }
@@ -304,7 +291,6 @@ mod tests {
             Ask::Batch { ask: 2, entries: vec![3, 4, 5] },
             Ask::Ping { ask: 3 },
             Ask::Stored { ask: 4, since: 1025 },
-            Ask::Listing { ask: 5, since: 1 << 40 },
         ];
         let mut bytes = Vec::new();
         for ask in &asks {

@@ -81,8 +81,7 @@
           "cmux-browser-host",
           "cmux-cloud-cli",
           "cmux-app-host",
-          "cmux-holder",
-          "cmux-launch-preread"
+          "cmux-holder"
         ]
       },
       {

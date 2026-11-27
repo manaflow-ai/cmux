@@ -29,8 +29,8 @@ fn catalog_fragments_give_exports_and_palette_commands() {
         vec![
             json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor",
                     "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }],
-                    "page_keys": ["f"],
-                    "page_key_when": { "f": "browserFocused" } })
+                    "page_keys": ["f", "shift+f"],
+                    "page_key_when": { "f": "browserFocused", "shift+f": "browserFocused && !readOnly" } })
         ],
         "keys ride on palette commands only; a page key (`f`) stays out of the app layer"
     );

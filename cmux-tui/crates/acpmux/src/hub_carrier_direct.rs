@@ -135,12 +135,9 @@ pub fn private_address(ip: IpAddr) -> bool {
     }
 }
 
-/// The first direct-path address of `addresses`: private, not loopback, and not one of this
-/// machine's own interface addresses (a self-dial would only ever reach our own listener).
+/// The first direct-path address of `addresses`: private, and not this machine's loopback.
 fn first_direct(addresses: impl IntoIterator<Item = SocketAddr>) -> Option<SocketAddr> {
-    addresses.into_iter().find(|a| {
-        private_address(a.ip()) && !a.ip().is_loopback() && !super::punch::own_address(a.ip())
-    })
+    addresses.into_iter().find(|a| private_address(a.ip()) && !a.ip().is_loopback())
 }
 
 /// `name`'s direct address by the resolver's usual lookup (both families), in [`RESOLVE_BOUND`].

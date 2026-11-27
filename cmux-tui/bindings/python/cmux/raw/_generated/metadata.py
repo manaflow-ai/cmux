@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b'
+IR_SHA256 = '904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886'
 
 
 @dataclass(frozen=True)
@@ -1837,7 +1837,6 @@ COMMANDS = {
         None,
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
-            'restore_progress': CommandFieldMetadata(12, None),
             'revisions': CommandFieldMetadata(12, None),
         },
     ),
@@ -3257,7 +3256,6 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
-            'restore_progress': CommandFieldMetadata(12, None),
         },
     ),
     'set-attach-visibility': CommandMetadata(
@@ -3653,7 +3651,6 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
-            'keep_awake': CommandFieldMetadata(12, 'workspace-keep-awake-v1'),
             'key': CommandFieldMetadata(None, None),
             'marked_unread': CommandFieldMetadata(12, 'notification-mark-unread-v1'),
             'mutation_id': CommandFieldMetadata(None, None),

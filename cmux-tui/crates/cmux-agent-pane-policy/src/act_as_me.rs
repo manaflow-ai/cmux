@@ -5,9 +5,6 @@
 //! (`_acpmux/queue_approve`), `policy.json` `act_as_me_covers`, and for
 //! nothing wider: a permission answer, a mode, a trust grant, a folder, a new
 //! chat on another machine still need the person's own key press or click.
-//! An administrator's profile (`Holder::Managed`) also covers saving a Cloud
-//! environment (`act_as_me_managed_covers`); the person's grant never does, so
-//! the consent card means only what it says.
 //!
 //! Who may turn it on ([`GrantSource`]):
 //! - the person's own click on Allow in the app's consent card, read by the
@@ -166,14 +163,6 @@ pub fn covers(method: &str) -> bool {
     contains(&policy().act_as_me_covers, method)
 }
 
-/// Whether a grant held by `holder` covers a frame of `method`: [`covers`] for
-/// either holder, and `act_as_me_managed_covers` (a Cloud environment's save)
-/// only for an administrator's profile.
-pub fn covers_for(holder: Holder, method: &str) -> bool {
-    covers(method)
-        || (holder == Holder::Managed && contains(&policy().act_as_me_managed_covers, method))
-}
-
 /// How a gesture-needing frame is judged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -192,7 +181,7 @@ pub fn decide(state: ActAsMe, method: &str, person: bool) -> Verdict {
         return Verdict::Person;
     }
     match state.holder() {
-        Some(holder) if covers_for(holder, method) => Verdict::ActsAsPerson(holder),
+        Some(holder) if covers(method) => Verdict::ActsAsPerson(holder),
         _ => Verdict::Refused,
     }
 }

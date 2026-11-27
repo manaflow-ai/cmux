@@ -89,14 +89,6 @@ name = "cmux-config/once#LEDGER_VERSION"
 policy = "unreviewed"
 
 [[format]]
-file = "crates/cmux-customize/src/library/doctor.rs"
-const = "STATE_VERSION"
-name = "settings-doctor-state"
-about = "the settings doctor's announced and dismissed findings (id to fingerprint)"
-policy = "rebuild"
-why = "a file of another version is carried over by id on the next announce (doctor_announce), and a file lost costs one repeated toast, not work"
-
-[[format]]
 file = "crates/cmux-customize/src/setup/check.rs"
 const = "SCHEMA_VERSION"
 name = "cmux-customize/check#SCHEMA_VERSION"

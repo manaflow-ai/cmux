@@ -104,14 +104,8 @@ fn once_free<T>(mut f: impl FnMut() -> Option<T>) -> Option<T> {
 
 /// [`prepare`] once the lock this test dropped is free ([`once_free`]).
 async fn prepared(peer: &FakePeer, files: &Files) -> Prepared {
-    prepared_with(&paths(peer), files).await
-}
-
-/// [`prepared`] with these paths (`--allow-downgrade`, say): a run right after
-/// one that dropped its plan waits out the same descriptor copies.
-async fn prepared_with(paths: &Paths, files: &Files) -> Prepared {
     for _ in 0..100 {
-        match prepare(paths, files, None, CHANNEL).await.unwrap() {
+        match prepare(&paths(peer), files, None, CHANNEL).await.unwrap() {
             Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
             other => return other,
         }
@@ -731,7 +725,8 @@ async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_b
     // `--allow-downgrade`: a bad channel build is pulled back on purpose.
     let mut back = paths(&peer);
     back.allow_downgrade = true;
-    let Prepared::Ready(plan) = prepared_with(&back, &serving(&channels)).await else {
+    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), None, CHANNEL).await.unwrap()
+    else {
         panic!("the self-update did not go ahead");
     };
     let up = apply(&peer, &plan, TARGET, true);

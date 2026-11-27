@@ -409,9 +409,9 @@ fn write_row(row: &Row) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = crate::home_fs::create_dirs(dir);
+        let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }
@@ -505,7 +505,6 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     Ok(exit_code(status))
 }
 
-// Forks are git checkouts whose executable bits the tests compare: unix only.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 #[path = "run_vm_tests.rs"]
 mod tests;

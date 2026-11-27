@@ -114,25 +114,14 @@ pub(crate) fn is_person_chat(entry: &ChatEntry) -> bool {
 }
 
 /// acpmux's model probes run in `<acpmux home>/unattended` (`protected_folders::unattended_cwd`:
-/// `~/.acpmux/unattended`, `~/.acpmux/builds/<key>/unattended`, or `<temp>/acpmux-unattended-<uid>`
-/// when that folder is guarded or in the home folder's git repository), a folder no person works in.
+/// `~/.acpmux/unattended`, `~/.acpmux/builds/<key>/unattended`, or `<temp>/acpmux-unattended`), a
+/// folder no person works in.
 fn is_probe_session(entry: &ChatEntry) -> bool {
-    entry.cwd.as_deref().is_some_and(is_probe_folder)
-}
-
-fn is_probe_folder(cwd: &str) -> bool {
+    let Some(cwd) = entry.cwd.as_deref() else { return false };
     let parts: Vec<&str> =
         cwd.trim_end_matches('/').split('/').filter(|part| !part.is_empty()).collect();
-    // The temp fallback: `acpmux-unattended-<uid>` (older builds: `acpmux-unattended`).
-    let temp = |part: &&str| {
-        part.strip_prefix("acpmux-unattended").is_some_and(|rest| {
-            rest.is_empty()
-                || rest
-                    .strip_prefix('-')
-                    .is_some_and(|uid| !uid.is_empty() && uid.chars().all(|c| c.is_ascii_digit()))
-        })
-    };
-    parts.last().is_some_and(temp)
+    // The fallback when the acpmux home is guarded: `<temp dir>/acpmux-unattended`.
+    parts.last() == Some(&"acpmux-unattended")
         || (parts.last() == Some(&"unattended")
             && parts.iter().any(|part| part.starts_with(".acpmux")))
 }
@@ -173,29 +162,4 @@ fn is_chief_markup(title: &str) -> bool {
         && a.chars().all(|c| c.is_ascii_digit())
         && b.chars().all(|c| c.is_ascii_digit())
         && (rest.starts_with("user:") || rest.starts_with("assistant:"))
-}
-
-#[cfg(test)]
-mod probe_folder_tests {
-    use super::is_probe_folder;
-
-    /// The temp fallback, by its name with this user's uid and by the older name without it.
-    #[test]
-    fn the_probe_folders_are_known_by_their_names() {
-        for probe in [
-            "/var/folders/xy/T/acpmux-unattended",
-            "/private/var/folders/xy/T/acpmux-unattended-501",
-            "/tmp/acpmux-unattended-0",
-        ] {
-            assert!(is_probe_folder(probe), "{probe} is a probe folder");
-        }
-        for person in [
-            "/Users/a/code/unattended",
-            "/Users/a/acpmux-unattended-notes",
-            "/tmp/acpmux-unattended-",
-            "/tmp/acpmux-unattended-501/app",
-        ] {
-            assert!(!is_probe_folder(person), "{person} is a person's folder");
-        }
-    }
 }

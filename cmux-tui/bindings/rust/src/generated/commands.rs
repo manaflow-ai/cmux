@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
+// cmux-tui mux protocol 12, IR 904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2096,8 +2096,6 @@ pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub restore_progress: Option<bool>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
 }
 
@@ -3585,8 +3583,6 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub restore_progress: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3964,8 +3960,6 @@ pub struct SetWorkspaceMetadataRequest {
     pub expected_revision: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub keep_awake: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5281,9 +5275,6 @@ impl CmuxClient {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
         }
-        if request.restore_progress.is_some() {
-            self.require_protocol_field("identify", 12)?;
-        }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
         }
@@ -5980,9 +5971,6 @@ impl CmuxClient {
     }
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
-        if request.restore_progress.is_some() {
-            self.require_protocol_field("server-stats", 12)?;
-        }
         self.execute(&SERVER_STATS_METADATA, &request)
     }
 
@@ -6176,10 +6164,6 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
-        if !request.keep_awake.is_missing() {
-            self.require_protocol_field("set-workspace-metadata", 12)?;
-            self.require_capability_field("set-workspace-metadata", "workspace-keep-awake-v1")?;
-        }
         if !request.marked_unread.is_missing() {
             self.require_protocol_field("set-workspace-metadata", 12)?;
             self.require_capability_field("set-workspace-metadata", "notification-mark-unread-v1")?;

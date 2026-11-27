@@ -5,7 +5,7 @@
 #
 # usage: scripts/ci/cmux-tui-mac-cargo-builds.sh TRIPLE
 #
-# Six cargo builds plus the optional login prereader, one per package (building them in one cargo would unify their features).
+# Six cargo builds, one per package (building them in one cargo would unify their features).
 # With CONCURRENT_MIN_BYTES of memory or more (hw.memsize) and CONCURRENT_MIN_CPUS of CPU budget
 # or more (CMUX_CI_CPU_BUDGET, which the runner hook sets to the cores it admitted the job with,
 # else hw.ncpu), both read here at run time, they run at once through scripts/ci/cargo-groups.sh,
@@ -43,15 +43,10 @@ gib=$((mem / 1024 / 1024 / 1024))
 if ((mem >= CONCURRENT_MIN_BYTES && cpus >= CONCURRENT_MIN_CPUS)); then
   echo "cmux-tui mac builds: $gib GiB of memory, $cpus cores ($cpus_from), the cargo builds run at once"
   cb() { echo "cargo build --timings --release --locked --target $t"; }
-  preread_group=()
-  if [[ -f crates/cmux-launch-preread/Cargo.toml ]]; then
-    preread_group=("cmux-launch-preread" "$(cb) -p cmux-launch-preread --bin cmux-launch-preread")
-  fi
   # The terminal holder (std and libc only) is its own invocation so its features do not unify
   # with the daemon's; the daemon starts every holder from a copy found beside its executable.
   # The app host runs each app's JS next to the daemon (cmux-tui-core::apps). Unix only.
   ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
-    ${preread_group[@]+"${preread_group[@]}"} \
     "cmux-tui cmux-tui-hook cmux-tui-host" "$(cb) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
     "cmux-holder" "$(cb) -p cmux-holder --bin cmux-holder" \
     "cmux-app-host" "$(cb) -p cmux-app-host --bin cmux-app-host" \
@@ -72,9 +67,6 @@ else
   # features do not unify with the daemon's. The daemon starts every
   # holder from a copy of it found beside its own executable.
   cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
-  if [[ -f crates/cmux-launch-preread/Cargo.toml ]]; then
-    cargo build -p cmux-launch-preread --bin cmux-launch-preread --release --locked --target "$t"
-  fi
   # The app host runs each app's JS next to the daemon, which finds it
   # beside its own executable (cmux-tui-core::apps). Unix only.
   cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target "$t"

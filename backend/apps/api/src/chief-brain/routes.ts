@@ -48,12 +48,6 @@ import { declared } from "../do-stub.ts"
  *   GET  /v1/chiefs/<agent>/computer/screen the owner: the computer's screen as image/jpeg while it runs; 409 while it
  *        sleeps (not woken for a look), 404 with no computer
  *   POST /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: {action: start | finish | cancel, loginId?, code?}
- *   GET  /v1/chiefs/<agent>/slack-awake?days=<1..31>   the owner: RFD 0123's Slack awake time, {allowance_seconds,
- *        default_seconds, max_seconds, days, senders: [{slack_team, slack_user, sender_is_owner, day, seconds, turns}],
- *        names: {<slack_user>: <Slack name>}} ("who spent my hours", newest UTC day first; default 7 days; a sender
- *        with no recorded name is absent from names)
- *   PUT  /v1/chiefs/<agent>/slack-awake     the owner's human session: {allowance_seconds: 0..86400 | null}, each
- *        non-owner's daily awake allowance (null: the 2 h default; 0: non-owners never wake it) -> the GET's value
  *
  * Run and Step are the trajectory wire's JSON (brain-runs.ts); members also get each change live as
  * a `conversation-run-changed` frame on the conversation socket.
@@ -61,7 +55,7 @@ import { declared } from "../do-stub.ts"
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|slack-awake|computer(?:\/(?:screen|control|input))?|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|computer(?:\/(?:screen|control|input))?|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -76,7 +70,6 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   if (path === "memory") return handleMemoryImport(request, env, agent, brain)
   if (path === "peer") return handlePeer(request, env, agent)
   if (path === "github") return handleGithub(request, env, agent)
-  if (path === "slack-awake") return handleSlackAwake(request, env, agent)
   if (path === "computer" || path === "computer/screen") return handleComputer(request, env, agent, path)
   if (path === "computer/control" || path === "computer/input") return handleComputerControl(request, env, agent, path)
   if (path === "brain") {
@@ -123,35 +116,6 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   const holder = sub ? env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(agent, conversation, Number(sub[1])))) : convBrain
   const found = (await (holder.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
   return found && found.run.conversation === conversation ? ok(found) : fail(hidden)
-}
-
-/** RFD 0123: the owner reads who spent the Chief's Slack hours and sets each non-owner's daily allowance. */
-const handleSlackAwake = async (request: Request, env: Env, agent: string): Promise<Response> => {
-  if (request.method !== "GET" && request.method !== "PUT") return fail({ status: 405, code: "method_not_allowed", message: "GET or PUT" })
-  const caller = await callerOf(request, env, "read")
-  if ("status" in caller) return fail(caller)
-  const p = caller.principal
-  // Reading takes the owner (a session, or a grant covering mutate-own); spending their hours takes their own session.
-  if (request.method === "PUT" ? p.kind !== "session" : p.kind !== "session" && !(p.grant_classes ?? []).includes("mutate-own")) {
-    return fail({ status: 403, code: "auth.forbidden", message: request.method === "PUT" ? "the owner's own session sets the allowance" : "grant does not cover mutate-own" })
-  }
-  const owned = await chiefOwnedBy(env, agent, p)
-  if (!owned) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner sees its Slack awake time" })
-  // Slack turns run in the Chief's main conversation brain (platform-chief.ts), which keeps the meter.
-  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, chiefMainConversation(agent))))
-  const days = Number(new URL(request.url).searchParams.get("days") ?? 7)
-  let set: number | null | undefined
-  if (request.method === "PUT") {
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).join() !== "allowance_seconds" || (body.allowance_seconds !== null && typeof body.allowance_seconds !== "number")) {
-      return fail({ status: 400, code: "validation.invalid", message: "body is {allowance_seconds: 0..86400 | null}" })
-    }
-    set = body.allowance_seconds as number | null
-  }
-  const r = await brain.slackAwake({ ...(set !== undefined ? { set } : {}), days: Number.isFinite(days) ? days : 7 })
-  if (!r.ok) return fail({ status: 400, code: r.code, message: "allowance_seconds is whole seconds in 0..86400, or null" })
-  const { ok: _ok, ...value } = r
-  return ok(value)
 }
 
 const LOGIN_HEADERS = { ...NO_STORE, "referrer-policy": "no-referrer" }

@@ -137,36 +137,4 @@ import Testing
         #expect(request.cancels == 0)
         #expect(broker.pending.isEmpty)
     }
-
-    /// The app's own GitHub connect: a stopped return that is not the end goes on in the panel (the console's code-less
-    /// update becomes the API's authorize); the end completes once; a request with no redirect says nil, as before.
-    @Test func anInAppRequestRedirectsWhatDoesNotEndIt() throws {
-        var completed: [URL] = []
-        var cancels = 0
-        let bounce = URL(string: "https://app.example.com/done?installation_id=7")!
-        let next = URL(string: "https://api.example.com/authorize?installation_id=7")!
-        let request = InAppWebAuthRequest(
-            url: URL(string: "https://github.com/apps/cmux/installations/new")!,
-            callback: .https(host: "app.example.com", path: "/done"),
-            matches: { $0.query?.contains("code=") == true },
-            redirect: { $0 == bounce ? next : nil },
-            complete: { completed.append($0) }, cancel: { cancels += 1 })
-        #expect(request.opensOverAppWindow)
-        #expect(!request.isEphemeral)
-        broker.begin(request)
-        let surface = try #require(opener.surfaces[request.id])
-        #expect(!broker.navigated(request.id, to: bounce))
-        #expect(broker.redirect(request.id, for: bounce) == next)
-        #expect(broker.redirect(request.id, for: callbackURL) == nil)
-        #expect(broker.navigated(request.id, to: callbackURL))
-        #expect(completed == [callbackURL])
-        #expect(surface.closes == 1)
-        #expect(broker.redirect(request.id, for: bounce) == nil, "an ended session redirects nothing")
-        #expect(cancels == 0)
-
-        let plain = FakeWebAuthRequest()
-        broker.begin(plain)
-        #expect(broker.redirect(plain.id, for: bounce) == nil)
-        #expect(!plain.opensOverAppWindow)
-    }
 }

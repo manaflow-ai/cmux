@@ -199,15 +199,6 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
         return try PushSeal.open(sealed, recipient: stored.publicKey, context: context) { try stored.agree($0) }
     }
 
-    /// The ECDH secret of this account's push key with `peer` (X9.63), for the relay cache's
-    /// sealed deltas (`cmux-relay-snapshot`, which derives and opens in Rust): the scalar never
-    /// leaves the Secure Enclave, only the agreed secret does.
-    public func agree(user: String, peer: Data) throws -> Data {
-        let stored: Key = try lock.withLock { try self.key(user: user, create: false) }
-        let point = try P256.KeyAgreement.PublicKey(x963Representation: peer)
-        return try stored.agree(point).withUnsafeBytes { Data($0) }
-    }
-
     /// Account deletion and "Remove This iPhone": the key and the trust go.
     public func reset(user: String) {
         lock.withLock {

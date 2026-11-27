@@ -19,7 +19,7 @@ enum AdmissionRoute<'a> {
     Circuit { circuit: &'a str },
 }
 
-pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
+pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
     let path = request.path();
     if path == "/healthz" {
         return Response::ok("ok");
@@ -57,10 +57,7 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
         AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
             // The caller's place (the viewer's on a connect, the daemon's on a control socket) goes to the
             // slot beside the request, never from the caller: what it sent is dropped.
-            // The runtime's request is immutable (`headers_mut` on it is an error, a 500 on every Register and
-            // Connect: cmux#54175 on staging 11-25 22:06Z); the slot gets a mutable copy.
             let caller = hint_of(&request);
-            let mut request = request.clone_mut()?;
             let headers = request.headers_mut()?;
             headers.delete(REGION_HEADER)?;
             if let Some(region) = caller {

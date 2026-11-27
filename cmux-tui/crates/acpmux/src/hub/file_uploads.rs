@@ -14,8 +14,7 @@
 //!
 //! A finished file's bytes are stored once by their SHA-256 however often they are uploaded, and
 //! the path above is another name of them ([`store`]); each upload keeps a record of its name,
-//! source app, time and hash. The store takes a file after its finish has answered, on a worker
-//! thread of its own ([`adopt_later`]), so a finish reads none of a large file's bytes.
+//! source app, time and hash.
 //!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
 //! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
@@ -79,12 +78,9 @@ pub(crate) fn is_stored_upload(_: &Path, _: &Path, _: &std::fs::File) -> bool {
     false
 }
 
-/// Deletes session `id`'s uploads: the chat was deleted. Under the sweep's lock, which the store
-/// takes to put a finished upload in ([`adopt_now`]): one it is taking is either recorded before
-/// this reads the hashes, or found gone after. Blocking: run it off the runtime.
+/// Deletes session `id`'s uploads: the chat was deleted. Blocking: run it off the runtime.
 pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };
-    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // Read before they go, so only those stored bytes are checked after.
     let hashes = store::hashes_under(&dir);
     // Never follows a symlink: `remove_dir_all` removes the link, not what it names. Through
@@ -633,25 +629,7 @@ fn free_bytes(_dir: &Path) -> Option<u64> {
     None
 }
 
-/// `_acpmux/file_put_finish`: the upload's bytes get its name, read-only, and the answer is
-/// `{path, size, uploadId}` with nothing read on the way unless the sender gave a `sha256` to
-/// check. The store takes the file after ([`adopt_later`]). Blocking.
 fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
-    let later = std::cell::Cell::new(None);
-    let answer = finish_held(session, params, &later);
-    // Handed off once the upload's lock is let go: the store takes the sweep's lock, then it.
-    if let Some(job) = later.take() {
-        adopt_later(job);
-    }
-    answer
-}
-
-/// [`finish`] under the upload's own lock; `later` gets the file the store is to take.
-fn finish_held(
-    session: &str,
-    params: &Value,
-    later: &std::cell::Cell<Option<Adopt>>,
-) -> Result<Value, RpcError> {
     let upload = params
         .get("uploadId")
         .and_then(Value::as_str)
@@ -691,12 +669,6 @@ fn finish_held(
                     .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
             }
         }
-        // One the store never took (the daemon stopped first) is handed to it now.
-        if store::record(dir).is_none() {
-            let (sha256, source) = (want.map(str::to_owned), source_of(&meta));
-            let at = crate::store::now_ms();
-            later.set(Some(Adopt { file: path.clone(), sha256, source, at }));
-        }
         Ok(finished(&path, size, upload))
     };
     let declared = match declared(session, upload) {
@@ -734,7 +706,10 @@ fn finish_held(
         }
         hash = Some(got);
     }
-    let source = source_of(&meta);
+    let source = std::fs::read(&meta)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|m| m.get("source").and_then(Value::as_str).map(str::to_owned));
     // Through the held home (`home_fs`): a home replaced after this check never gets the
     // finished file, nor loses an upload of its own (#41372 review F3).
     crate::config::refuse_lost_home(&path)
@@ -742,127 +717,15 @@ fn finish_held(
     crate::home_fs::rename(&part, &path)
         .map_err(|e| failed("cannot finish upload", &path, &e, None))?;
     let _ = crate::home_fs::remove_file(&meta);
-    // Read-only from its answer on, as it is once stored (`store`), so the bytes the store hashes
-    // after are the ones that were sent.
-    #[cfg(unix)]
-    if let Err(e) = crate::home_fs::set_mode(&path, 0o400) {
-        tracing::warn!("upload {upload} not made read-only: {e}");
+    // Stored once by its bytes (`store`). The upload is finished either way: one that cannot be
+    // stored (a full disk while writing its record) keeps its own copy and path.
+    let now = crate::store::now_ms();
+    if let Err(e) = store::adopt(&root(), &path, hash.as_deref(), source.as_deref(), now) {
+        tracing::warn!("upload {upload} kept as its own copy: {e}");
     }
-    // Stored once by its bytes (`store`), after this answers: the file is finished at its path
-    // either way, and one that cannot be stored keeps its own copy there.
-    let at = crate::store::now_ms();
-    later.set(Some(Adopt { file: path.clone(), sha256: hash, source, at }));
     drop(_held);
     window::bump(upload);
     Ok(finished(&path, size, upload))
-}
-
-/// The app an unfinished upload came from, from its `.meta` (`begin`), when its sender said.
-fn source_of(meta: &Path) -> Option<String> {
-    let bytes = std::fs::read(meta).ok()?;
-    let meta = serde_json::from_slice::<Value>(&bytes).ok()?;
-    meta.get("source").and_then(Value::as_str).map(str::to_owned)
-}
-
-/// A finished upload the store has yet to take ([`adopt_later`]).
-struct Adopt {
-    /// The finished file, `<uploads>/<chat>/<upload id>/<name>`.
-    file: PathBuf,
-    /// Its SHA-256 when the finish already checked the sender's; otherwise the store hashes it.
-    sha256: Option<String>,
-    /// The app it came from, when its sender said.
-    source: Option<String>,
-    /// When it finished, Unix ms.
-    at: u64,
-}
-
-/// How many finished uploads may wait for the store at once. One worker thread takes them in
-/// turn, so no more than this many wait and one file is hashed at a time; a finish past it
-/// leaves its upload its own copy with no record, as a store that failed does, and warns.
-const ADOPT_QUEUE: usize = 256;
-
-#[cfg(test)]
-thread_local! {
-    /// Whether this thread's finishes store their upload before they answer: a lost-home race
-    /// test holds the store's checks on its own thread (`lost_home_race_tests::forced`).
-    static ADOPT_INLINE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Hands finished upload `job` to the store's one worker thread ([`adopt_now`]), so a finish
-/// answers without reading the file (Leo, 2026-11-17: dropping a large file into a chat should
-/// never make the person wait). Never blocks: a full queue is warned of and dropped
-/// ([`ADOPT_QUEUE`]).
-fn adopt_later(job: Adopt) {
-    use std::sync::mpsc::{SyncSender, TrySendError};
-    #[cfg(test)]
-    if ADOPT_INLINE.with(std::cell::Cell::get) {
-        return adopt_now(&job);
-    }
-    static QUEUE: std::sync::OnceLock<Option<SyncSender<Adopt>>> = std::sync::OnceLock::new();
-    let queue = QUEUE.get_or_init(|| {
-        let (send, jobs) = std::sync::mpsc::sync_channel::<Adopt>(ADOPT_QUEUE);
-        let worker = std::thread::Builder::new()
-            .name("acpmux-upload-store".into())
-            .spawn(move || jobs.into_iter().for_each(|job| adopt_now(&job)));
-        match worker {
-            Ok(_) => Some(send),
-            Err(e) => {
-                tracing::warn!("no upload store worker: {e}");
-                None
-            }
-        }
-    });
-    let job = match queue.as_ref().map(|send| send.try_send(job)) {
-        Some(Ok(())) => return,
-        Some(Err(TrySendError::Full(job) | TrySendError::Disconnected(job))) => job,
-        None => return tracing::warn!("upload kept as its own copy: no store worker"),
-    };
-    tracing::warn!("upload {} kept as its own copy: the store is behind", job.file.display());
-}
-
-/// What says a finished file is still the one that finished: its file id, size and last write.
-fn stamp(file: &Path) -> Option<(u64, u64, u64, Option<std::time::SystemTime>)> {
-    let meta = std::fs::symlink_metadata(file).ok().filter(std::fs::Metadata::is_file)?;
-    #[cfg(unix)]
-    let id = {
-        use std::os::unix::fs::MetadataExt;
-        (meta.dev(), meta.ino())
-    };
-    #[cfg(not(unix))]
-    let id = (0, 0);
-    Some((id.0, id.1, meta.len(), meta.modified().ok()))
-}
-
-/// Puts finished upload `job` into the store ([`store::adopt`]) unless it is gone, changed or
-/// stored already. The file is hashed with no lock held; it is linked and its record written
-/// under the sweep's lock and the upload's own, which every deleter of an upload takes
-/// (`remove_session`, `remove_uploads`, `cancel`, `sweep`), so a chat deleted meanwhile is never
-/// brought back by its record and leaves no stored bytes that nothing names. A failure leaves
-/// the file its own copy at its path and warns. Blocking.
-fn adopt_now(job: &Adopt) {
-    let Some(dir) = job.file.parent() else { return };
-    let Some(upload) = dir.file_name().and_then(|n| n.to_str()) else { return };
-    let Some(before) = stamp(&job.file) else { return };
-    if store::record(dir).is_some() {
-        return;
-    }
-    let hash = match &job.sha256 {
-        Some(hash) => hash.clone(),
-        None => match sha256_of(&job.file) {
-            Ok(hash) => hash,
-            Err(e) => return tracing::warn!("upload {upload} kept as its own copy: {e}"),
-        },
-    };
-    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let _held = hold(upload);
-    // Deleted, or written to, while it was hashed: nothing to store, or not these bytes.
-    if stamp(&job.file) != Some(before) || store::record(dir).is_some() {
-        return tracing::debug!("upload {upload} changed before the store took it");
-    }
-    let (source, at) = (job.source.as_deref(), job.at);
-    if let Err(e) = store::adopt(&root(), &job.file, Some(&hash), source, at) {
-        tracing::warn!("upload {upload} kept as its own copy: {e}");
-    }
 }
 
 /// A finish's answer: the finished file's path and byte count, and the upload it was, all a
@@ -1374,56 +1237,6 @@ mod tests {
         assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
     }
 
-    /// Leo, 2026-11-17: dropping a large file (a screen recording) into a chat never makes the
-    /// person wait. A finish of a 512 MiB upload answers once the file has its name, read-only,
-    /// with nothing hashed on the way; the store takes it after, and its record and its link to
-    /// the stored bytes appear then. Its own process, for a home of its own.
-    #[test]
-    #[cfg(unix)]
-    fn a_large_upload_finishes_without_hashing_and_is_stored_after() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        crate::lost_home_race_tests::isolated(
-            module_path!(),
-            "a_large_upload_finishes_without_hashing_and_is_stored_after",
-            |_| {
-                let size: u64 = 512 << 20;
-                let began = begin("chat-a", &json!({"fileName": "screen.mov", "size": size}));
-                let id = began.unwrap()["uploadId"].as_str().unwrap().to_owned();
-                // Its bytes, sparse: written whole without writing 512 MiB.
-                let part = part_path("chat-a", &id).unwrap();
-                let file = std::fs::OpenOptions::new().write(true).open(&part).unwrap();
-                file.set_len(size).unwrap();
-                drop(file);
-                let params = json!({"uploadId": id, "fileName": "screen.mov", "size": size});
-                store::HASHED.with(|n| n.set(0));
-                let answer = finish("chat-a", &params).unwrap();
-                assert_eq!(store::HASHED.with(std::cell::Cell::get), 0, "the finish hashed");
-                let path = PathBuf::from(answer["path"].as_str().unwrap());
-                assert_eq!(path, finished_path("chat-a", &id, "screen.mov").unwrap());
-                assert_eq!(answer["size"], size);
-                let meta = std::fs::metadata(&path).unwrap();
-                assert_eq!((meta.len(), meta.permissions().mode() & 0o777), (size, 0o400));
-                // The store takes it after: its record, and the stored bytes are this file.
-                let dir = path.parent().unwrap();
-                let stored = || {
-                    let record = store::record(dir)?;
-                    store::stored_path(&root(), &record.sha256).filter(|p| p.exists())
-                };
-                let by = std::time::Instant::now() + Duration::from_secs(120);
-                while stored().is_none() && std::time::Instant::now() < by {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                let record = store::record(dir).expect("the upload's record never appeared");
-                assert_eq!((record.name.as_str(), record.size), ("screen.mov", size));
-                let stored = store::stored_path(&root(), &record.sha256).unwrap();
-                let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
-                assert_eq!(ino(&stored), ino(&path));
-                assert_eq!(record.sha256, store::sha256_of(&path).unwrap());
-            },
-            |_, _| {},
-        );
-    }
-
     /// Forced lost-home races for an upload's finish (#41372 review F3): the home is replaced by
     /// a copy of itself (as restored from the old one) once the writer passed its home check.
     /// The finished file and its stored bytes land in the held home; the new one is never changed.
@@ -1456,8 +1269,6 @@ mod tests {
                     let target = finished_path("chat-a", &id, "f.bin").unwrap();
                     let kept = format!("uploads/chat-a/{id}/f.bin");
                     forced(home, target, seed, Some(&kept), move || {
-                        // The store's writes done before the test looks at the homes.
-                        ADOPT_INLINE.with(|inline| inline.set(true));
                         let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
                         let _ = finish("chat-a", &params);
                     });
@@ -1480,8 +1291,6 @@ mod tests {
                     let target = stored.parent().unwrap().to_path_buf();
                     let kept = stored.strip_prefix(home).unwrap().to_string_lossy().into_owned();
                     forced(home, target, seed, Some(&kept), move || {
-                        // The store's checks on this thread, the hook's own.
-                        ADOPT_INLINE.with(|inline| inline.set(true));
                         let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
                         let _ = finish("chat-a", &params);
                     });

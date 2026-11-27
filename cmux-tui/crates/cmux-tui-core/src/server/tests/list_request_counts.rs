@@ -8,11 +8,11 @@
 //! - The catalog check of a `session.snapshot` result built a path string for each value of the
 //!   result, and used it only for a value that fails.
 //! - Each walk of the tree read the git HEAD of each terminal's directory when its cached value
-//!   was older than 2 seconds: one file-system walk for each directory. Each walk and each
-//!   `list-workspaces` request, with or without `known`, now takes the cached value and leaves
-//!   the read to one background refresh, which a watch of the HEAD files wakes
-//!   (list_request_counts/git_head_watch.rs). A branch that the refresh finds changed goes to
-//!   each client.
+//!   was older than 2 seconds: one file-system walk for each directory. A `list-workspaces`
+//!   request with `known`, and each walk that is not a `list-workspaces` request, now take the
+//!   cached value and leave the read to one background refresh. A request with no `known` reads
+//!   them in its reply as before: its client holds no tree and asks no second time. A branch
+//!   that it finds changed goes to each other client, as one that the refresh finds does.
 //! - `list-workspaces` built the nodes of its tree with the mux state lock held: each request
 //!   that needs the state waited for the whole build.
 //!
@@ -55,11 +55,6 @@ struct Session {
 
 impl Session {
     fn of(name: &str, workspaces: usize) -> Self {
-        Self::with_git_head_watch(name, workspaces, false)
-    }
-
-    /// [`Self::of`], with the watch of the HEAD files that a daemon has when `watch_git_heads`.
-    fn with_git_head_watch(name: &str, workspaces: usize, watch_git_heads: bool) -> Self {
         let root = std::env::temp_dir().join(format!(
             "cmux-{name}-{}-{}",
             std::process::id(),
@@ -77,11 +72,6 @@ impl Session {
         // Only the test writes: a commit of the maintenance worker between two requests would
         // change what the second one does.
         mux.stop_journal_maintenance();
-        // A test here writes a HEAD file and counts the reads that follow: with no watch, only a
-        // value past its lifetime is read again. The watch has its own tests (git_head_watch.rs).
-        if !watch_git_heads {
-            mux.stop_git_head_watch_for_test();
-        }
         let mut terminals = Vec::with_capacity(workspaces);
         for index in 0..workspaces {
             mux.create_empty_workspace(
@@ -442,13 +432,11 @@ fn list_requests_inside_one_git_head_refresh_start_no_second_one() {
         assert_eq!(reply.matches("\"git_branch\":\"main\"").count(), 2, "{}", start_of(&reply));
     }
     let in_replies = Mux::git_head_reads_on_this_thread() - before;
-    wait_until("the refresh reads its first directory", || {
-        Mux::watched_git_head_reads(&session.root) >= 1
-    });
-    let held = Mux::watched_git_head_reads(&session.root);
+    wait_until("the refresh reads its first directory", || Mux::watched_git_head_reads() >= 1);
+    let held = Mux::watched_git_head_reads();
     Mux::watch_git_head_reads_below(&session.root, false);
     wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
-    let all = Mux::watched_git_head_reads(&session.root);
+    let all = Mux::watched_git_head_reads();
     assert_eq!(
         (in_replies, held, all),
         (0, 1, 2),
@@ -609,12 +597,10 @@ fn a_known_request_reads_no_git_head_and_sends_each_stale_directory_to_the_refre
     let asked = app.list_since(mux, &known);
     let in_reply = Mux::git_head_reads_on_this_thread() - before;
     assert_eq!(asked["unchanged"], json!(true), "the refresh has read no directory yet: {asked}");
-    wait_until("the refresh reads its first directory", || {
-        Mux::watched_git_head_reads(&session.root) >= 1
-    });
+    wait_until("the refresh reads its first directory", || Mux::watched_git_head_reads() >= 1);
     Mux::watch_git_head_reads_below(&session.root, false);
     wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
-    let all = Mux::watched_git_head_reads(&session.root);
+    let all = Mux::watched_git_head_reads();
     assert_eq!(
         (in_reply, all),
         (0, 2),
@@ -633,12 +619,12 @@ fn a_known_request_reads_no_git_head_and_sends_each_stale_directory_to_the_refre
 }
 
 /// A request with no `known` comes from a client that holds no tree: a command that prints the
-/// tree one time. It once read each stale directory that a tab shows on its own thread before it
-/// replied. Every form of it now draws each cached value at once, stale or not, and reads none:
-/// the refresh behind it reads them, and the next reply has the new branch. (In a daemon the
-/// watch of the HEAD file brings a switch before any request: git_head_watch.rs.)
+/// tree one time and asks no second time. Its reply is all that the client gets, so a branch
+/// switched with no event must be in it: the request reads the HEAD of each directory that a tab
+/// shows and whose cached value is older than 2 seconds, on its own thread, before the reply.
+/// A cached directory that no tab shows now is not read.
 #[test]
-fn a_request_with_no_known_tree_reads_no_cached_git_head_in_its_reply() {
+fn a_request_with_no_known_tree_reads_each_stale_git_head_in_its_reply() {
     let session = Session::of("list-counts-no-known-stale", 3);
     let mux = &session.mux;
     let (moving, still) =
@@ -650,14 +636,12 @@ fn a_request_with_no_known_tree_reads_no_cached_git_head_in_its_reply() {
     let first = app.list(mux);
     assert_eq!(first.matches("\"git_branch\":\"main\"").count(), 3, "{}", start_of(&first));
 
-    // Terminal 2 moves to another directory of `moving`, which the next reply reads (it has no
-    // cached value) and caches.
+    // Terminal 2 moves to another directory of `moving`: the cache keeps the value of the
+    // directory that it left, and no tab shows that directory now.
     let elsewhere = moving.join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     let runtime = mux.surface(session.surfaces[2]).unwrap();
     runtime.commit_published_directory(Some(elsewhere.to_string_lossy().into_owned()));
-    app.list(mux);
-    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
 
     // Each form of the request with no `known`: the shared tree text of a local connection, the
     // reply with `limit`, and the reply value that a remote client gets.
@@ -676,35 +660,37 @@ fn a_request_with_no_known_tree_reads_no_cached_git_head_in_its_reply() {
     for (round, (form, request)) in forms.iter().enumerate() {
         // The branch of `moving` changes with no change of a directory and no event.
         let branch = format!("next-{round}");
-        let field = format!("\"git_branch\":\"{branch}\"");
         set_branch(&moving, &branch);
         assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
         let before = Mux::git_head_reads_on_this_thread();
         let reply = request();
         let reads = Mux::git_head_reads_on_this_thread() - before;
-        let new = reply.matches(&field).count();
-        wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
-        let next = app.list(mux).matches(&field).count();
-        seen.push((*form, reads, new, next));
+        let new = reply.matches(&format!("\"git_branch\":\"{branch}\"")).count();
+        let old = reply.matches("\"git_branch\":\"main\"").count();
+        seen.push((*form, new, old, reads));
     }
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
     assert_eq!(
         seen,
-        vec![("the tree text", 0, 0, 2), ("with limit", 0, 0, 2), ("the reply value", 0, 0, 2)],
+        vec![("the tree text", 2, 1, 3), ("with limit", 2, 1, 3), ("the reply value", 2, 1, 3)],
         "for each form of a list-workspaces request with no `known`, after a branch switch in \
          the repository of 2 of the 3 terminals and with each cached value older than 2 seconds: \
-         the git HEAD reads on the thread of the request, its tabs with the new branch, and the \
-         tabs with the new branch in the reply after the refresh"
+         the tabs of the reply with the new branch, the tabs with the branch that did not \
+         change, and the git HEAD reads on the thread of the request (one for each directory \
+         that a tab shows; the cached directory that no tab shows is not read)"
     );
     session.end();
 }
 
-/// A request with no `known` that draws a stale branch sends its directory to the refresh,
-/// which tells each client: one `tab-changed` for each tab of the directory whose branch
+/// A request with no `known` that finds a branch switched with no event stores the new value,
+/// so the background refresh finds no change after it and can send nothing. The request itself
+/// must tell each other client: one `tab-changed` for each tab of the directory whose branch
 /// changed (a client that takes events), with the new branch in it, and a move of the tree
-/// revision (a client that asks again with `known`). A second request finds each value fresh and
-/// reads no HEAD, and a refresh after it sends no second event for the same switch.
+/// revision (a client that asks again with `known`). A second request with no `known` directly
+/// after it finds each value fresh and reads no HEAD, and a refresh after it sends no second
+/// event for the same switch.
 #[test]
-fn a_branch_that_the_refresh_behind_a_request_with_no_known_tree_found_reaches_each_client() {
+fn a_branch_that_a_request_with_no_known_tree_found_reaches_each_other_client() {
     let session = Session::of("list-counts-no-known-tells", 3);
     let mux = &session.mux;
     let (moving, still) =
@@ -718,11 +704,11 @@ fn a_branch_that_the_refresh_behind_a_request_with_no_known_tree_found_reaches_e
     let events = mux.subscribe();
 
     // The branch of `moving` changes with no change of a directory and no event, and a request
-    // with no `known` is the first to ask.
+    // with no `known` is the first to see it.
     set_branch(&moving, "next");
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
     let reply = app.list(mux);
-    let drawn_stale = reply.matches("\"git_branch\":\"main\"").count();
+    assert_eq!(reply.matches("\"git_branch\":\"next\"").count(), 2, "{}", start_of(&reply));
     wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
     let mut told: Vec<(Option<usize>, bool)> = changed_tabs_on_branch(&events, "next")
         .iter()
@@ -741,21 +727,20 @@ fn a_branch_that_the_refresh_behind_a_request_with_no_known_tree_found_reaches_e
     wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
 
     // The walk of a mutation sends each directory to the refresh: it finds the branch that the
-    // refresh stored and has nothing to tell.
+    // request stored and has nothing to tell.
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
     drop(mux.tree_decorations());
     wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
     let told_by_the_refresh = changed_tabs(&events).len();
 
     assert_eq!(
-        (drawn_stale, told, reads_again, whole_tree, with_new_branch, told_by_the_refresh),
-        (3, vec![(Some(0), true), (Some(2), true)], 0, true, 2, 0),
-        "after a branch switch in the repository of terminals 0 and 2 and a request with no \
-         `known`: the tabs that request drew with the old branch, the terminals with a \
-         `tab-changed` from the refresh behind it (and whether the event has the new branch), the \
-         git HEAD reads of a second request with no `known`, whether a request with the `known` \
-         from before the switch gets the whole tree, the tabs with the new branch in it, and the \
-         `tab-changed` events of a later refresh"
+        (told, reads_again, whole_tree, with_new_branch, told_by_the_refresh),
+        (vec![(Some(0), true), (Some(2), true)], 0, true, 2, 0),
+        "after a request with no `known` found a new branch in the repository of terminals 0 \
+         and 2: the terminals with a `tab-changed` for a client that takes events (and whether \
+         the event has the new branch), the git HEAD reads of a second request with no `known`, \
+         whether a request with the `known` from before the switch gets the whole tree, the \
+         tabs with the new branch in it, and the `tab-changed` events of a refresh after it"
     );
     session.end();
 }
@@ -863,5 +848,3 @@ fn a_list_workspaces_reply_has_the_bytes_of_the_tree_built_under_the_state_lock(
     }
     session.end();
 }
-
-mod git_head_watch;

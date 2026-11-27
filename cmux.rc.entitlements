@@ -9,7 +9,6 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>7WLXT3NR37.com.cmuxterm.app.rc</string>
-		<string>7WLXT3NR37.com.cmuxterm.app.shared</string>
 	</array>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>

@@ -50,13 +50,6 @@ pub struct Chrome {
     pub draft: String,
     /// Minutes east of UTC, for the time a turn ended.
     pub utc_offset_minutes: i32,
-    /// The finished turn's verb ("Churned", "Brewed"): Claude Code picks it at random and
-    /// stores it nowhere, so only the host's screen has it (a fact it sends beside the
-    /// records). None draws "Worked".
-    pub done_verb: Option<String>,
-    /// The dim text in an empty prompt (a tip, or the model's suggested next prompt): the
-    /// host's fact. None draws none.
-    pub placeholder: Option<String>,
 }
 
 /// One tool call, as its `tool_call` and `tool_call_update` records say.
@@ -172,7 +165,7 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
     let (items, running) = items(records);
     let mut lines: Vec<Line> = Vec::new();
     if let Some(version) = &chrome.version {
-        banner(&mut lines, version, chrome, width);
+        banner(&mut lines, version, chrome);
         lines.push(Line::new());
     }
     for item in &items {
@@ -190,9 +183,6 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
         l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN).push("Working…", Style::fg(CLAUDE));
         lines.push(l);
     }
-    if fullscreen(chrome) {
-        return fullscreen_grid(lines, chrome, running, items.is_empty(), cols, rows);
-    }
     input_box(&mut lines, chrome, running, width);
     let skip = lines.len().saturating_sub(usize::from(rows));
     let mut grid = Grid::blank(cols, rows);
@@ -202,162 +192,12 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
     grid
 }
 
-/// Claude Code from 2.1.320 draws full-screen (the alternate screen): a blank first row, the
-/// transcript from the top, the input box pinned to the last rows, 24-bit colors and `⏺`
-/// dots. Measured against real 2.1.332 screens at iPhone grids (`tests/parity.rs`,
-/// `tests/fixtures/phone`).
-fn fullscreen(chrome: &Chrome) -> bool {
-    let Some(version) = chrome.version.as_deref() else { return false };
-    let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
-    parts.as_slice() >= [2, 1, 320].as_slice()
-}
-
-fn fullscreen_grid(
-    content: Vec<Line>,
-    chrome: &Chrome,
-    running: bool,
-    fresh: bool,
-    cols: u16,
-    rows: u16,
-) -> Grid {
-    let width = usize::from(cols);
-    let mut top = vec![Line::new()];
-    top.extend(content);
-    let bottom = fullscreen_box(chrome, running, fresh, width);
-    let avail = usize::from(rows).saturating_sub(bottom.len());
-    let skip = top.len().saturating_sub(avail);
-    let mut grid = Grid::blank(cols, rows);
-    for (slot, line) in grid.cells.iter_mut().zip(top.into_iter().skip(skip)) {
-        *slot = line.into_row(width);
-    }
-    // A box taller than the screen keeps its bottom rows (the newest draft rows and the footer).
-    let first = usize::from(rows).saturating_sub(bottom.len());
-    let cut = bottom.len().saturating_sub(usize::from(rows));
-    for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom.into_iter().skip(cut)) {
-        *slot = line.into_row(width);
-    }
-    for row in &mut grid.cells {
-        // The message gutter's dot only: a `●` the text itself holds stays.
-        if let Some(gutter) = row.first_mut()
-            && gutter.text == "●"
-        {
-            gutter.text = "⏺".to_owned();
-        }
-        for cell in row.iter_mut() {
-            // Text on a diff line's ground is the syntax theme's near-white, not plain white.
-            let on_diff =
-                matches!(cell.style.bg, crate::Color::Palette(DEL_BG | ADD_BG | ADD_WORD_BG));
-            // A faint line number keeps the terminal's own foreground.
-            let faint_text =
-                cell.style.attrs & FAINT != 0 && cell.style.fg == crate::Color::Palette(TEXT);
-            cell.style.fg = if faint_text {
-                crate::Color::Default
-            } else if on_diff && cell.style.fg == crate::Color::Palette(TEXT) {
-                crate::Color::Rgb(248, 248, 242)
-            } else {
-                truecolor(cell.style.fg)
-            };
-            cell.style.bg = truecolor(cell.style.bg);
-        }
-    }
-    grid
-}
-
-/// The 24-bit color 2.1.332's dark theme draws for each 256-color index the 2.1.310 look uses.
-fn truecolor(color: crate::Color) -> crate::Color {
-    use crate::Color::{Palette, Rgb};
-    match color {
-        Palette(CLAUDE) => Rgb(215, 119, 87),
-        Palette(GRAY) => Rgb(153, 153, 153),
-        Palette(RULE) => Rgb(136, 136, 136),
-        Palette(TEXT) => Rgb(255, 255, 255),
-        Palette(OK) => Rgb(78, 186, 101),
-        Palette(PROMPT_BG) => Rgb(55, 55, 55),
-        Palette(16) => Rgb(0, 0, 0),
-        Palette(CODE) => Rgb(177, 185, 249),
-        Palette(DEL_FG) => Rgb(220, 90, 90),
-        Palette(DEL_BG) => Rgb(61, 1, 0),
-        Palette(ADD_FG) => Rgb(80, 200, 80),
-        Palette(ADD_BG) => Rgb(2, 40, 0),
-        Palette(SYN_CALL) => Rgb(166, 226, 46),
-        Palette(SYN_STRING) => Rgb(230, 219, 116),
-        other => other,
-    }
-}
-
-/// The full-screen input box: the effort at the right, a rule, the prompt and draft, a rule,
-/// and the mode line.
-/// `fresh`: no prompt sent yet. Claude Code shows the effort row and the agents hint only
-/// then.
-fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> Vec<Line> {
-    let mut out = Vec::new();
-    let mut e = Line::new();
-    if let Some(effort) = chrome.effort.as_deref().filter(|_| fresh) {
-        let right = format!("◐ {effort} · /effort");
-        e.pad_to(width.saturating_sub(2 + crate::str_width(&right)), Style::PLAIN);
-        e.push(&right, Style::fg(GRAY));
-    }
-    out.push(e);
-    let mut rule = Line::new();
-    rule.push(&"─".repeat(width), Style::fg(RULE));
-    out.push(rule.clone());
-    // `wrap("")` is one empty row: an empty draft shows the placeholder instead.
-    let draft = if chrome.draft.is_empty() {
-        Vec::new()
-    } else {
-        wrap(&chrome.draft, width.saturating_sub(4))
-    };
-    for (i, row) in draft.iter().enumerate() {
-        let mut d = Line::new();
-        d.push(if i == 0 { "❯\u{a0}" } else { "  " }, Style::PLAIN);
-        d.push(row, Style::PLAIN);
-        out.push(d);
-    }
-    if draft.is_empty() {
-        let mut d = Line::new();
-        d.push("❯\u{a0}", Style::PLAIN);
-        if let Some(text) = chrome.placeholder.as_deref() {
-            let room = width.saturating_sub(4);
-            let text: String = text.chars().take(room).collect();
-            d.push(&text, Style::PLAIN.with(FAINT));
-        }
-        out.push(d);
-    }
-    out.push(rule);
-    let mut f = Line::new();
-    f.push("  ", Style::PLAIN);
-    let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
-    f.push(&format!("⏵⏵ {}", chrome.mode), amber);
-    let hint = if running {
-        " · esc to interrupt"
-    } else if fresh {
-        " (shift+tab to cycle) · ← for agents"
-    } else {
-        " (shift+tab to cycle)"
-    };
-    let room = width.saturating_sub(2 + crate::str_width(&format!("⏵⏵ {}", chrome.mode)) + 2);
-    let hint: String = if crate::str_width(hint) > room {
-        let mut cut: String = hint.chars().take(room.saturating_sub(1)).collect();
-        cut.push('…');
-        cut
-    } else {
-        hint.to_owned()
-    };
-    f.push(&hint, Style::fg(GRAY));
-    out.push(f);
-    out
-}
-
-fn banner(lines: &mut Vec<Line>, version: &str, chrome: &Chrome, width: usize) {
+fn banner(lines: &mut Vec<Line>, version: &str, chrome: &Chrome) {
     let logo = Style::fg(CLAUDE);
     let mut l = Line::new();
     l.push(" ▐", logo).push("▛███▛█", logo.on(16)).push("   ", Style::PLAIN);
-    if fullscreen(chrome) {
-        l.push("Claude Code", Style::PLAIN.with(BOLD)).push(" ", Style::PLAIN);
-    } else {
-        l.push("Claude", Style::PLAIN.with(BOLD)).push(" ", Style::PLAIN);
-        l.push("Code", Style::PLAIN.with(BOLD)).push(" ", Style::PLAIN);
-    }
+    l.push("Claude", Style::PLAIN.with(BOLD)).push(" ", Style::PLAIN);
+    l.push("Code", Style::PLAIN.with(BOLD)).push(" ", Style::PLAIN);
     l.push(&format!("v{version}"), Style::fg(GRAY));
     lines.push(l);
     let mut l = Line::new();
@@ -366,27 +206,8 @@ fn banner(lines: &mut Vec<Line>, version: &str, chrome: &Chrome, width: usize) {
     lines.push(l);
     let mut l = Line::new();
     l.push(" ▝▝", logo).push("   ", Style::PLAIN).push("▝▝", logo).push("   ", Style::PLAIN);
-    let cwd = chrome.cwd.as_deref().unwrap_or_default();
-    let cwd =
-        if fullscreen(chrome) { elide_path(cwd, width.saturating_sub(14)) } else { cwd.to_owned() };
-    l.push(&cwd, Style::fg(GRAY));
+    l.push(chrome.cwd.as_deref().unwrap_or_default(), Style::fg(GRAY));
     lines.push(l);
-}
-
-/// `path` with its leading folders folded into `…` until it fits `room` cells
-/// (`/private/tmp/x/work` -> `/…/tmp/x/work`), as the full-screen banner draws a long folder.
-fn elide_path(path: &str, room: usize) -> String {
-    if crate::str_width(path) <= room {
-        return path.to_owned();
-    }
-    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    for skip in 1..parts.len() {
-        let candidate = format!("/…/{}", parts.get(skip..).unwrap_or_default().join("/"));
-        if crate::str_width(&candidate) <= room {
-            return candidate;
-        }
-    }
-    format!("/…/{}", parts.last().copied().unwrap_or_default())
 }
 
 fn prompt(lines: &mut Vec<Line>, text: &str, width: usize) {
@@ -473,18 +294,6 @@ fn result_prefix(l: &mut Line) {
 }
 
 fn tool_lines(lines: &mut Vec<Line>, tool: &Tool, chrome: &Chrome, width: usize) {
-    // Full-screen Claude Code folds a finished shell command into one quiet line.
-    if fullscreen(chrome)
-        && tool.name == "Bash"
-        && matches!(&tool.settled, Some(Settled { failed: false, .. }))
-    {
-        let mut l = Line::new();
-        l.push("  Ran ", Style::fg(GRAY))
-            .push("1", Style::fg(GRAY).with(BOLD))
-            .push(" shell command", Style::fg(GRAY));
-        lines.push(l);
-        return;
-    }
     let input = &tool.input;
     let cwd = chrome.cwd.as_deref();
     let path = text_at(input, "/file_path").map(|p| relative(p, cwd)).unwrap_or_default();
@@ -699,7 +508,7 @@ fn common_ends(a: &str, b: &str) -> (usize, usize) {
 }
 
 fn done(lines: &mut Vec<Line>, started: Option<u64>, ended: Option<u64>, chrome: &Chrome) {
-    let mut text = chrome.done_verb.clone().unwrap_or_else(|| "Worked".to_owned());
+    let mut text = String::from("Worked");
     if let (Some(s), Some(e)) = (started, ended) {
         text.push_str(&format!(" for {}s", e.saturating_sub(s) / 1000));
     }

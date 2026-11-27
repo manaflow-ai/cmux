@@ -232,13 +232,4 @@ public struct SidebarDocDrag {
             return .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex + (hit.zone == .after ? 1 : 0)))
         }
     }
-
-    /// The chat move a refused `hit` makes (Leo 2026-11-19, a visible move between machines): a top-level slot of
-    /// one of `targets`' machine sections, which the document refuses as another machine's. Nil anywhere else, and
-    /// for a row with no chat to move (`targets` empty).
-    public static func chatMove(_ hit: SidebarDragGeometry.Hit, rows: [String: SidebarRow], targets: [MachineID]) -> DropPosition? {
-        guard hit.target == nil, !targets.isEmpty, let row = rows[hit.slot.key], case .machine(let machine) = row.section,
-              targets.contains(machine), case .position(let position) = display(hit, row: row), position.group == nil else { return nil }
-        return position
-    }
 }

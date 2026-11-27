@@ -185,8 +185,6 @@ install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # ...and the workflow job-bounds reader its JOB_BOUNDS_CHECK loads from beside itself.
 install -m 0644 scripts/ci/workflow_job_bounds.py "$TRUSTED_HOOK_DIR/workflow_job_bounds.py"
-# ...and the reusable-workflow permission reader its REUSABLE_PERMS_CHECK loads from beside itself.
-install -m 0644 scripts/ci/check_reusable_workflow_permissions.py "$TRUSTED_HOOK_DIR/check_reusable_workflow_permissions.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
 # cmux-next-checks symlink at it with one rename: the checks are never missing (a missing guardrails.py

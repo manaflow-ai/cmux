@@ -203,10 +203,8 @@ struct State {
 
 static STATES: LazyLock<Mutex<HashMap<String, State>>> = LazyLock::new(Default::default);
 
-/// Tests only: rules by session id, so a test's rules reach only its own session and a test that
-/// runs beside it never replaces or clears them (cmux#41350).
 #[cfg(test)]
-static TEST_RULES: LazyLock<Mutex<HashMap<String, Vec<Rule>>>> = LazyLock::new(Default::default);
+static TEST_RULES: Mutex<Option<(String, Vec<Rule>)>> = Mutex::new(None);
 
 /// The first rule of `at` that matches and is not cooling down; `suppressed` counts the matching
 /// ones that were.
@@ -241,7 +239,9 @@ fn log_firing(rule_id: &str, at: &str, session: &str) {
 fn rules_now(key: &str) -> Option<Vec<Rule>> {
     // Tests only: rules for one session id, so no other test's turns see them.
     #[cfg(test)]
-    if let Some(r) = TEST_RULES.lock().unwrap_or_else(|e| e.into_inner()).get(key).cloned() {
+    if let Some((id, r)) = TEST_RULES.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        && id == key
+    {
         return Some(r);
     }
     let doc = match crate::user_settings::read() {
@@ -513,13 +513,13 @@ mod tests {
         .unwrap();
         hub.store.save(&meta).unwrap();
         let session = hub.make_session(meta);
-        TEST_RULES.lock().unwrap().insert(
+        *TEST_RULES.lock().unwrap() = Some((
             "tr-hub".into(),
             rules(json!([
                 {"id": "s", "at": "start", "say": "S", "cooldown": 0},
                 {"id": "e", "at": "end", "say": "E", "if": {"draft_any": ["fixed"], "tools_any": ["cargo"]}},
             ])),
-        );
+        ));
         let said = hub.turn_rules_start(&session, "go").unwrap();
         assert_eq!(said, "[turn rule s] S");
         hub.turn_rules_tool(
@@ -535,7 +535,7 @@ mod tests {
             hub.turn_rules_start(&session, "next").as_deref(),
             Some("[turn rule e] E\n[turn rule s] S")
         );
-        TEST_RULES.lock().unwrap().remove("tr-hub");
+        *TEST_RULES.lock().unwrap() = None;
         hub.shutdown_all().await;
     }
 }

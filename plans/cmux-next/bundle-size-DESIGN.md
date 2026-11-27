@@ -128,7 +128,7 @@ Savings are in the DMG / on disk. "Done" means pushed to feat-cmux-next.
 | 9 | Dedupe Rust in the app: about 10 MB of iroh/tokio/rustls/h2 is linked into MacOS/cmux and again into bin/cmux. Move transport into the daemon, or share one dylib | est. −3 MB | −10 MB | medium: architecture | design |
 | 10 | Swift `-Osize` for cold packages (Settings, Onboarding, Pages glue, MessagesLab) | est. −3 to −5 MB | −10 to −15 MB | low-medium: keep `-O` on hot paths (terminal, tabs, sidebar) | measure first |
 | 11 | resources.pak (20 MB, does not compress). It carries about 4.7 MB of FLAC audio and the WebUI/DevTools frontends. Map resource IDs to names with the fleet tree's grit headers, then drop what cmux never shows (`enable_resource_allowlist_generation`, `optimize_webui`) | est. −5 to −8 MB | same | medium: keep DevTools, PDF and extensions UI | measure on the fleet tree |
-| 12 | `libvk_swiftshader` (16 MB): software WebGL fallback | −4 MB | −16 MB | none on Chromium 157: it loads SwiftShader only behind `--enable-unsafe-swiftshader` or the default-off `AllowSwiftShaderFallback` feature, neither of which cmux sets, so a blocked GPU already gets software compositing without WebGL | dropped (cmux#47227) |
+| 12 | `libvk_swiftshader` (16 MB): software WebGL fallback | −4 MB | −16 MB | medium: GPU-less VMs and blocklisted GPUs lose WebGL. **Kept** | kept |
 | 13 | ICU data trim to our 21 languages (`icu_use_data_file` + filter) | −1.5 MB | −5 MB | medium: `Intl` in web pages for other locales | later |
 | 14 | markdown-viewer: fetch shiki grammars and Monaco NLS on first use; drop `highlight.min.js` / `github-markdown.css` if the iOS copy and dev host stop using them | −1 to −2 MB | −8 MB | low | later |
 | 15 | Bootstrap DMG (stage D) | −~200 MB download | — | high: first launch needs a network; offline install breaks | last |
@@ -138,7 +138,7 @@ What I kept, and why:
 - PDF viewer, printing and DevTools. Users and agents use them.
 - Extensions and uBlock. They are product features.
 - All 22 CEF locales. They map to our 21 languages.
-- swiftshader was kept as the WebGL fallback until Chromium 157 stopped falling back to it; dropped in cmux#47227.
+- swiftshader. It is the WebGL fallback.
 - `gpu_shader_cache.bin`. It makes first paint faster.
 - CREDITS.html and the license folders. Licenses are required, and they
   compress to almost nothing.

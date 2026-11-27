@@ -29,8 +29,6 @@ class Fixture(unittest.TestCase):
         git(self.repo, "config", "user.email", "ci@example.test")
         git(self.repo, "config", "user.name", "ci")
         (self.repo / "a.txt").write_text("base\n")
-        (self.repo / "webviews").mkdir()
-        (self.repo / "webviews" / "package.json").write_text("{}\n")
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "base")
         (self.repo / "b.txt").write_text("head\n")
@@ -73,57 +71,10 @@ class KeyTest(Fixture):
         self.assertNotEqual(with_reds, r.key("2", self.handoff, "cfg"))
 
     def test_key_follows_the_tree_and_the_merge_parent(self) -> None:
-        k = r.key("1", self.handoff, "cfg", scoped=False)
+        k = r.key("1", self.handoff, "cfg")
         (self.repo / "b.txt").write_text("changed\n")
         git(self.repo, "commit", "-q", "-am", "next")
-        self.assertNotEqual(k, r.key("1", self.handoff, "cfg", scoped=False))
-
-    def commit(self, path: str, text: str) -> None:
-        target = self.repo / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", f"edit {path}")
-
-    def recommit(self, path: str, text: str) -> None:
-        """Replace HEAD by a commit on the same parent that also writes `path` (a re-push of the same pull request)."""
-        target = self.repo / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "--amend", "-m", "pushed again")
-
-    def test_same_input_tree_hits_an_input_change_runs(self) -> None:
-        self.commit("webviews/src/a.ts", "one\n")
-        k = r.key("1", self.handoff, "cfg")
-        self.recommit("Packages/other/x.swift", "unrelated\n")  # no input changed: same key
-        self.assertEqual(k, r.key("1", self.handoff, "cfg"))
-        self.recommit("notes/doc.md", "docs\n")
-        self.assertEqual(k, r.key("1", self.handoff, "cfg"))
-        self.assertNotEqual(k, r.key("1", self.handoff, "cfg", scoped=False))
-        self.recommit("webviews/src/a.ts", "two\n")  # an input changed: another key
         self.assertNotEqual(k, r.key("1", self.handoff, "cfg"))
-
-    def test_a_hit_reuses_the_earlier_green_and_a_store_error_runs(self) -> None:
-        self.commit("webviews/src/a.ts", "one\n")
-        k = r.key("1", self.handoff, "cfg")
-        receipt = self.root / "receipt"
-        r.write(k, self.results({"x.test.ts": True}), receipt, "https://example.test/run/9")
-        self.recommit("Packages/other/x.swift", "unrelated\n")
-        k2 = r.key("1", self.handoff, "cfg")
-        self.assertEqual(k2, k)
-        self.assertEqual(r.check(k2, receipt, self.root / "out"), (True, "https://example.test/run/9"))
-        # a store error: an unreadable receipt, or one that is not a receipt, is a miss, never an exception or a hit
-        (receipt / r.RECEIPT).write_text("{not json")
-        self.assertEqual(r.check(k2, receipt, self.root / "out2"), (False, ""))
-        self.assertEqual(r.check(k2, self.root / "no-store", self.root / "out3"), (False, ""))
-
-    def test_input_list_failure_keys_the_whole_tree(self) -> None:
-        import unittest.mock
-        self.commit("webviews/src/a.ts", "one\n")
-        whole = r.key("1", self.handoff, "cfg", scoped=False)
-        with unittest.mock.patch.object(r, "input_tree", side_effect=RuntimeError("boom")):
-            self.assertEqual(r.key("1", self.handoff, "cfg"), whole)
 
     def test_no_parent_or_handoff_gives_no_key(self) -> None:
         with self.assertRaises(RuntimeError):

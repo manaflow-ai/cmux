@@ -58,16 +58,12 @@ class MacLiveDelivery(unittest.TestCase):
                               "needs.adopt-commit-manifest.result": "success" if adopted else "skipped",
                               "needs.adopt-commit-manifest.outputs.state": adopted}
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {True})
-                    # A lane branch never runs this workflow on push (the trigger excludes it); a dispatch there
-                    # is its PR head's on-request build and publishes the head's own per-commit file.
-                    values["github.ref"] = "refs/heads/lane/some-pr"
-                    self.assertEqual(Context(values)(_Parser(condition).parse()),
-                                     {event == "workflow_dispatch"})
-                    # Any other PR head publishes its own per-commit file on a push or a dispatch.
-                    values["github.ref"] = "refs/heads/some-pr-head"
-                    self.assertEqual(Context(values)(_Parser(condition).parse()), {True})
-                    values["github.ref"] = "refs/heads/cmux-tui-pin-x"
+                    values["github.ref"] = "refs/heads/lane/untrusted"
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
+                    # A PR head's push publishes its own per-commit file; a manual run there does not.
+                    values["github.ref"] = "refs/heads/some-pr-head"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()),
+                                     {event == "push"})
                     values["github.ref"] = "refs/heads/main"
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
 

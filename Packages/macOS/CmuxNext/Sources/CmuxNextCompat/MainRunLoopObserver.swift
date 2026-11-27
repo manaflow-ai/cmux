@@ -1,4 +1,3 @@
-#if canImport(Darwin)
 public import Foundation
 
 /// An observer of the main run loop whose handler runs on the main actor and that removes
@@ -151,4 +150,3 @@ public nonisolated final class MainRunLoopObserver {
         return observer
     }
 }
-#endif

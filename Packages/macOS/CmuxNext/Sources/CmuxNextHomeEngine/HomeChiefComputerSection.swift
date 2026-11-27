@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHomeModel
 import CmuxNextWakeups
 
 /// A live video of the computer (the Cloud desktop's stream), shown in place of the polled stills once it has a frame.
@@ -258,6 +257,11 @@ public final class HomeChiefComputerSection: NSStackView {
             if since >= Self.statusInterval {
                 let status = await source.status()
                 guard let self, self.isOpen, !Task.isCancelled else { return }
+                if let status {
+                    self.entitled = status.entitled ?? self.entitled
+                    self.provisioning = status.provisioning
+                    self.provisionFailed = status.provisionError != nil
+                }
                 self.show(self.section(for: status, source))
                 since = .zero
                 self.onStatus()
@@ -290,43 +294,12 @@ public final class HomeChiefComputerSection: NSStackView {
         }
     }
 
-    /// The section for a status read, after keeping what the read says (entitled, provisioning, a
-    /// failed provision). A read that failed (nil) keeps a shown section, as unavailable, instead of
-    /// hiding it until the next read. Rust's `chief_settings.computerSection`.
+    /// The section for a status read. A read that failed (nil) keeps a shown section, as
+    /// unavailable, instead of hiding it until the next read.
     private func section(for status: HomeChiefComputer.Status?, _ source: Source) -> HomeChiefComputer? {
-        let request = SectionRequest(
-            section: .init(entitled: entitled, provisioning: provisioning, provisionFailed: provisionFailed),
-            status: status.map { .init(entitled: $0.entitled, provisioning: $0.provisioning, provisionError: $0.provisionError) },
-            paid: source.paid(), shown: shown != nil)
-        guard let reply: SectionReply = try? HomeRules.call("chief_settings.computerSection", request) else { return shown }
-        entitled = reply.section.entitled
-        provisioning = reply.section.provisioning
-        provisionFailed = reply.section.provisionFailed
-        switch reply.shows {
-        case .hidden: return nil
-        case .keepUnavailable: return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) }
-        case .fromStatus: return status.flatMap { HomeChiefComputer(status: $0, paid: true, chief: source.chief()) }
-        }
-    }
-
-    private nonisolated struct SectionState: Codable {
-        var entitled: Bool
-        var provisioning: Bool
-        var provisionFailed: Bool
-    }
-
-    private nonisolated struct SectionRequest: Encodable {
-        struct Status: Encodable { var entitled: Bool?; var provisioning: Bool; var provisionError: String? }
-        var section: SectionState
-        var status: Status?
-        var paid: Bool
-        var shown: Bool
-    }
-
-    private nonisolated struct SectionReply: Decodable {
-        enum Shows: String, Decodable { case hidden, keepUnavailable, fromStatus }
-        var section: SectionState
-        var shows: Shows
+        guard source.paid() || entitled else { return nil }
+        guard let status else { return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) } }
+        return HomeChiefComputer(status: status, paid: true, chief: source.chief())
     }
 
     /// Shows `computer` (nil hides the section).
@@ -405,50 +378,20 @@ public final class HomeChiefComputerSection: NSStackView {
         applyScreenFill()
         guard let shown else { return }
         caption.stringValue = shown.title
-        let face = Self.note(for: shown.state, hasImage: screen.image != nil, feedLive: feed?.isLive == true)
-        let note = face.note
+        let note: String? = switch shown.state {
+        case .live: screen.image == nil && feed?.isLive != true ? HomeEngineStrings.computerConnecting : nil
+        case .unavailable: HomeEngineStrings.computerUnavailable
+        case .asleep: HomeEngineStrings.computerAsleep
+        case .waking: HomeEngineStrings.computerWaking
+        }
         message.stringValue = note ?? ""
         message.isHidden = note == nil
-        sleepFace.isHidden = !face.sleepFace
-        sleepFace.awake = face.awake
+        sleepFace.isHidden = shown.state != .asleep && shown.state != .waking
+        sleepFace.awake = shown.state == .waking
         screen.setAccessibilityLabel(note ?? shown.title)
     }
 
     @objc private func expand() { onExpand?() }
-
-    /// The note on the screen and its sleeping face for `state`. Rust's `chief_settings.computerNote`.
-    private static func note(for state: HomeChiefComputer.State, hasImage: Bool, feedLive: Bool) -> NoteReply {
-        let wire: String = switch state {
-        case .live: "live"
-        case .unavailable: "unavailable"
-        case .asleep: "asleep"
-        case .waking: "waking"
-        }
-        let request = NoteRequest(state: wire, hasImage: hasImage, feedLive: feedLive, strings: .init(
-            connecting: HomeEngineStrings.computerConnecting, unavailable: HomeEngineStrings.computerUnavailable,
-            asleep: HomeEngineStrings.computerAsleep, waking: HomeEngineStrings.computerWaking))
-        return (try? HomeRules.call("chief_settings.computerNote", request))
-            ?? NoteReply(note: nil, sleepFace: state == .asleep || state == .waking, awake: state == .waking)
-    }
-
-    private nonisolated struct NoteRequest: Encodable {
-        struct Strings: Encodable {
-            var connecting: String
-            var unavailable: String
-            var asleep: String
-            var waking: String
-        }
-        var state: String
-        var hasImage: Bool
-        var feedLive: Bool
-        var strings: Strings
-    }
-
-    private nonisolated struct NoteReply: Decodable {
-        var note: String?
-        var sleepFace: Bool
-        var awake: Bool
-    }
 }
 
 /// The layer the agent's cursor is drawn in, y-down like the screen; clicks go through it.

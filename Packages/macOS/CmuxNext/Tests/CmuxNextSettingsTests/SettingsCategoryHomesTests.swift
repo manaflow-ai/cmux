@@ -66,7 +66,7 @@ struct SettingsCategoryHomesTests {
         #expect(elsewhere.isEmpty, "chat display rows outside Chat: \(elsewhere)")
         #expect(Self.home(of: "agentPane.display.finishSound") == "chat")
         let transcript = [
-            "agentPane.display.detail", "agentPane.display.statusVerbs.mode",
+            "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode",
             "agentPane.display.statusVerbs.custom", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings",
         ]
         #expect(transcript.allSatisfy(chat.contains))

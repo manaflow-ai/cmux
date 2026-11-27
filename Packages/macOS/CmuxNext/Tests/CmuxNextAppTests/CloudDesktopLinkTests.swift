@@ -43,13 +43,6 @@ import Testing
         #expect(json["token"] == nil)
     }
 
-    /// Settings > Customize "Sharper Text from Linux Machines" (`remoteDesktop.sharpLinuxText`): the hello
-    /// offers `video.sharp_text` only when it is on, so a Linux OpenH264 host codes in screen usage only then.
-    @Test func theHelloOffersSharpTextOnlyWhenAsked() {
-        #expect(!RemoteRdHello.cloudDesktop(install: "test").caps.contains("video.sharp_text"))
-        #expect(RemoteRdHello.cloudDesktop(install: "test", sharpText: true).caps.contains("video.sharp_text"))
-    }
-
     @Test(arguments: [false, true]) func theTransportSendsATokenlessHelloAndTheMode(control: Bool) async throws {
         let carrier = RecordingCarrier()
         let transport = try #require(RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(install: "test"),

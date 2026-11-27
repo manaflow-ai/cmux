@@ -7,13 +7,6 @@
 # it means it works". The tests: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs.
 set -euo pipefail
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/shelf.log"
-# No debug info and no incremental cache: the test build of cmux-tui with full debug info filled the Linux
-# runner (nightly-next runs 45607031207 and 45627136798, 2026-11-25: "No space left on device" writing
-# target/debug/deps), so the shelf went red, the publication gate refused the build, and the nightly feed sat
-# on one build for hours. Leo: "are nightlies not publishin? where the priority?" A test failure still prints
-# its panic message and line; only a backtrace loses its source lines.
-export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}" CARGO_PROFILE_TEST_DEBUG="${CARGO_PROFILE_TEST_DEBUG:-0}"
-export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 cd cmux-tui
 cargo test --locked -p cmux-tui --test it -- \
   every_shipped_store_listing_installs_and_has_something_to_open \

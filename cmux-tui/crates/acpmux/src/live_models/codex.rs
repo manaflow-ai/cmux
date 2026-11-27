@@ -61,7 +61,7 @@ pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
     for page in 0..MAX_PAGES {
-        let params = json!({"cursor": cursor, "limit": 100});
+        let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
         let result = request(child, 2 + page as u64, "model/list", params).await?;
         rows.extend(result.get("data").and_then(Value::as_array).cloned().unwrap_or_default());
         cursor = text(&result, "nextCursor").map(str::to_owned);
@@ -110,23 +110,18 @@ fn row_model(row: &Value) -> Option<LiveModel> {
                 .map(str::to_owned)
         })
         .collect();
-    let primary = row.get("serviceTiers").and_then(Value::as_array);
-    let tiers = primary
-        .filter(|t| !t.is_empty())
-        .or_else(|| row.get("additionalSpeedTiers").and_then(Value::as_array))
-        .or(primary);
     Some(LiveModel {
         id: id.to_owned(),
         name: display_name(name),
         efforts,
         default_effort: text(row, "defaultReasoningEffort").map(str::to_owned),
-        fast: tiers.map(|tiers| {
-            tiers
-                .iter()
-                .filter_map(|t| t.as_str().or_else(|| text(t, "id")))
-                .any(|id| !id.is_empty() && id != "default")
-        }),
-        service_tiers: tiers.cloned().unwrap_or_default(),
+        fast: fast(row),
+        service_tiers: row
+            .get("serviceTiers")
+            .or_else(|| row.get("additionalSpeedTiers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
         upgrade: upgrade(row, id),
     })
@@ -139,6 +134,16 @@ fn upgrade(row: &Value, id: &str) -> Option<String> {
         .or_else(|| row.get("upgradeInfo").and_then(|info| text(info, "model")))
         .filter(|to| *to != id)
         .map(str::to_owned)
+}
+
+/// Whether a tier faster than the default exists (`serviceTiers`, else
+/// `additionalSpeedTiers`); unset when the row names no tiers.
+fn fast(row: &Value) -> Option<bool> {
+    let tiers = ["serviceTiers", "additionalSpeedTiers"]
+        .iter()
+        .find_map(|key| row.get(*key).and_then(Value::as_array).filter(|t| !t.is_empty()))?;
+    let id = |t: &Value| t.as_str().map(str::to_owned).or_else(|| text(t, "id").map(str::to_owned));
+    Some(tiers.iter().filter_map(id).any(|t| t != "default"))
 }
 
 /// `gpt-6-astra` -> `GPT-6-Astra`, as Codex's own picker shows it. Other

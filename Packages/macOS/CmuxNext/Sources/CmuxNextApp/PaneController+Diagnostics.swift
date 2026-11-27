@@ -136,45 +136,53 @@ struct PaneSurfaceStatus {
 }
 
 extension PaneController {
-    /// The content's kind, as ``surfaceStatus`` and the frame-timing log's `surface` (`WorkspaceContentController`) name it.
-    static func kind(of content: TabContent?) -> String {
-        switch content?.kind {
-        case .chromium, .webkit: "browser"
-        case .placeholder: "remote-placeholder"
-        case .notice: "agent-elsewhere"
-        case let kind?: kind.rawValue
-        case nil: "none"
-        }
-    }
-
-    /// The visibility its own Chromium page reports (a browser tab's; an agent chat's or a page's window), from cheap reads.
-    static func pageVisibility(of content: TabContent?) -> BrowserContentVisibility? {
-        switch content {
-        case .browser(let entry): (entry.tab as? any BrowserContentVisibilityReporting)?.contentVisibility
-        case .agent, .page: (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility
-        default: nil
-        }
-    }
-
     /// Reads the pane's live state without creating any surface.
     var surfaceStatus: PaneSurfaceStatus {
         let content = currentTabKey.flatMap(existingContent(for:))
-        let view = content?.view, visibility = Self.pageVisibility(of: content)
-        let terminal: TerminalSurfaceDiagnostics? = if case .terminal(let entry) = content { entry.session.diagnostics } else { nil }
+        let view = content?.view
+        var terminal: TerminalSurfaceDiagnostics?
         var page: BrowserContentVisibility?
-        if case .browser(let entry) = content {
-            page = visibility ?? (entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor ? .hidden("not_in_window") : .visible)
+        var ownPages = 0
+        var kind = "none"
+        switch content {
+        case .agent: // an agent chat or New Tab page, and a cmux page, draw in their own Chromium page window: not foreign
+            (kind, ownPages) = ("agent", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
+        case .page:
+            (kind, ownPages) = ("page", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
+        case .terminal(let entry):
+            kind = "terminal"
+            terminal = entry.session.diagnostics
+        case .placeholder:
+            kind = "remote-placeholder"
+        case .notice:
+            kind = "agent-elsewhere"
+        case .conversation:
+            kind = "conversation"
+        case .browser(let entry):
+            kind = "browser"
+            if let reporting = entry.tab as? any BrowserContentVisibilityReporting {
+                page = reporting.contentVisibility
+                if page?.isVisible == true { ownPages = 1 }
+            } else {
+                page = entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor
+                    ? .hidden("not_in_window") : .visible
+            }
+        case nil:
+            break
         }
-        // An agent chat or New Tab page, a cmux page and a browser tab draw in their own Chromium page window: not foreign.
-        let ownPages = visibility?.isVisible == true ? 1 : 0
+        let presenceName = switch presence {
+        case .visible: "visible"
+        case .keepAlive: "keep_alive"
+        case .hidden: "hidden"
+        }
         let installed = view != nil && self.view.content === view && self.view.hostsContent
         return PaneSurfaceStatus(
             paneKey: paneKey,
             isVisible: isVisible,
-            presence: presence.name,
+            presence: presenceName,
             selectedTab: stripModel.selectedID?.rawValue,
             shownTab: currentTabKey,
-            kind: Self.kind(of: content),
+            kind: kind,
             contentInstalled: installed,
             contentInWindow: view?.window != nil,
             contentSize: view?.bounds.size ?? .zero,

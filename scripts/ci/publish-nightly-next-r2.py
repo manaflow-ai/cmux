@@ -291,24 +291,6 @@ def add_source(xml: bytes, source_sha: str) -> bytes:
     return bind_feed_prefixes(xml[:match.start()] + item + xml[match.end():])
 
 
-FULL_SOURCE = re.compile(r"[0-9a-f]{40}")
-
-
-def require_newest_source(xml: bytes, name: str) -> None:
-    """Detector: refuse a feed whose newest item carries no full cmux:sourceCommit.
-
-    Every reader that maps the nightly to a commit (install-static.sh nightly_commit,
-    hot-verify, bench, the build bisect, the release notes, the ring) reads this tag
-    off the newest item. A write without it would silently strand all of them, so the
-    writer refuses it here rather than leaving each reader to notice later.
-    """
-    build = newest_build(xml)
-    source = item_source(xml, build)
-    if source is None or not FULL_SOURCE.fullmatch(source):
-        raise RuntimeError(f"{name}: refusing to publish build {build} without a full cmux:sourceCommit "
-                           f"(found {source!r}); pass --source-sha, or revise a live item that has one")
-
-
 def bind_feed_prefixes(xml: bytes) -> bytes:
     """Declare on the <rss> root every feed prefix (sparkle:, cmux:) the feed uses.
 
@@ -591,8 +573,6 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             ET.fromstring(feed.read_bytes())
         except ET.ParseError as error:
             raise RuntimeError(f"{feed.name}: refusing to publish a feed that does not parse: {error}") from error
-        if source_sha or same_build:  # the two paths the CLI allows
-            require_newest_source(feed.read_bytes(), feed.name)
         result = subprocess.run(uploader_args(feed, key, FEED_CACHE, "application/xml") + mode)
         if result.returncode == 0:
             print(f"{feed.name}: build {ours} is live at {public_base()}{feed.name}")
@@ -634,9 +614,6 @@ def main(argv: list[str]) -> int:
         if not args.name and not args.if_public:
             parser.error("rewrite needs --name or --if-public")
         return rewrite(args.feed, set(args.name), args.if_public)
-    if not args.source_sha and not args.same_build:
-        parser.error("write-feed needs --source-sha (a new build) or --same-build (a revision that keeps the live "
-                     "item's source); a feed item without cmux:sourceCommit strands every commit reader")
     return write_feed(args.feed, args.github_output, args.same_build, source_sha=args.source_sha)
 
 

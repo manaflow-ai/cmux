@@ -14,8 +14,8 @@ Every app runs the same session on one Mac, one app at a time, each launch in an
             empty home: the first launch a new install pays (first exec signature check, first-run setup).
             Safari is the system's and cannot be copied: its fresh row is an empty home only.
   restart   the same copy and home, quit, `sudo -n /usr/sbin/purge` (drops the file cache, the closest a
-            step gets to a reboot without one), opened again. If purge is unavailable or fails, its rows are
-            null with the reason; warm launches still run. A real reboot for cmux alone: scripts/measure/launch-reboot.sh.
+            step gets to a reboot without one), opened again. With no passwordless sudo the row is null and
+            says so. A real reboot for cmux alone: scripts/measure/launch-reboot.sh.
   warm      quit and opened again at once, --warm times (the everyday relaunch).
   quarantined  (opt-in, --quarantined) another new copy with an empty home, the `com.apple.quarantine` xattr set on
             every item as a browser download leaves it (RFD 0131 option G: the launch a new user gets from a DMG
@@ -345,17 +345,8 @@ def translocation_root() -> str | None:
     return os.path.join(os.path.realpath(out), "AppTranslocation") + "/" if out else None
 
 
-def purge_error() -> str | None:
-    """Drop the file cache, or return why restart measurements must be skipped."""
-    try:
-        subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180, check=True)
-    except (OSError, subprocess.SubprocessError) as error:
-        return f"purge failed: {error}"[:300]
-    return None
-
-
 def can_purge() -> bool:
-    return purge_error() is None
+    return subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180).returncode == 0
 
 
 def make_writable_and_remove(path: str):
@@ -657,14 +648,13 @@ class Run:
                 return
             app.quit()
             time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
-            restart_error = purge_error() if purge else "purge unavailable (initial cache-purge check failed)"
-            if restart_error is None:
+            if purge:
+                subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180)
                 self.launch(app, round_no, "restart", profile)
                 app.quit()
                 time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
             else:
-                for metric in ("restart-window", "restart-cpu", "restart-memory-peak"):
-                    self.record(app.name, round_no, metric, None, note=restart_error)
+                self.record(app.name, round_no, "restart-window", None, note="no passwordless sudo for purge")
             for index in range(self.args.warm):
                 ok = self.launch(app, round_no, "warm", profile)
                 if ok and index == self.args.warm - 1:

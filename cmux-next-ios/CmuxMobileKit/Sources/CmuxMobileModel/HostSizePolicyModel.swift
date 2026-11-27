@@ -92,8 +92,7 @@ public final class HostSizePolicyModel {
             }
             load = .loaded(fresh)
         } catch {
-            // The page reads again on its own: the load copy names no Try Again.
-            if info == nil { load = .failed(UserFacingError.message(error, fallback: "Can't reach your Mac right now.")) }
+            if info == nil { load = .failed(Self.message(error)) }
         }
     }
 
@@ -133,8 +132,6 @@ public final class HostSizePolicyModel {
     }
 
     private static func message(_ error: any Error) -> String {
-        // retry-prompt-ok: a failed save of the person's own choice; the page shows what the Mac kept
-        // and the person decides whether to pick it again.
         UserFacingError.message(error, fallback: "Can't reach your Mac right now. Try again in a moment.")
     }
 }

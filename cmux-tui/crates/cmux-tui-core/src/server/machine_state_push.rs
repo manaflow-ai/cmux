@@ -468,12 +468,7 @@ async fn connect(
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_FRAME_BYTES))
         .max_frame_size(Some(MAX_FRAME_BYTES));
-    let attempt = cmux_egress::ws::connect_async_with_config(
-        request,
-        Some(config),
-        false,
-        "cmux_tui_core::server::machine_state_push",
-    );
+    let attempt = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
     let socket: Ws = match tokio::time::timeout(timing.handshake, attempt).await {
         Ok(Ok((socket, _))) => socket,
         Ok(Err(tungstenite::Error::Http(reply))) => {

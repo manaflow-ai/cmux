@@ -190,25 +190,19 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
-    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures").map(|page| page.id)
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct CapturedPage {
-    pub id: String,
-    pub url: Option<String>,
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures")
 }
 
 /// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
 /// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
-/// after. The captured tab's id and URL, or none with no file left.
+/// after. The tab's id, or none with no file left.
 pub(super) fn capture_page(
     base: &Path,
     workspace: &str,
     out: &Path,
     repl: &str,
     label: &str,
-) -> Option<CapturedPage> {
+) -> Option<String> {
     capture_in(&host_socket(), base, workspace, None, out, repl, label)
 }
 
@@ -220,7 +214,7 @@ fn capture_in(
     out: &Path,
     repl: &str,
     label: &str,
-) -> Option<CapturedPage> {
+) -> Option<String> {
     if !socket.exists() {
         return None;
     }
@@ -238,10 +232,7 @@ fn capture_in(
             let text = result.get("output")?.as_str()?;
             let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
             let shown: Value = serde_json::from_str(marker).ok()?;
-            Some(CapturedPage {
-                id: shown.get("id")?.as_str()?.to_owned(),
-                url: shown.get("url").and_then(Value::as_str).map(str::to_owned),
-            })
+            Some(shown.get("id")?.as_str()?.to_owned())
         });
     let kept = taken.filter(|_| {
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)

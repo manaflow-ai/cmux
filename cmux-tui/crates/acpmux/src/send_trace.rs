@@ -205,11 +205,7 @@ pub fn spans_url(trace_id: &str) -> String {
 
 async fn post(trace_id: String, body: Value) {
     static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
-        cmux_egress::client_builder("acpmux::send_trace")
-            .timeout(POST_TIMEOUT)
-            .connect_timeout(POST_TIMEOUT)
-            .build()
-            .ok()
+        reqwest::Client::builder().timeout(POST_TIMEOUT).connect_timeout(POST_TIMEOUT).build().ok()
     });
     let Some(client) = CLIENT.as_ref() else { return };
     let span = tracing::info_span!("send_trace.post", trace_id = %trace_id);

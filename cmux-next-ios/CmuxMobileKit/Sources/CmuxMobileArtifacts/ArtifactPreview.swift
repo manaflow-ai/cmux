@@ -1,7 +1,6 @@
 #if os(iOS)
 import AVKit
 import CmuxMobileDesign
-import CmuxMobileTransport
 import CmuxSpinner
 import PDFKit
 import QuickLook
@@ -17,10 +16,8 @@ public struct ArtifactPreview: View {
     let source: any ArtifactSource
     @Binding var showSource: Bool
     @State private var content: Result<ArtifactContent, any Error>?
-    /// A failed read that can pass (no link yet, a stall) is read again on its own.
-    @State private var autoRetry = AutoRetry()
-    /// The newest load: an older one (another artifact, an earlier retry) writes nothing.
-    @State private var loadToken = UUID()
+    /// Bumped by Try Again: reloads the artifact.
+    @State private var attempt = 0
     /// A local file (or the link) Share hands to the share sheet: Save to
     /// Files, Save Image, AirDrop, Open In.
     @State private var shareItem: URL?
@@ -80,18 +77,17 @@ public struct ArtifactPreview: View {
             case nil:
                 CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("artifact.loading")
-            case .failure(let error) where Self.isTransient(error) && !autoRetry.isQuietLineShown:
-                // Read again on its own (AutoRetry): the spinner stays until the quiet bound.
-                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
-                // Never a blank page: what the Mac said. A passing failure keeps being read
-                // again (one quiet line says so); a refusal is not, and needs no button.
+                // Never a blank page: what the Mac said, and a way to try again.
                 ArtifactDeadEnd(
                     headline: artifact.kind == .directory ? "Can't open this folder" : "Can't open this file",
                     systemImage: "exclamationmark.triangle", name: artifact.name, message: error.localizedDescription
                 ) {
-                    if Self.isTransient(error) { AutoRetryQuietLine(autoRetry) }
+                    RetryButton("Try Again") {
+                        content = nil
+                        attempt += 1
+                    }
+                    .accessibilityIdentifier("artifact.retry")
                     if let storage = error as? PreviewInsufficientSpace {
                         // The file stays on the Mac: share its reference, never
                         // pretend that a failed download produced a local file.
@@ -177,51 +173,34 @@ public struct ArtifactPreview: View {
                 }
             }
         }
-        .task(id: artifact) { await load() }
-        .autoRetry(autoRetry, failing: isRetrying) { await load() }
-        .offset(y: dismissDrag)
-    }
-
-    /// A failure the preview reads again on its own: the link was down or stalled, or the
-    /// file changed mid-read. A refusal, a missing file or too little space is not.
-    static func isTransient(_ error: any Error) -> Bool {
-        if let unavailable = error as? ArtifactUnavailable { return unavailable.isTransient }
-        return error is LinkError || error is URLError
-    }
-
-    private var isRetrying: Bool {
-        if case .failure(let error) = content { return Self.isTransient(error) }
-        return false
-    }
-
-    /// Reads the artifact. A load replaced by another (a new artifact, a retry) writes
-    /// nothing after its waits, so it never overwrites the newer preview.
-    private func load() async {
-        let token = UUID()
-        loadToken = token
-        do {
-            let loaded = try await source.load(artifact)
-            guard !Task.isCancelled, loadToken == token else { return }
-            if case .image(let data) = loaded {
-                let image = await Task.detached(priority: .userInitiated) {
-                    UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
-                }.value
-                guard !Task.isCancelled, loadToken == token else { return }
-                decodedImage = image
-            } else {
-                decodedImage = nil
+        .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
+            // A load replaced by another (a new artifact, a retry) is cancelled: after each
+            // wait it writes nothing, so it never overwrites the newer preview.
+            do {
+                let loaded = try await source.load(artifact)
+                guard !Task.isCancelled else { return }
+                if case .image(let data) = loaded {
+                    let image = await Task.detached(priority: .userInitiated) {
+                        UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    decodedImage = image
+                } else {
+                    decodedImage = nil
+                }
+                content = .success(loaded)
+                // The share copy (up to the preview limit) is written off the main actor.
+                let artifact = artifact
+                let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+                guard !Task.isCancelled else { return }
+                shareItem = item
+            } catch {
+                guard !Task.isCancelled else { return }
+                content = .failure(error)
+                shareItem = nil
             }
-            content = .success(loaded)
-            // The share copy (up to the preview limit) is written off the main actor.
-            let artifact = artifact
-            let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
-            guard !Task.isCancelled, loadToken == token else { return }
-            shareItem = item
-        } catch {
-            guard !Task.isCancelled, loadToken == token else { return }
-            content = .failure(error)
-            shareItem = nil
         }
+        .offset(y: dismissDrag)
     }
 
     @ViewBuilder
@@ -410,6 +389,12 @@ struct SheetDetentExpander: UIViewRepresentable {
             }
         }
     }
+}
+
+/// What `ArtifactPreview` loads: the artifact, again for each Try Again.
+private struct ArtifactLoad: Hashable {
+    let artifact: TerminalArtifact
+    let attempt: Int
 }
 
 /// A video that starts playing when it opens (system controls on tap).

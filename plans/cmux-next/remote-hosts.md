@@ -194,8 +194,7 @@ only connects, and answers `session_down` when the app is not running.
 
 ## 10. Install
 
-- README.md's pinned install command (the script saved in `mktemp -d`, checked with `sha256sum -c`
-  against the pinned sha256, then run) with `CMUX_HOST=1 sh "$d/install.sh"`: the existing static
+- `curl -fsSL https://cmux.com/tui/install-static.sh | CMUX_HOST=1 sh`: the existing static
   installer picks the target, downloads the manifest and the binary from `files.cmux.com`,
   verifies SHA-256, installs `cmux`, then runs `cmux host enable` (`CMUX_HOST_OWNER=<login>`
   for a tagged box). The script change reaches cmux.com only after a main merge; until then

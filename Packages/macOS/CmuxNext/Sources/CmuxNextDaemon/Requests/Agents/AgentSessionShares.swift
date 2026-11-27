@@ -140,9 +140,8 @@ public struct AgentSessionShareKickRequest: DaemonRequest {
 }
 
 /// `agent-session-share-invite`: the cmux account `account` (an email or `@handle`) may join the share
-/// after signing in, as `role` (`view` watches, `talk` sends held messages, `drive` sends and cancels
-/// without owner approval; the daemon's default is `talk`). The same role again changes nothing;
-/// another role is refused (`share.invited`).
+/// after signing in, as `role` (`view` watches, `talk` also sends held messages; the daemon's default
+/// is `talk`). The same role again changes nothing; another role is refused (`share.invited`).
 public struct AgentSessionShareInviteRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "agent-session-share-invite"
@@ -317,7 +316,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
 public struct AgentSessionShareInvitee: Decodable, Sendable, Equatable, Identifiable {
     /// Trimmed and lowercased by the daemon: an email address or a cmux `@handle`.
     public var account: String
-    /// `view`, `talk` or `drive`.
+    /// `view` or `talk`.
     public var role: String
     public var invitedAt: UInt64
     /// `invited` or `removed`.
@@ -348,7 +347,7 @@ public struct AgentSessionShareGuest: Decodable, Sendable, Equatable, Identifiab
     public var state: String
     /// The invited account this guest joined as; nil for a link guest.
     public var account: String?
-    /// The invited account's role (`view`, `talk` or `drive`); nil for a link guest.
+    /// The invited account's role (`view` or `talk`); nil for a link guest.
     public var role: String?
 
     public var id: String { guestId }

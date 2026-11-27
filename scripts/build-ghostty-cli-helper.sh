@@ -338,31 +338,6 @@ if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
   exit 1
 fi
 
-# Every Ghostty package comes from our mirror before Zig builds, under
-# zig-fetch-all.sh's bounded retries, never from a live fetch inside the build.
-# The nightly-next run 45594076083 built the helper on a cold package cache
-# (its "Cache Zig packages" restore missed), and Zig's own fetch of glslang from
-# deps.files.ghostty.org failed once with TlsInitializationFailed: no retry, a
-# red nightly. In CI (CI=true) the seed is mirror-only and a failure stops here,
-# named; on a dev Mac a failed prefetch leaves the build to fetch on its own.
-# CMUX_GHOSTTY_HELPER_PREFETCH=0 skips it. Once per run: every slice reads the
-# same packages.
-GHOSTTY_PACKAGES_PREFETCHED=0
-prefetch_ghostty_packages() {
-  local zig_bin="$1"
-  [[ "$GHOSTTY_PACKAGES_PREFETCHED" == 0 ]] || return 0
-  GHOSTTY_PACKAGES_PREFETCHED=1
-  [[ "${CMUX_GHOSTTY_HELPER_PREFETCH:-1}" != 0 ]] || return 0
-  if env -u SDKROOT ZIG="$zig_bin" "$SCRIPT_DIR/cmux-next/zig-fetch-all.sh" "$GHOSTTY_DIR"; then
-    return 0
-  fi
-  if [[ "${CI:-}" == true ]]; then
-    echo "error: could not put Ghostty's Zig packages in the cache from the mirror" >&2
-    exit 1
-  fi
-  echo "warning: Ghostty Zig package prefetch failed; the build fetches what it lacks" >&2
-}
-
 build_helper() {
   local prefix="$1"
   local target="${2:-}"
@@ -421,7 +396,6 @@ build_helper() {
     args+=("-Dtarget=$effective_target")
   fi
 
-  prefetch_ghostty_packages "$zig_bin"
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   (
     cd "$GHOSTTY_DIR"

@@ -38,7 +38,6 @@ fn entry(driver: u64, shown: Option<CloudEvent>) -> Subscription {
         typing_by: None,
         viewing: BTreeSet::new(),
         presence: shown,
-        resync: false,
     }
 }
 

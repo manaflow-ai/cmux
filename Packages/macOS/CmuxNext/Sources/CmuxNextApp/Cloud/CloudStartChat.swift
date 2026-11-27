@@ -139,7 +139,7 @@ struct CloudStartChat {
         let start = try await start.sized(CloudStartPreflight.answer(origin.preflight, root: folder.root, cli: cli), local: folder.root) // before any machine or lease: the size its copy needs, or its refusal
         timeline?.mark("preflight")
         report(.init(name: "machine", folder: folderName))
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, harness = start.harness, model = start.model, account = start.account] in await setup.choose(harness: harness, model: model, account: account) } // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start; a chat its connection, the organization's key or another gateway of the person's serves waits for none (PersonalGateway.servedElsewhere)
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, harness = start.harness, model = start.model, account = start.account] in await setup.choose(harness: harness, model: model, account: account).servedWithoutMacGateway } // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start; a chat its connection or the organization's key serves waits for none
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {

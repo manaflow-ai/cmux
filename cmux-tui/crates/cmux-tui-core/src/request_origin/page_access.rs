@@ -473,12 +473,6 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerGithubApp
         | Op::CloudOwnerGithubRepos
         | Op::CloudOwnerGithubConnect
-        | Op::CloudOwnerOp
-        | Op::CloudOwnerGithubComplete
-        | Op::CloudOwnerGithubList
-        | Op::CloudOwnerGithubCloneToken
-        | Op::CloudOwnerSlack
-        | Op::CloudOwnerSlackAwake
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns
@@ -489,7 +483,6 @@ const fn access(operation: Op) -> Access {
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
         | Op::CloudMachineChiefResize
-        | Op::CloudMachineSetupDesktop
         | Op::CloudMachineFork
         => Access::Denied(Denied::NotAllowed),
     }

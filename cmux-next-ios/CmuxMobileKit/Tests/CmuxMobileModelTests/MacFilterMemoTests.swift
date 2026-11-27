@@ -33,8 +33,6 @@ import Testing
         #expect(memo.nameComputations == 2)
     }
 
-    // Rust's reachability rules link on iOS only.
-    #if os(iOS)
     @Test func filterRowsMatchTheMenuTextOnlineFirst() {
         let entries = MacFilterMemo().entries(input())
         #expect(entries.map(\.id) == ["bbbb-2222", "cccc-3333", "aaaa-1111"])
@@ -44,7 +42,6 @@ import Testing
         // The menu's dot: green online, red offline (Leo, 2026-11-24: "red dot green dot").
         #expect(entries.map(\.isOnline) == [true, true, false])
     }
-    #endif
 
     @Test func filterRowsRecomputeOnlyWhenTheirInputsChange() {
         let memo = MacFilterMemo()

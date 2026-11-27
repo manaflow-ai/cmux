@@ -1,5 +1,0 @@
-{
-  "permissions": {
-    "allow": ["Read(./docs/**)"]
-  }
-}

@@ -75,7 +75,7 @@ extension SettingsHarnesses {
         let value = (try? JSONValue.parse(reply)) ?? .object([:])
         switch method {
         case .accountSignIn:
-            if let page = Self.signInPage(value), let back = await openSignInPage?(page, Self.signInPageHosts(value, page: page)), let id = value["loginId"]?.stringValue { signInPageBack[id] = back }
+            if let page = Self.signInPage(value), let back = await openSignInPage?(page), let id = value["loginId"]?.stringValue { signInPageBack[id] = back }
             return ["signIn": value]
         case .accountSignInFinish:
             signInPageClosed(params)
@@ -97,8 +97,7 @@ extension SettingsHarnesses {
     }
 
     /// The sign-in `params` names ended (finished, cancelled or expired): the code's page shows again
-    /// where its sign-in page still is the one shown, and the tab that sign-in opened closes while it is
-    /// still on the sign-in's hosts (LinkOpener.openSignInPage).
+    /// where its sign-in page still is the one shown (LinkOpener.openSignInPage).
     private func signInPageClosed(_ params: JSONValue) {
         guard let id = params["loginId"]?.stringValue else { return }
         signInPageBack.removeValue(forKey: id)?()
@@ -166,14 +165,6 @@ extension SettingsHarnesses {
         var add: [String: JSONValue] = ["family": .string(family), "way": "new"]
         if family != "github", let name = field("name") { add["name"] = .string(name) }
         return ("accountAdd", .object(add))
-    }
-
-    /// The hosts a start's page is still its sign-in's own on, where its tab may close once the sign-in
-    /// ended: the daemon's `pageHosts` (acpmux `agent_login::parse::page_hosts` owns the rule; an empty
-    /// list closes nothing). A daemon that names none (an older one): only the opened page's own host.
-    nonisolated static func signInPageHosts(_ reply: JSONValue, page: URL) -> [String] {
-        guard let hosts = reply["pageHosts"]?.arrayValue else { return [page.host].compactMap { $0?.lowercased() } }
-        return hosts.compactMap { $0.stringValue?.lowercased() }.filter { !$0.isEmpty }
     }
 
     /// The page a start opens beside the window: Claude's automatic page when it has one, else its

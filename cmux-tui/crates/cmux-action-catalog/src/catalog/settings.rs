@@ -356,7 +356,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CHANNEL],
         cli_name: "settings switch-update-channel",
         main_menu: Some("app"),
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -374,7 +373,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

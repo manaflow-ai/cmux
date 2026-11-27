@@ -57,7 +57,7 @@ class Contract(unittest.TestCase):
         full = [l for l in fetch.splitlines() if "fetch --quiet" in l or "bundle/cmux.bundle" in l]
         self.assertTrue(full)
         self.assertFalse([l for l in full if "--filter" in l])
-        self.assertIn("http.lowSpeedLimit=1", fetch)
+        self.assertIn("http.lowSpeedLimit=1024", fetch)
         self.assertIn("bundle verify", fetch)
         guests = STEPS["Publish the raw bundles for guests"]["run"]
         self.assertIn("scripts/ci/git_bundle_list.py plan", guests)

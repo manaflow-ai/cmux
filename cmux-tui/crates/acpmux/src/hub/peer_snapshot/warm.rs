@@ -179,15 +179,8 @@ pub(super) struct Ask {
 /// (session: its generation and last seq), at `now` (ms since the epoch, and the clock the reads
 /// are timed on): the chats to read now, the chats it plans (for pruning `read_at`), and when a
 /// chat it leaves for [`WARM_EVERY`] is due.
-///
-/// `keeps` is a peer whose copies this daemon keeps ([`keeps_copies`]): every open chat of it is
-/// planned, and [`WARM_PER_PEER`] bounds the reads of a round, not which chats are ever read; more
-/// to read brings the next round after [`WARM_SETTLE`]. Before, its 24 newest-changed chats were
-/// the only ones planned, so of 100 chats on a host that died, 17 had no copy and 3 a partial one,
-/// and moved without their transcript (`scripts/measure/fleet-recovery-bench.py --n 100`, 76%).
 pub(super) fn plan(
     peer: &str,
-    keeps: bool,
     rows: &[Value],
     covers: &Covers,
     read_at: &HashMap<Key, (u64, Instant)>,
@@ -209,9 +202,7 @@ pub(super) fn plan(
         })
         .collect();
     open.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
-    if !keeps {
-        open.truncate(WARM_PER_PEER);
-    }
+    open.truncate(WARM_PER_PEER);
     let (mut asks, mut planned, mut later) = (Vec::new(), HashSet::new(), None::<Instant>);
     for (row, _) in open {
         let Some(mux) = row.get("sessionId").and_then(Value::as_str) else { continue };
@@ -244,11 +235,6 @@ pub(super) fn plan(
             && after(*at, every) > now
         {
             let due = after(*at, every);
-            later = Some(later.map_or(due, |l| l.min(due)));
-            continue;
-        }
-        if asks.len() == WARM_PER_PEER {
-            let due = after(now, WARM_SETTLE);
             later = Some(later.map_or(due, |l| l.min(due)));
             continue;
         }
@@ -393,7 +379,8 @@ impl Hub {
             return Some(after(Instant::now(), WARM_EVERY));
         };
         let rows = self.peer_rows(name);
-        // Planned off the lock (it walks every row): only this peer's reads are copied out.
+        // Planned off the lock (it walks every row): only this peer's reads are copied out, at
+        // most [`WARM_PER_PEER`] once pruned.
         let read_at: HashMap<Key, (u64, Instant)> = warm
             .state()
             .read_at
@@ -402,7 +389,7 @@ impl Hub {
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let (asks, planned, later) =
-            plan(name, keeps_copies(peer), &rows, &covers, &read_at, (now_ms(), Instant::now()));
+            plan(name, &rows, &covers, &read_at, (now_ms(), Instant::now()));
         warm.state().read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.

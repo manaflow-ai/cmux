@@ -12,8 +12,6 @@ final class PageGoneView: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
-    // retry-prompt-ok: the page crashed or was ended from outside (Exit on "Page unresponsive", Activity Monitor); a
-    // reload by itself could crash again in a loop or undo that choice. A memory end reloads once by itself (exitRecovery).
     private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
     private let density = DensityBinding()
 

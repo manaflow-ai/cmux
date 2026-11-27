@@ -116,7 +116,7 @@ extension CloudHandlers {
     /// anonymous, expiring share link (`POST /v1/cloud/machines/{id}/previews/{port}/links`), https
     /// only. With no platform preview origin (`api` nil) there is none.
     @MainActor
-    static func previewShareLink(_ api: CloudDaemon?, machine: String, port: Int, names: CloudPortNames) async throws -> CloudPreviewShareLinkCreated {
+    static func previewShareLink(_ api: CloudAPIClient?, machine: String, port: Int, names: CloudPortNames) async throws -> CloudPreviewShareLinkCreated {
         guard let api else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
         let created = try await wrapped(names) { try await api.createPreviewShareLink(machine, port: port) }
         let checked = CloudHandlerRules().ask("cloud_handler_share_link", ["url": created.url, "names": CloudHandlerRules.json(names)])

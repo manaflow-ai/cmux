@@ -62,7 +62,6 @@ extension OnboardingStrings {
                defaultValue: "Computer Use helper version mismatch. Update cmux NIGHTLY and this build.", bundle: .localizedModule)
     }
     static var computerUseHelperFailed: String {
-        // retry-prompt-ok: restarting the helper ends its running session; the person chooses it
         String(localized: "onboarding.computerUse.helper.failed",
                defaultValue: "The cmux Computer Use helper did not respond. Restart the helper to try again.", bundle: .localizedModule)
     }

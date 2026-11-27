@@ -110,7 +110,6 @@ pub fn run(opts: &Opts) -> Res<()> {
         preset: "ultrafast",
         profile: &profile,
         openh264_lib: opts.get("openh264-lib"),
-        sharp_text: false,
     };
     let mut enc = encoder::open_with(&cfg, opts.get("openh264-options"))?;
     let (w, h) = (width as usize, height as usize);

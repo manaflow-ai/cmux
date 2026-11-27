@@ -1,9 +1,5 @@
-#if canImport(AppKit) || canImport(UIKit)
 #if canImport(AppKit)
 import AppKit
-#else
-import UIKit
-#endif
 @testable import CmuxMobileAgentChat
 import SwiftUI
 import Testing
@@ -67,9 +63,6 @@ import Testing
     }
 
     /// The transcript's measured height at the column width, and its rows as drawn at that size.
-    /// On iOS (the app's platform, the iPhone simulator run) a UIKit host measures and draws it; macOS keeps
-    /// the AppKit host, so `swift test` on a Mac holds the same check.
-    #if canImport(AppKit)
     private func measureAndDraw(clamped: Bool) -> (measured: CGFloat, frames: [String: CGRect]) {
         let frames = Frames()
         let host = NSHostingView(rootView: ProposedWidthLayout { transcript(clamped: clamped, frames: frames) }
@@ -83,22 +76,6 @@ import Testing
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         return (measured, frames.byName)
     }
-    #else
-    private func measureAndDraw(clamped: Bool) -> (measured: CGFloat, frames: [String: CGRect]) {
-        let frames = Frames()
-        let host = UIHostingController(rootView: ProposedWidthLayout { transcript(clamped: clamped, frames: frames) }
-            .fixedSize(horizontal: false, vertical: true))
-        let measured = host.sizeThatFits(in: CGSize(width: Self.column, height: .greatestFiniteMagnitude)).height
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: Self.column, height: measured))
-        window.rootViewController = host
-        window.isHidden = false
-        host.view.frame = window.bounds
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        return (measured, frames.byName)
-    }
-    #endif
 
     @Test func everyRowIsDrawnAtTheColumnWidthAndTheHeightItWasMeasuredAt() {
         let (measured, frames) = measureAndDraw(clamped: true)
@@ -118,7 +95,6 @@ import Testing
     }
 }
 
-#if canImport(AppKit)
 private extension NSHostingView {
     func fittingSize(width: CGFloat) -> CGFloat {
         let controller = NSHostingController(rootView: rootView)
@@ -126,4 +102,4 @@ private extension NSHostingView {
     }
 }
 #endif
-#endif
+

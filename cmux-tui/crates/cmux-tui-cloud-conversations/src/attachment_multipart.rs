@@ -72,10 +72,7 @@ impl CloudConversations {
                     self.backend().attachment_part_url(url, index + 1).map_err(transport)?,
                 )?;
                 let destination = signed.get("url").and_then(Value::as_str).ok_or_else(bad)?;
-                let api_origin = self.api_origin()?;
-                transport_url(destination, &api_origin, false)?;
-                // The owner's signed part URL passes the egress gate for this part's PUT only.
-                let _transfer = cmux_egress::allow_session(destination, &api_origin);
+                transport_url(destination, &self.api_origin()?, false)?;
                 if signed.get("method").and_then(Value::as_str) != Some("PUT")
                     || signed.get("part_number").and_then(Value::as_u64) != Some(index + 1)
                     || signed.pointer("/headers/content-length").and_then(Value::as_str)

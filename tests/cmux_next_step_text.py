@@ -10,8 +10,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-# A step with `working-directory:` calls its script relative to that directory (`../../../scripts/...`).
-STEP_CALL = re.compile(r"^bash -e (?:\.\./)*(scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$")
+STEP_CALL = re.compile(r"^bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$")
 
 
 def step_body(path: str) -> str:
@@ -29,7 +28,7 @@ def step_run(step: dict) -> str:
     return step_body(call.group(1)) if call else run
 
 
-STEP_CALL_LINE = re.compile(r"^( *)run: bash -e (?:\.\./)*(scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$", re.MULTILINE)
+STEP_CALL_LINE = re.compile(r"^( *)run: bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$", re.MULTILINE)
 
 
 def inline_steps(text: str) -> str:

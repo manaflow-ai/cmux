@@ -160,14 +160,14 @@ pub fn listening() -> bool {
 
 fn bind(path: &Path) -> Result<UnixListener> {
     if let Some(dir) = path.parent() {
-        crate::home_fs::create_dirs(dir).with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     // The daemon before this one (an app update) let it go; a shim of its chats connects here
     // again.
-    let _ = crate::home_fs::remove_file(path);
+    let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     use std::os::unix::fs::PermissionsExt;
-    crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
 }
 

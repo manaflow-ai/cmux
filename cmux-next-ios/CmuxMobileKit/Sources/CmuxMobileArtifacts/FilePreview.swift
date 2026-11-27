@@ -95,7 +95,7 @@ public struct LocalFileArtifactSource: ArtifactSource {
         if data == nil, let fetch {
             data = await fetch(file)
             // The Mac holds it: say so, not that the phone lost it.
-            guard data != nil else { throw ArtifactUnavailable("Connect to your Mac to see \(file.name).", transient: true) }
+            guard data != nil else { throw ArtifactUnavailable("Connect to your Mac to see \(file.name).") }
         }
         guard let data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
         return try LinkFileArtifactSource.content(for: artifact, data: data)

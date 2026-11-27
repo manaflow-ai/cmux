@@ -107,6 +107,10 @@ pub(super) unsafe extern "C" fn program_status_trampoline(
     report: *const sys::GhosttyTerminalProgramStatus,
 ) {
     let report = unsafe { &*report };
+    // Every field below has existed since the struct was introduced.
+    if report.size < size_of::<sys::GhosttyTerminalProgramStatus>() {
+        return;
+    }
     let state = match report.state {
         sys::GHOSTTY_PROGRAM_STATUS_STATE_IDLE => ProgramStatusState::Idle,
         sys::GHOSTTY_PROGRAM_STATUS_STATE_WORKING => ProgramStatusState::Working,

@@ -16,8 +16,7 @@ import CmuxPagePushBound
 ///   notifications, not its connection: they are shed until it catches up, and it then reads what
 ///   it missed after one `_acpmux/lagged` (``AcpmuxPaneShedding``). Only frames past the ceiling
 ///   close the socket with ``AgentPaneTransportError/inboundOverflow``.
-/// - Outbound sends are bounded by count only (``AgentPaneTransportError/outboundOverflow``): a message of
-///   any size goes through.
+/// - Outbound sends are bounded too (``AgentPaneTransportError/outboundOverflow``).
 /// - Nothing here blocks the main thread: the socket's callbacks run on its own queue.
 @MainActor public final class AgentPaneTransport {
     public nonisolated struct Limits: Sendable {
@@ -58,6 +57,7 @@ import CmuxPagePushBound
         public var maximumUnackedBytes = 8 << 20
         public var maximumUnackedPushes = 240
         public var maximumOutstandingSends = 8192
+        public var maximumOutstandingBytes = 64 << 20
         public var connectTimeout: TimeInterval = 10
         public init() {}
 

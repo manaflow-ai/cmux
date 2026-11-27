@@ -1380,13 +1380,8 @@ fn lock(paths: &AgentPaths, path: &Path) -> anyhow::Result<fs::File> {
 }
 
 /// Writes `root` to `path` (the caller holds `path`'s [`lock`]).
-/// Members the edit left alone keep their text ([`OJson::render_over`]).
 fn write_json(paths: &AgentPaths, path: &Path, root: &OJson) -> anyhow::Result<()> {
-    let text = match fs::read_to_string(path) {
-        Ok(old) => root.render_over(&old),
-        Err(_) => root.to_pretty(),
-    };
-    write_text(paths, path, &text)
+    write_text(paths, path, &root.to_pretty())
 }
 
 /// Replaces `path` with `text` through the shared store: backups of the prior file, then an

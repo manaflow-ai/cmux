@@ -69,7 +69,7 @@ public nonisolated struct CloudMachineRules: Sendable {
 }
 
 /// A Cloud API answer cmux-cloud-machine reads (`models::KINDS`): its fields are the crate's, not
-/// the server's, so ``CloudDaemon`` reads one only through ``CloudMachineRules/answer(_:as:context:)``.
+/// the server's, so ``CloudAPIClient`` reads one only through ``CloudMachineRules/answer(_:as:context:)``.
 public protocol CloudServerModel: Decodable {
     static var cloudModelKind: String { get }
 }
@@ -96,7 +96,7 @@ private struct ModelReadReply<T: Decodable>: Decodable {
     var error: String?
 }
 
-// The answers ``CloudDaemon`` reads through the crate, each with its `models::KINDS` kind.
+// The answers ``CloudAPIClient`` reads through the crate, each with its `models::KINDS` kind.
 extension CloudMachine: CloudServerModel { public static var cloudModelKind: String { "machine_classic" } }
 extension CloudSCPEndpoint: CloudServerModel { public static var cloudModelKind: String { "scp_endpoint" } }
 extension CloudExecResult: CloudServerModel { public static var cloudModelKind: String { "exec_result" } }

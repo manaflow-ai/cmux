@@ -316,7 +316,7 @@ fn kill_needs_yes_and_every_verb_needs_a_target() {
     for name in ["pause-machine", "resume-machine", "kill-machine"] {
         let (refused, _) = verb(&mut cloud, &["cloud", name, "--yes"]);
         assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
-        let (refused, _) = verb(&mut cloud, &["cloud", name, "--target", "ws:main", "--yes"]);
+        let (refused, _) = verb(&mut cloud, &["cloud", name, "--target", "workspace:3", "--yes"]);
         assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
     }
     assert!(cloud.asked.is_empty(), "{:?}", cloud.asked);

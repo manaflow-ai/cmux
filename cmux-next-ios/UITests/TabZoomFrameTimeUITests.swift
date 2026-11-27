@@ -30,18 +30,15 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
         app.launch()
 
-        // The terminal page is up when its composer is: the key row shows only over the
-        // soft keyboard (#53325), so it is not on screen here.
-        let field = app.textViews["terminal.composer.field"]
-        XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal's composer\n\(app.debugDescription)")
+        let escape = app.buttons["terminal.key.escape"]
+        XCTAssertTrue(escape.waitForExistence(timeout: 30), "the terminal's key row\n\(app.debugDescription)")
         let tabs = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "the tabs button\n\(app.debugDescription)")
         let screen = app.windows.firstMatch.frame
         func done() -> XCUIElement? {
-            let all = app.buttons.matching(NSPredicate(format: "label == 'Done'")).allElementsBoundByIndex
-                .filter { $0.exists && $0.isHittable }
-            // The grid's bottom bar Done first; any hittable Done if the grid's bar moved.
-            return all.first { $0.frame.minY > screen.height * 0.8 } ?? all.first
+            app.buttons.matching(NSPredicate(format: "label == 'Done'")).allElementsBoundByIndex.first { e in
+                e.exists && e.isHittable && e.frame.minY > screen.height * 0.8
+            }
         }
         // A quiet second after launch, so the first zoom is not measured against launch work.
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
@@ -62,7 +59,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             let frame = bar.frame
             app.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: frame.maxX - 24, dy: frame.midY)).tap()
-            XCTAssertTrue(tabs.waitForExistence(timeout: 10) && field.waitForExistence(timeout: 10),
+            XCTAssertTrue(tabs.waitForExistence(timeout: 10) && escape.waitForExistence(timeout: 10),
                           "back on the terminal page, cycle \(cycle)\n\(app.debugDescription)")
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
@@ -110,9 +107,10 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         XCTAssertTrue(rowFailures.isEmpty, "the composer row rides every zoom:\n" + rowFailures.joined(separator: "\n"))
     }
 
-    /// The composer focused and the keyboard up: the bar sits at the top (#52370), so the
-    /// keyboard never covers the tabs button. One tap on it still zooms to the grid, the
-    /// keyboard goes down with the page, and Done comes back to the terminal.
+    /// The composer focused and the keyboard up: the keyboard covers the
+    /// toolbar, so the tabs button can't start a zoom while it is up and the
+    /// keyboard never leaves mid-zoom from that button. Dropping the keyboard
+    /// brings the button back, and the zoom then runs as in the test above.
     @MainActor
     func testTabsButtonWithKeyboardUp() throws {
         let app = XCUIApplication()
@@ -131,14 +129,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         shown.name = "keyboard-up"
         shown.lifetime = .keepAlways
         add(shown)
-        XCTAssertTrue(tabs.exists && tabs.isHittable, "the top bar's tabs button stays clear of the keyboard\n\(app.debugDescription)")
-        tabs.tap()
-        let done = app.buttons.matching(NSPredicate(format: "label == 'Done'")).firstMatch
-        XCTAssertTrue(done.waitForExistence(timeout: 10), "one tap on Tabs reaches the grid with the keyboard up\n\(app.debugDescription)")
-        let grid = XCTAttachment(screenshot: app.screenshot())
-        grid.name = "keyboard-up-grid"
-        grid.lifetime = .keepAlways
-        add(grid)
+        XCTAssertFalse(tabs.exists && tabs.isHittable, "the keyboard covers the tabs button\n\(app.debugDescription)")
     }
 
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.

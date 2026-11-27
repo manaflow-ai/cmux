@@ -367,7 +367,6 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "0",
             "CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS": "4",
             "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "0.2",
-            "CMUX_FRESH_SMOKE_LAUNCH_TIMES_WAIT": "0",
             "FAKE_DEFAULTS_DIR": str(self.defaults_dir),
             "FRESH_SMOKE_SECRET": "must-not-reach-the-app",
             "GH_TOKEN": "must-not-reach-the-app",
@@ -410,25 +409,6 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(set(Path("/tmp").glob("cmux-fresh-*")) - self.roots_before, set())
         if report.get("pid"):
             self.assertFalse(smoke.alive(report["pid"]), "the app outlived the run")
-
-    def test_app_launch_reading_uses_the_newest_persisted_reveal_mark(self):
-        home = self.dir / "h"
-        path = home / "Library" / "Application Support" / BUNDLE / "launch-times.jsonl"
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"build": "old", "reveal_home_ms": 11, "home_revealed_by": "mark"}) + "\n"
-                        + json.dumps({"build": "new", "reveal_home_ms": 3210.44, "home_revealed_by": "mark"}) + "\n")
-        self.assertEqual(smoke.app_launch_reading(home, BUNDLE, 4.5),
-                         {"ms": 3210.4, "source": "launch-times.jsonl", "revealed_by": "mark",
-                          "harness_ms": 4500, "record": {"build": "new", "reveal_home_ms": 3210.44,
-                                                          "home_revealed_by": "mark"}})
-
-    def test_app_launch_reading_keeps_a_deadline_reveal_and_wall_clock(self):
-        home = self.dir / "h"
-        path = home / "Library" / "Application Support" / BUNDLE / "launch-times.jsonl"
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"reveal_home_ms": 3209, "home_revealed_by": "deadline"}) + "\n")
-        reading = smoke.app_launch_reading(home, BUNDLE, 4.478)
-        self.assertEqual((reading["ms"], reading["revealed_by"], reading["harness_ms"]), (3209.0, "deadline", 4478))
 
     def test_a_stub_that_aborts_at_launch_fails(self):
         status, output, report = self.run_smoke("crash", "--seconds", "3", "--startup-timeout", "5")

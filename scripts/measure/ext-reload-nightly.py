@@ -315,7 +315,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     cli = (app / hot.BIN / "cmux").resolve()
     app_pid = int(Path(args.pid_file).read_text().strip())
-    receipt: dict = {"host": os.uname().nodename, "app": str(app), **hot.app_commit_receipt(app),
+    receipt: dict = {"host": os.uname().nodename, "app": str(app), "app_commit": hot.app_commit(app),
                      "version": subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()}
     control = wait_until("the copy's control socket", time.monotonic() + 120,
                          lambda: control_socket(app_pid, args.control_socket))

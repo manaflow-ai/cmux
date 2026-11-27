@@ -38,7 +38,7 @@ struct BrowserSettingsPage: View {
                         }
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.plain)
                     .accessibilityAddTraits(settings.browserOpenDefault == choice ? .isSelected : [])
                     .accessibilityIdentifier("settings.browser.openDefault.\(choice.rawValue)")
                 }

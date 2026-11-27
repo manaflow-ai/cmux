@@ -65,12 +65,9 @@ pub(super) async fn set(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
 }
 
 /// `{"chat"?: ID, "mode"?: ... (a mode to weigh instead of the chat's), "account"?: {plan, flag,
-/// cloudDisabled, signedIn}, "need"?: {caps, team, agent}}` → `{v: 2, chat, mode: {mode,
-/// machine?}, picked, place: {on: "this-mac"|"cloud"|"machine"|"nowhere", hybrid?, id?}, why,
-/// chip, tier?: "this-mac"|"enrolled"|"cloud", local: {name, busy, room, ramFree, caps},
-/// enrolled: [{name, autoCloud, room, ramFree, folder}]}`. Version 2 added `v`, `tier`,
-/// `enrolled`, `need` and `local.caps`; a version 1 reader ignores them and reads the rest as
-/// before (an enrolled pick is a `machine` place, which it already starts on).
+/// cloudDisabled, signedIn}}` → `{chat, mode: {mode, machine?}, picked, place: {on:
+/// "this-mac"|"cloud"|"machine"|"nowhere", hybrid?, id?}, why, chip, local: {name, busy, room,
+/// ramFree}}`.
 pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
     let verdict = super::place::place(hub, &json!({"hubHealth": false})).await;
     // An existing chat's stored pin, for a read with no pick of its own.
@@ -78,20 +75,15 @@ pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
         .filter(|c| !picks().contains_key(c))
         .and_then(|c| hub.resolve(&c).ok())
         .map(|session| (hub.place_mode_of(&session), session.meta().place_mode.is_some()));
-    answer(params, &verdict, &hub.peers(), crate::placement::auto_cloud_on(), stored)
+    answer(params, &verdict, &hub.peers(), stored)
 }
 
-/// The `_acpmux/chat_place` answer's version: 2 added the AutoCloud enrolled tier.
-pub(crate) const CHAT_PLACE_VERSION: u32 = 2;
-
-/// [`read`] from the placement verdict, the peer rows, and whether AutoCloud is on here.
-/// `stored`: an existing chat's mode and whether it was pinned, weighed when the request names
-/// no mode and the chat has no pick here.
+/// [`read`] from the placement verdict and the peer rows. `stored`: an existing chat's mode and
+/// whether it was pinned, weighed when the request names no mode and the chat has no pick here.
 fn answer(
     params: &Value,
     verdict: &Value,
     peers: &[Value],
-    auto_cloud: bool,
     stored: Option<(PlaceMode, bool)>,
 ) -> Value {
     let chat = chat_of(params);
@@ -104,29 +96,14 @@ fn answer(
         .get("account")
         .and_then(|a| serde_json::from_value(a.clone()).ok())
         .unwrap_or_default();
-    let machines: Vec<String> = peers
+    let machines = peers
         .iter()
         .filter(|row| crate::placement::link_down(row).is_none())
         .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
         .collect();
-    // AutoCloud's enrolled tier, only with AutoCloud on here (`cloud.autoCloud`, default off),
-    // and only machines whose link is up.
-    let enrolled = if auto_cloud {
-        place_mode::enrolled_of(verdict)
-            .into_iter()
-            .filter(|m| machines.iter().any(|n| n.eq_ignore_ascii_case(&m.name)))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let need =
-        params.get("need").and_then(|n| serde_json::from_value(n.clone()).ok()).unwrap_or_default();
-    let facts = Facts { local: place_mode::local_of(verdict), account, machines, enrolled, need };
+    let facts = Facts { local: place_mode::local_of(verdict), account, machines };
     let decision = place_mode::decide(&mode, &facts);
     json!({
-        "v": CHAT_PLACE_VERSION,
-        "tier": decision.tier,
-        "enrolled": facts.enrolled,
         "chat": chat,
         "mode": mode,
         "picked": picked,
@@ -174,7 +151,6 @@ mod tests {
             &json!({"chat": "c-read-1", "account": account}),
             &verdict(false),
             &peers(),
-            false,
             None,
         );
         assert_eq!(v["chip"], "Auto · This Mac: 12 GB free", "{v:#}");
@@ -186,22 +162,21 @@ mod tests {
             &json!({"chat": "c-read-1", "account": account}),
             &verdict(true),
             &peers(),
-            false,
             None,
         );
         assert_eq!(v["chip"], "Auto · Cloud: this Mac is busy", "{v:#}");
         assert_eq!(v["place"], json!({"on": "cloud", "hybrid": true}));
 
         // Signed out (no account sent): this Mac, busy.
-        let v = answer(&json!({"chat": "c-read-1"}), &verdict(true), &peers(), false, None);
+        let v = answer(&json!({"chat": "c-read-1"}), &verdict(true), &peers(), None);
         assert_eq!(v["place"], json!({"on": "this-mac"}), "{v:#}");
 
         keep("c-read-2", PlaceMode::Machine { id: "studio".into() });
-        let v = answer(&json!({"chat": "c-read-2"}), &verdict(false), &peers(), false, None);
+        let v = answer(&json!({"chat": "c-read-2"}), &verdict(false), &peers(), None);
         assert_eq!(v["place"], json!({"on": "machine", "id": "studio"}), "{v:#}");
         assert_eq!(v["picked"], true);
         keep("c-read-2", PlaceMode::Machine { id: "old".into() });
-        let v = answer(&json!({"chat": "c-read-2"}), &verdict(false), &peers(), false, None);
+        let v = answer(&json!({"chat": "c-read-2"}), &verdict(false), &peers(), None);
         assert_eq!(v["place"], json!({"on": "nowhere"}), "{v:#}");
 
         // A mode in the params is weighed instead of the chat's.
@@ -209,7 +184,6 @@ mod tests {
             &json!({"chat": "c-read-2", "mode": "cloud", "account": account}),
             &verdict(false),
             &peers(),
-            false,
             None,
         );
         assert_eq!(v["place"], json!({"on": "cloud", "hybrid": true}), "{v:#}");
@@ -218,91 +192,8 @@ mod tests {
 
         // An existing chat with no pick here reads as its stored pin.
         let pinned = Some((PlaceMode::Machine { id: "studio".into() }, true));
-        let v = answer(&json!({"chat": "c-read-3"}), &verdict(false), &peers(), false, pinned);
+        let v = answer(&json!({"chat": "c-read-3"}), &verdict(false), &peers(), pinned);
         assert_eq!(v["place"], json!({"on": "machine", "id": "studio"}), "{v:#}");
         assert_eq!(v["picked"], true);
-    }
-
-    /// A busy Mac's verdict with `studio` enrolled and accepting (its `autoCloud` block, as
-    /// `placement.rs` copies it from studio's health) and `old` on an older build (none).
-    fn verdict_enrolled() -> Value {
-        json!({"hosts": [
-            {"name": "mac", "local": true, "room": 0.0, "ramFree": 1e9, "load": true,
-             "refused": "no room: RAM is the limit",
-             "autoCloud": {"v": 1, "enrolled": false, "caps": ["arm64", "macos"]}},
-            {"name": "studio", "local": false, "room": 6.0, "ramFree": 40e9, "load": false,
-             "autoCloud": {"v": 1, "enrolled": true, "accepting": true, "ownerIdle": true,
-                "caps": ["arm64", "macos", "xcode"], "policy": {"teams": [], "agents": []}}},
-            {"name": "old", "local": false, "room": 9.0, "load": false}]})
-    }
-
-    /// New: with AutoCloud on here, a busy Mac places on the enrolled, idle peer before Cloud,
-    /// and says so (`v: 2`, `tier: "enrolled"`). Off (the default): Cloud, as before.
-    #[test]
-    fn auto_takes_an_enrolled_idle_machine_before_cloud_only_with_autocloud_on() {
-        let account: Value = serde_json::from_str(PRO).unwrap();
-        let p = json!({"chat": "c-enr-1", "account": account});
-        let v = answer(&p, &verdict_enrolled(), &peers(), true, None);
-        assert_eq!(v["v"], 2);
-        assert_eq!(v["place"], json!({"on": "machine", "id": "studio"}), "{v:#}");
-        assert_eq!(v["tier"], "enrolled");
-        assert_eq!(v["chip"], "Auto · studio: 40 GB free");
-        assert_eq!(v["enrolled"].as_array().map(Vec::len), Some(1), "{v:#}");
-        let off = answer(&p, &verdict_enrolled(), &peers(), false, None);
-        assert_eq!(off["place"], json!({"on": "cloud", "hybrid": true}), "{off:#}");
-        assert_eq!(off["tier"], "cloud");
-        // Its link down: not a candidate.
-        let down = vec![json!({"name": "studio", "connected": false, "state": "offline"})];
-        let v = answer(&p, &verdict_enrolled(), &down, true, None);
-        assert_eq!(v["place"], json!({"on": "cloud", "hybrid": true}), "{v:#}");
-        // Mac work no enrolled Mac fits (no simulator on studio) never goes to the cloud.
-        let need = json!({"chat": "c-enr-1", "account": account,
-            "need": {"caps": ["ios-simulator"]}});
-        let v = answer(&need, &verdict_enrolled(), &peers(), true, None);
-        assert_eq!(v["place"], json!({"on": "nowhere"}), "{v:#}");
-        assert_eq!(v["chip"], "Auto · needs a Mac");
-        assert!(v["why"].as_str().unwrap().contains("no enrolled Mac is free"), "{v:#}");
-        // Xcode work studio fits goes to studio.
-        let need = json!({"chat": "c-enr-1", "account": account, "need": {"caps": ["xcode"]}});
-        let v = answer(&need, &verdict_enrolled(), &peers(), true, None);
-        assert_eq!(v["place"], json!({"on": "machine", "id": "studio"}), "{v:#}");
-    }
-
-    /// Old against new, both ways: a version 1 reader (the fields it read before) reads a
-    /// version 2 answer; a version 1 request (no `need`) and a verdict from an older acpmux
-    /// (no `autoCloud` on any row) give the version 1 answer.
-    #[test]
-    fn chat_place_v1_and_v2_read_each_other() {
-        #[derive(serde::Deserialize)]
-        #[allow(dead_code)]
-        struct V1 {
-            chat: Option<String>,
-            mode: PlaceMode,
-            picked: bool,
-            place: place_mode::Place,
-            why: String,
-            chip: String,
-            local: Value,
-        }
-        let account: Value = serde_json::from_str(PRO).unwrap();
-        let p = json!({"chat": "c-enr-2", "account": account});
-        let new = answer(&p, &verdict_enrolled(), &peers(), true, None);
-        let old: V1 = serde_json::from_value(new).expect("a v1 reader reads v2");
-        assert_eq!(old.place, place_mode::Place::Machine { id: "studio".into() });
-        let v1_verdict = verdict(true);
-        let v = answer(&p, &v1_verdict, &peers(), true, None);
-        assert_eq!(v["place"], json!({"on": "cloud", "hybrid": true}), "{v:#}");
-        assert_eq!(v["chip"], "Auto · Cloud: this Mac is busy");
-        assert_eq!(v["enrolled"], json!([]));
-        // A v1 Facts (no enrolled, no need, no caps) still parses.
-        let facts: Facts = serde_json::from_value(json!({"local": {"name": "mac"},
-            "account": {}, "machines": []}))
-        .unwrap();
-        assert!(facts.enrolled.is_empty() && facts.need == place_mode::Need::default());
-        // A v1 Decision (no tier) still parses.
-        let d: place_mode::Decision =
-            serde_json::from_value(json!({"place": {"on": "this-mac"}, "why": "", "chip": ""}))
-                .unwrap();
-        assert_eq!(d.tier, None);
     }
 }

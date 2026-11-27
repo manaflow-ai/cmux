@@ -159,13 +159,6 @@ OTHER_LINES = (
     re.compile(r"^\s+appFFI,?$"),  # the target in the package's target list
     re.compile(r"^\s+\] \+ \[appFFI\],?$"),  # the target list's end, the target appended
     re.compile(rf"^\s+dependencies: \[{ELEMENT}(?:, {ELEMENT})*\],?$"),  # a one-line dependencies list
-    # The Linux shape (#59026): CCmuxAppFFI's targets name it through appFFIDependency, which the Linux package jobs
-    # point at a system library (no url, no checksum), and the Linux target list drops the binary target by its name.
-    # Without these four shapes every re-pin was refused (2026-11-26: "names a pin loader symbol outside the loader").
-    re.compile(rf'^let appFFIDependency: \[Target\.Dependency\] = targetsLinux \? \["{TARGET}Linux"\] : \["{TARGET}"\]$'),
-    re.compile(r"^\s+dependencies: appFFIDependency,?$"),
-    re.compile(rf'^let linuxAppFFI: Target = \.systemLibrary\(name: "{TARGET}Linux", path: "LinuxAppFFI"\)$'),
-    re.compile(r"^\s+linuxTargetNames\.contains\(\$0\.name\) && \$0\.name != appFFI\.name$"),
 )
 
 

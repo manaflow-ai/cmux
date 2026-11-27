@@ -116,31 +116,6 @@ struct AgentChatsReconnectTests {
         #expect(model.failure == nil)
     }
 
-    /// The screen's own retry of a failed empty list (AutoRetry, no Try Again) keeps the failure
-    /// on screen while it asks (no blink back to the spinner), keeps the patience (a Mac still
-    /// unreachable stays failed), and shows the chats once the Mac answers.
-    @Test func theScreensOwnRetryKeepsTheFailureUntilTheMacAnswers() async {
-        let backend = FlakyBackend()
-        let time = Time()
-        let model = model(backend, time)
-        await model.load()
-        await settle { time.isWaiting }
-        time.advance(to: .seconds(50))
-        await retry(backend, time)
-        #expect(model.phase == .failed(ConnectionInterrupted.message))
-
-        let asked = backend.asked
-        await model.retryFailedLoad()
-        #expect(backend.asked == asked + 1)
-        #expect(model.phase == .failed(ConnectionInterrupted.message), "still past the bound: still failed, never loading")
-
-        backend.down = false
-        backend.page = AgentChatPage(chats: [Self.chat("a")], nextCursor: nil)
-        await model.retryFailedLoad()
-        #expect(model.phase == .loaded)
-        #expect(model.chats.map(\.id) == ["a"])
-    }
-
     /// Rows already listed stay on screen the whole time: reconnecting after 10 s, "from
     /// earlier" past the bound, and the fresh page as soon as the Mac answers again.
     @Test func listedRowsStayWhileItReconnectsAndRefreshWhenTheMacIsBack() async {

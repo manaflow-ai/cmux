@@ -12,9 +12,4 @@ final class PageScriptTarget {
     func evaluate(_ script: String) {
         bridge.evaluate(script)
     }
-
-    /// Delivers one router envelope by its JSON text (``PageHostBridge/receive(_:)``).
-    func receive(_ envelopeText: String) {
-        bridge.receive(envelopeText)
-    }
 }

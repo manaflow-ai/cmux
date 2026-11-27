@@ -34,12 +34,7 @@ fn dgram(kind: DatagramKind, stream: u16, payload: &[u8]) -> Vec<u8> {
 }
 
 fn send(e: &mut MediaEngine, req: &EncodeRequest, len: usize, now: u64) -> Vec<Vec<u8>> {
-    let enc = Encoded {
-        access_unit: vec![7; len],
-        idr: req.force_idr,
-        t_capture_us: now,
-        ltr_token: None,
-    };
+    let enc = Encoded { access_unit: vec![7; len], idr: req.force_idr, t_capture_us: now };
     e.encoded(req, Some(enc), now).expect("encoded").datagrams
 }
 

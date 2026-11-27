@@ -120,17 +120,19 @@ fn clean_subdir(path: &str) -> Result<String, String> {
     }
 }
 
-/// Where `repo` is cloned: `CACHE/extensions/HOST/OWNER/NAME`, `CACHE` being [`user_cache`].
+/// Where `repo` is cloned: `CACHE/cmux/extensions/HOST/OWNER/NAME`.
 pub(super) fn cache_dir(cache: &Path, repo: &Repo) -> PathBuf {
-    let mut dir = cache.join("extensions").join(&repo.host);
+    let mut dir = cache.join("cmux").join("extensions").join(&repo.host);
     dir.extend(repo.owner.split('/'));
     dir.join(&repo.name)
 }
 
-/// cmux NEXT's own cache folder ([`cmux_config::cache_dir`]), never cmux Classic's
-/// `~/.cache/cmux` on macOS.
+/// This user's cache folder: `XDG_CACHE_HOME`, else `~/.cache`.
 pub(super) fn user_cache() -> Option<PathBuf> {
-    cmux_config::cache_dir()
+    std::env::var_os("XDG_CACHE_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
 }
 
 /// What a fetch checked out.

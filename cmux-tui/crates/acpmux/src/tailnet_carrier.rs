@@ -191,7 +191,6 @@ impl Snapshots {
 
     /// The installed `tailscale` CLI's status: the process-wide one.
     pub fn global() -> Arc<Self> {
-        // test-hook-allow: not a test hook; the installed CLI's loader, set once and never by a test
         static GLOBAL: OnceLock<Arc<Snapshots>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::new(Arc::new(load_cli))).clone()
     }
@@ -292,7 +291,6 @@ impl PathSource {
 
     /// The system tailscaled: `TailnetLocal::global()`, else the installed CLI.
     pub fn global() -> Arc<Self> {
-        // test-hook-allow: not a test hook; the system tailscaled's readers, set once and never by a test
         static GLOBAL: OnceLock<Arc<PathSource>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::new(Arc::new(read_local), Snapshots::global())).clone()
     }

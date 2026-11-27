@@ -109,11 +109,7 @@ impl CloudConversations {
         body: PutBody,
         same_origin: bool,
     ) -> Result<Value, CloudError> {
-        let api_origin = self.api_origin()?;
-        transport_url(url, &api_origin, same_origin)?;
-        // A presigned object URL is the owner's answer: its host passes the
-        // egress gate for this PUT only (a self-hosted owner's own bucket).
-        let _transfer = cmux_egress::allow_session(url, &api_origin);
+        transport_url(url, &self.api_origin()?, same_origin)?;
         let reply = self.backend().put(url, headers, body).map_err(unavailable)?;
         if reply.body.get("ok").is_some() {
             return route_value(reply);

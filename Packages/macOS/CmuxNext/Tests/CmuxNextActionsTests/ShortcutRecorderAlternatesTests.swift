@@ -7,25 +7,12 @@ import Testing
 @MainActor @Suite struct ShortcutRecorderAlternatesTests {
     typealias Harness = ShortcutRecorderReturnKeyTests.Harness
 
-    /// `count` Ctrl-Opt-Cmd letters that no entry of the harness's binding table has, so recording one of them
-    /// asks about no other action. Hard-coded letters went stale as catalog actions took them by default:
-    /// Ctrl-Opt-Cmd-U became Show Context Usage's key (6092e29e, 2026-11-19), so the recorder asked about it and
-    /// saving took the key from it, a second change the test did not expect.
-    static func freeKeys(_ count: Int, in harness: Harness) throws -> [Shortcut] {
-        let bound = Set(RegistryKeyBindings(harness.registry).table.entries.flatMap(\.keys))
-        let free = "abcdefghijklmnopqrstuvwxyz".map { Shortcut(String($0), modifiers: [.control, .option, .command]) }
-            .filter { !bound.contains($0) && SystemReservedShortcuts.shared.table[$0] == nil }
-        try #require(free.count >= count, "only \(free.count) Ctrl-Opt-Cmd letters are free")
-        return Array(free.prefix(count))
-    }
-
     @Test func recordingAPrimaryKeyKeepsItsOtherBindings() throws {
         let harness = Harness()
-        let keys = try Self.freeKeys(3, in: harness)
-        let primary = keys[0]
-        let alternate = [keys[1]]
+        let primary = Shortcut("y", modifiers: [.control, .option, .command])
+        let alternate = [Shortcut("u", modifiers: [.control, .option, .command])]
         let chord = [Shortcut("b", modifiers: [.control]), Shortcut("n", modifiers: [])]
-        let replacement = keys[2]
+        let replacement = Shortcut("i", modifiers: [.control, .option, .command])
         harness.registry.setConfiguredShortcuts([[primary], alternate, chord], for: "about")
         #expect(harness.recorder.begin("about"))
         harness.recorder.handle(replacement, keyCode: 34)
@@ -35,11 +22,10 @@ import Testing
         #expect(harness.editor.saved.last == [ShortcutChange("about", keys: expected)])
     }
 
-    @Test func removingThePrimaryKeyKeepsItsOtherBindings() throws {
+    @Test func removingThePrimaryKeyKeepsItsOtherBindings() {
         let harness = Harness()
-        let keys = try Self.freeKeys(2, in: harness)
-        let primary = [keys[0]]
-        let alternate = [keys[1]]
+        let primary = [Shortcut("y", modifiers: [.control, .option, .command])]
+        let alternate = [Shortcut("u", modifiers: [.control, .option, .command])]
         harness.registry.setConfiguredShortcuts([primary, alternate], for: "about")
         #expect(harness.recorder.begin("about"))
         harness.recorder.choose(.remove)
@@ -47,11 +33,10 @@ import Testing
         #expect(harness.editor.saved.last == [ShortcutChange("about", keys: [alternate])])
     }
 
-    @Test func recordingAnExistingAlternateDoesNotDuplicateIt() throws {
+    @Test func recordingAnExistingAlternateDoesNotDuplicateIt() {
         let harness = Harness()
-        let keys = try Self.freeKeys(2, in: harness)
-        let primary = [keys[0]]
-        let alternate = keys[1]
+        let primary = [Shortcut("y", modifiers: [.control, .option, .command])]
+        let alternate = Shortcut("u", modifiers: [.control, .option, .command])
         harness.registry.setConfiguredShortcuts([primary, [alternate]], for: "about")
         #expect(harness.recorder.begin("about"))
         harness.recorder.handle(alternate, keyCode: 32)

@@ -700,8 +700,8 @@
   {
    "name": "media.play",
    "meaning": "Play media",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.298 5.25v13.5l10.904 -6.75Z'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.298 5.25v13.5l10.904 -6.75Z'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 5.5v13l10.5-6.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 5.5v13l10.5-6.5Z'/></g></svg>",
    "replaces": [
     "play.fill"
    ],
@@ -720,8 +720,8 @@
   {
    "name": "media.next",
    "meaning": "Next track",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 6.06v11.88l9.18 -5.94Z'/><path d='M18.75 6.06v11.88'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 6.06v11.88l9.18 -5.94Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M18.75 6.06v11.88'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6.5v11l8.5-5.5Z'/><path d='M18 6.5v11'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 6.5v11l8.5-5.5Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M18 6.5v11'/></g></svg>",
    "replaces": [
     "forward.end.fill"
    ],
@@ -730,8 +730,8 @@
   {
    "name": "media.previous",
    "meaning": "Previous track",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.75 6.06v11.88L9.57 12Z'/><path d='M5.25 6.06v11.88'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.75 6.06v11.88L9.57 12Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M5.25 6.06v11.88'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 6.5v11L10 12Z'/><path d='M6 6.5v11'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 6.5v11L10 12Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M6 6.5v11'/></g></svg>",
    "replaces": [
     "backward.end.fill"
    ],
@@ -740,8 +740,8 @@
   {
    "name": "media.hub",
    "meaning": "Media playing in the browser (media hub)",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='8.5' cy='17' r='2.75'/><path d='M11.25 17V5l7 2v3.5l-7 -2'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='8.5' cy='17' r='2.75'/><path d='M11.25 5l7 2v3.5l-7 -2Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M11.25 17V5'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='17' r='2.75'/><path d='M11.75 17V5l7 2v3.5l-7-2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='17' r='2.75'/><path d='M11.75 5l7 2v3.5l-7-2Z'/></g><g fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'><path d='M11.75 17V5'/></g></svg>",
    "replaces": [
     "music.note"
    ],

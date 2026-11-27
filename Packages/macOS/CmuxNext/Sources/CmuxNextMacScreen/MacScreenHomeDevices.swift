@@ -208,7 +208,7 @@ extension MacScreenHomeView {
         case let .signedOut(text):
             let signIn = SignInButton { [weak self] in self?.actions.signIn() }
             signIn.setAccessibilityIdentifier("macScreen.home.signIn")
-            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn.withBackendLine(actions.signInBackend)])
+            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn])
         case let .list(list):
             let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
             let views = look == .classic ? list.map { classicRow($0, placement: placement) } : quietRows(list, look: look)

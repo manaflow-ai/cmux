@@ -10,6 +10,18 @@ import Testing
 /// Team is one step from Home (its menu, the palette, and an email typed into New Message's To:),
 /// and its dialog shows what a join costs the team before Send can go.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HomeTeamInviteTests {
+    @Test func aJoinOnAPaidTeamPlanIsAPaidSeat() {
+        #expect(HomeTeamSeatImpact.of(canInvite: true, planID: "team", hasSubscription: true, memberCount: 4, memberLimit: nil)
+            == .paidSeat(members: 4))
+        #expect(HomeTeamSeatImpact.of(canInvite: true, planID: "pro", hasSubscription: true, memberCount: 2, memberLimit: 3)
+            == .capped(members: 2, limit: 3))
+        #expect(HomeTeamSeatImpact.of(canInvite: true, planID: nil, hasSubscription: false, memberCount: 1, memberLimit: nil)
+            == .free(members: 1))
+        #expect(HomeTeamSeatImpact.of(canInvite: false, planID: "team", hasSubscription: true, memberCount: 4, memberLimit: nil)
+            == .notAllowed)
+        #expect(!HomeTeamSeatImpact.notAllowed.allowsSending)
+    }
+
     @Test func aTypedEmailOffersInviteToTheActiveTeamUnderIt() throws {
         let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         field.contacts = { [] }

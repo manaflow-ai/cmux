@@ -26,7 +26,7 @@ impl LocalStore {
         let Some(cloud) = self.cloud()? else { return Ok(None) };
         let stage = tempfile::tempdir_in(self.dir(id))?;
         let lines = stage.path().join("log");
-        let mut log = crate::home_fs::create_file(&lines)?;
+        let mut log = File::create(&lines)?;
         let mut marker = Vec::new();
         let (header, hashes) = decode_files(&archive, &mut |entry, part, hash| {
             if entry.name == super::super::compact::MARKER {

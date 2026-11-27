@@ -166,9 +166,7 @@ def load_failures(results: str) -> dict[str, list[str]] | None:
 
 # What a failure names, without what differs from run to run: temp paths, shas and hex ids, then every number.
 _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
-# An object's address (`<function f at 0x758be97b8360>`) differs in every process: "0x" glues it into one word, so the
-# sha pattern never matched it, and "Validate the Cloud chat proof script" read new on every pull request (11-26).
-_HEX = re.compile(r"\b0x[0-9a-fA-F]+\b|\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
+_HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
 # A Python warning names nothing that failed, and comes and goes from run to run (hq#11346, cmux#43507: CPython's

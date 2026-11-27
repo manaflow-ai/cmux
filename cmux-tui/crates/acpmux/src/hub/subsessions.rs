@@ -198,21 +198,6 @@ pub struct StartRequest {
     pub local: bool,
 }
 
-impl StartRequest {
-    /// Options that require starting a separate harness or checkout.
-    pub(crate) fn own_launch_option(&self) -> Option<&'static str> {
-        [
-            ("harness", self.harness.is_some()),
-            ("model", self.model.is_some()),
-            ("effort", self.effort.is_some()),
-            ("cwd", self.cwd.is_some()),
-            ("worktree", self.worktree),
-        ]
-        .into_iter()
-        .find_map(|(field, given)| given.then_some(field))
-    }
-}
-
 /// A sub-session's new worktree (and the folder it was made from) until its
 /// start succeeds: dropped before [`KeptWorktree::keep`] (a later refusal,
 /// failure, or the parent closing meanwhile), it is removed, off the async
@@ -488,12 +473,19 @@ impl Hub {
         if req.prompt.trim().is_empty() {
             return Err(RpcError::invalid_params("prompt must not be empty"));
         }
-        if req.fork
-            && let Some(field) = req.own_launch_option()
-        {
-            return Err(RpcError::invalid_params(format!(
-                "a fork runs your harness, model and folder: start_session with fork takes no {field}"
-            )));
+        if req.fork {
+            let own = [
+                ("harness", req.harness.is_some()),
+                ("model", req.model.is_some()),
+                ("effort", req.effort.is_some()),
+                ("cwd", req.cwd.is_some()),
+                ("worktree", req.worktree),
+            ];
+            if let Some((field, _)) = own.iter().find(|(_, given)| *given) {
+                return Err(RpcError::invalid_params(format!(
+                    "a fork runs your harness, model and folder: start_session with fork takes no {field}"
+                )));
+            }
         }
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {

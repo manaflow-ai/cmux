@@ -4,10 +4,19 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// Pinned rows beside Home in the sidebar document's top: https://github.com/manaflow-ai/cmux/issues/38061 lined a
-/// pinned row's leading pin up under Home's house. Leo 2026-11-23 (ask c-b5d3e0efb6) took the pin away: a pinned row
-/// leads as its workspace row does, its own icon (if any) in the leading column and its title after it, at 1x and 2x,
-/// every density, Minimal Mode and text size.
+/// https://github.com/manaflow-ai/cmux/issues/38061, second pass. After https://github.com/manaflow-ai/cmux/pull/38089
+/// centered the pin under Home's house, a tagged build still showed two defects (dark, 2x, measured from the window's
+/// pixels): the pin drew in a 12 pt square, its ink 9 pt across under the house's 14.5, and a pinned workspace with its
+/// own icon or color dot ("🚀 Rocket emoji", "● Red color") drew the pin, then the icon, then its title 29.5 pt right of
+/// Home's label. Lawrence 2026-11-09 ("home/pin icons not left aligned with 'Fix…'"; "the workspace-row icons are
+/// inconsistent") moved the shared line from the glyphs' centers to their left edge and sized each by its ink.
+///
+/// https://github.com/manaflow-ai/cmux/issues/42431: the narrow pin hugged the column's left edge, 3 pt left of the
+/// house, and (2026-11-16) a pinned row whose own icon (a site favicon: "Spotify", "standup") took the pin's place showed
+/// no pin at all, so it did not read as pinned. The contract: every pinned row and pinned group draws its pin, centered
+/// under Home's glyph and as large as the house; a text-only pinned row's title starts at Home's label x; a pinned row's
+/// own icon or dot centers one column after the pin and its title one column after Home's label. At 1x and 2x, every
+/// density, Minimal Mode and text size.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowsShareHomeColumnTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
@@ -99,45 +108,189 @@ import Testing
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(SidebarTunables.all)
             TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
-            try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
+            try #require(SidebarPinnedRowLeading.tunable.value == .pinThenIcon, "the default look is pinThenIcon")
             try DensityTokens.$scoped.withValue(preset.tokens) {
                 try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
             }
         }
     }
 
-    /// Leo 2026-11-23, ask c-b5d3e0efb6 ("it puts a symbol at the left. immediately questionable"): no pinned row and
-    /// no pinned group header draws a pin; each leads as its unpinned row does.
+    /// A pinned group's pin draws on the same line and at the same size as a pinned workspace row's: centered under Home's
+    /// glyph, its ink as large as the house's. It centered on the icon column's middle, which (glyphs 1 to 2 pt
+    /// under the column's width) sits 1 pt right of the line Home and the pinned rows share.
     @Test(arguments: cases, DensityPreset.allCases)
-    func noPinnedRowOrGroupDrawsAPin(_ c: Case, preset: DensityPreset) throws {
+    func aPinnedGroupsPinCentersUnderHomes(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale, pinnedGroup: true)
             defer { window.close() }
-            for item in Self.pins {
-                let row = try HomePinnedRowAlignmentTests.item(list, item.id)
-                #expect(row.pinSquareFrame == nil, "\(c.testDescription): \(item.id.rawValue) draws a pin")
-            }
+            let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
+            // Lucas 2026-11-24): the center line is the square's middle, not the house's.
+            let centerLine = homeInk.minX + SidebarStyle.rowGlyphOpticalSide / 2
+            let rowPin = try HomePinnedRowAlignmentTests.item(list, Self.plain.id)
+            let rowInk = list.convert(try #require(rowPin.pinInkFrame, "the text-only pinned row draws no pin"), from: rowPin)
             let header = try #require(list.rowViews[.group(Self.pinnedGroupID)] as? GroupHeaderRowView, "no pinned group header")
             header.needsLayout = true
             header.layoutSubtreeIfNeeded()
-            #expect(header.pinSquareFrame == nil, "\(c.testDescription): the pinned group header draws a pin")
+            let groupInk = list.convert(try #require(header.pinInkFrame, "the pinned group draws no pin"), from: header)
+            let tolerance = 1 / c.scale
+            #expect(abs(groupInk.midX - centerLine) <= tolerance,
+                    "\(c.testDescription): the pinned group's pin centers at \(groupInk.midX), Home's glyph square at \(centerLine)")
+            #expect(abs(groupInk.height - rowInk.height) <= tolerance,
+                    "\(c.testDescription): the pinned group's pin is \(groupInk.height) pt tall, a pinned row's \(rowInk.height) pt")
         }
     }
 
-    /// A pinned row with its own icon (an emoji, a shown page's favicon) draws it in the leading column and starts its
-    /// title at Home's label x, as its workspace row does.
+    /// https://github.com/manaflow-ai/cmux/issues/42431 (2026-11-16): a pinned row with its own icon (a site favicon such
+    /// as Spotify's, an emoji, a color dot) drew that icon in the pin's place and no pin, so it did not read as pinned.
+    /// Every pinned row draws its pin under Home's glyph; its own icon centers one column after the pin, and its title
+    /// starts one column after Home's label. A text-only pinned row's title starts at Home's label x. The pin centers on
+    /// Home's glyph's center line (a left-edge check passed while the pin, taller than it is wide, hugged the column's
+    /// left edge 3 pt left of the house's middle) and draws as large as the house. One test per layout keeps the
+    /// suite inside the package lane's 900 s budget.
     @Test(arguments: cases, DensityPreset.allCases)
-    func aPinnedRowWithAnIconStartsItsTitleAtHomesLabel(_ c: Case, preset: DensityPreset) throws {
+    func everyPinnedRowShowsItsPinThenItsOwnIcon(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
+            // Lucas 2026-11-24): the center line is the square's middle, not the house's.
+            let centerLine = homeInk.minX + SidebarStyle.rowGlyphOpticalSide / 2
             let homeX = list.convert(home.titleFrame, from: home).minX
-            for item in [Self.emoji, Self.page] {
+            // One column step: from Home's icon column to its label, as from the pin's column to the next one.
+            let step = homeX - list.convert(home.leadingColumnFrame, from: home).minX
+            let tolerance = 1 / c.scale
+            // The optical glyph square every row glyph centers in starts on the icon column's edge and fits in it (the
+            // tuned glyph size, SidebarRowTuning.glyphSize, is 1 to 2 pt under the column's width).
+            #expect(SidebarStyle.rowGlyphOpticalSide <= SidebarStyle.iconColumnBox + 0.5,
+                    "\(c.testDescription): the optical glyph square is \(SidebarStyle.rowGlyphOpticalSide), wider than the icon column \(SidebarStyle.iconColumnBox)")
+            var iconMids: [(String, CGFloat)] = [], titles: [(String, CGFloat)] = []
+            for item in Self.pins {
+                let name = item.id.rawValue
                 let row = try HomePinnedRowAlignmentTests.item(list, item.id)
-                let x = list.convert(row.titleFrame, from: row).minX
-                #expect(abs(x - homeX) <= 0.5, "\(c.testDescription): \(item.id.rawValue)'s title starts at \(x), Home's label at \(homeX)")
+                let pin = list.convert(try #require(row.pinInkFrame, "\(c.testDescription): \(name) draws no pin"), from: row)
+                #expect(abs(pin.midX - centerLine) <= tolerance,
+                        "\(c.testDescription): \(name)'s pin centers at \(pin.midX), Home's glyph square at \(centerLine)")
+                // The pin's ink is as large as the house's along its longer side, so it reads as one size with it.
+                #expect(abs(SidebarOpticalGlyph.fittedExtent(pin.size) - SidebarOpticalGlyph.fittedExtent(homeInk.size)) <= 1,
+                        "\(c.testDescription): \(name)'s pin ink is \(pin.width) x \(pin.height) pt, Home's \(homeInk.width) x \(homeInk.height) pt")
+                let title = list.convert(row.titleFrame, from: row).minX
+                guard item.id != Self.plain.id else {
+                    #expect(row.ownIconInkFrame == nil, "\(c.testDescription): the text-only pinned row draws an icon")
+                    #expect(abs(title - homeX) <= 0.5, "\(c.testDescription): \(name)'s title starts at \(title), Home's label at \(homeX)")
+                    continue
+                }
+                let icon = list.convert(try #require(row.ownIconInkFrame, "\(c.testDescription): \(name) draws no icon"), from: row)
+                #expect(icon.minX >= pin.maxX, "\(c.testDescription): \(name)'s icon starts at \(icon.minX), inside its pin (ends \(pin.maxX))")
+                #expect(icon.maxX <= title, "\(c.testDescription): \(name)'s icon ends at \(icon.maxX), past its title at \(title)")
+                #expect(abs(icon.midX - (pin.midX + step)) <= tolerance,
+                        "\(c.testDescription): \(name)'s icon centers at \(icon.midX), one column after its pin at \(pin.midX + step)")
+                #expect(abs(title - (homeX + step)) <= 0.5,
+                        "\(c.testDescription): \(name)'s title starts at \(title), one column after Home's label at \(homeX + step)")
+                iconMids.append((name, icon.midX)); titles.append((name, title))
+            }
+            // The emoji, the dot and the favicon share one center line and one title x.
+            for (name, mid) in iconMids.dropFirst() {
+                #expect(abs(mid - iconMids[0].1) <= tolerance, "\(c.testDescription): \(name)'s icon centers at \(mid), \(iconMids[0].0)'s at \(iconMids[0].1)")
+            }
+            for (name, x) in titles.dropFirst() {
+                #expect(abs(x - titles[0].1) <= 0.5, "\(c.testDescription): \(name)'s title starts at \(x), \(titles[0].0)'s at \(titles[0].1)")
             }
         }
     }
+
+    /// A pinned group with its own icon keeps its pin where an iconless pinned group draws it, with the icon in the next
+    /// column and its name after that (https://github.com/manaflow-ai/cmux/issues/42431: the icon took the pin's place).
+    @Test(arguments: cases, DensityPreset.allCases)
+    func aPinnedGroupWithAnIconKeepsItsPin(_ c: Case, preset: DensityPreset) throws {
+        try Self.at(c, preset: preset) {
+            let (plain, icon, list, window) = try Self.pinnedGroups(scale: c.scale)
+            defer { window.close() }
+            let plainPin = list.convert(try #require(plain.pinInkFrame, "the iconless pinned group draws no pin"), from: plain)
+            let iconPin = list.convert(try #require(icon.pinInkFrame, "\(c.testDescription): the pinned group with an icon draws no pin"), from: icon)
+            #expect(abs(iconPin.midX - plainPin.midX) <= 1 / c.scale,
+                    "\(c.testDescription): the pinned group's pin centers at \(iconPin.midX) with an icon, \(plainPin.midX) without one")
+            let glyph = list.convert(icon.glyph.frame, from: icon)
+            #expect(!icon.glyph.isHidden && glyph.minX >= iconPin.maxX,
+                    "\(c.testDescription): the group's icon starts at \(glyph.minX), inside its pin (ends \(iconPin.maxX))")
+            let glyphSide = SidebarStyle.rowGlyphOpticalSide
+            #expect(glyph.width <= glyphSide + 0.5,
+                    "\(c.testDescription): the group's icon is \(glyph.width) pt, a pinned workspace row's \(glyphSide) pt")
+            let plainName = list.convert(plain.name.frame, from: plain).minX, iconName = list.convert(icon.name.frame, from: icon).minX
+            #expect(iconName >= glyph.maxX - 0.5 && iconName > plainName + 0.5,
+                    "\(c.testDescription): the group's name starts at \(iconName), its icon ends at \(glyph.maxX), an iconless group's name at \(plainName)")
+        }
+    }
+
+    /// The Debug `ownIcon` look (`sidebar.pinnedRowLeading`, kept for comparison) draws a pinned row's own icon or dot in
+    /// the pin's place, centered under Home's glyph, with its title at Home's label x; a text-only row keeps its pin.
+    @Test(arguments: [Case(density: .compact, minimal: .off, textSize: .standard, scale: 2),
+                      Case(density: .comfortable, minimal: .off, textSize: .standard, scale: 1)])
+    func theOwnIconLookPutsTheIconInThePinsPlace(_ c: Case) throws {
+        try Self.at(c) {
+            let key = SidebarPinnedRowLeading.tunable.key
+            defer { TunableStore.shared.set(key, nil) }
+            try #require(TunableStore.shared.set(key, SidebarPinnedRowLeading.ownIcon.tunableValue) == SidebarPinnedRowLeading.ownIcon.tunableValue)
+            let (list, window) = Self.list(scale: c.scale)
+            defer { window.close() }
+            let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
+            let homeInk = list.convert(try #require(home.glyphInkFrame), from: home)
+            // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
+            // Lucas 2026-11-24): the center line is the square's middle, not the house's.
+            let centerLine = homeInk.minX + SidebarStyle.rowGlyphOpticalSide / 2
+            let homeX = list.convert(home.titleFrame, from: home).minX
+            for item in Self.pins {
+                let row = try HomePinnedRowAlignmentTests.item(list, item.id)
+                let ink = list.convert(try #require(row.leadingInkFrame, "\(item.id.rawValue) draws nothing"), from: row)
+                #expect((row.pinInkFrame != nil) == (item.id == Self.plain.id), "\(c.testDescription): \(item.id.rawValue)'s pin")
+                #expect(abs(ink.midX - centerLine) <= 1 / c.scale,
+                        "\(c.testDescription): \(item.id.rawValue)'s leading glyph centers at \(ink.midX), Home's glyph square at \(centerLine)")
+                let x = list.convert(row.titleFrame, from: row).minX
+                #expect(abs(x - homeX) <= 0.5, "\(c.testDescription): \(item.id.rawValue)'s title starts at \(x), Home's label at \(homeX)")
+            }
+            let (plain, icon, groups, groupWindow) = try Self.pinnedGroups(scale: c.scale)
+            defer { groupWindow.close() }
+            #expect(icon.pinSquareFrame == nil, "\(c.testDescription): the pinned group with an icon still draws its pin")
+            let plainName = groups.convert(plain.name.frame, from: plain).minX, iconName = groups.convert(icon.name.frame, from: icon).minX
+            #expect(abs(plainName - iconName) <= 0.5, "\(c.testDescription): the group's name starts at \(iconName) with an icon, \(plainName) without one")
+        }
+    }
+
+    /// Two pinned groups in a machine section, one plain and one with an emoji icon, laid out in a window of `scale`.
+    static func pinnedGroups(scale: CGFloat) throws -> (plain: GroupHeaderRowView, icon: GroupHeaderRowView, list: SidebarListView, window: NSWindow) {
+        _ = NSApplication.shared
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let plainID = GroupID("g-share-plain"), iconID = GroupID("g-share-icon")
+        var withIcon = SidebarGroup(id: iconID, name: "Rocket group", color: .green, isPinned: true,
+                                    workspaces: [SidebarWorkspace(id: WorkspaceID("w-share-a"), title: "a")])
+        withIcon.icon = .emoji("🚀")
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+            .group(SidebarGroup(id: plainID, name: "Plain group", color: .blue, isPinned: true,
+                                workspaces: [SidebarWorkspace(id: WorkspaceID("w-share-b"), title: "b")])),
+            .group(withIcon),
+        ])])
+        let list = SidebarListView(model: model)
+        let window = ScaledWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 600), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+        window.testScale = scale
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        window.contentView = root
+        list.frame = root.bounds
+        root.addSubview(list)
+        window.orderFrontRegardless()
+        list.reload(animated: false)
+        list.rowViews.values.forEach { $0.needsLayout = true; $0.layoutSubtreeIfNeeded() }
+        guard let plain = list.rowViews[.group(plainID)] as? GroupHeaderRowView,
+              let icon = list.rowViews[.group(iconID)] as? GroupHeaderRowView else {
+            window.close()
+            throw PinnedGroupsMissing()
+        }
+        return (plain, icon, list, window)
+    }
+
+    struct PinnedGroupsMissing: Error, CustomStringConvertible { var description: String { "no pinned group headers laid out" } }
 }

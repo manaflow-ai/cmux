@@ -55,7 +55,6 @@ extension ControlRouter {
         var data: [String: JSONValue] = ["not_run": true, "state": "not_run", "retry_after_ms": 200]
         if let cause { data["cause"] = .string(String(describing: cause)) }
         return ControlError(code: "unavailable",
-                            // retry-prompt-ok: a socket API reply to a script, which owns its own retry
                             message: ControlStrings.text("control.error.syncBarrierUnavailable", "after: \"sync\" is not available yet; retry"),
                             data: .object(data))
     }

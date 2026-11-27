@@ -1037,29 +1037,7 @@ pub fn keyboard_layout() -> super::roles::Layout {
     // from U.S. to German after launch is seen.
     Cf::synchronize_preferences("com.apple.HIToolbox");
     let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
-        .and_then(|v| v.as_string())
-        .or_else(|| {
-            // Never switched: the selected (or only enabled) layout says it.
-            let entries = |key: &str| {
-                Cf::preference(key, "com.apple.HIToolbox")
-                    .map(|list| {
-                        list.items()
-                            .iter()
-                            .map(|e| super::roles::InputSourceEntry {
-                                kind: e.get("InputSourceKind").and_then(|v| v.as_string()),
-                                layout_name: e
-                                    .get("KeyboardLayout Name")
-                                    .and_then(|v| v.as_string()),
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default()
-            };
-            super::roles::layout_id_from_sources(
-                &entries("AppleSelectedInputSources"),
-                &entries("AppleEnabledInputSources"),
-            )
-        });
+        .and_then(|v| v.as_string());
     // CFPreferences gives no read error: a missing key and a failed read are
     // both NULL. Nothing recorded counts as a default (U.S.) install only
     // when HIToolbox has no preferences file at all; one that exists but

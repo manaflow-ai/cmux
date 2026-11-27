@@ -104,7 +104,6 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::seed::plan::{self, Fallback, FallbackCode, Planned, PreviousSeed};
-use super::seed::snapshot;
 use super::{machine_gate, sync_cli};
 use record::{Kept, Record};
 use sync_cli::SeedBase;
@@ -947,7 +946,6 @@ fn copied(
         stash_known: false,
         filling: filling.map(str::to_owned),
         hop: None,
-        snapshot: snapshot_base(local, remote),
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
@@ -964,26 +962,6 @@ fn copied(
         fallback,
         filling: filling.is_some(),
         projected: None,
-    }
-}
-
-/// The copy's base record when [`snapshot::enabled`] (off by default until RFD 0066 open
-/// question 2 is answered): a snapshot commit of `local` as the copy sent it, thin against the
-/// last copy's own, its bundle beside the folder's snapshot store. None when off or when the
-/// snapshot fails; the copy is done either way.
-fn snapshot_base(local: &Path, remote: &str) -> Option<String> {
-    if !snapshot::enabled() {
-        return None;
-    }
-    let store = snapshot::store_for(local)?;
-    let since = record::load(local, remote).ok().flatten().and_then(|kept| kept.snapshot);
-    let bundle = store.with_file_name("snapshot.bundle");
-    match snapshot::snapshot(local, &store, &bundle, since.as_deref()) {
-        Ok(made) => Some(made.commit),
-        Err(why) => {
-            eprintln!("{}", json!({"progress": {"phase": "snapshot", "failed": why}}));
-            None
-        }
     }
 }
 
@@ -1011,7 +989,6 @@ fn seed_record(machine: Option<String>, planned: &Planned, filling: Option<&str>
         stash_known: true,
         filling: filling.map(str::to_owned),
         hop: None,
-        snapshot: None,
     }
 }
 

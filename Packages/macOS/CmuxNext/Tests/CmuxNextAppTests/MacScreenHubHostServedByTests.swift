@@ -235,54 +235,6 @@ struct ShareHostDeviceTests {
         #expect(!ShareHostHubURLProtocol.requests(log).contains("POST /v1/devices"))
     }
 
-    /// `device.watch`: each `online` line the daemon sends is one event (its id lowercased), anything else on the channel
-    /// is not, and the stream ends with the channel.
-    @Test(.timeLimit(.minutes(1))) func theDaemonsOnlineEventsAreHeardUntilItsChannelEnds() async throws {
-        let home = URL(fileURLWithPath: "/tmp/shw-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        try FileManager.default.createDirectory(at: home.appending(path: "share-host"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let path = ShareHostDevice.socketPath(acpmuxHome: home)
-        let listener = try listen(path)
-        let first = UUID(), second = UUID()
-        // task-owner: this test's fake share host; one watch connection, then closed.
-        let daemon = Task.detached(priority: .userInitiated) { () -> String? in
-            defer { Darwin.close(listener) }
-            let connection = accept(listener, nil, nil)
-            guard connection >= 0 else { return nil }
-            defer { Darwin.close(connection) }
-            guard let line = RemoteSocket.readLine(connection),
-                  let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  let requestID = request["id"] as? Int, let method = request["method"] as? String else { return nil }
-            let lines = [#"{"id":\#(requestID),"ok":true,"result":{}}"#,
-                         #"{"event":"online","id":"\#(first.uuidString)","user_id":"u"}"#,
-                         #"{"event":"push","text":"{}"}"#,
-                         #"{"event":"online","id":"\#(second.uuidString)"}"#,
-                         #"{"event":"online","id":"\#(second.uuidString)","user_id":"u"}"#]
-            for line in lines {
-                guard RemoteSocket.writeAll(connection, Data(line.utf8) + Data([0x0A])) else { break }
-            }
-            return method
-        }
-        var heard: [ShareHostOnline] = []
-        for await online in ShareHostDevice.channel(socketPath: path).onlineEvents() { heard.append(online) }
-        #expect(await daemon.value == "device.watch")
-        #expect(heard == [ShareHostOnline(id: first.uuidString, userID: "u"), ShareHostOnline(id: second.uuidString, userID: "u")])
-        #expect(heard.first?.id == first.uuidString.lowercased())
-    }
-
-    /// The app follows the daemon only to another device, and never to an account its last pick found to be another's.
-    @Test func theAppFollowsTheDaemonOnlyToAnotherDeviceOfItsAccount() {
-        let daemon = UUID().uuidString, app = UUID().uuidString
-        let online = ShareHostOnline(id: daemon, userID: "u")
-        #expect(ShareHostDevice.shouldFollow(online, running: app.lowercased(), declined: nil))
-        #expect(!ShareHostDevice.shouldFollow(online, running: daemon.lowercased(), declined: nil), "already the daemon's device")
-        #expect(!ShareHostDevice.shouldFollow(online, running: daemon, declined: nil), "ids compare lowercased")
-        #expect(!ShareHostDevice.shouldFollow(online, running: app, declined: "u"), "the daemon is another account's")
-        #expect(ShareHostDevice.shouldFollow(online, running: app, declined: "other"))
-        #expect(ShareHostOnline(line: #"{"event":"push","id":"x","user_id":"u"}"#) == nil)
-        #expect(ShareHostOnline(line: #"{"event":"online","id":"x","user_id":""}"#) == nil)
-    }
-
     /// A fake share host at a fresh `<home>/share-host/device.sock`: one connection, answered until
     /// `device.identity` (with `userID` as `user_id` when given), then closed. Returns the methods it heard.
     private func shareHost(id: UUID, keys: ServedByTestKeys, userID: String?) throws -> (String, Task<[String], Never>, () -> Void) {

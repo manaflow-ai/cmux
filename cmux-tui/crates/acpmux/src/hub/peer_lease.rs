@@ -67,7 +67,6 @@ impl Hub {
             vm_boundary,
             // A Cloud VM gets its own GitHub App token; the Mac's login is not lent to it.
             github_broker: false,
-            group: None,
         };
         // Held while the peer starts, so none of its notices finds it unleased
         // and saves its sessions (`save_peer_cache`).

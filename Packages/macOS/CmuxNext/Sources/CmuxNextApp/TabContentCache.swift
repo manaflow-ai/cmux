@@ -463,7 +463,7 @@ final class TabContentCache {
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
-        if let tab = page as? CEFTab { (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) } // ready for keys (a restored page: its document loaded); its launch marks
+        (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)

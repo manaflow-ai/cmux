@@ -22,16 +22,17 @@ import Testing
         #expect(CmuxMobilePreferences.terminalZoomFullScreenApps(defaults) == true)
     }
 
-    @Test func aFullScreenAppNeverResizesTheMac() {
+    @Test func offKeepsTheClaimAndHidesFitToPhone() {
+        TerminalFitMemory.reset()
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
-        let session = TerminalProjectingSession(inner: mac)
+        let session = TerminalProjectingSession(inner: mac, zooms: false)
         session.setClaimsSize(true)
         session.resize(columns: 54, rows: 38)
         session.start { _ in }
-        #expect(session.fitsToPhone == nil, "no resize toggle in the title menu while projecting")
+        #expect(session.fitsToPhone == nil, "no Fit to Phone in the title menu with the setting off")
         session.toggleFitToPhone()
         #expect(session.fitsToPhone == nil)
-        #expect(mac.ptyResizes == 0, "htop on the alternate screen shows at the Mac's grid, scaled: \(mac.resizeLog)")
+        #expect(mac.ptyResizes >= 1, "htop on the alternate screen claims the phone's grid at once, as before: \(mac.resizeLog)")
         session.stop()
     }
 }

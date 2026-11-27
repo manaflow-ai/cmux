@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextDesign
 
 /// A folder as an `NSMenu` (bar folders, the overflow chevron, Other
 /// Bookmarks). Submenus fill when they open, so a large tree costs nothing
@@ -39,8 +38,6 @@ public final class BookmarkFolderMenu: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
             let all = NSMenuItem(title: BookmarkStrings.openAll(urls.count), action: #selector(openAll(_:)), keyEquivalent: "")
             all.target = self
-            // The bookmark rows above it carry their icons: without one it starts an empty icon slot in.
-            all.image = NSImage.menuSymbol("square.on.square")
             menu.addItem(all)
         }
     }
