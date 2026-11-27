@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -190,8 +189,11 @@ time.sleep(60)
                                  str(os.getpid())], self.root, self.env)
         finally:
             signal.signal(signal.SIGUSR1, previous)
-        with lock.open() as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Signal delivery can precede the grandchild's final descriptor close.
+        # Await lock release once with a deadline instead of racing LOCK_NB.
+        subprocess.run([sys.executable, '-c',
+                        'import fcntl, sys; f = open(sys.argv[1]); fcntl.flock(f, fcntl.LOCK_EX)',
+                        str(lock)], check=True, timeout=5)
 
 
 if __name__ == '__main__':
