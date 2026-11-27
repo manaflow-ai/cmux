@@ -169,7 +169,7 @@
         {
           "key": "sessions.sandbox",
           "name": "sandbox",
-          "note": "On: acpmux starts a local chat's Claude Code on macOS in the Seatbelt profile cmux-tui/crates/acpmux/sandbox/local-agent.sb (local_sandbox.rs): writes only to the chat's folders, temporary folders and the harness's and toolchains' state; no credential files (~/.ssh, ~/.aws, cloud tokens, browser cookies); outbound network only on ports 443, 80 and 22 and loopback. Read at each agent start. A file that cannot be read keeps it on; MDM or the team policy can force it on (chat_settings sandboxManaged), never off. Codex is not wrapped yet (its asking modes run their own Seatbelt sandbox, which cannot nest).",
+          "note": "On: acpmux starts a local chat's Claude Code on macOS in the Seatbelt profile cmux-tui/crates/acpmux/sandbox/local-agent.sb (local_sandbox.rs): writes only to the chat's folders, temporary folders and the harness's and toolchains' state; no credential files (~/.ssh, ~/.aws, cloud tokens, browser cookies); outbound network only on ports 443, 80 and 22 and loopback. Read at each agent start. A file that cannot be read keeps it on; the managed-preference source (MDM on macOS) can force it on, never off. Codex is not wrapped yet (its asking modes run their own Seatbelt sandbox, which cannot nest).",
           "title": {
             "key": "settings.sessions.sandbox",
             "text": "Sandbox Local Agents"

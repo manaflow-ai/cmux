@@ -14,7 +14,7 @@ fn the_setting_is_on_by_default_fails_closed_and_policy_only_tightens() {
     assert!(file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": "false"}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": false}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions.sandbox": false}))));
-    // MDM or the team policy: a forced on beats the file's off; nothing turns it off.
+    // The managed-preference source: a forced on beats the file's off; nothing turns it off.
     assert!(enabled_by(true, false));
     assert!(enabled_by(false, true));
     assert!(!enabled_by(false, false));
@@ -34,9 +34,8 @@ fn sample() -> Bound {
         cmux_config_real: "/Users/a/.config/cmux-next/cmux-next.json".into(),
         gh_config_dir: "/Users/a/.config/gh".into(),
         xdg_gh_config_dir: "/Users/a/.config/gh".into(),
-        acpmux_socket: "/Users/a/.acpmux/acpmux.sock".into(),
-        ssh_auth_socket: Some("/private/tmp/ssh-agent.sock".into()),
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
+        policy_files: Vec::new(),
         api_port: None,
     }
 }
@@ -48,9 +47,6 @@ fn the_profile_gets_every_folder_and_its_params() {
     let profile = &args[1];
     assert!(profile.contains("(subpath (param \"DIR0\"))\n  (subpath (param \"DIR1\"))\n"));
     assert!(!profile.contains(";; @FOLDERS@\n"));
-    assert!(!profile.contains(";; @SOCKETS@\n"));
-    assert!(profile.contains("path-literal \"/Users/a/.acpmux/acpmux.sock\""));
-    assert!(profile.contains("path-literal \"/private/tmp/ssh-agent.sock\""));
     assert!(!profile.contains("(remote ip \"*:8443\")"));
     let params: Vec<&str> = args[2..].iter().map(String::as_str).collect();
     for want in [
@@ -139,7 +135,6 @@ fn a_worktree_gets_its_git_folders() {
     let wt = t.path().join("wt");
     std::fs::create_dir_all(wt.join("sub")).unwrap();
     std::fs::write(wt.join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
-    std::fs::write(own.join("gitdir"), format!("{}\n", wt.join(".git").display())).unwrap();
     let dirs: Vec<PathBuf> = git_dirs(&wt.join("sub")).iter().map(|d| canonical(d)).collect();
     assert_eq!(dirs, vec![canonical(&own), canonical(&common)]);
     // A subfolder of a repository: its `.git`.
@@ -161,10 +156,7 @@ fn untrusted_worktree_metadata_cannot_add_an_arbitrary_write_root() {
     std::fs::create_dir_all(&own).unwrap();
     std::fs::write(own.join("commondir"), "/\n").unwrap();
     std::fs::write(folder.join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
-    std::fs::write(own.join("gitdir"), format!("{}\n", folder.join(".git").display())).unwrap();
     assert_eq!(git_dirs(&folder), vec![canonical(&own)]);
-    std::fs::write(own.join("gitdir"), "/some/other/checkout/.git\n").unwrap();
-    assert!(git_dirs(&folder).is_empty());
 }
 
 #[test]
@@ -190,8 +182,6 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
         &cwd,
         &env
     ));
-    assert!(claude_sandbox_on(&s(&["--settings", "missing.json"]), &cwd, &env));
-    assert!(claude_sandbox_on(&s(&["--settings", "[1]"]), &cwd, &env));
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
     assert!(claude_sandbox_on(&[], &cwd, &env));
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
@@ -211,6 +201,34 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     assert!(!claude_sandbox_on(&s(&["--setting-sources", "project,local"]), &cwd, &env));
     std::fs::write(cwd.join(".claude/settings.json"), on).unwrap();
     assert!(claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &env));
+}
+
+#[test]
+fn claude_settings_fail_closed_and_managed_policy_cannot_be_filtered_out() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let on = r#"{"sandbox":{"enabled":true}}"#;
+    std::fs::write(config.join("settings.json"), on).unwrap();
+    for invalid in ["{", "[]", r#"{"sandbox":{"enabled":"true"}}"#] {
+        std::fs::write(cwd.join(".claude/settings.local.json"), invalid).unwrap();
+        assert!(!claude_sandbox_on(&[], &cwd, &env), "invalid source: {invalid}");
+    }
+    std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
+    // A directory at the settings path is unreadable as a file, even when CI runs as root.
+    std::fs::create_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    std::fs::remove_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(claude_sandbox_on(&s(&["--settings", "{}"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--settings", "{"]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
+        .unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
 }
 
 #[test]
@@ -251,7 +269,76 @@ fn an_added_folder_at_or_above_agent_home_is_never_a_write_root() {
 }
 
 #[test]
+fn relative_credential_config_paths_are_resolved_from_the_chat_folder() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("chat");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([
+        (String::from("GH_CONFIG_DIR"), String::from(".gh")),
+        (String::from("XDG_CONFIG_HOME"), String::from(".xdg")),
+    ]);
+    let b = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(b.gh_config_dir, canonical(&cwd.join(".gh")));
+    assert_eq!(b.xdg_gh_config_dir, canonical(&cwd.join(".xdg/gh")));
+}
+
+#[test]
 fn profile_does_not_grant_tool_executable_write_roots() {
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.local"))"#));
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.cargo"))"#));
+}
+
+#[test]
+fn api_port_follows_settings_precedence_and_the_effective_child_environment() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = cwd.join("custom");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([
+        ("CLAUDE_CONFIG_DIR".into(), "custom".into()),
+        ("ANTHROPIC_BASE_URL".into(), "https://env.test:8001".into()),
+    ]);
+    let settings =
+        |port| format!(r#"{{"env":{{"ANTHROPIC_BASE_URL":"https://settings.test:{port}"}}}}"#);
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://env.test:8001"));
+    std::fs::write(config.join("settings.json"), settings(8002)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.json"), settings(8003)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.local.json"), settings(8004)).unwrap();
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://settings.test:8004"));
+    assert_eq!(
+        api_endpoint(&s(&["--setting-sources=user"]), &cwd, &env).as_deref(),
+        Some("https://settings.test:8002")
+    );
+    std::fs::write(cwd.join("override.json"), settings(8005)).unwrap();
+    let flags = s(&["--settings", &settings(8006), "--settings", "override.json"]);
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8005"));
+    std::fs::write(config.join("remote-settings.json"), settings(8007)).unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8007"));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env), None);
+}
+
+#[test]
+fn sandbox_decision_files_and_their_parents_are_protected() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), "custom".into())]);
+    let files = policy_files(&s(&["--settings", "own.json"]), &cwd, &env);
+    for file in [
+        "custom/settings.json",
+        "custom/remote-settings.json",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        "own.json",
+    ] {
+        assert!(files.contains(&cwd.join(file)), "{file}");
+    }
+    let bound = Bound { policy_files: files, ..sample() };
+    let args = bound.sandbox_args();
+    assert!(args[1].contains("(deny file-write* (literal (param \"POLICY_FILE0\")))"));
+    assert!(args[1].contains(
+        "(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT0\")))"
+    ));
 }

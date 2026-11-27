@@ -153,14 +153,14 @@
 (deny job-creation)
 (deny lsopen)
 
-;; Network: loopback (dev servers, local model routes), the daemon and SSH
-;; agent sockets supplied by acpmux, and outbound only to ports 443, 80 and
-;; 22 (git over ssh). Other Unix sockets, including Docker Desktop, stay out.
+;; Network: loopback (dev servers, local model routes), Unix sockets (the
+;; acpmux socket, ssh-agent, docker), and outbound only to ports 443, 80 and
+;; 22 (git over ssh). Anything else leaving the Mac is refused.
 (deny network-outbound)
 (allow network-outbound
   (remote ip "*:443")
   (remote ip "*:80")
   (remote ip "*:22")
-  (remote ip "localhost:*"))
-;; @SOCKETS@
+  (remote ip "localhost:*")
+  (remote unix-socket))
 ;; @API_PORT@
