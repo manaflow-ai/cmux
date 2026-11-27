@@ -213,9 +213,10 @@ class NoclobberSweep(Case):
                    {"scripts/b.sh": SH + "echo hi\n"}, 0)
 
     def test_an_app_name_only_an_untouched_file_hits_is_still_found(self):
-        repo = self.repo({"scripts/a.sh": SH + 's=/tmp/cmux-debug-$TAG.sock\n', "scripts/b.sh": SH})
+        repo = self.repo({"scripts/a.sh": SH + 's=/tmp/cmux-debug-$TAG.sock\nf=/tmp/out.$$\n', "scripts/b.sh": SH})
         found = noclobber.with_app_names(repo.root, {"scripts/b.sh"}, [])
         self.assertTrue(any(h[3].startswith("/tmp/cmux-debug-") for h in found), found)
+        self.assertEqual(noclobber.unapproved(found, {}), [], "the grep-found file's other hits are the base's")
 
 
 if __name__ == "__main__":

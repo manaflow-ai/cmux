@@ -293,10 +293,10 @@ def scope(root: Path = ROOT) -> tuple[set[str] | None, str | None]:
 
 def with_app_names(root: Path, only: set[str], found: list) -> list:
     """FOUND, plus the hits of the files a git grep names for each app name FOUND does not hit (so a stale one
-    fails only when no file hits it)."""
+    fails only when no file hits it). Only their app-name hits: their other hits are the base's."""
     missing = {p for p in APP_NAMES if not any(h[3].startswith(p) for h in found)}
     more = grep_names(root, missing, DIRS) - only
-    return found + (hits(root, more) if more else [])
+    return found + ([h for h in hits(root, more) if app_name(h)] if more else [])
 
 
 def hits(root: Path = ROOT, only: set[str] | None = None) -> list[tuple[str, int, str, str, int]]:
