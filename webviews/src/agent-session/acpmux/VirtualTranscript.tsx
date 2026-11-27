@@ -713,6 +713,9 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
   delete stable.sourceRows;
   const references = useTranscriptReferences(source);
+  // A working turn grows the transcript at its end: a declared layout move wherever a transcript runs
+  // one (the chat, its pane, every gallery that plays a turn), not only where App.tsx declares it.
+  useStreamAppendDeclaration(props.working === true);
   // The anchored list (clean slate step 4) draws a live chat's transcript behind its flag.
   if (props.streams && anchoredListEnabled()) {
     const given = stable as VirtualTranscriptProps;
@@ -734,9 +737,6 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
       />
     );
   }
-  // A working turn grows the transcript at its end: a declared layout move wherever a transcript runs
-  // one (the chat, its pane, every gallery that plays a turn), not only where App.tsx declares it.
-  useStreamAppendDeclaration(props.working === true);
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 
