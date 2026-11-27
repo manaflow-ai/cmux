@@ -131,6 +131,10 @@ function of its counter (read from the same frame): the frame score, the share o
 in the moving bars that match what the source drew (1.0 = matches), and the text error, Vision OCR's
 character error rate of the scrolling text panel against the lines the source drew (needs
 screen-eval-ocr). Both are null when the shared Mac's marker predates `motion-geometry`.
+`--motion-scene noise` makes the marker draw full-screen random noise instead (`--noise`, a new crop
+every refresh), so the stream runs at its rate cap: the ultra profile's held-rate check
+(goals/screen-share-ultra-profile.md) on the real screen, beside a presented leg; both quality
+numbers are then null.
 
 The other tables stay as they were:
 
@@ -547,7 +551,7 @@ def quality_summary(scores, why_none):
 
 def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
                  cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None,
-                 encode_profile=None):
+                 encode_profile=None, motion_scene=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g", "presented"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
@@ -597,6 +601,9 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         "input": cmux_input, "host": host, "viewer": viewer,
         # The profile the cmux leg asked for (--encode-profile; null: none sent, so the host ran standard).
         "encode_profile": encode_profile,
+        # What the fps (motion) trials showed: the marker's bars and text, its noise, or the
+        # synthetic picture's scene (--motion-scene, --synthetic-scene).
+        "motion_scene": motion_scene,
         "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
         "presented_source": p_source, "app_ledger": app_ledger, "app_timings": app_timings,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
@@ -1161,7 +1168,7 @@ def clock_probe_tcp(args, host, port):
 # --- the rig: the shared Mac's side, inside an app with the grants ------------------------
 
 SERVE_FLAGS = {"--profile": ("high", "baseline"), "--codec": ("videotoolbox", "openh264")}
-MARKER_FLAGS = ("--motion", "--tick", "--verbose")
+MARKER_FLAGS = ("--motion", "--tick", "--verbose", "--noise")
 # `run --host-arg` / `--viewer-arg`: the only extra flags a run passes to `cmux-rd serve` and to
 # `cmux-rd bench`, checked here and again by the rig (the rig command runs on a fleet Mac). Each
 # maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
@@ -2779,7 +2786,7 @@ class Orchestrator:
             rec.pop("sample_times", None)
             self.log(rec)
         for n in range(1, self.a.fps_trials + 1):
-            origin = self.marker(["--tick", "--motion"])
+            origin = self.marker(self.motion_flags())
             geo = self.motion_geometry()
             snap = f"{self.root}/state/motion-{n}.ppm" if geo else None
             rec = self.cmux_attempt(origin, "fps", snap)
@@ -2805,8 +2812,18 @@ class Orchestrator:
             self.rig({"cmd": "stop"})
         return firsts, g2g, fps, rows
 
+    def motion_flags(self):
+        """The marker flags of an fps trial: `--tick --motion`, plus `--noise` for
+        --motion-scene noise (full-screen noise, so the stream runs at its rate cap)."""
+        noise = getattr(self.a, "motion_scene", None) == "noise"
+        return ["--tick", "--motion"] + (["--noise"] if noise else [])
+
     def motion_geometry(self):
         """The marker's motion layout from its log on the shared Mac, or None (and why)."""
+        if not self.synthetic and getattr(self.a, "motion_scene", None) == "noise":
+            self.quality_null = ("--motion-scene noise: the marker draws random noise, with no "
+                                 "motion-geometry to score against")
+            return None
         if self.synthetic:
             # No marker app: the generated picture has no motion-geometry to score against.
             self.quality_null = ("--source synthetic: the generated picture has no "
@@ -3193,7 +3210,7 @@ class Orchestrator:
         env = (f"VNC_USERNAME={shlex.quote(self.a.vnc_user)} "
                f"VNC_PASSWORD_FILE={shlex.quote(self.a.vnc_password_file)} ")
         for mode, trials, flags in (("key", self.a.trials, []),
-                                    ("fps", self.a.fps_trials, ["--tick", "--motion"])):
+                                    ("fps", self.a.fps_trials, self.motion_flags())):
             for n in range(1 - (self.a.warmup if mode == "key" else 0), trials + 1):
                 origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
                 time.sleep(0.5)
@@ -3332,7 +3349,10 @@ class Orchestrator:
                          cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
                          viewer=self.a.viewer, host_args=self.host_args,
                          viewer_args=self.viewer_args,
-                         encode_profile=getattr(self.a, "encode_profile", None))
+                         encode_profile=getattr(self.a, "encode_profile", None),
+                         motion_scene=(getattr(self.a, "synthetic_scene", None) or "bars"
+                                       if self.a.source == "synthetic"
+                                       else getattr(self.a, "motion_scene", None) or "bars"))
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
@@ -3483,6 +3503,10 @@ def build_parser():
     r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
                    help="what the synthetic picture shows under the marker (default bars; text "
                    "and noise translate; churn is new content every frame)")
+    r.add_argument("--motion-scene", choices=["bars", "noise"],
+                   help="--source screen: what the marker app draws over the display in fps trials "
+                   "(default bars: moving bars and scrolling text, scored; noise: full-screen random "
+                   "noise, new every refresh, so the stream runs at its rate cap, unscored)")
     r.add_argument("--host-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
                         "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "

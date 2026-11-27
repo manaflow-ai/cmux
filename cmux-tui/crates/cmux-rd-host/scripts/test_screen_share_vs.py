@@ -16,6 +16,7 @@ import socket
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -258,6 +259,18 @@ class FrameScore(unittest.TestCase):
             self.assertIn("marker", vs.score_frame(ppm, GEO, ORIGIN, CELL)["frame_null"])
             write_ppm(ppm, w, h, rgb)
             self.assertIn("--tick", vs.score_frame(ppm, dict(GEO, tick_driven=False), ORIGIN, CELL)["frame_null"])
+
+    def test_noise_scene_flags_and_null_quality(self):
+        a = vs.build_parser().parse_args(run_argv("--motion-scene", "noise", "--encode-profile", "ultra"))
+        self.assertEqual(a.motion_scene, "noise")
+        self.assertIn("--noise", vs.MARKER_FLAGS)
+        run = types.SimpleNamespace(a=a, synthetic=False, quality_null=None)
+        self.assertEqual(vs.Orchestrator.motion_flags(run), ["--tick", "--motion", "--noise"])
+        self.assertIsNone(vs.Orchestrator.motion_geometry(run))
+        self.assertIn("noise", run.quality_null)
+        plain = types.SimpleNamespace(a=vs.build_parser().parse_args(run_argv()), synthetic=False)
+        self.assertEqual(vs.Orchestrator.motion_flags(plain), ["--tick", "--motion"])
+        self.assertEqual(vs.build_budget({"rows": []}, None, motion_scene="noise")["motion_scene"], "noise")
 
     def test_motion_geometry_line(self):
         log = "marker: x\nmotion-geometry " + json.dumps(GEO) + "\nmarker-origin 0,50 click-at 704,66\n"
