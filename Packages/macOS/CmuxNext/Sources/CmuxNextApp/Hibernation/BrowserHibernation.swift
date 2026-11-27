@@ -536,7 +536,8 @@ final class BrowserHibernation {
         var recheck: Double?
         let candidates = hidden.filter { candidate in
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
-                  let tab = cache.browsers[candidate.key]?.tab, let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
+                  let tab = cache.browsers[candidate.key]?.tab, !tab.state.isLoading,
+                  let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
                 let left = threshold - (now - kept).seconds
                 if left > 0 { recheck = min(recheck ?? left, left); return false }

@@ -37,9 +37,11 @@ final class CEFPaneHost {
     /// A popup host's about:blank browser that created its Chromium window;
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
-    /// The placeholder's page is frozen as soon as its browser exists (the spare window, `CEFSpareWindow`):
-    /// it is never shown, so Chromium never learns it is hidden and would run its frames and timers.
+    /// The placeholder's page is frozen once its initial load is no longer active (the spare window,
+    /// `CEFSpareWindow`): it is never shown, so Chromium never learns it is hidden and would run frames and timers.
     var freezesPlaceholder = false
+    /// Prevents duplicate lifecycle freeze requests when CEF reports more than one settled loading state.
+    var placeholderFrozen = false
     /// The placeholder's browser is made with no URL (no navigation, so no history entry) and the first
     /// page that joins this window takes it as its own browser (`adoptPlaceholder`), with no `tab_add`:
     /// the cmux pages' spare window (`CEFRuntime.pageSpareWindow`).

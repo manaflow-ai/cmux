@@ -34,6 +34,7 @@ extension CEFTab {
             (loadingStopped, chromiumLoading) = (!loading, loading)
             if !hasDocument { host.lifecycleTrace.record(id, "cef-loading \(loading)") } // the ready-for-keys signals (lead on STATUS 8457)
             if !loading {
+                freezeNeverShownPageIfReady()
                 documentMayTakeKeys() // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,

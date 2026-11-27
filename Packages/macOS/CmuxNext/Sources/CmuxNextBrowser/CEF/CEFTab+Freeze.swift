@@ -33,7 +33,16 @@ extension CEFTab: BrowserFreezing {
     /// placeholder counted visible and ran rAF at ~98/s at idle (fleet probe 4e065838, macOS 27). It is
     /// thawed only when a cmux page takes it as its own browser (`CEFPaneHost.adoptPlaceholder`); otherwise a
     /// take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
-    func freezeNeverShownPage(_ browser: Int32) {
+    /// Freezes the spare placeholder only after its initial navigation has settled. Freezing a page
+    /// mid-load can leave Chromium's TabIcon compositor animation running in its GPU process.
+    func freezeNeverShownPageIfReady() {
+        guard host.freezesPlaceholder, host.placeholder === self,
+              let browserID, !isClosed, !state.isLoading, !host.placeholderFrozen else { return }
+        host.placeholderFrozen = true
+        freezeNeverShownPage(browserID)
+    }
+
+    private func freezeNeverShownPage(_ browser: Int32) {
         runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
 }
