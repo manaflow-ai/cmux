@@ -257,6 +257,47 @@ case "$(uname -m)" in
 esac
 
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
+
+# ZIG_KEEP_DIR: a directory on this runner that keeps the verified, patched Zig
+# install between jobs, at the version-pinned path ZIG_KEEP_DIR/ZIG_NAME. A kept
+# install answers at once (no download, no extraction), even with
+# ZIG_FORCE_LOCAL_INSTALL=1: it is never the system zig, and its marker names the
+# pinned tarball SHA-256 (scripts/ci/zig-tarballs.sha256) it came from. The first
+# job on a runner that lacks it installs there, so every later job reuses it.
+# Why: nightly-next-one downloaded ghostty-next's Zig 0.17.0 on every cold job
+# (2.6 min in run 45562645699; 21 min in run 45581454962 when two mirrors failed).
+ZIG_KEEP_DIR="${ZIG_KEEP_DIR:-}"
+ZIG_KEEP_DIR="${ZIG_KEEP_DIR%/}"
+ZIG_KEEP_MARKER=".cmux-zig-tarball-sha256"
+
+pinned_zig_sha256() {
+  if [ -n "$ZIG_EXPECTED_SHA256" ]; then
+    printf '%s\n' "$ZIG_EXPECTED_SHA256"
+    return 0
+  fi
+  awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' \
+    "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true
+}
+
+kept_zig_is_valid() {
+  local root="$1"
+  local pinned
+  pinned="$(pinned_zig_sha256)"
+  [ -n "$pinned" ] || return 1
+  [ -f "$root/$ZIG_KEEP_MARKER" ] || return 1
+  [ "$(cat "$root/$ZIG_KEEP_MARKER" 2>/dev/null || true)" = "$pinned" ] || return 1
+  [ -f "$root/lib/std/std.zig" ] || return 1
+  zig_std_is_reviewed "$root/lib" || return 1
+  [ -x "$root/zig" ] || return 1
+  [ "$("$root/zig" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ]
+}
+
+if [ -n "$ZIG_KEEP_DIR" ] && kept_zig_is_valid "$ZIG_KEEP_DIR/$ZIG_NAME"; then
+  echo "zig ${ZIG_REQUIRED} already kept at ${ZIG_KEEP_DIR}/${ZIG_NAME}"
+  publish_zig_for_later_steps "${ZIG_KEEP_DIR}/${ZIG_NAME}/zig"
+  exit 0
+fi
+
 mkdir -p "$ZIG_WORK_PARENT"
 ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
 cleanup_work_root() {
@@ -595,7 +636,42 @@ verify_zig_sha256() {
   fi
 }
 
+# Move the verified, patched tree to ZIG_KEEP_DIR/ZIG_NAME and publish it. A
+# kept copy that turned valid meanwhile (a concurrent job on this runner) wins
+# and ours is dropped; a broken one is replaced. Any failure returns 1 and the
+# caller installs job-locally as before.
+install_zig_kept() {
+  local target="${ZIG_KEEP_DIR}/${ZIG_NAME}"
+  local staged="${ZIG_KEEP_DIR}/.${ZIG_NAME}.$$"
+  mkdir -p "$ZIG_KEEP_DIR" 2>/dev/null || return 1
+  rm -rf "$staged"
+  pinned_zig_sha256 > "$ZIG_DIR/$ZIG_KEEP_MARKER" || return 1
+  mv "$ZIG_DIR" "$staged" || { rm -rf "$staged"; return 1; }
+  if kept_zig_is_valid "$target"; then
+    rm -rf "$staged"
+    echo "zig ${ZIG_REQUIRED} was kept at ${target} by another job meanwhile"
+  else
+    rm -rf "$target"
+    # On any miss, hand the tree back to the caller's job-local install.
+    if ! mv "$staged" "$target" 2>/dev/null; then
+      mv "$staged" "$ZIG_DIR"
+      return 1
+    fi
+    if ! kept_zig_is_valid "$target"; then
+      mv "$target" "$ZIG_DIR"
+      return 1
+    fi
+    echo "kept zig ${ZIG_REQUIRED} at ${target} for later jobs on this runner"
+  fi
+  publish_zig_for_later_steps "${target}/zig"
+  "${target}/zig" version
+}
+
 install_zig_without_sudo() {
+  if [ -n "$ZIG_KEEP_DIR" ] && [ -z "${ZIG_INSTALL_ROOT:-}" ] && [ -n "$(pinned_zig_sha256)" ]; then
+    install_zig_kept && return 0
+    echo "could not keep zig ${ZIG_REQUIRED} under ${ZIG_KEEP_DIR}; installing it job-locally" >&2
+  fi
   local install_parent="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
   local install_root="${ZIG_INSTALL_ROOT:-${install_parent}}"
   local source_root
