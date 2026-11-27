@@ -112,7 +112,7 @@ final class CEFMessagePump {
 
     /// `1` (and its old name `steps`): a pass at each step's start; `2`: at its start and its end; anything else: none.
     nonisolated static func stepPasses(_ value: String?) -> StepPasses {
-        StepPasses(start: ["1", "steps", "2"].contains(value), end: false)
+        StepPasses(start: ["1", "steps", "2"].contains(value), end: value == "2")
     }
 
     /// Hooks `pump`'s at-step pass (``runIfDueAtStep()``) to the resize steps' start and the window steps' end.
@@ -120,6 +120,11 @@ final class CEFMessagePump {
         if start {
             ResizeStepTimes.live.stepWillLayOut = { [weak pump] _ in
                 ResizeStepTimes.pass("cef_pump") { pump?.runIfDueAtStep() }
+            }
+        }
+        if end {
+            ResizeStepTimes.live.stepDidLayOut = { [weak pump] _ in
+                ResizeStepTimes.pass("cef_pump_end") { pump?.runIfDueAtStep() }
             }
         }
     }
