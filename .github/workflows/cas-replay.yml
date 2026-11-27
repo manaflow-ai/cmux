@@ -300,7 +300,7 @@ jobs:
     # Like U2, its input is what is published, not this repo's paths: a push replays only when the
     # feat-cmux-next channel names a build with no replay yet (a cache marker keyed by its tree key),
     # so a web merge costs one channel read.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Keying ~1500 commits (16 at a time), 12 x 75 MB downloads, 23 zstd -19 runs and one cas-replay.
     timeout-minutes: 45
     permissions:
