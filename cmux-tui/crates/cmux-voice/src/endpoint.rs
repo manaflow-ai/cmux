@@ -90,6 +90,11 @@ fn endpoint(provider: &'static Provider, url: &str, model: &str) -> Result<Endpo
         return Err(VoiceError::new(ErrorCode::NotConfigured, "this provider needs a URL", None));
     }
     let (parsed, key_allowed) = check_url(raw, provider.key)?;
+    // Only a validated URL supplied in settings is person-named. Built-in provider
+    // hosts belong in the shared egress allowlist instead.
+    if !url.is_empty() {
+        cmux_egress::allow_named(parsed.as_str());
+    }
     Ok(Endpoint {
         provider,
         base_url: parsed.as_str().trim_end_matches('/').to_owned(),
@@ -189,6 +194,23 @@ mod tests {
 
     fn settings(engine: &str, url: &str, model: &str) -> Settings {
         Settings { engine: engine.into(), url: url.into(), model: model.into() }
+    }
+
+    #[test]
+    fn egress_allows_valid_settings_and_lists_builtin_providers() {
+        let custom = "https://voice-egress-configured.com/v1";
+        assert_eq!(cmux_egress::verdict(custom), cmux_egress::Verdict::Unlisted);
+        assert!(resolve(&settings("custom", custom, "")).endpoint.is_ok());
+        assert_eq!(cmux_egress::verdict(custom), cmux_egress::Verdict::Named);
+
+        let rejected = "http://voice-egress-rejected.com/v1";
+        assert!(resolve(&settings("custom", rejected, "")).endpoint.is_err());
+        assert_eq!(cmux_egress::verdict(rejected), cmux_egress::Verdict::Unlisted);
+
+        for engine in ["openai", "groq"] {
+            let endpoint = resolve(&settings(engine, "", "")).endpoint.unwrap();
+            assert_eq!(cmux_egress::verdict(&endpoint.base_url), cmux_egress::Verdict::Listed);
+        }
     }
 
     #[test]

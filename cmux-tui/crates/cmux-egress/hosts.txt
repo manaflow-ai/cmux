@@ -32,6 +32,8 @@ api.freestyle.sh
 api.github.com
 # GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls
 api.githubcopilot.com
+# the Groq API: the recording, model and API key, only when you select Groq dictation; the models endpoint when you check the provider
+api.groq.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 api.open-meteo.com
 # the OpenAI API: voice calls on iPhone, and when you use an OpenAI key

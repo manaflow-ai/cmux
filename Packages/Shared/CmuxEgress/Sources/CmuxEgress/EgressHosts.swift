@@ -16,6 +16,7 @@ enum EgressHosts {
         "api.freestyle.sh",
         "api.github.com",
         "api.githubcopilot.com",
+        "api.groq.com",
         "api.open-meteo.com",
         "api.openai.com",
         "api.stack-auth.com",
