@@ -54,6 +54,10 @@ APP_TOKEN_EXEMPT = {
         "builds and uploads the nightly-next deltas after the feed with the Sparkle key and the nightly-next "
         "R2 keys; it writes nothing to a release and sends no github.token"
     ),
+    "nightly-next-variant-from-r2": (
+        "reads the tested DMG back from R2 with the nightly-next R2 keys and uploads the variant artifact; "
+        "it writes nothing to a release and sends no github.token"
+    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
