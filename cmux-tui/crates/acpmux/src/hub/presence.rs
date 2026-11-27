@@ -38,6 +38,14 @@
 //! `_acpmux/presence` goes to the same connections) and goes when it detaches; a peer link
 //! watches none (`presence.peer_unsupported`). At most [`MAX_ROOMS`] rooms a connection
 //! (`presence.rooms_full`).
+//!
+//! Follow (RFD 0141 phase 3): `_acpmux/follow {target}` sets who the caller (its author on its
+//! connection) follows, `null` to stop. It is kept per (connection, author), so it holds while
+//! that person moves between chats, and it rides the record's `following`: every chat the caller
+//! shows hears it as one `Following` delta in `_acpmux/room` (never in `_acpmux/presence`, whose
+//! participants stay as they were). The target must be live in some chat on this daemon
+//! (`presence.follow_not_live`) and is never the caller (`presence.follow_self`). The connection
+//! closing ends it; moving your own view ends it in the client, which sends `null`.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -77,6 +85,11 @@ pub const PEER_UNSUPPORTED: &str = "presence.peer_unsupported";
 pub const MAX_ROOMS: usize = 512;
 /// `data.reason` of an `_acpmux/rooms` past [`MAX_ROOMS`].
 pub const ROOMS_FULL: &str = "presence.rooms_full";
+
+/// `data.reason` of an `_acpmux/follow` whose target shows no chat on this daemon.
+pub const FOLLOW_NOT_LIVE: &str = "presence.follow_not_live";
+/// `data.reason` of an `_acpmux/follow` that names the caller.
+pub const FOLLOW_SELF: &str = "presence.follow_self";
 
 /// A room a client shows (RFD 0141 "Transport"): a chat, or a workspace row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -188,6 +201,8 @@ struct State {
     rooms: HashMap<Room, HashMap<String, Sink>>,
     /// The rooms each connection watches, so a new set or a close drops only its own.
     watching: HashMap<String, HashSet<Room>>,
+    /// Whom each (connection, author) follows (`_acpmux/follow`).
+    follows: HashMap<Key, String>,
     /// Subscribers one change visited, all rooms together (the cost test reads it).
     #[cfg(test)]
     fanned: u64,
@@ -217,7 +232,17 @@ impl State {
 
     fn chat_records(&self, chat: &str) -> Vec<Record> {
         let Some(&epoch) = self.revisions.get(chat) else { return Vec::new() };
-        participants(self.chats.get(chat)).iter().map(|p| p.record(chat, epoch)).collect()
+        self.participants(chat).iter().map(|p| p.record(chat, epoch)).collect()
+    }
+
+    /// One participant per person in `chat`, with whom each follows.
+    fn participants(&self, chat: &str) -> Vec<Participant> {
+        participants(self.chats.get(chat), &self.follows)
+    }
+
+    /// Whether `id` shows any chat on this daemon now.
+    fn live(&self, id: &str) -> bool {
+        self.chats.values().any(|entries| entries.keys().any(|(_, other)| other == id))
     }
 
     /// Sends `note()` to `room`'s subscribers only: one lookup when nobody watches it, then one
@@ -265,7 +290,7 @@ impl Presence {
     /// The chat's presence now, as `_acpmux/presence` params.
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
-        note(chat, state.chats.get(chat))
+        note(chat, &state.participants(chat))
     }
 
     /// Local projection for a subscriber to this chat. The owner id is daemon-local.
@@ -301,6 +326,45 @@ impl Presence {
             state.watching.insert(conn.to_owned(), wanted);
         }
         Ok(watched)
+    }
+
+    /// `_acpmux/follow`: person `who` (an author id) on `conn` follows `target`, or stops
+    /// (`None`). Every chat it shows hears the change as one delta, under one lock.
+    pub fn follow(&self, conn: &str, who: &str, target: Option<&str>) -> Result<(), RpcError> {
+        let mut state = self.inner.state.lock_or_recover();
+        if let Some(target) = target {
+            if target == who {
+                return Err(RpcError::new(-32000, "you cannot follow yourself")
+                    .with_data(json!({"reason": FOLLOW_SELF})));
+            }
+            if !state.live(target) {
+                return Err(RpcError::new(-32000, format!("{target} shows no chat here now"))
+                    .with_data(json!({"reason": FOLLOW_NOT_LIVE, "target": target})));
+            }
+        }
+        let key = (conn.to_owned(), who.to_owned());
+        let shown: Vec<String> = state
+            .chats
+            .iter()
+            .filter(|(_, entries)| entries.contains_key(&key))
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        let before: Vec<Vec<Participant>> = shown.iter().map(|c| state.participants(c)).collect();
+        match target {
+            Some(target) => state.follows.insert(key, target.to_owned()),
+            None => state.follows.remove(&key),
+        };
+        for (chat, before) in shown.iter().zip(before) {
+            let after = state.participants(chat);
+            self.inner.publish(&mut state, chat, before, after);
+        }
+        Ok(())
+    }
+
+    /// Whom `who` on `conn` follows (tests and the server's answer).
+    pub fn following(&self, conn: &str, who: &str) -> Option<String> {
+        let state = self.inner.state.lock_or_recover();
+        state.follows.get(&(conn.to_owned(), who.to_owned())).cloned()
     }
 
     /// Whether `conn` watches `room` (tests and the server's checks).
@@ -428,6 +492,14 @@ impl Presence {
 
     /// `conn` closed: its entries in every chat go, and its typing allowance.
     pub fn close(&self, conn: &str) {
+        // Its follows end first, as deltas, so a person still on another connection drops it.
+        let followers: Vec<String> = {
+            let state = self.inner.state.lock_or_recover();
+            state.follows.keys().filter(|(c, _)| c == conn).map(|(_, id)| id.clone()).collect()
+        };
+        for who in followers {
+            let _ = self.follow(conn, &who, None);
+        }
         let chats: Vec<String> = {
             let mut state = self.inner.state.lock_or_recover();
             state.typing_calls.remove(conn);
@@ -455,12 +527,25 @@ impl Inner {
         f: impl FnOnce(&mut State) -> Result<(), RpcError>,
     ) -> Result<(), RpcError> {
         let mut state = self.state.lock_or_recover();
-        let before = participants(state.chats.get(chat));
+        let before = state.participants(chat);
         let result = f(&mut state);
         if state.chats.get(chat).is_some_and(BTreeMap::is_empty) {
             state.chats.remove(chat);
         }
-        let after = participants(state.chats.get(chat));
+        let after = state.participants(chat);
+        self.publish(&mut state, chat, before, after);
+        result
+    }
+
+    /// Fans out one change of `chat` from `before` to `after`, if any: its room's delta and, when
+    /// the `_acpmux/presence` view changed, its participants.
+    fn publish(
+        &self,
+        state: &mut State,
+        chat: &str,
+        before: Vec<Participant>,
+        after: Vec<Participant>,
+    ) {
         if before != after {
             let base = state.revisions.get(chat).copied();
             state.next_revision += 1;
@@ -474,9 +559,12 @@ impl Inner {
                 state.revisions.insert(chat.to_owned(), revision);
             }
             // Under the lock, so every connection hears the changes in the order they happened.
-            let _ = self.changes.send(Arc::new(json!({"sessionId": chat, "participants": after})));
+            // A follow alone leaves `_acpmux/presence` as it was: it is a room delta only.
+            if !before.iter().map(Participant::shown).eq(after.iter().map(Participant::shown)) {
+                let _ =
+                    self.changes.send(Arc::new(json!({"sessionId": chat, "participants": after})));
+            }
         }
-        result
     }
 
     /// The typing expiry fired: the `on` that started it ends, unless a newer one replaced it.
@@ -526,9 +614,17 @@ struct Participant {
     devices: u64,
     viewing: bool,
     typing: bool,
+    /// Whom this person follows (RFD 0141 phase 3): on the room record, not `_acpmux/presence`.
+    #[serde(skip)]
+    following: Option<String>,
 }
 
 impl Participant {
+    /// What `_acpmux/presence` shows of it.
+    fn shown(&self) -> (&str, &str, u64, bool, bool) {
+        (&self.id, &self.name, self.devices, self.viewing, self.typing)
+    }
+
     fn record(&self, chat: &str, epoch: u64) -> Record {
         let mut record = Record::new(
             PresenceId(self.id.as_str().into()),
@@ -541,27 +637,36 @@ impl Participant {
             record.doing = Doing::Typing;
             record.lease_ms = cmux_presence::TYPING_LEASE_MS;
         }
+        record.following = self.following.as_deref().map(|id| PresenceId(id.into()));
         record
     }
 }
 
-/// One participant per person, by id.
-fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Participant> {
-    let mut people: BTreeMap<&str, (&str, u64, bool, bool)> = BTreeMap::new();
-    for ((_, id), entry) in entries.into_iter().flatten() {
-        let person = people.entry(id).or_insert((&entry.name, 0, false, false));
+/// One participant per person, by id. A person on several connections follows whom the first
+/// of them (by connection id) that follows anyone does.
+fn participants(
+    entries: Option<&BTreeMap<Key, Entry>>,
+    follows: &HashMap<Key, String>,
+) -> Vec<Participant> {
+    let mut people: BTreeMap<&str, (&str, u64, bool, bool, Option<&str>)> = BTreeMap::new();
+    for (key, entry) in entries.into_iter().flatten() {
+        let person = people.entry(&key.1).or_insert((&entry.name, 0, false, false, None));
         person.1 += 1;
         person.2 |= entry.viewing;
         person.3 |= entry.typing;
+        if person.4.is_none() {
+            person.4 = follows.get(key).map(String::as_str);
+        }
     }
     people
         .into_iter()
-        .map(|(id, (name, devices, viewing, typing))| Participant {
+        .map(|(id, (name, devices, viewing, typing, following))| Participant {
             id: id.to_owned(),
             name: name.to_owned(),
             devices,
             viewing,
             typing,
+            following: following.map(str::to_owned),
         })
         .collect()
 }
@@ -599,8 +704,8 @@ fn room_change(
     })
 }
 
-fn note(chat: &str, entries: Option<&BTreeMap<Key, Entry>>) -> Value {
-    json!({"sessionId": chat, "participants": participants(entries)})
+fn note(chat: &str, participants: &[Participant]) -> Value {
+    json!({"sessionId": chat, "participants": participants})
 }
 
 #[cfg(test)]
@@ -770,6 +875,83 @@ mod tests {
         let refused = presence.rooms("w", sink, many).unwrap_err();
         assert_eq!(refused.data.as_ref().unwrap()["reason"], ROOMS_FULL);
         assert!(presence.watches("w", &chat("c")));
+    }
+
+    /// A follow reaches the follower's rooms as one `Following` delta, `_acpmux/presence` does
+    /// not change, and `null` clears it the same way.
+    #[test]
+    fn a_follow_rides_the_room_deltas_and_null_clears_it() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        presence.view("d", "conn-b", &bob, true).unwrap();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink, vec![chat("c")]).unwrap();
+        let mut changes = presence.subscribe();
+        let before = presence.snapshot("c");
+
+        presence.follow("conn-a", "tailnet:ana", Some("tailnet:bob")).unwrap();
+        assert_eq!(presence.following("conn-a", "tailnet:ana").as_deref(), Some("tailnet:bob"));
+        let follow = notes.lock_or_recover()[1].clone();
+        assert_eq!(follow["deltas"][0]["id"], "tailnet:ana", "{follow}");
+        assert_eq!(
+            follow["deltas"][0]["changes"],
+            json!([{"following": "tailnet:bob"}]),
+            "{follow}"
+        );
+        assert_eq!(
+            presence.records("c")[0].following.as_ref().map(|id| id.0.as_ref()),
+            Some("tailnet:bob")
+        );
+        assert_eq!(presence.snapshot("c"), before, "_acpmux/presence is unchanged");
+        assert!(changes.try_recv().is_err(), "a follow alone broadcasts no _acpmux/presence");
+
+        // A chat the follower moves to carries it on its record.
+        presence.view("e", "conn-a", &ana(), true).unwrap();
+        assert!(presence.records("e")[0].following.is_some());
+
+        presence.follow("conn-a", "tailnet:ana", None).unwrap();
+        let cleared = notes.lock_or_recover()[2].clone();
+        assert_eq!(cleared["deltas"][0]["changes"], json!([{"following": null}]), "{cleared}");
+        assert!(presence.records("c")[0].following.is_none());
+        assert_eq!(notes.lock_or_recover().len(), 3, "one note a follow change");
+    }
+
+    /// Following yourself and following someone who shows no chat here are refused, and
+    /// change nothing.
+    #[test]
+    fn a_follow_of_yourself_or_of_nobody_live_is_refused() {
+        let presence = Presence::default();
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        let own = presence.follow("conn-a", "tailnet:ana", Some("tailnet:ana")).unwrap_err();
+        assert_eq!(own.data.as_ref().unwrap()["reason"], FOLLOW_SELF);
+        let gone = presence.follow("conn-a", "tailnet:ana", Some("tailnet:zed")).unwrap_err();
+        assert_eq!(gone.data.as_ref().unwrap()["reason"], FOLLOW_NOT_LIVE);
+        assert_eq!(presence.following("conn-a", "tailnet:ana"), None);
+        assert!(presence.records("c")[0].following.is_none());
+    }
+
+    /// Closing the follower's connection ends its follow as a delta, so the same person on
+    /// another connection no longer shows it.
+    #[test]
+    fn closing_the_followers_connection_ends_the_follow() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        presence.view("c", "conn-a2", &ana(), true).unwrap();
+        presence.view("d", "conn-b", &bob, true).unwrap();
+        presence.follow("conn-a", "tailnet:ana", Some("tailnet:bob")).unwrap();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink, vec![chat("c")]).unwrap();
+        presence.close("conn-a");
+        assert_eq!(presence.following("conn-a", "tailnet:ana"), None);
+        assert!(presence.records("c")[0].following.is_none());
+        let heard = notes.lock_or_recover().clone();
+        assert!(
+            heard.iter().any(|n| n["deltas"][0]["changes"] == json!([{"following": null}])),
+            "{heard:?}"
+        );
+        assert!(presence.inner.state.lock_or_recover().follows.is_empty());
     }
 
     /// The cost of one update is the room's subscribers, never the number of other rooms: the

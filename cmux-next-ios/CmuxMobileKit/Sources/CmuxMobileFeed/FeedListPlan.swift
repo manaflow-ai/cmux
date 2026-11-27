@@ -215,6 +215,31 @@ struct FeedSnapshotEdit: Equatable {
     #endif
 }
 
+/// How live events enter the top of the Feed (hq docs/design/ios-feed.md item K; Threads and X): while the
+/// reader is at the top, the new rows drop in on a spring and the rows below slide down with them, with one
+/// soft tap. A first load, a filter switch that brings in older rows, or a burst too big to read as
+/// "something just arrived" shows at once, as before.
+struct FeedArrival {
+    /// More fresh rows than this at once is a load, not an arrival.
+    static let maxRows = 4
+    /// The soft tap plays at most once per this many seconds, so a busy agent never buzzes the phone.
+    static let hapticGap: TimeInterval = 4
+
+    /// Whether FRESH (rows never shown this session) spring in: the list already showed rows (HAD_ROWS),
+    /// the reader is at the top and no jump is animating (AT_TOP), and the fresh rows are the top rows of
+    /// ORDER (a live arrival; a filter switch puts unseen older rows further down).
+    static func springs(fresh: Set<String>, order: [String], hadRows: Bool, atTop: Bool) -> Bool {
+        guard hadRows, atTop, !fresh.isEmpty, fresh.count <= maxRows else { return false }
+        return Set(order.prefix(fresh.count)) == fresh
+    }
+
+    /// Whether an arrival at NOW plays the soft tap, given the last one at LAST (nil: none yet).
+    static func taps(now: TimeInterval, last: TimeInterval?) -> Bool {
+        guard let last else { return true }
+        return now - last >= hapticGap
+    }
+}
+
 /// The pinned group at the top of the whole Feed: the asks still waiting on the person, which
 /// `FeedStore.pinningNeedsYou` puts before every other event. An ask that leaves the group (or
 /// joins it again) moves its row, so the list follows it by eye.

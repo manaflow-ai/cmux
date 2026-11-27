@@ -10,12 +10,18 @@
 //!   "done|failed", "detail"}`. `pending: true` in the answer means the hub changed its mind
 //!   meanwhile; the next pass leases it.
 //!
+//! - `POST <hub>/v1/machines/credentials/self/children` `{"slot", "label", "ttlSeconds"}`
+//!   (cmux-platform#2213) mints a one-time `cmj_` join token for a slot this host holds. Each
+//!   `create` leased here mints one before it is handed to the driver, which gives it to the
+//!   new guest ([`super::ChildJoin`]); the guest redeems it and joins the hub as its own
+//!   machine. A refused mint fails the create back to the hub with the reason.
+//!
 //! The hub's `slot` is the VM name (`cmux-<slot>`); a bare name is taken as the slot itself.
 //! Every verb is idempotent by slot name on the driver side, so a command handed out twice
 //! (an ack lost on the way) does no harm.
 
 use super::source::{Command, CommandSource, Envelope, Outcome};
-use super::{SlotName, SlotSpec};
+use super::{ChildJoin, SlotName, SlotSpec};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -23,6 +29,9 @@ use std::collections::HashMap;
 
 pub const LEASE_PATH: &str = "/v1/machines/joined/commands/lease";
 pub const ACK_PATH: &str = "/v1/machines/joined/commands/ack";
+pub const CHILDREN_PATH: &str = "/v1/machines/credentials/self/children";
+/// How long a slot's child join token lives: the hub's cap. The guest redeems it as it boots.
+pub const CHILD_TTL_SECS: u64 = 600;
 /// The hub's cap on one lease's size.
 pub const MAX_LEASE: u32 = 32;
 /// The hub's cap on an ack's detail, in characters.
@@ -32,6 +41,8 @@ const DETAIL_MAX: usize = 1024;
 /// the body is not JSON).
 pub trait HubPost {
     fn post(&mut self, path: &str, body: &Value) -> Result<(u16, Value)>;
+    /// The hub's origin, where a guest redeems the join token minted here.
+    fn origin(&self) -> &str;
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,12 +142,44 @@ fn refusal(status: u16, answer: &Value) -> String {
     }
 }
 
+/// [`refusal`] for the child token mint.
+fn mint_refusal(status: u16, answer: &Value) -> String {
+    match status {
+        404 => "the hub mints no child join tokens (404): registered machines are off for this \
+                team"
+            .to_owned(),
+        _ => refusal(status, answer),
+    }
+}
+
 fn detail_of(outcome: &Outcome) -> Option<String> {
     let text = outcome.error.as_deref()?;
     Some(text.chars().take(DETAIL_MAX).collect())
 }
 
 impl<P: HubPost> HubSource<P> {
+    /// A one-time join token for the new guest in the hub's slot `slot`, minted with this
+    /// host's own credential. The token is never logged, and wiped when dropped.
+    fn mint(&mut self, slot: &str) -> Result<ChildJoin> {
+        const WHAT: &str = "mint the slot's join token";
+        let body = json!({ "slot": slot, "label": slot, "ttlSeconds": CHILD_TTL_SECS });
+        let (status, mut answer) = self.post.post(CHILDREN_PATH, &body).context(WHAT)?;
+        // Out of the answer first, so it is wiped whatever happens next.
+        let token = match answer.get_mut("token").map(Value::take) {
+            Some(Value::String(t)) => Some(zeroize::Zeroizing::new(t)),
+            _ => None,
+        };
+        if !(200..300).contains(&status) {
+            bail!("{WHAT}: {}", mint_refusal(status, &answer));
+        }
+        let Some(token) = token else {
+            bail!("{WHAT}: the hub's answer has no token");
+        };
+        let token = crate::cli::cloud_join::parse_token_text(&token)
+            .map_err(|_| anyhow::anyhow!("{WHAT}: the hub's token is malformed"))?;
+        Ok(ChildJoin::new(self.post.origin(), zeroize::Zeroizing::new(token)))
+    }
+
     fn ack_hub(
         &mut self,
         id: &str,
@@ -172,7 +215,14 @@ impl<P: HubPost> CommandSource for HubSource<P> {
         let mut out = Vec::new();
         for c in leased.commands {
             let handed = Handed { slot: c.slot.clone(), kind: c.kind.clone() };
-            match command_of(&c) {
+            let command = command_of(&c).and_then(|mut command| {
+                // A new guest gets its own join token; only a hub-sourced create mints one.
+                if let Command::Create { spec, .. } = &mut command {
+                    spec.join = Some(self.mint(&c.slot)?);
+                }
+                Ok(command)
+            });
+            match command {
                 Ok(command) => {
                     self.handed.insert(c.id.clone(), handed);
                     out.push(Envelope { id: c.id, command });
@@ -227,6 +277,10 @@ impl JoinedHub {
 }
 
 impl HubPost for JoinedHub {
+    fn origin(&self) -> &str {
+        &self.origin
+    }
+
     fn post(&mut self, path: &str, body: &Value) -> Result<(u16, Value)> {
         let token =
             zeroize::Zeroizing::new(crate::cli::cloud_join::read_join_credential(&self.origin)?);
@@ -256,13 +310,36 @@ mod tests {
     #[derive(Default)]
     struct FakeHub {
         leases: Vec<(u16, Value)>,
+        /// The mint's answers in order; then a fresh `cmj_for-<slot>` token.
+        mints: Vec<(u16, Value)>,
         sent: Vec<(String, Value)>,
         ack_status: u16,
     }
 
+    const ORIGIN: &str = "https://hub.test";
+
+    fn minted(slot: &str) -> String {
+        format!("cmj_for-{slot}")
+    }
+
     impl HubPost for &mut FakeHub {
+        fn origin(&self) -> &str {
+            ORIGIN
+        }
+
         fn post(&mut self, path: &str, body: &Value) -> Result<(u16, Value)> {
             self.sent.push((path.to_owned(), body.clone()));
+            if path == CHILDREN_PATH {
+                if !self.mints.is_empty() {
+                    return Ok(self.mints.remove(0));
+                }
+                let slot = body["slot"].as_str().unwrap();
+                return Ok((
+                    200,
+                    json!({"joinTokenId": "jt1", "token": minted(slot), "teamId": "t",
+                           "parentMachineId": "m", "slot": slot, "label": slot}),
+                ));
+            }
             if path == ACK_PATH {
                 return Ok((
                     if self.ack_status == 0 { 200 } else { self.ack_status },
@@ -277,12 +354,18 @@ mod tests {
         }
     }
 
-    /// Slots in memory, each verb idempotent by name as the real drivers are.
+    /// Slots in memory, each verb idempotent by name as the real drivers are, and each
+    /// create's join (hub, token) as the driver got it.
     #[derive(Default)]
-    struct MemDriver(std::cell::RefCell<std::collections::BTreeMap<SlotName, SlotState>>);
+    struct MemDriver(
+        std::cell::RefCell<std::collections::BTreeMap<SlotName, SlotState>>,
+        std::cell::RefCell<Vec<Option<(String, String)>>>,
+    );
 
     impl crate::hypervisor::HypervisorDriver for MemDriver {
-        fn create(&self, slot: &SlotName, _: &SlotSpec) -> Result<SlotState> {
+        fn create(&self, slot: &SlotName, spec: &SlotSpec) -> Result<SlotState> {
+            let join = spec.join.as_ref().map(|j| (j.hub.clone(), j.token().to_owned()));
+            self.1.borrow_mut().push(join);
             Ok(*self.0.borrow_mut().entry(slot.clone()).or_insert(SlotState::Running))
         }
         fn pause(&self, slot: &SlotName, _: crate::hypervisor::PauseMode) -> Result<SlotState> {
@@ -337,7 +420,15 @@ mod tests {
             got[0].command,
             Command::Create {
                 slot: SlotName::parse("lane-a").unwrap(),
-                spec: SlotSpec { vcpus: 2, memory_mib: 4096, disk_gib: 20 },
+                spec: SlotSpec {
+                    vcpus: 2,
+                    memory_mib: 4096,
+                    disk_gib: 20,
+                    join: Some(ChildJoin::new(
+                        ORIGIN,
+                        zeroize::Zeroizing::new(minted("cmux-lane-a"))
+                    )),
+                },
                 lease: Default::default(),
             }
         );
@@ -356,14 +447,23 @@ mod tests {
         drop(source);
 
         assert_eq!(hub.sent[0], (LEASE_PATH.to_owned(), json!({"max": 8})));
+        // Only the create minted, for the hub's own slot text.
         assert_eq!(
             hub.sent[1],
+            (
+                CHILDREN_PATH.to_owned(),
+                json!({"slot": "cmux-lane-a", "label": "cmux-lane-a", "ttlSeconds": 600})
+            )
+        );
+        assert_eq!(
+            hub.sent[2],
             (
                 ACK_PATH.to_owned(),
                 json!({"slot": "cmux-lane-a", "id": "c1", "type": "create", "outcome": "done"})
             )
         );
-        let failed = &hub.sent[2].1;
+        assert_eq!(hub.sent.iter().filter(|(p, _)| p == CHILDREN_PATH).count(), 1);
+        let failed = &hub.sent[3].1;
         assert_eq!(failed["slot"], "lane-c");
         assert_eq!(failed["outcome"], "failed");
         assert_eq!(failed["detail"].as_str().unwrap().chars().count(), DETAIL_MAX);
@@ -389,6 +489,71 @@ mod tests {
         assert!(acks.iter().all(|b| b["outcome"] == "failed"));
         assert!(acks[0]["detail"].as_str().unwrap().contains("snapshot"), "{}", acks[0]);
         assert!(acks[1]["detail"].as_str().unwrap().contains("Bad_Name"), "{}", acks[1]);
+        // A create refused before the mint mints nothing.
+        assert!(hub.sent.iter().all(|(p, _)| p != CHILDREN_PATH));
+    }
+
+    #[test]
+    fn a_minted_join_token_never_shows_in_a_debug_line_or_a_command_file() {
+        let mut hub = FakeHub {
+            leases: vec![(
+                200,
+                json!({"commands": [{"id": "c1", "slot": "cmux-s1", "type": "create"}]}),
+            )],
+            ..Default::default()
+        };
+        let got = HubSource::new(&mut hub, 8).take().unwrap();
+        let secret = minted("cmux-s1");
+        let Command::Create { spec, .. } = &got[0].command else { panic!("{:?}", got[0]) };
+        assert_eq!(spec.join.as_ref().unwrap().token(), secret);
+        assert!(!format!("{:?}", got[0]).contains(&secret));
+        assert!(!serde_json::to_string(&got[0]).unwrap().contains(&secret));
+        // Nor can a spooled command carry one in: the field is never read.
+        let spooled: Command = serde_json::from_value(json!({"verb": "create", "slot": "s1",
+            "spec": {"vcpus": 1, "join": {"hub": ORIGIN, "token": "cmj_x"}}}))
+        .unwrap();
+        let Command::Create { spec, .. } = spooled else { panic!() };
+        assert!(spec.join.is_none());
+    }
+
+    #[test]
+    fn a_refused_mint_fails_the_create_back_to_the_hub_with_the_reason() {
+        let mut hub = FakeHub {
+            leases: vec![(
+                200,
+                json!({"commands": [
+                    {"id": "m1", "slot": "cmux-a", "type": "create"},
+                    {"id": "m2", "slot": "cmux-b", "type": "create"},
+                    {"id": "m3", "slot": "cmux-c", "type": "create"},
+                    {"id": "m4", "slot": "cmux-d", "type": "create"},
+                    {"id": "m5", "slot": "cmux-e", "type": "create"},
+                    {"id": "p1", "slot": "cmux-f", "type": "pause"}
+                ]}),
+            )],
+            mints: vec![
+                (403, json!({"error": "machine.slot_not_held"})),
+                (401, json!({"error": {"code": "machine.revoked"}})),
+                (404, Value::Null),
+                (200, json!({"token": "not-a-join-token-sekrit"})),
+                (200, json!({"joinTokenId": "jt"})),
+            ],
+            ..Default::default()
+        };
+        let got = HubSource::new(&mut hub, 8).take().unwrap();
+        // Only the pause is handed to the driver; it minted nothing.
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "p1");
+        assert_eq!(hub.sent.iter().filter(|(p, _)| p == CHILDREN_PATH).count(), 5);
+        let acks: Vec<&Value> =
+            hub.sent.iter().filter(|(p, _)| p == ACK_PATH).map(|(_, b)| b).collect();
+        assert_eq!(acks.len(), 5);
+        assert!(acks.iter().all(|b| b["outcome"] == "failed" && b["type"] == "create"));
+        let detail = |i: usize| acks[i]["detail"].as_str().unwrap().to_owned();
+        assert!(detail(0).contains("machine.slot_not_held"), "{}", detail(0));
+        assert!(detail(1).contains("machine.revoked") && detail(1).contains("machine join"));
+        assert!(detail(2).contains("registered machines are off"), "{}", detail(2));
+        assert!(detail(3).contains("malformed") && !detail(3).contains("sekrit"), "{}", detail(3));
+        assert!(detail(4).contains("no token"), "{}", detail(4));
     }
 
     #[test]
@@ -432,6 +597,8 @@ mod tests {
         let tick = agent.tick(2_000).unwrap();
         assert!(tick.applied[0].outcome.ok, "{:?}", tick.applied[0]);
         assert!(tick.slots.is_empty());
+        // The driver got the slot's own minted token and the hub that redeems it.
+        assert_eq!(*agent.driver.1.borrow(), vec![Some((ORIGIN.to_owned(), minted("cmux-h1")))]);
         drop(agent);
         let acks: Vec<(String, String)> = hub
             .sent

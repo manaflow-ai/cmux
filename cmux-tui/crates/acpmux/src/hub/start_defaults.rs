@@ -365,11 +365,9 @@ impl Hub {
     /// The model ids `agent` itself reported (its last session or probe);
     /// empty when it reported none (Claude Code, a harness not probed yet).
     pub(super) fn reported_model_ids(&self, agent: &str) -> Vec<String> {
-        self.known_models
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(agent)
-            .map(|list| list.iter().map(|(id, _)| id.clone()).collect())
+        self.model_lists
+            .acp(agent)
+            .map(|list| list.into_iter().map(|(id, _)| id).collect())
             .unwrap_or_default()
     }
 

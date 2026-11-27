@@ -55,6 +55,8 @@ pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
 pub mod provider_downloads;
+// Drives the app's provider link, which is unix-only.
+#[cfg(unix)]
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;

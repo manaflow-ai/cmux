@@ -3,7 +3,10 @@ import Testing
 @testable import CmuxMobileModel
 
 /// Parity round 3: the Mac's workspace groups on the phone
-/// (verify/parity-mac.md, Workspaces, "Workspace groups").
+/// (verify/parity-mac.md, Workspaces, "Workspace groups"). The order and
+/// hold rules are Rust's workspace_groups (its tests hold every case); these
+/// check the bridge, on the iOS simulator where the Rust library links.
+#if os(iOS)
 @Suite struct WorkspaceGroupArrangementTests {
     private func workspaces(_ ids: [String]) -> [Workspace] {
         ids.map { id in
@@ -101,8 +104,11 @@ import Testing
         #expect(try JSONDecoder().decode(Workspace.self, from: JSONSerialization.data(withJSONObject: object)).group == nil)
     }
 }
+#endif
 
 /// The creator's group actions: at once on the phone, undone when the Mac refuses.
+/// The Recorder is shared with WorkspaceRowActionsTests on every platform; the
+/// tests themselves run where the Rust library links (iOS).
 @MainActor
 @Suite struct WorkspaceGroupCreatorTests {
     final class Recorder: WorkspaceCreationBackend, WorkspaceArrangementBackend, WorkspaceGroupBackend {
@@ -167,6 +173,7 @@ import Testing
         func deleteGroup(_ group: MacWorkspaceGroup, on macID: String) async throws { try record("delete \(group.id)") }
     }
 
+    #if os(iOS)
     let red = MacWorkspaceGroup(id: "grp_r", name: "Red", color: "red")
 
     private func setup() -> (AppStore, WorkspaceCreator, Recorder, String) {
@@ -464,4 +471,5 @@ import Testing
         await creator.settle()
         #expect(ws(store, "b").group?.name == "Red" && ws(store, "c").group?.name == "Red")
     }
+    #endif
 }
