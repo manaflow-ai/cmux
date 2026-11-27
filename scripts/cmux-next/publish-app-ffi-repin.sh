@@ -66,6 +66,15 @@ rate_limit_wait() {
   [[ "$waited" =~ ^[0-9]+$ ]] || waited=0
   left=$((rate_limit_max - waited))
   retry="$(header "$1" retry-after)" remaining="$(header "$1" x-ratelimit-remaining)" reset="$(header "$1" x-ratelimit-reset)"
+  # A refusal with no headers (a call that is not `gh api --include`, such as scripts/ci/gh_pages.py) says nothing of
+  # the reset, and the backoff below then slept 60+120+240+180 s before failing (job 140440306992, 2026-11-27: 10 min
+  # spent on a limit that reset 30 min later). GET /rate_limit does not count against the limit: read the token's
+  # core budget there, so a reset past this run's bound fails now.
+  if [[ -z "$retry" && -z "$reset" ]] &&
+      read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) &&
+      [[ "$remaining" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]]; then
+    ((remaining == 0)) || remaining="" reset=""
+  fi
   if [[ "$retry" =~ ^[0-9]+$ ]]; then
     wait_s=$((retry > 0 ? retry : 1)) wait_why="retry-after ${retry}s"
   elif [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]]; then
@@ -231,6 +240,22 @@ fi
 # restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
+# oldest_unpinned PIN RELEASE: the commit time of the oldest commit in PIN..RELEASE that changes an FFI input. This
+# checkout is treeless (filter: tree:0), so that walk fetches the trees of every commit one at a time; with the pin
+# 501 min behind it ran from 13:19Z until the job's timeout cancelled it at 13:47Z, and nothing re-pinned (app FFI
+# release run 46002456039, 2026-11-27; GIT_HTTP_LOW_SPEED_TIME never fires, as bytes keep coming). Past
+# REPIN_INPUT_WALK_S it reads the oldest commit in the range instead, which needs no tree and is never younger, so the
+# bound below ends a hold no later than with the walk.
+oldest_unpinned() {
+  local walk_s="${REPIN_INPUT_WALK_S:-60}" oldest
+  if oldest="$(timeout -k 5 "$walk_s" git log --format=%ct "$1..$2" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+      [[ "$oldest" =~ ^[0-9]+$ ]]; then
+    echo "$oldest"
+    return 0
+  fi
+  echo "the walk of the FFI inputs in ${1:0:12}..${2:0:12} did not finish in $walk_s s: the clock reads the range's oldest commit" >&2
+  git log --format=%ct "$1..$2" 2>/dev/null | tail -n 1
+}
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh_retry gh api "$@"; }
 pending_newer() {
   local runs id head age jobs pin_time pin_age oldest
@@ -239,8 +264,13 @@ pending_newer() {
   # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
-    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
-        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+    # The oldest unpinned commit only makes the age larger, so a release whose own commit is already past the bound
+    # needs no walk. The walk is a path-limited `git log` in this treeless clone, which fetches each commit's trees
+    # one by one: 16 min in job 140515668328 and 5.7 min in 140468066668 (2026-11-27), each for a release 369 to
+    # 481 min old against the 60 min bound.
+    if (( ($(date +%s) - pin_time) / 60 <= pending_max_min )) &&
+        [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+        oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
     fi

@@ -2753,6 +2753,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/heap_profile",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peers",
       "params": {
         "$ref": "#/types/PeersParams"
@@ -2768,6 +2774,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wireguard_admit",
       "params": true,
       "result": true
     },
@@ -2954,6 +2966,42 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_grantor_trust",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_account_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_trust_refresh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
       "params": true,
       "result": true
     },
@@ -4355,6 +4403,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4365,6 +4414,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },
@@ -8086,6 +8136,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -9066,6 +9124,14 @@
         },
         "harness": {
           "type": "string"
+        },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "harnessSandboxFailed": {
           "default": null,
