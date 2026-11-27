@@ -47,7 +47,7 @@ jobs:
   attribute:
     name: Attribute
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: write token; the re-run must follow CI within a minute
     timeout-minutes: 10
     permissions:
       actions: write

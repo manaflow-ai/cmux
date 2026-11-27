@@ -99,7 +99,7 @@ check('python3 scripts/ci/tip_appcast_linux.py SPARKLE_PRIVATE_KEY "tip-new/cmux
 sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
 verify = workflow[workflow.index("\n  verify:\n"):workflow.index("\n  publish:\n")]
 # The signer runs on Linux (rcodesign): no keychain, no DMG and no notarization there.
-check("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}" in sign
+check("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}" in sign
       and "./scripts/ci/rcodesign-sign-bundle-dev.sh" in sign, "the sign job signs on Linux with rcodesign")
 sign_code = "\n".join(line for line in sign.splitlines() if not line.lstrip().startswith("#"))
 check(all(word not in sign_code for word in ("keychain", "notarytool", "--no-wait", "hdiutil", "/usr/bin/", "PlistBuddy", "swift ")),

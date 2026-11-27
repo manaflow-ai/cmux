@@ -23,7 +23,7 @@ jobs:
   journey:
     if: github.repository == 'manaflow-ai/cmux'
     # It holds the cmux-bot App key, so LINUX_RUNNER may only pick a Blacksmith label from this list.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     permissions:
       actions: write
       contents: read
