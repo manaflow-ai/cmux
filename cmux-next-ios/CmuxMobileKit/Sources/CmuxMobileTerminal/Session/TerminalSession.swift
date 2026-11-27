@@ -137,12 +137,11 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
-    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
     /// beside Discard.
     public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
-    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    /// Said only when voice mode's prompt did not reach the Mac's terminal: its words are not in the
+    /// composer to come back. A composer send that did not go says nothing (its draft comes back).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
     /// came (the link failed after it went out): its text stays out of the composer, so a second

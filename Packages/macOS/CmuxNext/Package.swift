@@ -48,7 +48,7 @@ import PackageDescription
 //   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender, CCmuxAppFFI (the Home models, tunables
 //     and their strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and
 //     invite outcomes, pins, dock mode, chat colours; HomeRules, the Rust home rules' caller over cmux_home_call,
-//     which ChiefPetWiring, ChiefViews and HomeEngine also call for the welcome.* ops; no views, no MessagesLab, no daemon)
+//     which ChiefPetWiring, ChiefViews and HomeEngine also call for the welcome.* and mapping.* ops; no views, no MessagesLab, no daemon)
 //   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
@@ -2452,8 +2452,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // BackdropArt+Entries.swift (the works' records), from art/manifest.json.
+            plugins: [.plugin(name: "BackdropArtEntriesPlugin")]
         ),
+        // Runs scripts/cmux-next/art/generate_backdrop_art.py --entries-out into its work directory.
+        .plugin(name: "BackdropArtEntriesPlugin", capability: .buildTool()),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
         .testTarget(
             name: "CmuxNextDesignTests",

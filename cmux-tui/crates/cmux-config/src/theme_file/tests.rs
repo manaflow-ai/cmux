@@ -845,6 +845,19 @@ fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
     assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
 }
 
+/// A theme or profile file sets how a reply streams (`agentPane.display.streaming`); a value that
+/// is not one of its choices is refused with its key.
+#[test]
+fn a_theme_file_carries_the_reply_streaming_style() {
+    let file = overlay(r#"{ "agentPane.display.streaming": "instant" }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.streaming"), Some(&json!("instant")));
+    let bad = overlay(r#"{ "agentPane.display.streaming": "typewriter" }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.streaming"));
+}
+
 #[test]
 fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");

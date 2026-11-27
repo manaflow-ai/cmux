@@ -56,6 +56,7 @@ pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
+pub mod ci_log_cache;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -197,6 +198,7 @@ pub mod terminal_autocompact;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod chat_secrets;
+pub mod exit_record;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -396,6 +398,7 @@ pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
 pub mod scorecard;
+pub mod scorecard_replay;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -452,6 +455,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
 pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
