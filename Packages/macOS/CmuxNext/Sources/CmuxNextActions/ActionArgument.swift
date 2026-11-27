@@ -141,11 +141,11 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
 
 extension ActionArgument {
     /// The `theme` argument value that resets to the Ghostty config.
-    public static let themeConfigValue = "config"
+    public nonisolated static let themeConfigValue = "config"
 
     /// Theme names the theme actions offer first, in picker order: the pinned values of the
     /// catalog's `theme` argument (cmux-action-catalog), without the Ghostty config.
-    public static let curatedThemes: [String] = {
+    public nonisolated static let curatedThemes: [String] = {
         let theme = ActionCatalog.all.lazy.flatMap(\.arguments)
             .first { $0.name == "theme" && $0.suggestions?.source == ActionSuggestions.ghosttyThemes }
         return (theme?.suggestions?.pinned ?? []).map(\.value).filter { $0 != themeConfigValue }
