@@ -227,7 +227,13 @@ impl Command {
     /// reaches this process). A daemon has none, so its children lead their
     /// groups. [`Command::new_session`] makes it a leader too. A leader's
     /// drop ends what it started with it ([`Child`]).
+    ///
+    /// On Unix, spawning waits for an in-progress process replacement to finish restoring
+    /// descriptor flags on failure, so it cannot inherit that replacement's handoff descriptors.
     pub fn spawn(&mut self) -> io::Result<Child> {
+        #[cfg(unix)]
+        let _exec_guard =
+            crate::exec::SPAWN_EXEC_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let asked = self.process_group;
         let leads_group = match asked {
             _ if self.new_session => true,

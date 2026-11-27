@@ -12,6 +12,10 @@ use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+/// A child must never fork while exec temporarily clears CLOEXEC on its handoff descriptors.
+/// Hold through spawn's exec and through failed replacement's flag restoration.
+pub(crate) static SPAWN_EXEC_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Replaces this process with `program`, given `args` (after argv\[0\], which
 /// is `program`) and exactly the environment `env`. Descriptors 0-2 carry
 /// over; every other one is closed by the exec. Returns only on failure, with
@@ -30,8 +34,10 @@ where
 
 /// [`exec_replace`], preserving `inherit` at their existing descriptor numbers.
 /// Every descriptor above stderr that is not listed is closed by exec. The
-/// caller must quiesce code that opens or changes descriptors before calling;
-/// the borrowed descriptors remain owned by the caller until exec succeeds.
+/// caller must quiesce code that opens or changes descriptors before calling.
+/// [`crate::Command::spawn`] is serialized with this operation; any direct process-spawn
+/// APIs outside this crate must also be quiesced. The borrowed descriptors remain owned
+/// by the caller until exec succeeds.
 ///
 /// Returns only on failure. The listed descriptors' original close-on-exec
 /// flags are restored before returning; other descriptors remain close-on-exec.
@@ -84,6 +90,7 @@ where
         .map(|pair| pair.as_ptr())
         .chain(std::iter::once(std::ptr::null()))
         .collect();
+    let _spawn_guard = SPAWN_EXEC_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let original = match inherit
         .iter()
         .map(|fd| flags(fd.as_raw_fd()).map(|flags| (fd.as_raw_fd(), flags)))

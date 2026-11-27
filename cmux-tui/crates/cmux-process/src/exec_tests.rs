@@ -73,6 +73,42 @@ fn descriptor_fallback_seals_fds_above_a_lowered_soft_limit() {
     assert_ne!(flags(high.as_raw_fd()).unwrap() & libc::FD_CLOEXEC, 0);
 }
 
+#[test]
+fn spawn_waits_until_exec_handoff_descriptors_are_sealed() {
+    const CHILD_FD: &str = "CMUX_TEST_EXEC_SPAWN_FD";
+    const TEST: &str = "exec::tests::spawn_waits_until_exec_handoff_descriptors_are_sealed";
+    if let Some(fd) = std::env::var_os(CHILD_FD) {
+        let fd = fd.to_str().unwrap().parse::<RawFd>().unwrap();
+        assert_eq!(flags(fd).unwrap_err().raw_os_error(), Some(libc::EBADF));
+        return;
+    }
+    let file = File::open("/dev/null").unwrap();
+    // SAFETY: this duplicates a live file, owned by high below.
+    let raw = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 200) };
+    assert!(raw >= 200);
+    // SAFETY: successful F_DUPFD_CLOEXEC returned a new descriptor owned by this test.
+    let high = unsafe { OwnedFd::from_raw_fd(raw) };
+    let guard = SPAWN_EXEC_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    set_flags(high.as_raw_fd(), 0).unwrap();
+    let (began_tx, began_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let child = std::thread::spawn(move || {
+        let mut command = crate::Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", TEST, "--nocapture"]).env(CHILD_FD, raw.to_string());
+        began_tx.send(()).unwrap();
+        done_tx.send(command.status()).unwrap();
+    });
+    began_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    let premature = done_rx.recv_timeout(std::time::Duration::from_millis(100));
+    // Restore and release before asserting, so a failure does not strand a spawned thread.
+    set_flags(high.as_raw_fd(), libc::FD_CLOEXEC).unwrap();
+    drop(guard);
+    assert!(matches!(premature, Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+    let status = done_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap().unwrap();
+    child.join().unwrap();
+    assert!(status.success(), "concurrent child inherited an exec handoff descriptor: {status}");
+}
+
 /// Runs twice in one child PID, across a real exec. A held flock and a connect queued
 /// before exec must survive continuously, while an unrelated non-CLOEXEC fd must close.
 #[test]
