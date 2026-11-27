@@ -1588,6 +1588,7 @@ async fn dispatch_request_with_identity(
     match m {
         method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => heap(|| briefs::steer(hub, conn, params)).await,
+        method::SESSION_FORK => heap(|| fork_session(hub, conn, params, resolved)).await,
         method::CHAT_FIX_FROM_LINK => {
             heap(|| super::fix_from_link::handle(hub, conn, params, false)).await
         }
@@ -2822,7 +2823,6 @@ async fn dispatch_method(
             }
             Ok(json!({}))
         }
-        method::SESSION_FORK => heap(|| fork_session(hub, conn, params, resolved)).await,
         method::SESSION_SET_MODE => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
