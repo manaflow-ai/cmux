@@ -11,6 +11,13 @@
 #                           $GITHUB_OUTPUT and the job summary. Exits 0 whatever the run did: the caller acts on the
 #                           verdict. env: CONTROLLER, HEAD_SHA, PRODUCTS, LABEL (the summary's heading); CI_CLIENT
 #                           (a ci-client.py to use instead of the controller's) is for tests.
+#   kit_sim_fleet.sh reach  Can this runner reach the controller? Writes reach=yes|no. Two tries of
+#                           REACH_TIMEOUT (default 5) s; the controller answers in milliseconds from the tailnet.
+#                           `cmux-linux` is also served by GCP pool runners (cmux-runner-pool-s1a-*) that are not on
+#                           the tailnet, so a submit from there timed out and read as no verdict (run 45912028627).
+#                           A no is where the caller hands the submit to an owned Mac, never a verdict about the
+#                           controller (cmuxterm-hq docs/handbook/unreachable-from-here-read-as-down.md).
+#                           env: CONTROLLER.
 #
 # Every command whose exit is read runs as `cmd || rc=$?`: a workflow step is `bash -e`, so a bare failing command
 # would end the step before its status is read (review of cmux#59111).
@@ -123,8 +130,25 @@ verdict_out() {
   out "verdict=$1"; out "cases=$2"; out "seconds=$3"
 }
 
+reach() {
+  local here="${RUNNER_NAME:-this runner}" try
+  [[ -n "${CONTROLLER:-}" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; out "reach=no"; return 0; }
+  for try in 1 2; do
+    if curl -fsS -m "${REACH_TIMEOUT:-5}" -o /dev/null "$CONTROLLER/v1/client/manifest" 2>/dev/null; then
+      echo "the controller answers from $here"
+      out "reach=yes"
+      return 0
+    fi
+    [[ $try == 1 ]] && sleep "${RETRY_SLEEP:-2}"
+  done
+  echo "::notice title=fleet pool::no route to the controller from $here (not a tailnet peer); an owned Mac submits the pool run"
+  summary "### Fleet pool submit: no route from $here" "Not a tailnet peer; the owned-Mac job submits instead. Not a verdict about the controller."
+  out "reach=no"
+}
+
 case "${1:-}" in
   wait) wait_for_build ;;
   pool) pool_run ;;
-  *) echo "usage: $0 wait|pool" >&2; exit 2 ;;
+  reach) reach ;;
+  *) echo "usage: $0 wait|pool|reach" >&2; exit 2 ;;
 esac
