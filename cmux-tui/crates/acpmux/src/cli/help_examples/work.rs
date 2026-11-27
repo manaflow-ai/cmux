@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router`, `exec-router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -744,6 +744,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux share-host link --display 5 --name ui-check",
             ),
             ("Ask for full control instead of view-only", "acpmux share-host link --control"),
+        ],
+    ),
+    (
+        "exec-router",
+        &[("Show where the last heavy commands ran, and why", "acpmux exec-router trace")],
+    ),
+    (
+        "exec-router trace",
+        &[
+            ("Show the last 20 routing decisions", "acpmux exec-router trace"),
+            ("The last 100, as JSON rows", "acpmux --json exec-router trace --last 100"),
         ],
     ),
 ];

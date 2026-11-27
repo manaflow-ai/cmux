@@ -763,6 +763,8 @@ impl Hub {
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
+                // One fold of the log, which the reads below and recovery resume from.
+                hub.save_checkpoint_now(s, &of);
                 (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
             })
             .await?;

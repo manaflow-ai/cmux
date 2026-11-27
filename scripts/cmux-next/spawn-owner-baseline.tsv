@@ -1,5 +1,10 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
+cmux-tui/crates/acpmux-tui/src/actions.rs	3
+cmux-tui/crates/acpmux-tui/src/lib.rs	6
+cmux-tui/crates/acpmux-tui/src/links.rs	3
+cmux-tui/crates/acpmux-tui/src/run.rs	2
+cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/agent_host/host.rs	11
 cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
@@ -35,11 +40,11 @@ cmux-tui/crates/acpmux/src/config/launchers.rs	1
 cmux-tui/crates/acpmux/src/config/profile_env.rs	1
 cmux-tui/crates/acpmux/src/daemon.rs	9
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	1
+cmux-tui/crates/acpmux/src/daemon/listener_keeper.rs	2
 cmux-tui/crates/acpmux/src/daemon/login_session.rs	2
 cmux-tui/crates/acpmux/src/daemon/managed_unit.rs	1
 cmux-tui/crates/acpmux/src/daemon/notify.rs	1
 cmux-tui/crates/acpmux/src/daemon/persist_retry.rs	1
-cmux-tui/crates/acpmux/src/daemon/router_owner/fifo.rs	1
 cmux-tui/crates/acpmux/src/daemon/socket_rebind.rs	2
 cmux-tui/crates/acpmux/src/deps/archive.rs	2
 cmux-tui/crates/acpmux/src/deps/warm.rs	1
@@ -90,6 +95,7 @@ cmux-tui/crates/acpmux/src/hub/offer_results.rs	1
 cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs	2
 cmux-tui/crates/acpmux/src/hub/peers.rs	1
 cmux-tui/crates/acpmux/src/hub/permission_groups.rs	1
+cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2
 cmux-tui/crates/acpmux/src/hub/pool/held.rs	1
 cmux-tui/crates/acpmux/src/hub/pool/mod.rs	6
 cmux-tui/crates/acpmux/src/hub/pool/spare.rs	2
@@ -155,7 +161,7 @@ cmux-tui/crates/acpmux/src/server/review_queue.rs	1
 cmux-tui/crates/acpmux/src/server/stream.rs	2
 cmux-tui/crates/acpmux/src/server/trigger_chat.rs	1
 cmux-tui/crates/acpmux/src/server/upload_frames.rs	1
-cmux-tui/crates/acpmux/src/server/windows_socket.rs	2
+cmux-tui/crates/acpmux/src/server/windows_socket.rs	1
 cmux-tui/crates/acpmux/src/server/workflow_activity.rs	2
 cmux-tui/crates/acpmux/src/session_scope.rs	1
 cmux-tui/crates/acpmux/src/ssh_forward.rs	1
@@ -164,11 +170,6 @@ cmux-tui/crates/acpmux/src/supervise.rs	2
 cmux-tui/crates/acpmux/src/tailnet.rs	3
 cmux-tui/crates/acpmux/src/tailnet/embedded.rs	2
 cmux-tui/crates/acpmux/src/tailnet/embedded_service.rs	3
-cmux-tui/crates/acpmux-tui/src/actions.rs	3
-cmux-tui/crates/acpmux-tui/src/links.rs	3
-cmux-tui/crates/acpmux-tui/src/lib.rs	6
-cmux-tui/crates/acpmux-tui/src/run.rs	2
-cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/vault.rs	1
 cmux-tui/crates/acpmux/src/vault/store.rs	3
 cmux-tui/crates/acpmux/src/wireguard.rs	2
@@ -305,4 +306,3 @@ cmux-tui/crates/cmux-wg/src/net.rs	1
 cmux-tui/crates/cmux-wg/src/net_timers.rs	1
 cmux-tui/crates/cmux-wg/src/testing/sim.rs	2
 cmux-tui/crates/cmux-worktree-care/src/git.rs	2
-cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2

@@ -111,6 +111,7 @@ fn verify_launchers_checked(
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
+        // fleet-only-ok: the base already checks these; this only drops the CodeRouter arm.
         .filter(|(_, p)| is_subrouter_proxy(&p.argv))
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
