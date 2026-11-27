@@ -2205,6 +2205,19 @@
         }
       }
     },
+    "CloudConversations": {
+      "requests": {
+        "cloud-selfhost-info": {
+          "name": "CloudSelfHostInfoRequest",
+          "response": "CloudSelfHostInfo",
+          "doc": [
+            "`cloud-selfhost-info` (`cloud-selfhost-v1`): who the self-hosted server",
+            "the lease names says the person is (`GET /v1/selfhost/info`, asked by the",
+            "daemon without a token). Refused (`not_selfhost`) under a bearer lease."
+          ]
+        }
+      }
+    },
     "Conversations": {
       "objects": {
         "ConversationList": {

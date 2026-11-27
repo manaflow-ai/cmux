@@ -61,13 +61,3 @@ public struct CloudSessionStatusRequest: DaemonRequest {
     public static let command = "cloud-session-status"
     public init() {}
 }
-
-/// `cloud-selfhost-info` (`cloud-selfhost-v1`): who the self-hosted server
-/// the lease names says the person is (`GET /v1/selfhost/info`, asked by the
-/// daemon without a token). Refused (`not_selfhost`) under a bearer lease.
-public struct CloudSelfHostInfoRequest: DaemonRequest {
-    public typealias Response = CloudSelfHostInfo
-    public static let command = "cloud-selfhost-info"
-    public static let requiredCapability: String? = DaemonCapability.cloudSelfHost.rawValue
-    public init() {}
-}
