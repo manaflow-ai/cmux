@@ -1486,6 +1486,24 @@
             "approve"
           ],
           "response": "hand-written"
+        },
+        "set-personal-terminal": {
+          "name": "SetPersonalTerminalRequest",
+          "doc": [
+            "`set-personal-terminal` (`personal-terminals-v1`): sets or (nil `theme`) clears one terminal's own theme;",
+            "`theme` always encodes, JSON null clears."
+          ],
+          "order": [
+            "session_id",
+            "terminal_key",
+            "theme"
+          ],
+          "fields": {
+            "theme": {
+              "encode": "always"
+            }
+          },
+          "response": "EmptyResponse"
         }
       }
     },
@@ -2071,6 +2089,50 @@
         "remote-terminal-snapshot": {
           "name": "RemoteTerminalSnapshotRequest",
           "response": "hand-written"
+        },
+        "process-info": {
+          "name": "TerminalProcessInfoRequest",
+          "doc": [
+            "`process-info {surface}`: the PTY's child and its foreground process.",
+            "Used to ask before closing a workspace whose terminals run something."
+          ],
+          "order": [
+            "surface"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          },
+          "response": "hand-written"
+        },
+        "new-remote-terminal-tab": {
+          "name": "NewRemoteTerminalTabRequest",
+          "doc": [
+            "`new-remote-terminal-tab`: a remote-terminal tab in `pane` (default: the",
+            "active pane of the active workspace)."
+          ],
+          "order": [
+            "session_id",
+            "terminal_id",
+            "session_name",
+            "pane",
+            "title",
+            "cols",
+            "rows"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
         }
       }
     },
@@ -2198,7 +2260,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create, rename, move and set-metadata (WorkspaceRefFields or fields sent only when true or set), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: close, create, rename, move and set-metadata (WorkspaceRefFields or fields sent only when true or set).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2214,6 +2276,18 @@
               "type": "String"
             }
           },
+          "response": "IconAssetBlob"
+        },
+        "put-blob": {
+          "name": "PutBlobRequest",
+          "doc": [
+            "`put-blob`: `data` is the asset's bytes in standard base64 (`init(mediaType:data:)` over `Data` encodes it)."
+          ],
+          "order": [
+            "media_type",
+            "data"
+          ],
+          "fields": {},
           "response": "IconAssetBlob"
         }
       }

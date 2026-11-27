@@ -22,36 +22,6 @@ public struct PersonalTerminal: Sendable, Hashable, Decodable {
     }
 }
 
-/// Sets or (nil) clears one terminal's own theme.
-public struct SetPersonalTerminalRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-personal-terminal"
-    public static let requiredCapability: String? = DaemonCapability.personalTerminals.rawValue
-    public var sessionID: String
-    public var terminalKey: String
-    public var theme: String?
-
-    public init(sessionID: String, terminalKey: String, theme: String?) {
-        self.sessionID = sessionID
-        self.terminalKey = terminalKey
-        self.theme = theme
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case theme
-        case sessionID = "session_id"
-        case terminalKey = "terminal_key"
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(sessionID, forKey: .sessionID)
-        try c.encode(terminalKey, forKey: .terminalKey)
-        // JSON null clears.
-        try c.encode(theme, forKey: .theme)
-    }
-}
-
 extension DaemonConnection {
     /// Whether this daemon stores per-terminal themes.
     public var supportsPersonalTerminals: Bool { identity?.supports(DaemonCapability.personalTerminals.rawValue) == true }
