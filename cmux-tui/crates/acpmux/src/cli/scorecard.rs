@@ -30,6 +30,10 @@ pub struct ScorecardArgs {
     /// `_acpmux/scorecard`. Never the live state directory a daemon writes.
     #[arg(long, value_name = "DIR")]
     pub home: Option<std::path::PathBuf>,
+    /// Fail (exit 1) when any turn in the range churned its cached prefix (RFD 0158 §1:
+    /// `harnessMagic.cacheAlarm.collapses` or `callChurn`): the replay's no-churn assertion.
+    #[arg(long)]
+    pub assert_no_churn: bool,
 }
 
 const BYS: &[&str] = &["set", "feature", "session"];
@@ -93,7 +97,14 @@ fn counters(m: &Value) -> String {
     let Some(o) = m["harnessMagic"].as_object().filter(|o| !o.is_empty()) else {
         return String::new();
     };
-    let list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // RFD 0160's hit rate: attached files the turns then read or edited, over those attached.
+    if let (Some(hits), Some(files)) = (
+        o.get("prefetch.hits").and_then(Value::as_f64),
+        o.get("prefetch.files").and_then(Value::as_f64).filter(|f| *f > 0.0),
+    ) {
+        list.push(format!("prefetch.hitRate={:.2}", hits / files));
+    }
     format!("  harnessMagic: {}\n", list.join(" "))
 }
 
@@ -181,36 +192,23 @@ pub async fn run(args: ScorecardArgs, json_out: bool) -> Result<()> {
     } else {
         print!("{}", text(&args, &answer));
     }
+    if args.assert_no_churn {
+        no_churn(&answer)?;
+    }
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn params_name_the_range_and_the_steer_window() {
-        let args = ScorecardArgs {
-            since: Some("2d".into()),
-            by: "feature".into(),
-            steer_window: Some(30),
-            limit: 5,
-            home: None,
-        };
-        let p = params(&args, 10 * 86_400_000).unwrap();
-        assert_eq!(p["since"], 8 * 86_400_000u64);
-        assert_eq!(p["steerWindowS"], 30);
-        assert!(params(&ScorecardArgs { by: "colour".into(), ..args }, 0).is_err());
-    }
-
-    #[test]
-    fn text_says_when_no_feature_ran() {
-        let args = ScorecardArgs { by: "feature".into(), ..ScorecardArgs::default() };
-        let a = json!({"since": 1, "until": 2, "steerWindowS": 60,
-            "totals": {"turns": 3, "sessions": 1, "steeringRate": 0.5, "ttfu": {}, "firstModel": {}},
-            "byFeature": {}});
-        let t = text(&args, &a);
-        assert!(t.contains("every turn is the baseline"), "{t}");
-        assert!(t.contains("0.500"), "{t}");
+/// `--assert-no-churn`: an error naming the churn count when there was any.
+fn no_churn(answer: &Value) -> Result<()> {
+    match crate::scorecard::churn(answer) {
+        0 => Ok(()),
+        n => anyhow::bail!(
+            "cache alarm: {n} prefix churn(s) in the range ({}); RFD 0158 §1 holds the cached prefix fixed inside a session",
+            crate::scorecard::CHURN_COUNTERS.join(", ")
+        ),
     }
 }
+
+#[cfg(test)]
+#[path = "scorecard_tests.rs"]
+mod tests;
