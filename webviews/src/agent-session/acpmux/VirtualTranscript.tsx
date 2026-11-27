@@ -1473,6 +1473,8 @@ function TranscriptView({
   /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
   const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
   if (followGlide.current == null) followGlide.current = createFollowGlide();
+  // A sent prompt scrolls to the view's top (Settings, off by default; roomUnder.ts `sendTop`).
+  const sendScrollsToTop = useSendScrollsToTop();
   /// The rows under what changed glide to their new place while the chase follows (tailGlide.ts),
   /// instead of jumping by what landed above them (the live line, a steer under its new footer).
   const tailGlide = useRef<TailGlide>(undefined);
@@ -1985,6 +1987,9 @@ function TranscriptView({
       const cardBefore = dockCardRef.current;
       take();
       const delta = before - rows.getBoundingClientRect().top;
+      // The sweep already owns the thread's translate. A dock measurement may place its rows,
+      // but must not add a second stack animation on top of that move.
+      if (followGlide.current?.sweeping()) return;
       // A send clearing a tall prompt gives its room back in the send's own frame (the field's height
       // changes at once, fieldGrowth.ts), and on the product's 0 send clock the send's rows land in
       // that frame too (the placement pass, `sendLands`). A glide here would move the rows a second
@@ -1992,10 +1997,12 @@ function TranscriptView({
       // compser then sends it to you... but i think we should be able to calculate it out to be like
       // one smooth motion."
       const sendGaveRoom =
-        dockCardRef.current < cardBefore - 0.5 && performance.now() < sendRiseUntil.current && !(sendRiseMs(rows) > 0);
+        dockCardRef.current < cardBefore - 0.5 &&
+        performance.now() < sendRiseUntil.current &&
+        (sendScrollsToTop || !(sendRiseMs(rows) > 0));
       // With the transaction (motionTransaction.ts) the send's motion is one glide: the room it gives
       // back while the send's hold is open joins that glide instead of landing in a frame of its own.
-      if (sendGaveRoom && transactionOn(rows) && threadTransaction(rows).expecting()) {
+      if (!sendScrollsToTop && sendGaveRoom && transactionOn(rows) && threadTransaction(rows).expecting()) {
         threadTransaction(rows).settle("stack");
         return;
       }
@@ -2030,6 +2037,7 @@ function TranscriptView({
         const rows = thread.current;
         if (
           !rows ||
+          sendScrollsToTop ||
           !transactionOn(rows) ||
           !followingRef.current ||
           jumpTarget.current !== undefined ||
@@ -2092,7 +2100,7 @@ function TranscriptView({
       for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
     };
-  }, [dock, noteQueue]);
+  }, [dock, noteQueue, sendScrollsToTop]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
   // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
   // client) runs neither observer: still noted as queued, the next resize took it for a card that
@@ -2105,8 +2113,6 @@ function TranscriptView({
   const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
-  // A sent prompt scrolls to the view's top (Settings, off by default; roomUnder.ts `sendTop`).
-  const sendScrollsToTop = useSendScrollsToTop();
   const measuredLook = useRef(chatLook);
   // The pane's attachment view moves a prompt's attachments between its bubble and the band above
   // it (UserBubble.tsx), so a new one estimates every prompt again (model.ts reads it).
@@ -3174,6 +3180,8 @@ function TranscriptView({
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
   // A sent prompt sweeps only once; user input, a resize or a fold cancels without replay.
   const sweptPrompt = useRef<string | undefined>(undefined);
+  // Reader input also cancels a send whose echoed prompt has not arrived yet.
+  const sweepCanceledThrough = useRef(Number.NEGATIVE_INFINITY);
   /// Until when rows that come join the send's own rise on the bubble's clock (`followChase` `sent`):
   /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
   /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
@@ -4313,9 +4321,7 @@ function TranscriptView({
   const placedRows = previousRows.current;
   const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
   const sendTopPrompt =
-    sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id)
-      ? rows[keptAt]!.id
-      : undefined;
+    sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id) ? rows[keptAt]!.id : undefined;
   const promptTail = () =>
     measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap;
   const under = roomUnder({
@@ -4843,6 +4849,7 @@ function TranscriptView({
     // and the prompt in one frame): the send's hold opens here, before this pass moves the rows, so
     // the move it makes at once is held with the send's and plays as one glide (sendMoves releases it).
     if (
+      !sendScrollsToTop &&
       sends !== seenSends.current &&
       followingRef.current &&
       jumpTarget.current === undefined &&
@@ -4874,6 +4881,7 @@ function TranscriptView({
       if (sentPromptIds.size !== 0) setSentPromptIds(new Set());
       sentBeforeOpen.current = false;
       sweptPrompt.current = undefined;
+      sweepCanceledThrough.current = Number.NEGATIVE_INFINITY;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
       previousLayout.current = null;
@@ -5199,15 +5207,23 @@ function TranscriptView({
         const wantsSweep = freshSweep || Boolean(followGlide.current?.sweeping());
         const sweepSafe =
           sendTopPrompt !== undefined &&
-          !caughtUp && !jumping && !bottomStacking && !resizing && !heightFoldPlaying() && !turnEnding;
+          sends > sweepCanceledThrough.current &&
+          !caughtUp &&
+          !jumping &&
+          !dockMoved &&
+          !bottomStacking &&
+          !resizing &&
+          !heightFoldPlaying() &&
+          !turnEnding;
         const sweeping = wantsSweep && sweepSafe;
         if (sweeping) {
           stopFollowMotion(true);
+          if (thread.current && transactionOn(thread.current)) threadTransaction(thread.current).cancel();
           if (rose > 0.5) followGlide.current?.swept(thread.current, rose);
           if (rose > 0.5 || sends === seenSends.current) sweptPrompt.current = sendTopPrompt;
         } else if (wantsSweep) {
           followGlide.current?.stop();
-          sweptPrompt.current = sendTopPrompt;
+          if (sendTopPrompt !== undefined) sweptPrompt.current = sendTopPrompt;
         }
         // Every arm but `eased`: whatever moved the rows in view in this pass (a line, rows that came,
         // the composer's room) is one move of one chase (followChase.ts). A disclosure's fold and
@@ -5537,9 +5553,11 @@ function TranscriptView({
         // On a 0 send clock (the product's) the thread is in place at once, whichever commit the
         // prompt came in (review of #41550): no glide and no chase.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
-        const sweepOpen = sentHere && at < 0 && sendTopPrompt !== undefined && !switched;
+        const sweepOpen =
+          sentHere && at < 0 && sendTopPrompt !== undefined && !switched && sends > sweepCanceledThrough.current;
         if (sweepOpen) {
           stopFollowMotion(true);
+          if (thread.current && transactionOn(thread.current)) threadTransaction(thread.current).cancel();
           followGlide.current?.swept(thread.current, node.scrollTop - before);
           sweptPrompt.current = sendTopPrompt;
         } else if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendRiseMs(node) > 0) {
@@ -5639,7 +5657,10 @@ function TranscriptView({
     });
     // A send's hold (motionTransaction.ts `expect`): what this pass moved at once stays drawn where
     // the hold began, and the prompt's rows landing release the whole shift as one motion.
-    const held = thread.current && transactionOn(thread.current) ? threadTransaction(thread.current) : undefined;
+    const held =
+      !sendScrollsToTop && thread.current && transactionOn(thread.current)
+        ? threadTransaction(thread.current)
+        : undefined;
     const promptLanded = held !== undefined && broughtSentPrompt(oldRows, rows);
     promptLandedRows.current = promptLanded ? rows : undefined;
     if (held?.expecting()) {
@@ -6310,7 +6331,7 @@ function TranscriptView({
     // A send while a turn runs goes to the queue: no prompt row lands to release a hold, which then
     // lapsed at its bound and played the composer's room as a second step (#50851, 15-lines-busy-latest).
     const sendTx =
-      fromLatest && !working && thread.current && transactionOn(thread.current)
+      !sendScrollsToTop && fromLatest && !working && thread.current && transactionOn(thread.current)
         ? threadTransaction(thread.current)
         : undefined;
     sendTx?.expect("send");
@@ -6367,10 +6388,13 @@ function TranscriptView({
       // pass with its rows: chasing it drew the thread back by the whole rise (176 px) and brought it
       // home over 10 frames after the rows had landed (motion contract (c), `latest send`).
       const sweepSend =
-        fromLatest && sendTopPrompt !== undefined &&
+        fromLatest &&
+        sends > sweepCanceledThrough.current &&
+        sendTopPrompt !== undefined &&
         (sweptPrompt.current !== sendTopPrompt || followGlide.current?.sweeping());
       if (sweepSend) {
         stopFollowMotion(true);
+        if (thread.current && transactionOn(thread.current)) threadTransaction(thread.current).cancel();
         if (top - before > 0.5) {
           followGlide.current?.swept(thread.current, top - before);
           sweptPrompt.current = sendTopPrompt;
@@ -6976,6 +7000,7 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      sweepCanceledThrough.current = seenSends.current;
       frameBudget.current?.poke();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
