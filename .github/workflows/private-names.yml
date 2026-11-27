@@ -122,14 +122,18 @@ jobs:
           # checker used to read each one through the contents API (one read per changed file, per push and
           # per title or body edit). The wrapper comes from the base commit, never the pull request's tree: no
           # code from the pull request runs here. A failed fetch leaves every file on the REST read, as before.
+          # The remote is named pr-head, not origin: the pool's git shim gives a repository whose origin is cmux the
+          # runner's mirror as an alternate and then runs its fetches without --depth or --filter. For these two
+          # commits that fetch took about 2 minutes where a shallow blobless one takes seconds (job p50 12 s before
+          # #61892, 131 s after; 263 runs in the 17:00Z hour, about 500 runner-minutes).
           gitdir="$RUNNER_TEMP/head.git"
           git init --quiet --bare "$gitdir"
-          git -C "$gitdir" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$gitdir" remote add pr-head "https://github.com/${GITHUB_REPOSITORY}.git"
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           wrapper="$RUNNER_TEMP/private_names_local.py"
           if [ -n "${HEAD_SHA:-}" ] && [ -n "${BASE_SHA:-}" ] \
               && git -C "$gitdir" -c "http.https://github.com/.extraheader=$auth" fetch --no-recurse-submodules --quiet --no-tags --depth=1 \
-                --filter=blob:none origin "$HEAD_SHA" "$BASE_SHA" \
+                --filter=blob:none pr-head "$HEAD_SHA" "$BASE_SHA" \
               && git -C "$gitdir" cat-file blob "$BASE_SHA:scripts/ci/private_names_local.py" > "$wrapper" 2>/dev/null; then
             python3 -I "$wrapper" "$checker" "$gitdir" "$HEAD_SHA" "$GITHUB_REPOSITORY" "$PR_NUMBER"
           else
