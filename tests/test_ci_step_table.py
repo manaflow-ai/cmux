@@ -2259,8 +2259,8 @@ class IosJobTest(unittest.TestCase):
         table = ci_steps.load()
         for path in paths:
             with self.subTest(path=path):
-                self.assertIn("ios-roaming-headless", ci_steps.route(table, [path]).get("linux", []))
-        self.assertNotIn("ios-roaming-headless", ci_steps.route(table, ["webviews/README.md"]).get("linux", []))
+                self.assertIn("ios-roaming-headless", ci_steps.route(table, [path], pr_scope=True).get("linux", []))
+        self.assertNotIn("ios-roaming-headless", ci_steps.route(table, ["webviews/README.md"], pr_scope=True).get("linux", []))
 
     def test_the_macos_swift_test_runs_beside_the_simulator_leg(self) -> None:
         # Goal ios-ci-under-5min: the kit's macOS swift test ran before the simulator leg in one step on one Mac;

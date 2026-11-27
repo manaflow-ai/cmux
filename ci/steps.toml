@@ -4202,6 +4202,7 @@ python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind
 # this step also allows compilation on a cold worker.
 [step.ios-roaming-headless]
 job = "linux"
+pr_scope = false
 alone = true
 timeout = 1200
 title = "iOS roaming: same-session input recovery"
