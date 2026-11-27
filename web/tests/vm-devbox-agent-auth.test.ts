@@ -219,6 +219,32 @@ describe("Claude Code sign-in precedence", () => {
     expect(seed.customApiKeyResponses.approved).toEqual([PLACEHOLDER.slice(-20)]);
   });
 
+  test("a shell with the image's OpenAI pair but no origin never writes an origin-less model-plane file", async () => {
+    // The 2026-11-25 cloud-claude-matrix sr2 rows: the per-home file kept only the OpenAI pair,
+    // hid the image's origin, and every Claude with no sign-in had no model route.
+    const m = machine();
+    const probe = `printf '%s' "\${CMUX_CODEROUTER_URL-unset}"`;
+    const env = bootEnv(m);
+    delete env.CMUX_CODEROUTER_URL;
+    delete env.ANTHROPIC_BASE_URL;
+    delete env.ANTHROPIC_API_KEY;
+    const healed = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env });
+    expect(healed.stdout).toBe(ORIGIN);
+    const file = path.join(m.home, ".config/cmux/model-plane.env");
+    expect(readFileSync(file, "utf8")).toContain(`export CMUX_CODEROUTER_URL='${ORIGIN}'`);
+    // A machine that already has the origin-less file heals on its next shell with no boot env.
+    writeFileSync(file, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
+    const bare = { PATH: env.PATH, HOME: m.home, LANG: "en_US.UTF-8" };
+    const resourced = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env: bare });
+    expect(resourced.stdout).toBe(ORIGIN);
+    // Another plane's base URL is the person's: the image's origin is never added to it.
+    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], {
+      env: { ...env, OPENAI_BASE_URL: "https://api.example.test/v1" },
+    });
+    expect(own.stdout).toBe("unset");
+    expect(readFileSync(file, "utf8")).not.toContain("CMUX_CODEROUTER_URL");
+  });
+
   test("a user-set Anthropic endpoint or key is never moved or replaced", async () => {
     const m = machine();
     const probe = `printf '%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}"`;

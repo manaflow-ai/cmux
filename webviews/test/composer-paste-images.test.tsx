@@ -1377,6 +1377,10 @@ test("each paste of text is its own undo step, apart from the typing around it",
   await act(async () => markdownField().insertTyped("a "));
   await act(async () => markdownField().pasteText("one "));
   await act(async () => markdownField().pasteText("two"));
+  // A person's next key comes in a later task than the paste, after the paste's step has ended
+  // (MarkdownField `beginPasteStep`'s timer). `act` alone yields no task when the paste rendered
+  // nothing more, so the key would join the paste's step.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => markdownField().insertTyped("!"));
   expect(markdownField().plainText()).toBe("a one two!");
   const steps: string[] = [];
