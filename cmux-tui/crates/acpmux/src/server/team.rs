@@ -20,14 +20,26 @@ pub(super) async fn handle(
         return answer;
     }
     authorize(hub, conn).await?;
-    let mesh =
-        hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
-        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
-        crate::rpc::method::MUX_TEAM_LISTEN => listen(&mesh, params).await,
+        crate::rpc::method::MUX_TEAM_SEND => {
+            let mesh = hub.mesh.get();
+            send(hub, conn, mesh.as_ref(), params).await
+        }
+        crate::rpc::method::MUX_TEAM_INBOX
+        | crate::rpc::method::MUX_TEAM_READ
+        | crate::rpc::method::MUX_TEAM_ACK
+        | crate::rpc::method::MUX_TEAM_LISTEN => {
+            let mesh = hub
+                .mesh
+                .get()
+                .ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
+            match method {
+                crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
+                crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
+                crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
+                _ => listen(&mesh, params).await,
+            }
+        }
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -107,7 +119,7 @@ pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), Rp
 async fn send(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
-    mesh: &Arc<dyn MeshHub>,
+    mesh: Option<&Arc<dyn MeshHub>>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let raw = required(params, "to")?;
@@ -130,25 +142,46 @@ async fn send(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let caller = conn.caller().filter(|_| !conn.is_person());
-    let receipt = mesh
-        .send(&OutMessage {
-            to: Target { team_address: Some(wire_address.clone()), ..Target::default() },
-            from: Sender {
-                name: caller.map(|id| hub.session_name(id)),
-                session_id: caller.map(str::to_owned),
-                host: Some(crate::pairing::mesh_host()),
-                ..Sender::default()
-            },
-            kind: Kind::Prompt,
-            op: None,
-            body,
-            // The hub alone decides whether this message may start work.
-            mode: Mode::TurnEnd,
-            idempotency_key: sender_key(conn, &id)?,
-        })
-        .await
-        .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
-    remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
+    let message = OutMessage {
+        to: Target { team_address: Some(wire_address.clone()), ..Target::default() },
+        from: Sender {
+            name: caller.map(|id| hub.session_name(id)),
+            session_id: caller.map(str::to_owned),
+            host: Some(crate::pairing::mesh_host()),
+            ..Sender::default()
+        },
+        kind: Kind::Prompt,
+        op: None,
+        body,
+        // The hub alone decides whether this message may start work.
+        mode: Mode::TurnEnd,
+        idempotency_key: sender_key(conn, &id)?,
+    };
+    let receipt = match mesh {
+        Some(mesh) => match mesh.send(&message).await {
+            Ok(receipt) => {
+                remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
+                receipt
+            }
+            Err(error) if !error.refused => hub
+                .team_send_queue
+                .enqueue(message, wire_address.clone(), caller.map(str::to_owned))
+                .map_err(|e| {
+                    RpcError::internal(format!("could not persist offline team message: {e}"))
+                })?,
+            Err(error) => {
+                return Err(RpcError::invalid_params(format!(
+                    "the mesh hub refused team message: {error}"
+                )));
+            }
+        },
+        None => hub
+            .team_send_queue
+            .enqueue(message, wire_address.clone(), caller.map(str::to_owned))
+            .map_err(|e| {
+                RpcError::internal(format!("could not persist offline team message: {e}"))
+            })?,
+    };
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
