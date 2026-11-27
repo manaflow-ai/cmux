@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.usageLimitResets" : {
+      "comment" : "Agent pane: a failed turn's note when the agent used up a usage limit whose reset time the refusal names; {harness} is the agent's name, {time} the local date and time (with time zone) it resets.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "وصل {harness} إلى حد استخدام يُعاد تعيينه {time}. بدّل النموذج للمتابعة الآن، أو تابع بعد إعادة التعيين."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} je dostigao ograničenje korištenja koje se resetuje {time}. Promijeni model da nastaviš odmah ili nastavi nakon resetovanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} har nået en forbrugsgrænse, der nulstilles {time}. Skift model for at fortsætte nu, eller fortsæt, når den er nulstillet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} hat ein Nutzungslimit erreicht, das am {time} zurückgesetzt wird. Wechsle das Modell, um jetzt weiterzumachen, oder mach nach dem Zurücksetzen weiter."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} reached a usage limit that resets {time}. Switch model to keep going now, or continue once it resets."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} alcanzó un límite de uso que se restablece el {time}. Cambia de modelo para seguir ahora o continúa cuando se restablezca."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} a atteint une limite d’utilisation réinitialisée le {time}. Change de modèle pour continuer maintenant, ou continue après la réinitialisation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ha raggiunto un limite di utilizzo che si azzera il {time}. Cambia modello per continuare ora, oppure continua dopo l’azzeramento."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} は使用上限に達しました。{time} にリセットされます。今すぐ続けるにはモデルを切り替えるか、リセット後に続行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} បានដល់កម្រិតប្រើប្រាស់ ដែលកំណត់ឡើងវិញ {time}។ ប្ដូរម៉ូដែល ដើម្បីបន្តឥឡូវ ឬបន្តបន្ទាប់ពីកំណត់ឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}이(가) 사용 한도에 도달했습니다. {time}에 초기화됩니다. 지금 계속하려면 모델을 바꾸거나, 초기화된 후 계속하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} har nådd en bruksgrense som nullstilles {time}. Bytt modell for å fortsette nå, eller fortsett når den er nullstilt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} osiągnął limit użycia, który resetuje się {time}. Zmień model, aby kontynuować teraz, albo kontynuuj po resecie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} atingiu um limite de uso que redefine em {time}. Troque de modelo para continuar agora ou continue depois que ele redefinir."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} достиг лимита использования, сброс {time}. Смените модель, чтобы продолжить сейчас, или продолжите после сброса."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ใช้งานถึงขีดจำกัดแล้ว จะรีเซ็ต {time} เปลี่ยนโมเดลเพื่อทำต่อตอนนี้ หรือทำต่อหลังรีเซ็ต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} {time} sıfırlanan bir kullanım sınırına ulaştı. Şimdi devam etmek için modeli değiştir ya da sıfırlandıktan sonra devam et."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} досяг ліміту використання, скидання {time}. Змініть модель, щоб продовжити зараз, або продовжте після скидання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} đã chạm giới hạn sử dụng, đặt lại lúc {time}. Đổi mô hình để tiếp tục ngay, hoặc tiếp tục sau khi đặt lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 已达到使用上限，将于 {time} 重置。切换模型可立即继续，或在重置后继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 已達到使用上限，將於 {time} 重設。切換模型可立即繼續，或在重設後繼續。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

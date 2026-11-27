@@ -1,101 +1,214 @@
-# docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: python3 tests/test_egress_gate.py --write
+# The egress gate's allowlist: the hosts cmux connects to for itself, and what it sends to each.
+# The one source: the Rust gate (cmux-egress) compiles this file in, the Swift gate (CmuxEgress/EgressHosts.swift)
+# is checked equal to it, and docs/privacy.md's "The app connects to" table is generated from it
+# (python3 scripts/privacy_hosts_from_gate.py). Each host has `# what the app sends there` directly above it;
+# `*` stands for one part of a name filled in at run time. tests/test_egress_gate.py keeps all of them equal.
+
+# a cmux developer's preview stack, only when the iPhone app's backend override names one
 *.*.wdev.cmux.dev
+# the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser
 *.atlassian.net
+# a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made
+*.r2.cloudflarestorage.com
+# the Google integration, only when an agent uses it in your signed-in browser
 accounts.google.com
+# cmux's chat relay API on staging, only when chosen
 api-staging.chatmux.dev
+# the API of a cmux developer's preview stack, only when the iPhone app's backend override names one
 api.*.wdev.cmux.dev
+# the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude
 api.anthropic.com
+# museum art for backgrounds, when you search for art
 api.artic.edu
+# search suggestions as you type, when Bing is your search engine
 api.bing.com
+# cmux's chat relay API, for chatmux sessions
 api.chatmux.dev
+# the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint`
 api.cloudflare.com
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app
 api.freestyle.sh
+# the GitHub API, through the GitHub CLI or the app, for repos and PRs you open
 api.github.com
+# GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls
 api.githubcopilot.com
+# the clock and weather widget's forecast, only when you install it (a customize template)
 api.open-meteo.com
+# the OpenAI API: voice calls on iPhone, and when you use an OpenAI key
 api.openai.com
+# the sign-in service
 api.stack-auth.com
+# the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine
+api.tailscale.com
+# the xAI API, when you give an agent an xAI API key
 api.x.ai
+# the Notion integration, only when an agent uses it in your signed-in browser
 app.notion.com
+# the Slack integration, only when an agent uses it in your signed-in browser
 app.slack.com
+# images in GitHub pages and agent replies
 avatars.githubusercontent.com
+# the Google integration, only when an agent uses it in your signed-in browser
 calendar.google.com
+# images in GitHub pages and agent replies
 camo.githubusercontent.com
+# only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one
 captive.apple.com
+# the public registry of ACP coding agents, read by the daemon
 cdn.agentclientprotocol.com
+# scripts and styles an agent's rendered page may load
 cdn.jsdelivr.net
+# scripts and styles an agent's rendered page may load
 cdnjs.cloudflare.com
+# OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script
 chatgpt.com
+# cmux's chat relay API, for chatmux sessions
 chatmux.dev
+# the OpenH264 video codec, downloaded once on Linux for screen sharing
 ciscobinary.openh264.org
+# Claude sign-in and the Claude Code installer, when you install or sign in Claude Code
 claude.ai
+# the Linear integration, only when an agent uses it in your signed-in browser
 client-api.linear.app
+# cmux Cloud API on staging, only in development builds or when chosen
 cloud-api-staging.cmux.dev
+# cmux Cloud API: machines, accounts, sign-in (production)
 cloud-api.cmux.dev
+# cmux API in development builds
 cmux-api-development.debussy.workers.dev
+# cmux API of one pull request's preview, only when chosen
 cmux-api-preview-*.debussy.workers.dev
+# cmux API on staging, only when chosen
 cmux-api-staging.debussy.workers.dev
+# the device hub in development builds
 cmux-device-hub-dev.debussy.workers.dev
+# the device hub: pairing and screen sharing between your devices (production)
 cmux-device-hub.debussy.workers.dev
-cmux-lawrences-mac-mini.tail137216.ts.net
+# the iPhone pairing API in development builds
 cmux-mobile-api-dev.debussy.workers.dev
+# cmux Cloud platform API in development builds
 cmux-platform-development.debussy.workers.dev
+# cmux Cloud services on our hosting provider (production): platform API
 cmux-platform-production.debussy.workers.dev
+# cmux Cloud platform API on staging, only when chosen
 cmux-platform-staging.debussy.workers.dev
+# classic cmux Cloud's staging sign-in, only when staging is chosen
 cmux-staging.vercel.app
+# screen sharing signaling between your devices
 cmux-vnc-signal.debussy.workers.dev
+# cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links
 cmux.com
+# cmux Cloud host name check; machine and preview URLs under it
 cmux.dev
+# a GitHub repository's archive at one commit, when you install an extension from it
+codeload.github.com
+# museum art for backgrounds, when you search for art
 commons.wikimedia.org
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app
 compute.googleapis.com
+# the Google integration, only when an agent uses it in your signed-in browser
 docs.google.com
+# the Google integration, only when an agent uses it in your signed-in browser
 drive.google.com
+# the Google integration, only when an agent uses it in your signed-in browser
 drive.usercontent.google.com
+# downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime
 files-next.cmux.com
+# downloads: updates, release notes, art, the cmux CLI
 files.cmux.com
+# fonts an agent's rendered page may load
 fonts.googleapis.com
+# fonts an agent's rendered page may load
 fonts.gstatic.com
+# checks for a newer cmux CLI when installed with Homebrew
 formulae.brew.sh
+# the Google AI API, when you give an agent a Google AI API key
 generativelanguage.googleapis.com
+# the clock and weather widget's city search, only when you install it (a customize template)
 geocoding-api.open-meteo.com
+# git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media
 github.com
+# repositories you add from GitLab
 gitlab.com
+# the agent-detection catalog, read by the daemon
 herdr.dev
+# the Jira integration, only when an agent uses it in your signed-in browser
 home.atlassian.com
+# web search for an agent's search tool, when an agent searches
 html.duckduckgo.com
+# the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template)
 ice2.somafm.com
+# crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code
+index.crates.io
+# images in agent replies
 lh3.googleusercontent.com
+# the Linear integration, only when an agent uses it in your signed-in browser
 linear.app
+# the Google integration, only when an agent uses it in your signed-in browser
 mail.google.com
+# the iPhone pairing API (production)
 mobile-api.cmux.dev
+# the public model list the daemon's live model catalog reads (new models in the model picker)
 models.dev
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app
 monitoring.googleapis.com
+# crash and error reports, scrubbed (below), only when telemetry is on
 o4507547940749312.ingest.us.sentry.io
+# museum art for backgrounds, when you search for art
 openaccess-api.clevelandart.org
+# museum art for backgrounds, when you search for art
 openaccess-cdn.clevelandart.org
+# OpenCode's config schema and installer, when you install OpenCode
 opencode.ai
+# update channel push: tells the app a new build is out
 presence.cmux.dev
+# preview pages of a chatmux session
 preview.chatmux.dev
+# images in GitHub pages and agent replies
 private-user-images.githubusercontent.com
+# checks for a newer cmux CLI when installed with pip
 pypi.org
+# release media reels and raw files linked in agent replies
 raw.githubusercontent.com
+# checks for a newer cmux CLI when installed with npm; npm packages agents install
 registry.npmjs.org
+# shared workspace links in development builds
 share-dev.cmux.dev
+# shared workspace links on staging, only when chosen
 share-staging.cmux.dev
+# shared workspace links (production)
 share.cmux.dev
+# the radio player's station list and the song each station plays, only when you install it (a customize template)
 somafm.com
+# crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version
+static.crates.io
+# a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic
 stun.cloudflare.com
+# the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic
 stun.l.google.com
+# search suggestions as you type, when Google is your search engine
 suggestqueries.google.com
+# museum art for backgrounds, when you search for art
 thumb.wikimedia.org
+# the hosted UniiChat agent, only when you start it
 uniichat.com
+# scripts and styles an agent's rendered page may load
 unpkg.com
+# museum art for backgrounds, when you search for art
 upload.wikimedia.org
+# GitHub uploads, through the GitHub CLI
 uploads.github.com
+# images in GitHub pages and agent replies
 user-images.githubusercontent.com
+# cmux Cloud machine API on staging, only when chosen
 vm-staging.cmux.dev
+# cmux Cloud machine API (production)
 vm.cmux.dev
+# museum art for backgrounds, when you search for art
 www.artic.edu
+# the same site as cmux.com; deep links and sign-in
 www.cmux.com
+# the LinkedIn integration, only when an agent uses it in your signed-in browser
 www.linkedin.com
+# the Notion integration, only when an agent uses it in your signed-in browser
 www.notion.so

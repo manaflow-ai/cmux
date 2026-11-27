@@ -23,6 +23,8 @@ public actor BillingTransactionDeliverer {
     private struct Delivery {
         let serial: UInt64
         let jwsRepresentation: String
+        /// The older copy's post this one waits for before it posts, if any.
+        let older: Task<BillingDeliveryOutcome, Never>?
         let task: Task<BillingDeliveryOutcome, Never>
     }
 
@@ -47,24 +49,33 @@ public actor BillingTransactionDeliverer {
     /// - Returns: Whether the server accepted it, will be asked again, or
     ///   refused it for good.
     public func deliver(_ transaction: StoreTransaction) async -> BillingDeliveryOutcome {
-        while let running = inFlight[transaction.id] {
-            if running.jwsRepresentation == transaction.jwsRepresentation {
-                return await running.task.value
-            }
-            changedCopiesWaiting += 1
-            _ = await running.task.value
-            changedCopiesWaiting -= 1
-            if inFlight[transaction.id]?.serial == running.serial {
-                inFlight[transaction.id] = nil
-            }
+        // The newest delivery of this id, registered before any await: a later
+        // identical copy shares it even when it is still waiting behind an
+        // older post. (Waking each waiter after the older post and posting then
+        // let two identical changed copies race: the first could post and
+        // clear the id before the second woke, so the second posted again.)
+        let delivery: Delivery
+        if let newest = inFlight[transaction.id], newest.jwsRepresentation == transaction.jwsRepresentation {
+            delivery = newest
+        } else {
+            let older = inFlight[transaction.id]?.task
+            nextSerial += 1
+            delivery = Delivery(
+                serial: nextSerial,
+                jwsRepresentation: transaction.jwsRepresentation,
+                older: older,
+                task: Task {
+                    if let older { _ = await older.value }
+                    return await self.post(transaction)
+                }
+            )
+            inFlight[transaction.id] = delivery
         }
-        nextSerial += 1
-        let delivery = Delivery(
-            serial: nextSerial,
-            jwsRepresentation: transaction.jwsRepresentation,
-            task: Task { await self.post(transaction) }
-        )
-        inFlight[transaction.id] = delivery
+        if let older = delivery.older {
+            changedCopiesWaiting += 1
+            _ = await older.value
+            changedCopiesWaiting -= 1
+        }
         let outcome = await delivery.task.value
         if inFlight[transaction.id]?.serial == delivery.serial {
             inFlight[transaction.id] = nil

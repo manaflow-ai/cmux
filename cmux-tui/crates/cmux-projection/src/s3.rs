@@ -23,6 +23,19 @@
 //!   `region`, `path_style`, `prefix`, `access_key_id`, `secret_access_key`, `session_token`,
 //!   `public`); the variables above win over it.
 //!
+//! Every store is hardened the same way:
+//!
+//! - **https only**, except a loopback endpoint (`localhost`, `127.0.0.0/8`, `[::1]`), which may be
+//!   plain `http` (a local MinIO or test server). Any other `http://` store is left out.
+//! - **A tenant prefix**: a signed store's objects sit under `<prefix>/<tenant>/<id>`, the tenant
+//!   from `CMUX_PROJECTION_S3_TENANT` (`CMUX_PROJECTION_R2_TENANT` for the private R2 bucket, else
+//!   the S3 one; `tenant` in the config file). It is one plain path segment, and an object id is
+//!   only ever 40 or 64 lowercase hex characters, so no request can name a key outside it. A
+//!   signed store without a tenant is left out.
+//! - **Server-side encryption** on every `PUT`: `x-amz-server-side-encryption: AES256`, signed,
+//!   unless `CMUX_PROJECTION_S3_SSE` (`sse`) names `aws:kms` or `off` (for a store that encrypts
+//!   at rest by itself and refuses the header). Private R2 always encrypts at rest, so it sends none.
+//!
 //! A private store with no keys is left out at once (it would only answer 403). A store that
 //! answers 401, or 403 for wrong keys, at run time is dropped for the rest of the fill on that
 //! first answer, not after three failures; a 403 `AccessDenied` is a miss (what AWS answers for an
@@ -67,6 +80,8 @@ pub struct Config {
     pub region: String,
     /// `None`: asked unsigned (a public bucket).
     pub keys: Option<Keys>,
+    /// The `x-amz-server-side-encryption` value every `PUT` carries (`None`: no header).
+    pub sse: Option<&'static str>,
 }
 
 /// A bucket on an S3-compatible endpoint, as configured ([`Config::bucket`] checks it).
@@ -83,6 +98,10 @@ pub struct Bucket {
     pub keys: Option<Keys>,
     /// Asked unsigned, keys or not.
     pub public: bool,
+    /// The tenant's own key prefix under `prefix` (one plain segment); required for a signed store.
+    pub tenant: String,
+    /// The server-side encryption of a `PUT` (`AES256`, the default when empty; `aws:kms`; `off`).
+    pub sse: String,
 }
 
 /// One setting read from the environment, then the config file.
@@ -99,6 +118,64 @@ pub fn http_base(value: &str) -> Option<String> {
         return None;
     }
     Some(value.trim_end_matches('/').to_owned())
+}
+
+/// `value` as [`http_base`] reads it, when it may carry a store's traffic: `https`, or plain `http`
+/// to a loopback host only. `Err` says why not.
+pub fn store_base(value: &str) -> Result<String, String> {
+    let base = http_base(value).ok_or_else(|| format!("{:?} is not http(s)", value.trim()))?;
+    if let Some(rest) = base.strip_prefix("http://") {
+        let authority = rest.split('/').next().unwrap_or_default();
+        if !is_loopback(authority) {
+            return Err(format!("{base:?} is plain http to a non-loopback host; use https"));
+        }
+    }
+    Ok(base)
+}
+
+/// Whether `authority` (`host[:port]`, `[v6][:port]`, maybe with userinfo) names this machine.
+fn is_loopback(authority: &str) -> bool {
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host = match host.strip_prefix('[') {
+        Some(v6) => v6.split_once(']').map_or("", |(inside, _)| inside),
+        None => host.rsplit_once(':').map_or(host, |(name, _)| name),
+    };
+    let host = host.to_ascii_lowercase();
+    if host == "localhost" {
+        return true;
+    }
+    host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// `Ok` when `tenant` is one plain key segment: 1 to 128 of `A-Za-z0-9._-`, not `.` or `..`.
+fn tenant_segment(tenant: &str) -> Result<&str, String> {
+    let tenant = tenant.trim();
+    let plain = !tenant.is_empty()
+        && tenant.len() <= 128
+        && tenant != "."
+        && tenant != ".."
+        && tenant
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+    if plain { Ok(tenant) } else { Err(format!("tenant {tenant:?} is not one plain key segment")) }
+}
+
+/// Whether `oid` is a git object id (40 or 64 lowercase hex): the only thing a request may add
+/// to a store's `base`, so no key can leave the tenant prefix.
+#[must_use]
+pub fn is_object_id(oid: &str) -> bool {
+    matches!(oid.len(), 40 | 64)
+        && oid.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The `x-amz-server-side-encryption` value of a setting: empty is `AES256`.
+fn sse_mode(value: &str) -> Result<Option<&'static str>, String> {
+    match value.trim() {
+        "" | "AES256" | "aes256" => Ok(Some("AES256")),
+        "aws:kms" => Ok(Some("aws:kms")),
+        "off" | "none" | "0" => Ok(None),
+        other => Err(format!("sse {other:?} is not AES256, aws:kms or off")),
+    }
 }
 
 /// The `(scheme, authority, path)` of an `http(s)` URL; the authority keeps a non-default port and
@@ -133,17 +210,27 @@ impl Config {
     /// A public bucket at `base`, asked unsigned as `<base>/objects/<id>`.
     #[must_use]
     pub fn public(tier: &'static str, base: &str) -> Option<Self> {
-        let base = format!("{}/objects", http_base(base)?);
+        let base = format!("{}/objects", store_base(base).ok()?);
         let (_, host, path) = split_url(&base)?;
         plain_path(&path).ok()?;
-        Some(Self { tier, base, host, path, region: String::new(), keys: None })
+        Some(Self { tier, base, host, path, region: String::new(), keys: None, sse: None })
+    }
+
+    /// Everything under `base` asked unsigned, as `<base>/<key>` (no `objects` folder added): a
+    /// public bucket or a public prefix of one.
+    #[must_use]
+    pub fn unsigned(tier: &'static str, base: &str) -> Option<Self> {
+        let base = http_base(base)?;
+        let (_, host, path) = split_url(&base)?;
+        plain_path(&path).ok()?;
+        Some(Self { tier, base, host, path, region: String::new(), keys: None, sse: None })
     }
 
     /// A bucket on an S3-compatible endpoint. `Err` says why it is unusable.
     pub fn bucket(tier: &'static str, spec: Bucket) -> Result<Self, String> {
-        let Bucket { endpoint, bucket, region, path_style, prefix, keys, public } = spec;
-        let endpoint =
-            http_base(&endpoint).ok_or_else(|| format!("endpoint {endpoint:?} is not http(s)"))?;
+        let Bucket { endpoint, bucket, region, path_style, prefix, keys, public, tenant, sse } =
+            spec;
+        let endpoint = store_base(&endpoint).map_err(|why| format!("endpoint {why}"))?;
         let bucket = bucket.trim();
         if bucket.is_empty() || bucket.contains('/') {
             return Err(format!("bucket {bucket:?} is not a bucket name"));
@@ -154,8 +241,23 @@ impl Config {
         let (scheme, authority, root) =
             split_url(&endpoint).ok_or_else(|| format!("endpoint {endpoint:?} is not a URL"))?;
         let path_style = path_style.unwrap_or(!authority.ends_with("amazonaws.com"));
+        let keys = if public { None } else { keys };
         let prefix = prefix.trim_matches('/');
-        let prefix = if prefix.is_empty() { String::new() } else { format!("/{prefix}") };
+        let mut prefix = if prefix.is_empty() { String::new() } else { format!("/{prefix}") };
+        if keys.is_some() || !tenant.trim().is_empty() {
+            if tenant.trim().is_empty() {
+                return Err("no tenant (set CMUX_PROJECTION_S3_TENANT)".to_owned());
+            }
+            prefix = format!("{prefix}/{}", tenant_segment(&tenant)?);
+        }
+        // R2 encrypts every object at rest by itself; it is not asked to.
+        let sse = if keys.is_none()
+            || (sse.trim().is_empty() && authority.ends_with(".r2.cloudflarestorage.com"))
+        {
+            None
+        } else {
+            sse_mode(&sse)?
+        };
         let (host, path) = if path_style {
             (authority, format!("{root}/{bucket}{prefix}"))
         } else {
@@ -164,8 +266,7 @@ impl Config {
         plain_path(&path)?;
         let base = format!("{scheme}://{host}{path}");
         let region = if region.trim().is_empty() { "us-east-1" } else { region.trim() };
-        let keys = if public { None } else { keys };
-        Ok(Self { tier, base, host, path, region: region.to_owned(), keys })
+        Ok(Self { tier, base, host, path, region: region.to_owned(), keys, sse })
     }
 
     /// The stores `lookup` names (an environment variable's value, else the config file's), and
@@ -178,7 +279,9 @@ impl Config {
         if let Some(url) = lookup("CMUX_PROJECTION_R2_URL") {
             match Self::public("r2", &url) {
                 Some(store) => stores.push(store),
-                None => skipped.push(format!("CMUX_PROJECTION_R2_URL {url:?} is not http(s)")),
+                None => skipped.push(format!(
+                    "CMUX_PROJECTION_R2_URL {url:?} is not https (or http to loopback)"
+                )),
             }
         }
         if let Some(account) = get("CMUX_PROJECTION_R2_ACCOUNT_ID") {
@@ -195,6 +298,11 @@ impl Config {
                 prefix: "objects".to_owned(),
                 keys,
                 public: false,
+                tenant: get("CMUX_PROJECTION_R2_TENANT")
+                    .or_else(|| get("CMUX_PROJECTION_S3_TENANT"))
+                    .unwrap_or_default(),
+                // R2 encrypts every object at rest by itself.
+                sse: "off".to_owned(),
             };
             match Self::bucket("r2", spec) {
                 Ok(store) => stores.push(store),
@@ -216,6 +324,8 @@ impl Config {
                 prefix: get("CMUX_PROJECTION_S3_PREFIX").unwrap_or_else(|| "objects".to_owned()),
                 keys,
                 public: get("CMUX_PROJECTION_S3_PUBLIC").is_some_and(|value| truthy(&value)),
+                tenant: get("CMUX_PROJECTION_S3_TENANT").unwrap_or_default(),
+                sse: get("CMUX_PROJECTION_S3_SSE").unwrap_or_default(),
             };
             match Self::bucket("s3", spec) {
                 Ok(store) => stores.push(store),
@@ -241,9 +351,11 @@ impl Config {
     /// The bucket `cmux-projection s3-push --to BASE` writes to: the configured store whose
     /// `base` is BASE when one has keys, else BASE (everything before `/<id>`, path or virtual
     /// style) signed with the S3 keys and region the chain reads (`CMUX_PROJECTION_S3_*`, else
-    /// `AWS_*`). `Err` says why it is unusable; a push always needs keys.
+    /// `AWS_*`). `Err` says why it is unusable; a push always needs keys and a tenant
+    /// (`CMUX_PROJECTION_S3_TENANT`): BASE's objects go under `BASE/<tenant>`, unless BASE already
+    /// ends with that segment.
     pub fn push_target(to: &str, lookup: Lookup<'_>) -> Result<Self, String> {
-        let base = http_base(to).ok_or_else(|| format!("--to {to:?} is not http(s)"))?;
+        let base = store_base(to).map_err(|why| format!("--to {why}"))?;
         let (stores, _) = Self::all(lookup);
         if let Some(store) =
             stores.into_iter().find(|store| store.base == base && store.keys.is_some())
@@ -261,9 +373,19 @@ impl Config {
              CMUX_PROJECTION_S3_SECRET_ACCESS_KEY, or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
                 .to_owned()
         })?;
+        let tenant = get("CMUX_PROJECTION_S3_TENANT")
+            .ok_or_else(|| "no tenant (set CMUX_PROJECTION_S3_TENANT)".to_owned())?;
+        let tenant = tenant_segment(&tenant)?;
+        let base =
+            if base.rsplit('/').next() == Some(tenant) { base } else { format!("{base}/{tenant}") };
         let (_, host, path) =
             split_url(&base).ok_or_else(|| format!("--to {to:?} is not a URL"))?;
         plain_path(&path)?;
+        let sse = if host.ends_with(".r2.cloudflarestorage.com") {
+            None
+        } else {
+            sse_mode(&get("CMUX_PROJECTION_S3_SSE").unwrap_or_default())?
+        };
         let region = get("CMUX_PROJECTION_S3_REGION").unwrap_or_else(|| {
             if host.ends_with(".r2.cloudflarestorage.com") { "auto" } else { "us-east-1" }
                 .to_owned()
@@ -275,6 +397,7 @@ impl Config {
             path,
             region: region.trim().to_owned(),
             keys: Some(keys),
+            sse,
         })
     }
 
@@ -310,6 +433,11 @@ impl Config {
         ];
         if let Some(token) = &keys.session_token {
             headers.push(("x-amz-security-token".to_owned(), token.clone()));
+        }
+        if method == "PUT"
+            && let Some(sse) = self.sse
+        {
+            headers.push(("x-amz-server-side-encryption".to_owned(), sse.to_owned()));
         }
         let path = format!("{}/{oid}", self.path);
         let authorization = authorization(keys, &self.region, method, &path, "", &headers);
@@ -504,6 +632,9 @@ impl Store {
     #[must_use]
     pub fn get(&self, oid: &str, deadline: Duration) -> Fetched {
         use crate::peers::Answer;
+        if !is_object_id(oid) {
+            return Fetched::Answer(Answer::Failed);
+        }
         let mut request = self.client.get(format!("{}/{oid}", self.config.base)).timeout(deadline);
         for (name, value) in self.config.headers(oid, SystemTime::now()) {
             request = request.header(name, value);
@@ -536,6 +667,7 @@ impl Store {
     /// object under a right name. A `HEAD` that does not answer 2xx (404, or 403 from a bucket
     /// whose keys may not list) is followed by the `PUT`.
     pub fn push(&self, oid: &str, bytes: &[u8]) -> anyhow::Result<Pushed> {
+        anyhow::ensure!(is_object_id(oid), "{oid:?} is not an object id");
         anyhow::ensure!(crate::peers::verify(oid, bytes), "{oid}: the bytes do not hash to it");
         let url = format!("{}/{oid}", self.config.base);
         let mut head = self.client.head(&url);

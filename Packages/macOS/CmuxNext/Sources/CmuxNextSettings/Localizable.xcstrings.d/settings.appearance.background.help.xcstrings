@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.background.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A painting, your wallpaper or a macOS wallpaper behind the window."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Gemälde, dein Schreibtischbild oder ein macOS-Hintergrund hinter dem Fenster."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une peinture, votre fond d’écran ou un fond d’écran macOS derrière la fenêtre."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لوحة أو خلفية سطح مكتبك أو خلفية macOS خلف النافذة."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una pintura, tu fondo de escritorio o un fondo de macOS detrás de la ventana."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在視窗後方顯示畫作、你的桌面背景或 macOS 桌布。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在窗口后方显示画作、你的墙纸或 macOS 墙纸。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창 뒤에 그림, 데스크탑 배경화면 또는 macOS 배경화면을 표시합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウインドウの背後に、絵画、デスクトップ壁紙、または macOS の壁紙を表示します。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slika, vaša pozadina radne površine ili macOS pozadina iza prozora."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et maleri, din skrivebordsbaggrund eller en macOS-baggrund bag vinduet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un dipinto, il tuo sfondo o uno sfondo di macOS dietro la finestra."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គំនូរ ផ្ទាំងរូបភាពរបស់អ្នក ឬផ្ទាំងរូបភាព macOS នៅពីក្រោយបង្អួច។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et maleri, skrivebordsbakgrunnen din eller en macOS-bakgrunn bak vinduet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obraz, Twoja tapeta lub tapeta macOS za oknem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma pintura, seu papel de parede ou um papel de parede do macOS atrás da janela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картина, ваши обои или обои macOS за окном."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ภาพวาด ภาพพื้นหลังของคุณ หรือภาพพื้นหลังของ macOS ที่อยู่ด้านหลังหน้าต่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pencerenin arkasında bir tablo, duvar kâğıdınız veya bir macOS duvar kâğıdı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картина, ваші шпалери або шпалери macOS за вікном."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một bức tranh, hình nền của bạn hoặc hình nền macOS phía sau cửa sổ."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

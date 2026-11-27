@@ -12,6 +12,7 @@ import java.util.Objects;
 
 public final class IdentifyResult implements WireValue {
     private final Field<Long> apiRevision;
+    private final Field<String> apiVersion;
     private final Field<String> buildCommit;
     private final Field<String> buildId;
     private final Field<UInt64> buildTime;
@@ -30,9 +31,11 @@ public final class IdentifyResult implements WireValue {
     private final Field<MachinePlatform> machinePlatform;
     private final Field<String> machineSymbol;
     private final Field<Long> minApiRevision;
+    private final Field<String> minApiVersion;
     private final long pid;
     private final long protocol;
     private final String registryId;
+    private final Field<IdentifyRestore> restore;
     private final Field<String> screenDeviceId;
     private final String session;
     private final Field<String> sessionId;
@@ -43,6 +46,7 @@ public final class IdentifyResult implements WireValue {
 
     private IdentifyResult(Builder builder) {
         this.apiRevision = builder.apiRevision;
+        this.apiVersion = builder.apiVersion;
         this.buildCommit = builder.buildCommit;
         this.buildId = builder.buildId;
         this.buildTime = builder.buildTime;
@@ -62,12 +66,14 @@ public final class IdentifyResult implements WireValue {
         this.machinePlatform = builder.machinePlatform;
         this.machineSymbol = builder.machineSymbol;
         this.minApiRevision = builder.minApiRevision;
+        this.minApiVersion = builder.minApiVersion;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
         if (!builder.protocolSet) throw new IllegalArgumentException("protocol is required");
         this.protocol = builder.protocol;
         if (!builder.registryIdSet) throw new IllegalArgumentException("registry_id is required");
         this.registryId = Wire.nonNull(builder.registryId, "registry_id");
+        this.restore = builder.restore;
         this.screenDeviceId = builder.screenDeviceId;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
@@ -84,6 +90,7 @@ public final class IdentifyResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Long> apiRevision() { return apiRevision; }
+    public Field<String> apiVersion() { return apiVersion; }
     public String app() { return "cmux-tui"; }
     public Field<String> buildCommit() { return buildCommit; }
     public Field<String> buildId() { return buildId; }
@@ -104,9 +111,11 @@ public final class IdentifyResult implements WireValue {
     public Field<MachinePlatform> machinePlatform() { return machinePlatform; }
     public Field<String> machineSymbol() { return machineSymbol; }
     public Field<Long> minApiRevision() { return minApiRevision; }
+    public Field<String> minApiVersion() { return minApiVersion; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
+    public Field<IdentifyRestore> restore() { return restore; }
     public Field<String> screenDeviceId() { return screenDeviceId; }
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
@@ -121,6 +130,10 @@ public final class IdentifyResult implements WireValue {
         Object rawApiRevision = Wire.optional(object, "api_revision");
         if (!Wire.isMissing(rawApiRevision)) {
             builder.apiRevision(rawApiRevision == null ? null : Wire.uint32(rawApiRevision, "IdentifyResult.api_revision"));
+        }
+        Object rawApiVersion = Wire.optional(object, "api_version");
+        if (!Wire.isMissing(rawApiVersion)) {
+            builder.apiVersion(rawApiVersion == null ? null : Wire.string(rawApiVersion, "IdentifyResult.api_version"));
         }
         Object rawApp = Wire.required(object, "app");
         ProtocolSupport.literal(rawApp, "cmux-tui", "IdentifyResult.app");
@@ -196,12 +209,20 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawMinApiRevision)) {
             builder.minApiRevision(rawMinApiRevision == null ? null : Wire.uint32(rawMinApiRevision, "IdentifyResult.min_api_revision"));
         }
+        Object rawMinApiVersion = Wire.optional(object, "min_api_version");
+        if (!Wire.isMissing(rawMinApiVersion)) {
+            builder.minApiVersion(rawMinApiVersion == null ? null : Wire.string(rawMinApiVersion, "IdentifyResult.min_api_version"));
+        }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "IdentifyResult.pid"));
         Object rawProtocol = Wire.required(object, "protocol");
         builder.protocol(Wire.uint32(rawProtocol, "IdentifyResult.protocol"));
         Object rawRegistryId = Wire.required(object, "registry_id");
         builder.registryId(Wire.string(rawRegistryId, "IdentifyResult.registry_id"));
+        Object rawRestore = Wire.optional(object, "restore");
+        if (!Wire.isMissing(rawRestore)) {
+            builder.restore(IdentifyRestore.fromWire(rawRestore));
+        }
         Object rawScreenDeviceId = Wire.optional(object, "screen_device_id");
         if (!Wire.isMissing(rawScreenDeviceId)) {
             builder.screenDeviceId(rawScreenDeviceId == null ? null : Wire.string(rawScreenDeviceId, "IdentifyResult.screen_device_id"));
@@ -229,6 +250,7 @@ public final class IdentifyResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "api_revision", apiRevision);
+        Wire.put(object, "api_version", apiVersion);
         Wire.put(object, "app", "cmux-tui");
         Wire.put(object, "build_commit", buildCommit);
         Wire.put(object, "build_id", buildId);
@@ -249,9 +271,11 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "machine_platform", machinePlatform);
         Wire.put(object, "machine_symbol", machineSymbol);
         Wire.put(object, "min_api_revision", minApiRevision);
+        Wire.put(object, "min_api_version", minApiVersion);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
+        Wire.put(object, "restore", restore);
         Wire.put(object, "screen_device_id", screenDeviceId);
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
@@ -265,17 +289,18 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(buildTime, that.buildTime) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineDevice, that.machineDevice) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(machineSymbol, that.machineSymbol) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(screenDeviceId, that.screenDeviceId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(apiVersion, that.apiVersion) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(buildTime, that.buildTime) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineDevice, that.machineDevice) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(machineSymbol, that.machineSymbol) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(minApiVersion, that.minApiVersion) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(restore, that.restore) && Objects.equals(screenDeviceId, that.screenDeviceId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, buildTime, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineDevice, machineId, machineName, machinePlatform, machineSymbol, minApiRevision, pid, protocol, registryId, screenDeviceId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, apiVersion, buildCommit, buildId, buildTime, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineDevice, machineId, machineName, machinePlatform, machineSymbol, minApiRevision, minApiVersion, pid, protocol, registryId, restore, screenDeviceId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
 
     public static final class Builder {
         private Field<Long> apiRevision = Field.omitted();
+        private Field<String> apiVersion = Field.omitted();
         private Field<String> buildCommit = Field.omitted();
         private Field<String> buildId = Field.omitted();
         private Field<UInt64> buildTime = Field.omitted();
@@ -295,12 +320,14 @@ public final class IdentifyResult implements WireValue {
         private Field<MachinePlatform> machinePlatform = Field.omitted();
         private Field<String> machineSymbol = Field.omitted();
         private Field<Long> minApiRevision = Field.omitted();
+        private Field<String> minApiVersion = Field.omitted();
         private Long pid;
         private boolean pidSet;
         private Long protocol;
         private boolean protocolSet;
         private String registryId;
         private boolean registryIdSet;
+        private Field<IdentifyRestore> restore = Field.omitted();
         private Field<String> screenDeviceId = Field.omitted();
         private String session;
         private boolean sessionSet;
@@ -315,6 +342,10 @@ public final class IdentifyResult implements WireValue {
 
         public Builder apiRevision(Long value) {
             this.apiRevision = Field.ofNullable(value);
+            return this;
+        }
+        public Builder apiVersion(String value) {
+            this.apiVersion = Field.ofNullable(value);
             return this;
         }
         public Builder buildCommit(String value) {
@@ -390,6 +421,10 @@ public final class IdentifyResult implements WireValue {
             this.minApiRevision = Field.ofNullable(value);
             return this;
         }
+        public Builder minApiVersion(String value) {
+            this.minApiVersion = Field.ofNullable(value);
+            return this;
+        }
         public Builder pid(long value) {
             this.pid = value;
             this.pidSet = true;
@@ -403,6 +438,10 @@ public final class IdentifyResult implements WireValue {
         public Builder registryId(String value) {
             this.registryId = value;
             this.registryIdSet = true;
+            return this;
+        }
+        public Builder restore(IdentifyRestore value) {
+            this.restore = Field.of(value);
             return this;
         }
         public Builder screenDeviceId(String value) {

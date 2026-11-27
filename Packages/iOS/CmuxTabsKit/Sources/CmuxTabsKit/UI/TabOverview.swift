@@ -83,6 +83,8 @@ struct TabCard<Content: View>: View {
     /// The zoom draws this card's content and close button; its title row
     /// stays here and fades in with the others.
     var contentHidden = false
+    /// What the content shows that the title does not (`cardAccessibilityValue(for:)`).
+    var accessibilityValue: String?
     var onOpen: () -> Void = {}
     var onClose: () -> Void
     @ViewBuilder var content: Content
@@ -124,6 +126,7 @@ struct TabCard<Content: View>: View {
         // Open and Close actions (no nested images or buttons).
         .accessibilityRepresentation {
             Button("\(title), tab", action: onOpen)
+                .accessibilityValue(accessibilityValue ?? "")
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
         }
@@ -201,6 +204,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// The grid is at rest (no zoom running): cards off screen are built
     /// ahead only then, so the zoom's frames build nothing but what it shows.
     var isSettled = true
+    /// The settle animation's scale and blur (`TabTransitionVariant`).
+    var transition: TabTransitionVariant = .safari
 
     var body: some View {
         let tabs = source.tabs
@@ -245,16 +250,18 @@ struct TabOverview<Source: TabsDataSource>: View {
                     if !interactive { endSelecting() }
                 }
                 .onChange(of: dragging) { _, owner in onPressChanged(owner) }
-                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
-                    if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
-                }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll, residency] _, y in
-                if scroll.offset != y { scroll.offset = y }
+            // The content's place comes from the scroll view's own offset,
+            // not a frame read under the grid's zoom scale (`GridScrollTracker`).
+            .onScrollGeometryChange(for: GridScrollTracker.Reading.self, of: {
+                GridScrollTracker.Reading(offset: $0.contentOffset.y + $0.contentInsets.top, insetTop: $0.contentInsets.top,
+                                          offsetX: $0.contentOffset.x)
+            }) { [scroll, residency] _, reading in
+                scroll.apply(reading)
                 // Builds and releases cards as they near or leave the
                 // screen, without re-running this body.
-                residency.scrolled(to: y)
+                residency.scrolled(to: reading.offset)
             }
             .onScrollPhaseChange { _, phase in
                 residency.setScrolling(phase.isScrolling)
@@ -277,8 +284,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .scaleEffect(1.06 - 0.06 * shown)
-            .blur(radius: 10 * (1 - shown))
+            .scaleEffect(transition.gridScale(shown: shown))
+            .blur(radius: transition.gridBlur(shown: shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are
@@ -348,7 +355,8 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// An unbuilt card's accessibility element, named as its built card is.
     private func standIn(_ tab: TabsKitTab, rect: CGRect, pinned: Bool) -> CardStandIn {
-        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect,
+        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab",
+                    value: pinned ? nil : source.cardAccessibilityValue(for: tab.id), rect: rect,
                     open: { [onSelect] in onSelect(tab.id) },
                     close: pinned ? nil : { Task { _ = await closeTapped(tab.id) } })
     }
@@ -385,7 +393,8 @@ struct TabOverview<Source: TabsDataSource>: View {
         TabCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), pageSize: layout.size, width: r.width, height: r.height,
                 radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
-                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                contentHidden: tab.id == hiddenTabId, accessibilityValue: source.cardAccessibilityValue(for: tab.id),
+                onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))

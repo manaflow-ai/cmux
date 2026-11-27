@@ -33,6 +33,14 @@ EXEMPTIONS: dict[str, str] = {
     "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
+    # #55455: the push runs only the `seed` job, which fills the R2 dependency cache from its key's inputs; the
+    # journey itself runs on pull requests, on the CLI paths it dials through.
+    "cloud-journey-pr.yml": "push seeds the R2 cargo cache from its key's inputs (Cargo.lock, rust-toolchain.toml, "
+    "cloud-journey-cargo-key.sh); pull requests run the journey on the CLI paths it exercises",
+    # #56329: pull requests get the before/after receipt only for the component library; the base push takes
+    # webviews/** whole (which contains each pull_request path) and the gallery's build inputs.
+    "gallery-advisory.yml": "push covers webviews/** and the gallery's build inputs on feat-cmux-next; pull requests "
+    "name the component-library paths inside webviews/** (#56329)",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -72,6 +80,8 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/ci/lib/signing-runtime-guard.sh", "scripts/ci/macho_minos.py",
             "scripts/ci/swift_incremental_diagnostics.py", "scripts/cmux-next/cef-license/LICENSE.txt",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+            # The web jobs' own-bun step (#48817); pull requests admit it through scripts/cmux-next/**.
+            "scripts/cmux-next/private-bun.sh",
         }),
         "base pushes also compile for the nightly release inputs, so a nightly repair "
         "earns its Release compile before promotion; the base-red classifier runs "
@@ -90,10 +100,12 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     "cmux-next.yml": (
         "paths",
         frozenset({
-            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/browser-repl/README.md",
+            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/auto-mode/turncut/README.md",
+            "plans/cmux-next/browser-repl/README.md",
             "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
             "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
-            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/spec-proposals/visuals/README.md",
+            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/sidebar-owner/README.md",
+            "plans/cmux-next/spec-proposals/visuals/README.md", "plans/cmux-next/status-notices/README.md",
         }),
         "a pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py)",
     ),

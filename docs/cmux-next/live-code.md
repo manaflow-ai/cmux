@@ -110,6 +110,11 @@ layout code, which runs again at once. Needs a rebuild: stored properties, enum 
 resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
 has the numbers and what would make more of them live.
 
+A SwiftUI `body` applies when its view type stays the same: values, strings, colors, conditions and
+the code it calls. A view or modifier added to or removed from a `body` changes its `some View`
+type, which the build's conformance names, so the app refuses that patch and says so in its log
+(`a some View ... result's type changed`) instead of reading the new body as the old type.
+
 ## Live mode: restart into the live code build and back
 
 Leo (2026-11-05): "So caveat (for now?) is that toggling it on will slow things because the
@@ -141,7 +146,11 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
 - **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
   file in, and once saves stop for 20 s it makes the optimized build of the edited checkout
   (`reload.sh --tag TAG --build-only`, the tag's own warm derived data, at background priority).
-  It stops when live mode does.
+  It stops when live mode does. It hears a save by FSEvents (no poll; only the saved files are read
+  again) and patch.py reads the build's compile command from `xcodebuild.log` once, into
+  `xcodebuild.log.commands.json`, which the watcher fills when it starts. Each save's phases (saved,
+  heard, lookup, compile, link, placed, applied by the app) are one line in the tag's
+  `~/Library/Caches/cmux-next/live-mode/TAG/phases.jsonl`.
 - **Stop** restarts into that optimized build, so the edits are kept and fast. If saves came after
   it, stop builds the rest first (incremental). `--discard` restarts into the build that ran before
   live mode instead; your files are not touched.
@@ -181,3 +190,72 @@ a save while on, and a stop into the optimized build, counted in pixels.
   buttons: no live code build of its commit is built or signed for it to restart into, and a
   Release build may load only patches signed by the app's own team (cmux#13742), which a person's
   checkout cannot make. Unsigned, ad hoc patches stay Debug and bench only.
+
+## The iPhone app in the iOS Simulator
+
+Leo (2026-11-17): "can you just put the f***ing projection of whatever I have on Cosmic Gray just
+as like a constantly running thing, and then you guys can just keep testing that as you go, just
+like hot swapping or whatever, similar to like how you can do stuff with [a JavaScript hot-reload tool]."
+
+The iPhone app (cmux-next-ios) takes the same patches in the iOS Simulator: a simulator app is a
+macOS process, so it loads an ad hoc signed dylib from a folder on the Mac's disk, and its engine
+is this one (Packages/Shared/CmuxLiveCode). `scripts/live-code/ios-sim.sh` is the whole loop:
+
+| You want | Do this |
+|---|---|
+| The live code build, once (Demo, or Debug) | `scripts/live-code/ios-sim.sh build OUT` |
+| Run it on a booted simulator, watching `OUT/live` | `scripts/live-code/ios-sim.sh run OUT UDID [KEY=VALUE...]` |
+| Apply edited files (the app or CmuxMobileKit) | `scripts/live-code/ios-sim.sh patch OUT FILE.swift...` |
+| Undo the newest patch (or all) | `scripts/live-code/ios-sim.sh undo OUT [--all]` |
+| The app's log | `scripts/live-code/ios-sim.sh log OUT` |
+
+`IOS_SIM_SET` names a simctl device set. The build is the macOS app's two passes on the app target
+and every CmuxMobileKit module, plus `-enable-private-imports`: most of the app's views are
+`private struct`s, whose functions are otherwise local to their file and could never be repointed.
+Only a DEBUG configuration is built this way, and only the app's DEBUG code starts the watcher
+(`LiveCodeRedraw`), so Release, TestFlight and App Store builds are as before. On iOS the engine's
+sources compile only with DEBUG, so a Release binary holds no `CmuxLiveCode` symbol, no loader and
+no private dyld symbol name, though `project.yml` links the package into every configuration.
+
+The redraw: SwiftUI calls a `body` again only when something it read changed, so after each patch
+the app's root (`liveCodeRedraw(_:)`) takes a new identity and SwiftUI builds the whole tree again
+with the new code. State below the root starts over, as after a relaunch; the process, its
+connections and models stay. dyld_dynamic_interpose is there in the simulator's dyld (the app logs
+it when it starts watching); without it the rebind of the app's symbol pointers alone repoints.
+
+What it costs and saves, measured by `scripts/measure/ios-live-code.py` (an edit saved to the
+edit's color in the simulator's screenshot) on a fleet Mac:
+
+| Edit saved -> visible (6 edits, iPhone 17 Pro, iOS 26.5) | p50 | min | max |
+|---|---|---|---|
+| `ios-sim.sh patch` (patch.py compiles the file; load and repoint 40-62 ms) | 1.9 s | 1.5 s | 2.2 s |
+| warm incremental xcodebuild + `simctl install` + relaunch | 15.9 s | 13.1 s | 23.2 s |
+
+The live code build itself takes about 2.5 minutes from an empty DerivedData (both passes, `-jobs 6`).
+The app it makes is 190 MB and exports 79,324 interposable symbols.
+
+## The iPhone app on a device: cmux Dev
+
+The same patches reach a real iPhone (cmuxterm-hq `docs/design/ios-dev-channels.md`, step 4): "Hot
+Swift on the device: #45397's engine targeting `iphoneos`, patches signed by the Mac, sent over the
+link, loaded by cmux Dev only." A phone cannot read a folder on the Mac, so the patch travels on the
+link: `patch.py` compiles an arm64 iphoneos patch and signs it with the identity that signed the
+app (this Mac's Apple Development certificate, team 7WLXT3NR37), the Mac's cmux NEXT host streams
+it on the `live-code` service (cmux-next-ios/PROTOCOL.md), and cmux Dev writes it into its own
+live folder, where the engine checks it and loads it.
+
+| You want | Do this, on the Mac the phone is attached to and linked with |
+|---|---|
+| The live code build of cmux Dev, once | `scripts/live-code/ios-device.sh build OUT` |
+| Sign, install and launch it on the phone | `scripts/live-code/ios-device.sh run OUT UDID` |
+| Apply edited files | `scripts/live-code/ios-device.sh patch OUT FILE.swift...` |
+| Undo the newest patch (or all) | `scripts/live-code/ios-device.sh undo OUT [--all]` |
+| The log (the host's lines and the phone's) | `scripts/live-code/ios-device.sh log` |
+
+Who may load what: only a DEBUG build has the engine on iOS; only cmux Dev or a tagged dev build
+(`dev.cmux.mobile.*`) launched with `CMUX_LIVE_CODE_LINK=1` (`run` passes it) opens the service;
+and the engine loads only a patch whose code signature names the app's own team and is not ad hoc
+(`DevicePatchSignature.swift` reads both Mach-O signatures; iOS has no SecStaticCode). The kernel
+checks the same again when it maps the code: a third-party iOS app always has library validation.
+`patch.py` refuses an ad hoc patch for a device target. `check-production-binary.sh` fails a
+Release, TestFlight or App Store build that holds any of the live code strings.

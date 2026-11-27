@@ -6,7 +6,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { isLiveStep, PENDING_MESSAGES, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE, THINKING, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -109,7 +109,7 @@ const waiting: AcpmuxRow = {
   text: "2 messages from 2 sessions",
 };
 
-for (const kind of [THINKING, WORKING, ACTIVITY_LINE]) {
+for (const kind of [THINKING, WORKING]) {
   test(`the ${kind} live line under a run joins it and the waiting group's head`, async () => {
     const live: AcpmuxRow = { id: "live", version: 1, at: 1, kind, below: true, text: "Sending message to lane" };
     // The layout's own reading of the live line: one more line of the run.

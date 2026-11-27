@@ -28,7 +28,6 @@ export const FORK_HISTORY_KINDS: ReadonlySet<string> = new Set([
   "agent_thought_chunk",
   "tool_call",
   "tool_call_update",
-  "plan",
   "turn_started",
   "turn_result",
   "turn_end",
