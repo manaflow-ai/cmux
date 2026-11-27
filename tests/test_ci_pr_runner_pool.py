@@ -3023,6 +3023,52 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
+    def test_pipeline_uses_a_configured_idle_simulator_in_pool_order(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        wrong = aws.replace("26.6", "26.5")
+        office = mini_runner("office", 0, MINI, IOS_SIM)
+        cloud = mini_runner("cloud", 0, MINI, aws, IOS_SIM)  # AWS also advertises the office alias.
+        host_only = mini_runner("office", 1, MINI)
+        order = f"{MINI},{aws}"
+        for name, runners, labels, expected in (
+            ("office first", [office, cloud], order, MINI),
+            ("AWS first", [office, cloud], f"{aws},{MINI}", aws),
+            ("office busy", [{**office, "busy": True}, cloud], order, aws),
+            ("office absent", [cloud], order, aws),
+            ("AWS absent", [office], order, MINI),
+            ("AWS lacks runtime", [host_only, mini_runner("cloud", 0, aws)], order, SMALL),
+            ("AWS busy", [host_only, {**cloud, "busy": True}], order, SMALL),
+            ("AWS offline", [host_only, {**cloud, "status": "offline"}], order, SMALL),
+            ("AWS opt-in required", [host_only, cloud], MINI, SMALL),
+            ("other Xcode", [host_only, mini_runner("cloud", 0, wrong, IOS_SIM)], f"{MINI},{wrong}", SMALL),
+        ):
+            with self.subTest(name=name), unittest.mock.patch.object(pool, "GitHub") as github:
+                client = github.return_value
+                client.runners.return_value = runners
+                client.runs_since.return_value = []
+                client.get.return_value = {"artifacts": []}
+                out = io.StringIO()
+                args = ["--lane", "pipeline", "--requested", "auto", "--owned", "1", "--ios-owned", "1",
+                        "--owned-slots", json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", labels]
+                env = {"GH_TOKEN": "job", "ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}
+                with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(ios_pool.main(args, env=env), 0)
+                output = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(json.loads(output["runs_on"]), SMALL if expected == SMALL else [expected, IOS_SIM])
+                self.assertEqual(json.loads(output["retry_runs_on"]), SMALL)
+                client.runners.assert_called_once_with()
+
+    def test_pipeline_aws_shares_the_simulator_limit_with_office_jobs(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        runner = mini_runner("cloud", 0, aws, IOS_SIM)
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": "CmuxMobileKit tests (macOS swift test, iOS simulator)", "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "office-glaeda"}
+        for capacity, expected in ((1, 0), (2, 1)):
+            free = ios_pool.live_free([runner], aws, [kit], now=NOW, capacity=capacity,
+                                      jobs={1: [job]}, idle_sim_only=True)
+            self.assertEqual(free.sim, expected)
+
     def test_a_simulator_job_never_asks_for_the_pool_label_alone(self):
         for route in (ios_route(sim_fleet())[0], ios_route(requested="owned")[0],
                       ios_route(lane="screenshots", requested="owned")[0]):
@@ -4922,9 +4968,9 @@ class SharedRunnerStateTests(unittest.TestCase):
                         continue
                     # The compile report's `gap` subcommand only reads git;
                     # the default invocation is the runner picker.
-                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in with_moved_step_scripts(run) and not (
                         script == "dev_landing_place.py"
-                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
+                        and re.search(r"dev_landing_place\.py\s+gap\b", with_moved_step_scripts(run)))]
                     if hits:
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
@@ -4963,7 +5009,7 @@ def with_moved_step_scripts(run: str) -> str:
     nightly.yml moves long run blocks into those scripts to stay under its size cap
     (tests/test_workflow_file_size.py); a step that runs the picker through one still
     counts as a picker step, and one whose script runs no picker still fails."""
-    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+    for path in re.findall(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh", run):
         script = ROOT / path
         if script.is_file():
             run += "\n" + script.read_text()
