@@ -1093,6 +1093,12 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        // Findable by name at once, before the peer's own list or notice says so.
+        let name = result
+            .pointer("/_meta/acpmux/name")
+            .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
+            .and_then(Value::as_str);
+        hub.note_created_remote(&peer.name, id, name);
         view::subscribe_remote(hub, conn, id, None);
         peer.mark_attached(id);
     }
@@ -2301,9 +2307,11 @@ async fn dispatch_request_with_identity(
                     let via = mux_meta(&params).and_then(|m| m.get("via")).and_then(Value::as_str);
                     let p = crate::prompt_provenance::forwarded_by_peer(p, via);
                     // Its outbox sent it again: it waited for this machine to come back, and
-                    // the chat wakes for it (`prompt_provenance::waited`).
-                    let resend = mux_meta(&params).and_then(|m| m.get("resend"));
-                    if conn.auth.peer_daemon() && resend == Some(&Value::Bool(true)) {
+                    // the chat wakes for it (`prompt_provenance::waited`). A mesh relay's first
+                    // lease is `resend` for its prompt id only, and did not wait.
+                    if conn.auth.peer_daemon()
+                        && crate::prompt_provenance::resend_waited(mux_meta(&params))
+                    {
                         crate::prompt_provenance::mark_waited(p)
                     } else {
                         p
@@ -4198,6 +4206,7 @@ async fn dispatch_request_with_identity(
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
         m if queued::handles(m) => queued::handle(hub, conn, m, &params).await,
+        method::MUX_SEND_HOP => heap(|| super::send_hop::serve(hub, conn, &params)).await,
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             heap(|| super::outbox::handle(hub, conn, m, &params)).await
         }
