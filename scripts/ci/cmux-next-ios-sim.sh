@@ -165,7 +165,10 @@
 #           instead of ~150 MB), upload-random (random bytes, as a video's, not a
 #           sparse file), upload-relay (the phone's link relay only),
 #           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
-#           (seconds to wait for the probe's result, 60-3600, default 300).
+#           (seconds to wait for the probe's result, 60-3600, default 300),
+#           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
+#           its hostd freeze for each drop; the phone must reattach within 30 s
+#           with no tap; reconnect-after-drop.mp4 records the phone).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -393,7 +396,11 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
       upload-random) pair_upload+=(--upload-random) ;;
       upload-relay) pair_upload+=(--upload-relay-only) ;;
       upload-block-udp) pair_upload+=(--upload-block-udp) ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay and upload-block-udp, got '$word'" >&2; exit 2 ;;
+      reconnect-drops=*)
+        n="${word#reconnect-drops=}"
+        [[ "$n" =~ ^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,3}$ ]] || { echo "cmux-next-ios-sim.sh: reconnect-drops= wants up to 4 comma-separated seconds (1-999), got '$n'" >&2; exit 2; }
+        pair_upload+=(--reconnect-drops "$n") ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp and reconnect-drops=S,S, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -793,16 +800,9 @@ sim_boot_reduce_motion() {
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
-curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
-  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
-got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
-[[ "$got" == "$xcodegen_sha256" ]] ||
-  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
-unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
-# The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
-xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
-[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary in the $xcodegen_version zip" >&2; exit 3; }
+# The helper caches per host, authenticates when a token or gh is there, and verifies the sha256.
+xcodegen="$(bash "$(dirname "${BASH_SOURCE[0]}")/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$xcodegen_dir")" || exit 3
+[[ -x "$xcodegen" ]] || exit 3
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
@@ -848,7 +848,10 @@ t0=$SECONDS
 # miss builds it and publishes it under its own key for the next step with the same inputs,
 # a branch's build as well as a landed one (the probe beside the build only records which). The cache never fails the
 # step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
-# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
+# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds. A miss builds
+# in one of the worker's warm cargo target dirs (ios_ffi_cache.py build), so it recompiles only the
+# path crates, not every registry crate. (A listperf base build below runs its own commit's script,
+# which may predate CARGO_TARGET_DIR, so it builds in its checkout.)
 ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
 ffi_log="$work/ffi-cache.log"
 : >"$ffi_log"
@@ -886,7 +889,18 @@ if [[ -z "$ffi_how" ]]; then
     "${ffi_cache[@]}" probe "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 &
     ffi_probe=$!
   fi
-  JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
+  ffi_build=(bash cmux-next-ios/rust/scripts/build-xcframework.sh)
+  rm -f "$work/ffi-build.rc"
+  ffi_rc=0
+  JOBS="${JOBS:-8}" "${ffi_cache[@]}" build "$root" "$work/ffi-build.rc" "${ffi_build[@]}" >"$work/ffi.log" 2>&1 || ffi_rc=$?
+  if [[ -f "$work/ffi-build.rc" ]]; then
+    ffi_rc="$(cat "$work/ffi-build.rc")"
+  else
+    ffi_warn "warm build helper failed before the build" "$ffi_rc"
+    ffi_rc=0
+    JOBS="${JOBS:-8}" "${ffi_build[@]}" >"$work/ffi.log" 2>&1 || ffi_rc=$?
+  fi
+  [[ "$ffi_rc" == 0 ]] || {
     tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
   ffi_how="built"
   if [[ -n "$ffi_probe" ]]; then
@@ -902,6 +916,7 @@ if [[ -z "$ffi_how" ]]; then
   fi
 fi
 grep -h '^ios-ffi cache:' "$ffi_log" || true
+grep -h '^ios-ffi target:' "$work/ffi.log" 2>/dev/null | sed 's/^/- /' | tee -a "$summary" || true
 note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
 (cd cmux-next-ios && "$xcodegen" generate -q) >"$work/xcodegen.log" 2>&1 || {
   cat "$work/xcodegen.log"; echo "error: xcodegen failed" >&2; exit 1; }
@@ -990,6 +1005,13 @@ if [[ "$mode" == test && ${#ui_suites[@]} -gt 0 && ${#ui_cold[@]} -eq 0 && ${#du
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet)
   [[ "$ui_config" != Demo ]] || ui_prebuild_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  # Resolve the Swift packages once first: both builds share SwiftPM's artifact cache
+  # (~/Library/Caches/org.swift.swiftpm), and on a cold cache (a hosted runner) the two raced to
+  # download the same binary targets, one failing "already exists in file system" (exit 74), so the
+  # UI suite ran no test. Warm, this takes a few seconds; a failure leaves the builds to report it.
+  xcodebuild -resolvePackageDependencies -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+    -derivedDataPath "$dd_root/dd-ui" >"$work/spm-resolve.log" 2>&1 ||
+    note "- SwiftPM resolve before the parallel builds: failed ($(tail -n 1 "$work/spm-resolve.log"))"
   ui_prebuild_t0=$SECONDS
   xcodebuild build-for-testing "${ui_prebuild_args[@]}" >"$work/ui-build.log" 2>&1 &
   ui_prebuild_pid=$!

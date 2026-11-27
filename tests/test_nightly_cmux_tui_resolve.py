@@ -254,13 +254,15 @@ for name in shipping:
             body = body.replace(control.group(0), "")
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
-    # The publication manifest deliberately records the app-input digest's source tip. That HEAD_SHA
-    # is provenance for the digest, not a checkout or build selector, so keep it out of the source-ref
-    # guard while retaining the guard for every other use of the tip.
-    manifest_step = re.search(r"^      - name: Write the build manifest for this app-input digest\n.*?(?=^      - name:|\Z)",
-                              body, re.MULTILINE | re.DOTALL)
-    tip_checked_body = body if manifest_step is None else body.replace(manifest_step.group(0), "")
-    for line in tip_checked_body.splitlines():
+    # hq#26225's app-input manifest step reads the tip only to compare: app_build_manifest.py writes nothing unless
+    # the published commit (BUILD_SHA) is the one the digest was computed for (HEAD_SHA).
+    manifest = re.search(r"^      - name: Write the build manifest for this app-input digest\n.*?(?=^      - |\Z)",
+                         body, re.MULTILINE | re.DOTALL)
+    if manifest:
+        check("app_build_manifest.py" in manifest.group(0) and "BUILD_SHA: ${{ steps.source.outputs.build_sha }}"
+              in manifest.group(0), f"{name}'s manifest step compares the tip with the built commit")
+        body = body.replace(manifest.group(0), "")
+    for line in body.splitlines():
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,
                   f"{name} still uses the tip outside a cache key: {line.strip()}")

@@ -54,14 +54,15 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
-                   'published-build')
+                   'published-build', 'check-nightly-app-store-shelf', 'check-nightly-webviews',
+                   'early-nightly-webviews')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
 # override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
 # jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in')
+                      'publish-nightly-next-github', 'published-in', 'wake-nightly-next-tick', 'dispatch-published-in')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -112,6 +113,8 @@ OWNED_SECRET_JOBS = {
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'keep-published-dsyms': "release credentials, short; the signer's label",
+    'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
+    'visual-gate-nightly': "the GhosttyKit cache's R2 read keys; the GUI Mac route-visual-gate-nightly picks",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
@@ -621,7 +624,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
                         allowed = ({hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS
-                                   else {CMUX_LINUX} if name in CMUX_LINUX_JOBS else OUR_LABELS - {HOSTED})
+                                   else {CMUX_LINUX} if name in CMUX_LINUX_JOBS
+                                   else OUR_LABELS - {HOSTED})
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:
@@ -645,13 +649,16 @@ class NightlyTrustedRouting(unittest.TestCase):
                          'hosted Ubuntu with a reason in test_nightly_owned_minis_only.py')
         self.assertEqual(set(HOSTED_SECRET_JOBS) & set(OWNED_SECRET_JOBS), set())
         # No stale entry: each one still names a secret job.
-        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found, set())
+        # published-in holds no secret but a pull-requests: write token, so it takes the JIT VM all the same.
+        write_token = {name for name in HOSTED_SECRET_JOBS
+                       if 'write' in (workflow_jobs.jobs(DOC)[name].get('permissions') or {}).values()}
+        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found - write_token, set())
         for name, reason in OWNED_SECRET_JOBS.items():
             with self.subTest(job=name):
                 self.assertTrue(reason.strip())
         # The hosted half keeps its reasons in one place.
-        from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
-        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS))
+        from test_nightly_owned_minis_only import HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
+        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS))
 
     def test_a_new_secret_job_is_named_until_classified(self):
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""

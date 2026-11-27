@@ -276,7 +276,16 @@ class NightlyNextOneJobTests(unittest.TestCase):
             self.assertIn("refuse_stray_processes.py", steps[index].get("run", ""))
             self.assertNotIn("secrets.", blobs[index])
         signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
-        publication = [i for i, b in enumerate(blobs) if self.PUBLICATION_SECRET.search(b)]
+        # The base warm checkout mints a read-only installation token before the first build fence. It uses the
+        # same App credentials as publication, but cannot publish and is deliberately scoped to contents: read.
+        warm_fetch = [i for i, step in enumerate(steps) if step.get("id") == "warm-fetch-token"]
+        self.assertEqual(len(warm_fetch), 1)
+        warm_index = warm_fetch[0]
+        self.assertLess(warm_index, first)
+        self.assertIs(steps[warm_index].get("continue-on-error"), True)
+        self.assertIn("permission-contents: read", blobs[warm_index])
+        publication = [i for i, b in enumerate(blobs)
+                       if self.PUBLICATION_SECRET.search(b) and i != warm_index]
         self.assertTrue(signing and publication)
         self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")

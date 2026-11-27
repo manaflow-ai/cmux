@@ -59,6 +59,8 @@ RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
 # (the budget wrapper goes on PATH before the build), and it mints the App token only for publication.
 BUDGET_FIRST = {"nightly-next-one"}
+# A gh command in a step's run: `gh`, then a space, at a word start.
+GH_CALL = re.compile(r"(?:^|[\s;|&(`])gh\s", re.M)
 
 
 def release_app_jobs(jobs: dict) -> set[str]:
@@ -156,9 +158,16 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual({k for k in step["with"] if k.startswith("permission-")}, {"permission-contents"}, name)
             self.assertEqual(steps[app[0]]["env"], {"GH_APP_TOKEN": "${{ steps.gh-app-token.outputs.token }}",
                                                     "GH_FALLBACK_TOKEN": "${{ github.token }}"}, name)
-            # Every step that sends github.token runs after the wrapper is on PATH.
+            # Every step that sends github.token to gh runs after the wrapper is on PATH. A step that
+            # hands it only to git as FETCH_TOKEN (an http extraheader: the Mac git credential step,
+            # anchor github-token-for-git, #58418, and the warm checkout, #58081) runs before the
+            # checkout the wrapper comes from, and must call no gh.
             for i, s in enumerate(steps):
-                if i != app[0] and "github.token" in str(s.get("env", {})):
+                env = s.get("env", {}) or {}
+                if [k for k, v in env.items() if "github.token" in str(v)] == ["FETCH_TOKEN"]:
+                    self.assertIsNone(GH_CALL.search(str(s.get("run", ""))), (name, s.get("name")))
+                    continue
+                if i != app[0] and "github.token" in str(env):
                     if name in BUDGET_FIRST and i < mint[0]:
                         # The build phase precedes token minting and intentionally uses the default
                         # github.token. Publication steps follow both wrappers.
