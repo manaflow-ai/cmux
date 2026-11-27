@@ -129,5 +129,31 @@ await requireBrowserLane("gallery-background-browser.test.ts", async () => {
           expect(alpha(seen.glassFill)).toBeLessThan(1);
           expect(seen.errors).toEqual([]);
         });
+
+    // The photographs (fixtures/photos): bundled JPEGs under the same tint, the same still to the lens.
+    for (const picture of ["photo-light", "photo-dark", "photo-busy"] as const)
+      test(`${picture}: clear page, tint over the bundled photo, glass over it`, async () => {
+        const seen = await look({ background: picture, colorScheme: "dark" });
+        expect(seen.ready).toBe("1");
+        expect(seen.background).toBe(picture);
+        expect(seen.seeThrough).toBe(true);
+        expect(alpha(seen.surface)).toBe(0);
+        expect(seen.rootImage).toMatch(/^linear-gradient\(rgba\([^)]*\), rgba\([^)]*\)\), url\("data:image\/jpeg/);
+        expect(seen.backdropImage).toStartWith("data:image/jpeg");
+        expect(seen.glassFilter).toContain("blur");
+        expect(seen.errors).toEqual([]);
+      });
+
+    // The shell's default (env.ts SHELL_DEFAULT_BACKGROUND): the bundled painting, a JPEG, under the same tint.
+    test("painting: clear page, tint over the bundled painting", async () => {
+      const seen = await look({ background: "painting" });
+      expect(seen.ready).toBe("1");
+      expect(seen.background).toBe("painting");
+      expect(seen.seeThrough).toBe(true);
+      expect(alpha(seen.surface)).toBe(0);
+      expect(seen.rootImage).toMatch(/^linear-gradient\(rgba\([^)]*\), rgba\([^)]*\)\), url\("data:image\/jpeg/);
+      expect(seen.backdropImage).toStartWith("data:image/jpeg");
+      expect(seen.errors).toEqual([]);
+    });
   });
 });

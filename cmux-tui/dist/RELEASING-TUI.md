@@ -43,6 +43,13 @@ Relay autostart needs a durable native executable. `npx cmux-relay
 Install the package globally (`npm install --global cmux-relay`) or in a
 persistent project, then run `cmux-relay --autostart`.
 
+Every TUI package carries `cmux autocloud`, the AutoCloud chat (RFD 0139,
+crate `cmux-autocloud`), inside the one `cmux-tui` binary: `npx cmux autocloud`
+and `uvx cmux autocloud` need nothing else. The package contract validator runs
+`cmux autocloud --help` through the installed npm launcher, and the Linux
+container smoke runs it through npx, uvx and the bare binary, so a release that
+drops it fails before upload.
+
 Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.

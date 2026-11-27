@@ -37,7 +37,14 @@ pub(in crate::cli) enum Answer {
         status: Status,
     },
     Profiles(Vec<Listed>),
+    Recipes {
+        written: cmux_customize_recipes::Written,
+        /// With `--open`: whether cmux showed the guide, or why not.
+        opened: Option<Result<(), String>>,
+    },
     Paths(Roots),
+    /// `checklist`: the customizations checklist and how far along it is.
+    Checklist(cmux_customize::checklist::Checklist),
     TriedOn(TriedOn),
     /// How try-ons ended, and the verb that asked (`keep`, `revert`,
     /// `settle`).
@@ -102,6 +109,7 @@ impl Answer {
                 json!({ "profile": name, "begun": begun, "status": status_json(status) })
             }
             Answer::Profiles(profiles) => json!({ "profiles": profiles }),
+            Answer::Recipes { written, opened } => recipes_json(written, opened.as_ref()),
             Answer::TriedOn(tried) => value(tried),
             Answer::Settled(settled, _) => json!({ "settled": settled }),
             Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
@@ -116,13 +124,14 @@ impl Answer {
                 "source": cmux_customize::schema::rust(schema),
             }),
             Answer::Library { json, .. } | Answer::Recovery { json, .. } => json.clone(),
+            Answer::Checklist(checklist) => json!({ "checklist": checklist }),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
                 "themes": roots.config_dir.join("themes"),
                 "views": roots.customize_dir,
                 "styles": roots.config_dir.join("agent-pane/theme.css"),
-                "automations": roots.config_dir.join("automations"),
+                "automations": roots.automations_dir.clone(),
                 "profiles": roots.profiles_dir(),
                 "generations": roots.state_dir,
             }),
@@ -223,6 +232,10 @@ impl Answer {
                     "  cmux customize use {}    preview it, here or on another machine (send the file)\n",
                     saved.name
                 ));
+                out.push_str(&format!(
+                    "  wrap_up actions: [{{\"label\":\"Try it on\",\"run\":{{\"customize\":\"try\",\"target\":\"{0}\",\"minutes\":10}}}},{{\"label\":\"Keep\",\"run\":{{\"customize\":\"keep\"}}}},{{\"label\":\"Revert\",\"run\":{{\"customize\":\"revert\"}}}}]\n",
+                    saved.name
+                ));
             }
             Answer::Using { name, status, .. } => {
                 out.push_str(&format!("previewing profile {name}; nothing is applied yet\n"));
@@ -283,6 +296,9 @@ impl Answer {
                     ));
                 }
             }
+            Answer::Recipes { written, opened } => {
+                recipes_lines(&mut out, written, opened.as_ref());
+            }
             Answer::Schema(schema, _, super::SchemaFormat::TypeScript) => {
                 out.push_str(&cmux_customize::schema::typescript(schema));
             }
@@ -293,6 +309,7 @@ impl Answer {
                 schema_lines(&mut out, schema, *section);
             }
             Answer::Library { human, .. } | Answer::Recovery { human, .. } => out.push_str(human),
+            Answer::Checklist(checklist) => checklist_lines(&mut out, checklist),
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
                     for (name, path) in paths {
@@ -302,6 +319,21 @@ impl Answer {
             }
         }
         out
+    }
+}
+
+/// The checklist as a person reads it: n of m, a box per step, where to go next.
+fn checklist_lines(out: &mut String, checklist: &cmux_customize::checklist::Checklist) {
+    out.push_str(&format!("Customize cmux: {} of {} done\n", checklist.done, checklist.total));
+    for step in &checklist.steps {
+        let mark = if step.done { "x" } else { " " };
+        out.push_str(&format!("  [{mark}] {:32} {}\n", step.title.text, step.detail.text));
+    }
+    if let Some(next) = checklist.steps.iter().find(|step| Some(step.id) == checklist.next) {
+        out.push_str(&format!("next: {} (Settings: #{})\n", next.title.text, next.route));
+    }
+    if !checklist.enabled {
+        out.push_str("dismissed in Settings: `cmux settings set customize.checklist.enabled true` shows it again\n");
     }
 }
 
@@ -450,6 +482,70 @@ pub(super) fn ago(now_ms: u64, at_ms: u64) -> String {
         60..=3599 => format!("{}m ago", seconds / 60),
         3600..=86_399 => format!("{}h ago", seconds / 3600),
         _ => format!("{}d ago", seconds / 86_400),
+    }
+}
+
+/// Each recipe with the command that tries it.
+fn recipes_json(
+    written: &cmux_customize_recipes::Written,
+    opened: Option<&Result<(), String>>,
+) -> Value {
+    let recipes: Vec<Value> = cmux_customize_recipes::RECIPES
+        .iter()
+        .map(|recipe| {
+            let path = written.files.get(recipe.name);
+            json!({
+                "name": recipe.name,
+                "title": recipe.title,
+                "group": recipe.group,
+                "description": recipe.summary(),
+                "ask": recipe.ask,
+                "changes": recipe.parts(),
+                "path": path,
+                "try": path.map(|path| format!("cmux customize use {}", cmux_customize_recipes::shell_quote(&path.display().to_string()))),
+            })
+        })
+        .collect();
+    let mut out = json!({ "dir": written.dir, "guide": written.guide, "recipes": recipes });
+    if let (Some(opened), Some(object)) = (opened, out.as_object_mut()) {
+        object.insert("opened".to_owned(), json!(opened.is_ok()));
+        if let Err(why) = opened {
+            object.insert("open_error".to_owned(), json!(why));
+        }
+    }
+    out
+}
+
+/// The recipes by group, how to try one, and where the guide is.
+fn recipes_lines(
+    out: &mut String,
+    written: &cmux_customize_recipes::Written,
+    opened: Option<&Result<(), String>>,
+) {
+    let recipes = cmux_customize_recipes::RECIPES;
+    let width = recipes.iter().map(|recipe| recipe.name.len()).max().unwrap_or(4);
+    for group in cmux_customize_recipes::Group::ALL {
+        out.push_str(&format!("{}\n", group.title()));
+        for recipe in recipes.iter().filter(|recipe| recipe.group == *group) {
+            out.push_str(&format!("  {:width$}  {}\n", recipe.name, recipe.summary()));
+        }
+    }
+    out.push_str(&format!(
+        "\ntry one: cmux customize use {}/NAME.json  (a preview: then apply or discard)\n",
+        written.dir.display()
+    ));
+    match opened {
+        Some(Ok(())) => {
+            out.push_str("the guide is open in cmux: press Run on a recipe to try it\n");
+        }
+        Some(Err(why)) => out.push_str(&format!(
+            "cmux could not open the guide ({why}); it is at {}\n",
+            written.guide.display()
+        )),
+        None => out.push_str(&format!(
+            "the guide, with a Run button for each: cmux customize recipes --open ({})\n",
+            written.guide.display()
+        )),
     }
 }
 

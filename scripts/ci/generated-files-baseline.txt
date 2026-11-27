@@ -1,13 +1,12 @@
 # Generated files git still tracks that no "committed" generator in generated-files.json covers.
 # Shrink only: a cutover removes lines; nothing adds one (generated_files_guard.py).
-Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/include/cua_driver_abi.h
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift
 Resources/markdown-viewer/ondine.min.js
 THIRD_PARTY_LICENSES.md
 agent-chat/adapters/claude-environment-policy.generated.ts
 backend/apps/api/src/domains/public-suffix-data.ts
 clients/ts/cloud/src/automation-cmux.ts
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
 cmux-tui/build-support/notices/REVIEW.md
 cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md
 cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml

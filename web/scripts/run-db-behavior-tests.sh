@@ -17,12 +17,28 @@ if [[ ! "$db_test_timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+# With file arguments, run only those (each must be CMUX_DB_TEST-gated); the
+# Billing lane passes its own subset this way. Without, run every gated file.
 test_files=()
-while IFS= read -r test_file; do
-  if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+if [[ "$#" -gt 0 ]]; then
+  for test_file in "$@"; do
+    if [[ ! -f "$test_file" ]]; then
+      echo "No such DB behavior test file: $test_file" >&2
+      exit 2
+    fi
+    if ! grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+      echo "Not a CMUX_DB_TEST-gated test file: $test_file" >&2
+      exit 2
+    fi
     test_files+=("$test_file")
-  fi
-done < <(find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort)
+  done
+else
+  while IFS= read -r test_file; do
+    if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+      test_files+=("$test_file")
+    fi
+  done < <(find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort)
+fi
 
 if [[ "${#test_files[@]}" -eq 0 ]]; then
   echo "No CMUX_DB_TEST-gated test files found" >&2
@@ -33,9 +49,11 @@ printf 'Running %s DB behavior test file(s) with CMUX_DB_TEST=1\n' "${#test_file
 failed_files=()
 zero_test_files=()
 skipped_test_files=()
+temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+mkdir -p "$temp_root"
 for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
-  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
+  output_file="$(mktemp "$temp_root/cmux-db-behavior-test.XXXXXX")"
   set +e
   # DB behavior files share one database and may also mutate process-wide
   # environment controls (for example VM plan limits). Bun's default

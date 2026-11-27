@@ -18,20 +18,42 @@ impl Peer {
         peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
+        Self::new_with_lease(name, url, token, peer_token, notices, false)
+    }
+
+    pub(crate) fn new_with_lease(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        leased: bool,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
+        let scope = cmux_scope::Scope::new("acpmux peer");
+        let notices = crate::peer_notice_outbox::NoticeOutbox::new(
+            notices,
+            scope.child("acpmux peer notices"),
+        );
         Arc::new(Self {
-            scope: cmux_scope::Scope::new("acpmux peer"),
+            scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
+            leased,
             url: url.to_owned(),
             token,
             peer_token,
             tunnel: Mutex::new(None),
-            wireguard: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            ssh_mux_override: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            wg_learner: std::sync::OnceLock::new(),
+            wg_learning: AtomicBool::new(false),
+            tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
@@ -58,6 +80,7 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            list_baseline_missing: AtomicBool::new(false),
             rows_link: AtomicU64::new(0),
             listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
@@ -69,6 +92,8 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            group_override: StdMutex::new(None),
+            wake_hook: std::sync::OnceLock::new(),
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
@@ -87,6 +112,7 @@ impl Peer {
             mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
+            agent_channels: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
@@ -95,6 +121,7 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -115,6 +142,8 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            quality: StdMutex::default(),
+            replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -128,11 +157,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
+            early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
             cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
+            link_read: StdMutex::new(cmux_deadline::Progress::new()),
         })
     }
 
@@ -141,12 +173,25 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
     pub fn received(&self) -> &ReceivedBytes {
         &self.received
+    }
+
+    /// The current (or last) link's transport read progress: every byte it read, also inside
+    /// a frame that has not fully arrived.
+    pub fn link_read(&self) -> cmux_deadline::Progress {
+        self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn link(&self) -> Link {
@@ -156,6 +201,40 @@ impl Peer {
     pub(super) fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
         let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
         f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
+    pub(super) fn with_quality<T>(
+        &self,
+        f: impl FnOnce(&mut crate::peer_link_quality::LinkQuality) -> T,
+    ) -> T {
+        f(&mut self.quality.lock_or_recover())
+    }
+
+    /// How long a ping sent to check a silent link waits for an answer: what the silence budget's
+    /// measured round trip asks for (`SilenceBudget::probe_wait`), and not under `NETWORK_PROBE`
+    /// scaled to the link quality's round trip (`peer_link_quality::probe_wait`).
+    pub(super) fn probe_wait(&self) -> Duration {
+        let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
+        if !self.timings.rtt_adaptive {
+            return wait;
+        }
+        wait.max(self.with_quality(|q| {
+            crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE)
+        }))
+    }
+
+    /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
+    /// its round trip asks for (`peer_link_quality::silence_floor`). A fixed
+    /// `ACPMUX_PEER_PING_SECS` keeps it as set.
+    pub(super) fn silence_for(&self, learned: Duration) -> Duration {
+        let t = &self.timings;
+        if !t.rtt_adaptive || t.fixed_silence {
+            return learned;
+        }
+        let floor = self.with_quality(|q| {
+            crate::peer_link_quality::silence_floor(q.rtt(), t.ping_every, t.silence_budget())
+        });
+        learned.max(floor)
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -185,22 +264,6 @@ impl Peer {
         }
         let Some(states) = self.states.lock_or_recover().clone() else { return };
         states.changed(&self.name, self.generation, self.observed(link));
-    }
-
-    pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
-        let error = self.last_error.lock_or_recover().clone();
-        let state = link.state();
-        let mut facts = self.facts.lock_or_recover();
-        let (whole, since) = facts.observe(state, crate::store::now_ms());
-        crate::peer_states::Observed {
-            link: whole,
-            carrier: facts.live_carrier(state),
-            cause: carrier::cause(whole, error.as_deref()),
-            since,
-            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
-            last_seen: link.last_seen,
-            error,
-        }
     }
 
     /// The carrier this attempt runs over (`carrier` while its link is open).
@@ -235,6 +298,13 @@ impl Peer {
         if takes {
             features.push(crate::attach::FEATURE.to_owned());
         }
+    }
+
+    /// Whether its last handshake advertised the folder trust gate (`trustGate`), as every
+    /// current daemon's does: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_trust_gate(&self, advertised: bool) {
+        self.trust_gate.store(advertised, Ordering::SeqCst);
     }
 
     /// What its last handshake listed (`lists`): a test's peer that never ran.
@@ -344,7 +414,7 @@ impl Peer {
         if self.stop.load(Ordering::SeqCst) {
             return Err("peer stopped".to_owned());
         }
-        let (child, stream, _, errors) = self.spawn_tunnel()?;
+        let (child, stream, _, errors) = self.spawn_tunnel().await?;
         // Replacing the previous channel ends its ssh process.
         *tunnel = Some(child);
         if self.stop.load(Ordering::SeqCst) {
@@ -359,7 +429,7 @@ impl Peer {
     /// Spawn an `ssh -W` stdio channel to the peer's WebSocket port, owned by the caller (it
     /// ends when dropped). `open_tunnel` keeps the link's in `tunnel`; a path probe keeps its own.
     #[allow(clippy::type_complexity)]
-    pub(super) fn spawn_tunnel(
+    pub(super) async fn spawn_tunnel(
         &self,
     ) -> Result<
         (
@@ -371,18 +441,21 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("spawn ssh: {e}"))?;
+            .kill_on_drop(true);
+        let login = self.begin_ssh_login(&command).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("spawn ssh: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        }
         Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
@@ -423,16 +496,20 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(read_config_argv(&host, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("read remote config: {e}"))?;
+            .kill_on_drop(true);
+        let login =
+            self.begin_ssh_login(&command).await.map_err(|e| format!("read remote config: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("read remote config: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("read remote config: {e}"))?;
+        }
         let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
         // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
         let out = tokio::select! {
@@ -598,6 +675,15 @@ impl Peer {
         self.vm_boundary.store(on, Ordering::SeqCst);
     }
 
+    /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
+    pub fn set_group_override(&self, group: Option<String>) {
+        *self.group_override.lock().unwrap_or_else(|e| e.into_inner()) = group;
+    }
+
+    pub fn group_override(&self) -> Option<String> {
+        self.group_override.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// Whether this caller opts its remote chains on the peer out of the sandbox.
     pub fn vm_boundary(&self) -> bool {
         self.vm_boundary.load(Ordering::SeqCst)
@@ -607,6 +693,7 @@ impl Peer {
     /// GitHub login. Read again for each action, so turning it off holds at once.
     pub fn set_github_broker(&self, on: bool) {
         self.github_broker.store(on, Ordering::SeqCst);
+        self.demand_changed();
         if !on {
             self.github_revoked.notify_waiters();
         }
@@ -712,12 +799,41 @@ impl Peer {
         self.watch_active.store(active, Ordering::Release);
     }
 
+    pub(crate) fn coalesce_lists(&self) {
+        self.notices.coalesce_lists();
+    }
+
+    pub(crate) fn take_waiting_list(&self, number: u64) -> Option<Vec<Arc<str>>> {
+        let rows = self.notices.take_waiting_list(number);
+        self.list_baseline_missing.store(rows.is_none(), Ordering::SeqCst);
+        if rows.is_none() {
+            self.rows_ready.store(false, Ordering::SeqCst);
+            self.rows_link.store(0, Ordering::SeqCst);
+        }
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queue_notice_for_test(
+        &self,
+        notice: PeerNotice,
+    ) -> Result<(), crate::peer_notice_outbox::Closed> {
+        if matches!(notice, PeerNotice::Listed) {
+            self.listed_links.lock_or_recover().push_back(self.link_epoch());
+        }
+        self.notices.send((self.name.clone(), self.generation, notice)).await
+    }
+
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
     /// last. A notice no link queued (a test's) stands for the live link.
-    pub(crate) fn note_rows_applied(&self) {
+    pub(crate) fn note_rows_applied(&self) -> bool {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
+        if self.list_baseline_missing.load(Ordering::SeqCst) {
+            return false;
+        }
         self.rows_link.store(link + 1, Ordering::SeqCst);
+        link == self.link_epoch()
     }
 
     /// The link is ready and the hub applied the session list this link read (`Listed`), so
@@ -749,20 +865,27 @@ impl Peer {
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| crate::build_info::lags(b, crate::hub::build())).unwrap_or(false),
             "state": link.state().as_str(),
             "link": observed.link,
             "carrier": observed.carrier,
             "cause": observed.cause,
+            "reason": observed.reason,
+            "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
+            "downReason": observed.down_reason,
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "parked": link.parked(crate::store::now_ms()),
+            "agentLogin": self.lists(crate::agent_login::FEATURE),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // The ping bar: null while the link is down or before its first pong.
+            "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
+            "received": self.received.split(),
         })
     }
 
@@ -826,7 +949,8 @@ impl Peer {
                         marks.remove(id);
                     }
                 }
-                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+                let class = attach_failure_class(e);
+                tracing::warn!(peer = %self.name, session = %id, refused, class = %class, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
         }
         attached
@@ -860,11 +984,22 @@ impl Peer {
                         }
                         break;
                     }
-                    Err(e) if refuses_attach(&e) => break,
-                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
-                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    // A refusal is not tried again (its class is `gap_too_old`: the chat is
+                    // gone there, or `unknown`: the peer takes no such attach). Every other
+                    // class is, after each of `ATTACH_RETRY_AFTER`: that schedule is its bound.
+                    Err(e) if refuses_attach(&e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::info!(peer = %me.name, session = %id, class = %class, "the peer refused the chat's attach; it is not tried again");
+                        break;
                     }
-                    Err(_) => {}
+                    Err(e) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        let class = attach_failure_class(&e);
+                        tracing::warn!(peer = %me.name, session = %id, class = %class, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::debug!(peer = %me.name, session = %id, class = %class, attempt = n + 1, "the peer's chat was not attached; trying again");
+                    }
                 }
             }
             me.attach_retries.lock_or_recover().remove(&id);

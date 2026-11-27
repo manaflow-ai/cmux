@@ -1,69 +1,81 @@
+import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// A workspace dragged from the list between two pinned workspaces became a
-/// pin by the drop. Pinned takes a drop only of items already in it, so no
-/// gap opens there; Pin is the way in (https://github.com/manaflow-ai/cmux/issues/22259).
-@Suite struct SidebarDocPinnedDropTests {
-    static let pinned = SidebarDocStore.pinnedSection
-    static let machine = "sec_m_s-local"
+/// A drag never pins, as in classic cmux (Lucas 2026-11-26: "you should not be allowed to move a workspace that is not
+/// pinned above a pinned workspace. the current logic allows you move a workspace above a pinned one and from that it
+/// pins that workspace"). The reducer refuses a list workspace beside the pinned rows, beside Home and into Pinned
+/// (`drag_begin`'s top tier, `pinned`); with that table, a list row dragged up over the pinned rows shows no drop in
+/// Pinned, opens no "Drop here to pin" row, and its release is not sent to Pinned or Top. The lift moves no row (Leo
+/// 2026-11-07: "it's super weird how when you drag ANY workspace, it shifts imediately due to that").
+///
+/// The real list with the Pinned block's three rows and three list rows (`SidebarHomePinnedDragHarness`); the drop
+/// is the one move the document is sent.
+@MainActor @Suite(.serialized, .closesItsWindows)
+struct SidebarDocPinnedDropTests {
+    typealias Harness = SidebarHomePinnedDragHarness
 
-    static func records() -> SidebarDocRecords {
-        let workspace = { (id: String, section: String) in
-            SidebarDocItem(id: id, section: section, body: .workspace(SidebarDocWorkspaceRef(sessionID: "s-local", workspaceID: id)))
+    init() { Motion.reduceMotionOverride = true }
+
+    /// Every pinned row's and list row's y in the list.
+    static func ys(_ h: Harness) throws -> [String: CGFloat] {
+        var ys: [String: CGFloat] = [:]
+        for pin in Harness.pins {
+            let view = try h.item(pin.id)
+            ys[pin.id.rawValue] = h.list.convert(view.bounds, from: view).minY
         }
-        return SidebarDocRecords(items: [
-            "itm_p1": workspace("itm_p1", pinned),
-            "itm_p2": workspace("itm_p2", pinned),
-            "itm_loose": workspace("itm_loose", machine),
-            "itm_other": workspace("itm_other", machine),
-        ])
+        for id in Harness.loose { ys[id.rawValue] = h.list.displayed.row(for: .workspace(id))?.y }
+        return ys
     }
 
-    /// Every row and section accepting a drop beside it, as the reducer answers for one machine.
-    static let open = SidebarDocAcceptance(before: true, into: false, after: true)
-    static let table: [String: SidebarDocAcceptance] = [
-        "itm_p1": open, "itm_p2": open, pinned: SidebarDocAcceptance(before: false, into: true, after: false),
-        "itm_other": open, machine: SidebarDocAcceptance(before: false, into: true, after: false),
-    ]
-
-    @Test func aWorkspaceFromTheListCannotLandBetweenPinnedWorkspaces() {
-        let kept = Self.records().keepingPinned(Self.table, dragging: ["itm_loose"])
-        for key in ["itm_p1", "itm_p2", Self.pinned] {
-            #expect(kept[key] == SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area"),
-                    "a drop beside \(key) would pin the dragged workspace")
+    @Test func aWorkspaceFromTheListDraggedOverPinnedRowsIsNotPinned() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let h = Harness()
+        defer { h.close() }
+        // The reducer's table for a list workspace: the top sections refuse it, the machine list takes it.
+        let topKeys = Set(Harness.pins.map(\.id.rawValue) + [SidebarDocStore.pinnedSection, Harness.home.id.rawValue,
+                                                              SidebarLayoutDocument.topSectionID.rawValue])
+        let listKeys = [Harness.machineSection] + Harness.loose.map { "itm_" + $0.rawValue }
+        h.list.model.docDrag?.begin = { dragged in
+            var table: [String: SidebarDocAcceptance] = [:]
+            for key in topKeys { table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned") }
+            for key in listKeys {
+                table[key] = dragged.contains(key) ? SidebarDocAcceptance(before: false, into: false, after: false, refusal: "self")
+                    : SidebarDocAcceptance(before: true, into: key == Harness.machineSection, after: true)
+            }
+            return table
         }
-        #expect(kept["itm_other"] == Self.open, "the list still takes it")
-        #expect(kept[Self.machine] == Self.table[Self.machine])
-    }
-
-    @Test func aDragHoldingOneUnpinnedItemCannotLandInPinned() {
-        let kept = Self.records().keepingPinned(Self.table, dragging: ["itm_p1", "itm_loose"])
-        #expect(kept["itm_p2"]?.before == false && kept["itm_p2"]?.after == false)
-    }
-
-    /// A pinned group still takes workspaces from the list: into its header and between its members (the
-    /// drop joins the group, it does not pin a loose row). Refused as `pinned_area`, a workspace could not be
-    /// dragged into a pinned group at all; only the band's own top level stays closed.
-    @Test func aWorkspaceFromTheListJoinsAPinnedGroup() {
-        let group = SidebarDocItem(id: "itm_g_saved", section: Self.pinned, body: .group(name: "Saved", color: nil, icon: nil, collapsed: false))
-        let member = SidebarDocItem(id: "itm_member", section: Self.pinned, parent: "itm_g_saved",
-                                    body: .workspace(SidebarDocWorkspaceRef(sessionID: "s-local", workspaceID: "member")))
-        var records = Self.records()
-        records.items[group.id] = group
-        records.items[member.id] = member
-        let header = SidebarDocAcceptance(before: true, into: true, after: true)
-        var table = Self.table
-        table[group.id] = header
-        table[member.id] = Self.open
-        let kept = records.keepingPinned(table, dragging: ["itm_loose"])
-        #expect(kept[group.id]?.into == true, "the pinned group's header refuses a drop into it")
-        #expect(kept[group.id]?.before == false && kept[group.id]?.after == false, "beside the header is Pinned's top level")
-        #expect(kept[member.id] == Self.open, "between the pinned group's members refuses a drop")
-        #expect(kept["itm_p1"]?.before == false && kept[Self.pinned]?.into == false, "the band's top level stays closed")
-    }
-
-    @Test func pinnedWorkspacesStillReorderInPinned() {
-        #expect(Self.records().keepingPinned(Self.table, dragging: ["itm_p1"]) == Self.table)
+        let id = Harness.loose[1]
+        let row = try #require(h.list.displayed.row(for: .workspace(id)))
+        let target = try h.item(Harness.pins[1].id)
+        let middle = h.list.convert(target.bounds, from: target).midY
+        let before = try Self.ys(h)
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        h.list.press = SidebarPress(key: .workspace(id), point: start)
+        h.list.beginDrag(try #require(h.list.press))
+        #expect(h.list.drag != nil, "the list row did not lift")
+        h.settle()
+        for (key, y) in try Self.ys(h) where key != id.rawValue {
+            #expect(abs((before[key] ?? y) - y) <= 0.5, "the lift moved \(key) from \(before[key] ?? 0) to \(y)")
+        }
+        var y = start.y
+        while y > middle {
+            y = max(middle, y - 3)
+            h.list.updateDrag(windowPoint: h.list.convert(NSPoint(x: start.x, y: y), to: nil))
+            let section = h.list.drag?.docTarget?.section
+            #expect(section != SidebarDocStore.pinnedSection && section != SidebarLayoutDocument.topSectionID.rawValue,
+                    "the drag shows a drop in a top section at y \(y): \(String(describing: h.list.drag?.docTarget))")
+        }
+        #expect(h.list.drag?.openZone != SidebarDocStore.pinnedSection, "a \"Drop here to pin\" row opened")
+        h.list.finishDrag()
+        h.finishFlights()
+        for (items, target) in h.drops {
+            #expect(target.section != SidebarDocStore.pinnedSection && target.section != SidebarLayoutDocument.topSectionID.rawValue,
+                    "\(items) dropped into a top section: \(target)")
+        }
+        h.expectEveryRowAtRest("after a list row dragged over the pinned rows")
     }
 }

@@ -5,14 +5,14 @@ import XCTest
 /// behavior checks (`testStart…`) fail the run when the composer does not do its job.
 final class TaskComposerCaptureUITests: UIStateCaptureCase {
     typealias C = UIStateCaptureCase
-    private static let list = ["-cmux-mobile-tab", "workspaces"]
+    private static let list = ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-fresh-task-setup"]
     private static let group = "8 New Task"
 
     @MainActor
     private static func openComposer(_ app: XCUIApplication) -> String? {
         steps([
-            { longPress(any(app, "workspaces.new"), "New Workspace button") },
-            { tap(any(app, "workspaces.newTask"), "New Task…") },
+            // The floating New Task button above the tab bar (2026-11-18), not a menu row.
+            { tap(any(app, "workspaces.newTask"), "New Task button") },
             { any(app, "taskComposer.prompt").waitForExistence(timeout: 10) ? nil : "composer did not open" },
             { dismissKeyboardTip(app); return nil },
         ])
@@ -42,6 +42,23 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return ok() ? nil : why
     }
 
+    /// The New Task button where it belongs: just above the tab bar and in from the trailing edge,
+    /// whatever the page under it shows (it floated mid-screen over an empty list on iOS 27,
+    /// 2026-11-19, while the list captures looked right).
+    @MainActor
+    private static func placed(_ app: XCUIApplication) -> String? {
+        let button = C.any(app, "workspaces.newTask")
+        if let missing = check(button.exists && button.isHittable, "no New Task button", timeout: 8) { return missing }
+        let bar = app.tabBars.firstMatch
+        guard bar.exists else { return "no tab bar" }
+        let frame = button.frame, window = app.windows.firstMatch.frame
+        let above = bar.frame.minY - frame.maxY
+        guard (0...40).contains(above) else { return "New Task button is \(Int(above)) pt above the tab bar (want 0...40)" }
+        let inset = window.maxX - frame.maxX
+        guard (4...40).contains(inset) else { return "New Task button is \(Int(inset)) pt in from the trailing edge (want 4...40)" }
+        return nil
+    }
+
     @MainActor
     private static func type(_ app: XCUIApplication, _ text: String) -> String? {
         let field = any(app, "taskComposer.prompt")
@@ -64,7 +81,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     /// Closes an open menu: a tap on the bar's title, away from every control.
     @MainActor
     private static func closeMenu(_ app: XCUIApplication) -> String? {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.075)).tap()
+        // Right of the open menu (the agents menu covers the left of the canvas) and below the bar.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.3)).tap()
         pause(0.8)
         return nil
     }
@@ -90,17 +108,54 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             { openAgents(app) },
             { tap(any(app, "taskComposer.agent.claude-cr"), "Claude Code Router row") },
             { closeMenu(app) },
-            { check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "two agents not picked") },
+            // Two Starts names its buttons by place: the count is on the filled one's badge then.
+            // Read a label only of a button that is there (Two Starts has no plain Start).
+            { check(C.any(app, "taskComposer.settings").exists
+                    || (app.buttons["taskComposer.start"].firstMatch.exists && app.buttons["taskComposer.start"].firstMatch.label == "Start 2"),
+                    "two agents not picked") },
         ])
     }
 
-    /// Open in: picks Chat or Terminal from its pill.
+    /// A tap on a pill the settings row may have scrolled partly off screen (XCUI scrolls it in).
+    @MainActor
+    private static func revealTap(_ element: XCUIElement, _ what: String) -> String? {
+        guard element.waitForExistence(timeout: 10) else { return "no \(what)" }
+        element.tap()
+        return nil
+    }
+
+    /// The composer's own bar (the Workspaces list's bar is still there behind it).
+    @MainActor
+    private static func composerBar(_ app: XCUIApplication) -> XCUIElement {
+        app.navigationBars.containing(.button, identifier: "taskComposer.cancel").firstMatch
+    }
+
+    /// Opens the title's menu (a tap on the title: Rename, then Chat or Terminal).
+    @MainActor
+    private static func openTitleMenu(_ app: XCUIApplication) -> String? {
+        // The title with a menu is a button in the bar named for the task (the probe,
+        // `testTitleMenuProbe`, opened it so); XCUI's own tap, not a coordinate.
+        let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch
+        let bar = composerBar(app)
+        return steps([
+            {
+                let title = bar.buttons.matching(NSPredicate(format: "identifier != 'taskComposer.cancel' AND identifier != 'taskComposer.drafts' AND label != 'Back' AND label != 'Drafts'")).firstMatch
+                guard title.waitForExistence(timeout: 8) else { return "no title" }
+                title.tap()
+                return nil
+            },
+            { rename.waitForExistence(timeout: 5) ? nil : "the title's menu did not open" },
+        ])
+    }
+
+    /// Picks Chat or Terminal in Task Options, then closes it; Start then says where it opens.
     @MainActor
     private static func openIn(_ app: XCUIApplication, _ title: String) -> String? {
         steps([
-            { tap(any(app, "taskComposer.launch"), "Open in pill") },
-            { tap(app.buttons[title].firstMatch, title) }, { pause(0.6); return nil },
-            { check((any(app, "taskComposer.launch").value as? String) == title, "did not switch to \(title)") },
+            { openOptions(app) },
+            { tap(app.segmentedControls.buttons[title].firstMatch, title) }, { pause(0.6); return nil },
+            { closeSheet(app, "taskComposer.options.done") },
+            { check((any(app, "taskComposer.start").value as? String) == "in \(title)", "did not switch to \(title)") },
         ])
     }
 
@@ -154,11 +209,62 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { app.swipeUp(); C.pause(0.8); return nil }])
             },
+            // The floating New Task button, bottom trailing above the tab bar.
+            Scene(group: g, id: "new-task-button", args: Self.list) { app in Self.placed(app) },
+            // Scrolled to the end: the last row clears the button (the list's bottom room).
+            Scene(group: g, id: "new-task-button-scrolled-end", args: Self.list) { app in
+                C.steps([{ Self.placed(app) },
+                         { for _ in 0..<4 { app.swipeUp() }; C.pause(1.2); return nil },
+                         { Self.placed(app) }])
+            },
+            Scene(group: g, id: "new-task-button-large-type", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]) { app in
+                Self.placed(app)
+            },
+            // An empty list (the phone's "No workspaces" page): the button stays above the tab bar.
+            Scene(group: g, id: "new-task-button-empty-list", args: Self.list) { app in
+                app.swipeDown()
+                return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") },
+                                { app.typeText("zzqqxx\n"); C.pause(1.0); return nil },
+                                { Self.check(!app.keyboards.firstMatch.exists, "the keyboard stayed up") },
+                                { Self.placed(app) }])
+            },
+            // The keyboard up: the button stays put behind it (never lifted into the list).
+            Scene(group: g, id: "new-task-button-keyboard-up", args: Self.list) { app in
+                app.swipeDown()
+                return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") },
+                                { app.typeText("cmux"); C.pause(1.0); return nil },
+                                {
+                                    // Behind the keyboard, at its place above the tab bar: not lifted over the list.
+                                    let button = C.any(app, "workspaces.newTask"), keyboard = app.keyboards.firstMatch
+                                    guard keyboard.exists else { return "no keyboard" }
+                                    guard button.exists else { return nil }
+                                    return button.frame.minY >= keyboard.frame.minY - 1 ? nil : "the keyboard lifted the New Task button"
+                                }])
+            },
+            // Feed shows it too (2026-11-19), at the same place.
+            Scene(group: g, id: "new-task-button-feed", args: ["-cmux-mobile-tab", "feed", "-cmux-mobile-fresh-task-setup"]) { app in
+                Self.placed(app)
+            },
+            Scene(group: g, id: "new-task-button-feed-composer", args: ["-cmux-mobile-tab", "feed", "-cmux-mobile-fresh-task-setup"]) { app in
+                C.steps([{ Self.placed(app) }, { Self.openComposer(app) }])
+            },
+            // A pushed page (a workspace) has no button.
+            Scene(group: g, id: "new-task-button-hidden-pushed", args: Self.list) { app in
+                C.steps([{ Self.placed(app) },
+                         { C.tap(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") },
+                         { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task button on a pushed page") }])
+            },
             Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
-                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                C.steps([{ Self.check(!C.any(app, "workspaces.newTask").exists, "New Task button shown with no agents") },
+                         { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task is offered") }])
             },
-            Scene(group: g, id: "plain-tap-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+            // A plain tap opens an agent chat in the latest project folder (2026-11-17); with no
+            // agents on the Mac it is still a terminal.
+            Scene(group: g, id: "plain-tap-agent-chat", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+                C.tap(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            Scene(group: g, id: "plain-tap-terminal-no-agents", args: Self.list + ["-cmux-mobile-no-agents", "-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.tap(C.any(app, "workspaces.new"), "New Workspace button")
             },
             // The canvas and the row above the keyboard (A2).
@@ -188,13 +294,40 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "agents-list-two", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) }])
             },
+            // Each release by its version, current ones first, older ones under Older.
             Scene(group: g, id: "composer-model-menu", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
+                         { Self.check(app.buttons["Opus 5.5"].firstMatch.exists && app.buttons["Opus 4.8"].firstMatch.exists,
+                                      "the model versions are not listed") }])
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) },
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
+                         { C.tap(C.any(app, "taskComposer.settings.claude-cr"), "Router's settings") },
                          { C.tap(C.any(app, "taskComposer.model.claude-cr"), "Router's model menu") }])
+            },
+            // Each setting the Mac lists, its own picker: effort (the model's levels), mode (the
+            // modes a phone may start), and the agent's other options a phone may set.
+            Scene(group: g, id: "agent-settings-two", args: Self.list) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
+                         { C.tap(C.any(app, "taskComposer.settings.claude"), "Claude Code's settings") },
+                         { Self.check(C.any(app, "taskComposer.effort.claude").exists, "no effort picker") }])
+            },
+            Scene(group: g, id: "effort-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { Self.revealTap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { Self.check(app.buttons["Extra high"].firstMatch.exists, "the model's levels are not listed") }])
+            },
+            Scene(group: g, id: "mode-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { Self.revealTap(C.any(app, "taskComposer.mode.claude"), "Claude Code's mode") },
+                         { Self.check(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Plan'")).firstMatch.exists, "no Plan mode") }])
+            },
+            Scene(group: g, id: "effort-picked", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { Self.revealTap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { C.tap(app.buttons["Max"].firstMatch, "Max") }, { C.pause(0.8); return nil },
+                         { Self.check((C.any(app, "taskComposer.effort.claude").label).contains("Max"), "Max did not stick") }])
             },
             Scene(group: g, id: "agents-at-limit", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
@@ -213,12 +346,12 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") }])
             },
             Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
                          { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
                          { C.pause(1); return nil }, { Self.closeMenu(app) },
                          { Self.check(!((C.any(app, "taskComposer.agents").value as? String) ?? "").contains("Opus Max"), "Opus Max was chosen") }])
@@ -232,7 +365,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "agents-failed-list", args: Self.list + ["-cmux-mobile-task-catalog", "failed"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openAgents(app) },
-                         { Self.check(C.any(app, "taskComposer.agents.retry").exists, "no Try Again") }])
+                         { Self.check(!C.any(app, "taskComposer.agents.retry").exists, "a Try Again (the list is read again on its own)") }])
             },
             Scene(group: g, id: "agents-empty", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") },
@@ -253,10 +386,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "options-folder-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
                          { C.tap(C.any(app, "taskComposer.folder"), "folder picker") }])
-            },
-            Scene(group: g, id: "options-two-agents", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { Self.openOptions(app) },
-                         { Self.check(C.any(app, "taskComposer.titles").exists, "no workspace titles") }])
             },
             Scene(group: g, id: "options-mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
@@ -302,22 +431,53 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
                          { C.tap(C.any(app, "taskComposer.agent.claude-review"), "Claude Code (review)") },
                          { C.tap(C.any(app, "taskComposer.agent.claude"), "Claude Code off") }, { Self.closeMenu(app) },
-                         { Self.check(C.any(app, "taskComposer.launch").frame.maxX <= C.any(app, "taskComposer.start").frame.minX,
-                                      "Open in runs under Start") },
-                         { Self.check(C.any(app, "taskComposer.agents").frame.maxX <= C.any(app, "taskComposer.launch").frame.minX,
-                                      "the agents pill runs under Open in") }])
+                         { Self.check(C.any(app, "taskComposer.start").frame.maxX <= app.windows.firstMatch.frame.maxX,
+                                      "Start runs off screen") },
+                         { Self.check(C.any(app, "taskComposer.attach").frame.maxX <= C.any(app, "taskComposer.start").frame.minX,
+                                      "attach runs under Start") }])
             },
             // Several agents with long names: the count stays whole beside the first's name.
             Scene(group: g, id: "row-fits-three-agents", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
                          { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs") }, { Self.closeMenu(app) },
-                         { Self.check(app.staticTexts["+2"].exists, "the +2 is cut off") }])
+                         { let count = Int(app.buttons["taskComposer.start"].firstMatch.label.split(separator: " ").last ?? "") ?? 1
+                           return Self.check(count > 1 && app.staticTexts["+\(count - 1)"].exists, "the +N is cut off") }])
             },
-            // Open in: a chat, or the agent's CLI in a terminal (A13).
-            Scene(group: g, id: "launch-menu", args: Self.list) { app in
+            // The title's menu: rename the task in place, and Chat or Terminal (A13).
+            Scene(group: g, id: "title-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) }])
+            },
+            // Chat or Terminal, in Task Options (the left button's sheet).
+            Scene(group: g, id: "launch-in-options", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openOptions(app) },
+                         { Self.check(app.segmentedControls.buttons["Chat"].firstMatch.exists
+                                      && app.segmentedControls.buttons["Terminal"].firstMatch.exists, "no Chat or Terminal") }])
+            },
+            Scene(group: g, id: "launch-in-options-chat", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openOptions(app) },
+                         { C.tap(app.segmentedControls.buttons["Chat"].firstMatch, "Chat") }, { C.pause(0.6); return nil }])
+            },
+            Scene(group: g, id: "title-renaming", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
+                         { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
+                         { Self.check(app.textFields.matching(NSPredicate(format: "value BEGINSWITH 'Fix the flaky' OR value == ''")).firstMatch.waitForExistence(timeout: 4), "no rename field") }])
+            },
+            Scene(group: g, id: "title-renamed", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
+                         { C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Rename'")).firstMatch, "Rename") },
+                         { let field = app.textFields.matching(NSPredicate(format: "value BEGINSWITH 'Fix the flaky' OR value == ''")).firstMatch
+                           guard field.waitForExistence(timeout: 4) else { return "no rename field" }
+                           field.typeText(XCUIKeyboardKey.delete.rawValue.padding(toLength: 40, withPad: XCUIKeyboardKey.delete.rawValue, startingAt: 0))
+                           field.typeText("Upload flake\n")
+                           return nil },
+                         { Self.check(C.label(app, contains: "Upload flake").waitForExistence(timeout: 4), "the title was not renamed") }])
+            },
+            // One agent: each setting its own pill, as the Mac lists them.
+            Scene(group: g, id: "settings-pills", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.launch"), "Open in pill") }])
+                         { Self.check(["model", "effort", "mode"].allSatisfy { C.any(app, "taskComposer.\($0).claude").exists },
+                                      "a setting has no pill") }])
             },
             Scene(group: g, id: "composer-chat-chosen", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openIn(app, "Chat") }])
@@ -432,6 +592,19 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
 
     /// Start with one agent: the sheet closes, the new workspace opens at once on its agent
     /// tab named for the task, and the composer's prompt is cleared for the next task.
+    /// The symbol exploration (Aziz, 2026-11-19): the button with each candidate in place of
+    /// `plus`, on the real list, light and dark (`-cmux-mobile-new-task-symbol`, DEBUG only).
+    @MainActor
+    func testNewTaskSymbolOptions() {
+        let symbols = ["plus", "square.and.pencil", "pencil", "pencil.line", "sparkles", "wand.and.sparkles",
+                       "plus.bubble", "bubble.and.pencil", "text.bubble", "paperplane", "bolt", "terminal"]
+        capture(symbols.map { symbol in
+            Scene(group: "8 New Task symbols", id: "symbol-\(symbol)", args: Self.list + ["-cmux-mobile-new-task-symbol", symbol]) { app in
+                Self.placed(app)
+            }
+        })
+    }
+
     @MainActor
     func testStartOneOpensTheWorkspaceAndClearsThePrompt() {
         let app = launch(Self.list + ["-cmux-mobile-mock-create-delay", "4"])

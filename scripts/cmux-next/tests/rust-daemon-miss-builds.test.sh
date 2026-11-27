@@ -20,6 +20,8 @@ mkdir -p "$src/scripts/ci" "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/acpmux-build-features.sh" "$ROOT/scripts/ci/tailnet-go.sh" "$src/scripts/ci/"
 mkdir -p "$src/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$src/scripts/lib/"
+# tailnet-go.sh reads the pinned Go version from cmux-tailnet's go-version.
+mkdir -p "$src/cmux-tui/crates/cmux-tailnet"; cp "$ROOT/cmux-tui/crates/cmux-tailnet/go-version" "$src/cmux-tui/crates/cmux-tailnet/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"

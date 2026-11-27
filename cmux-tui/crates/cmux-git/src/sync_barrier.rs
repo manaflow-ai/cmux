@@ -17,6 +17,14 @@
 //! harness start whose every tool call is gated on [`wait_ready`] may go ahead at
 //! the head: its first prompt then waits on the repository's root and instruction
 //! files, not on the whole checkout, while its tools still wait for all of it.
+//!
+//! Past its head a producer may also say which parts of the checkout are in place
+//! ([`Sync::filled`]), in `<marker>.filled`, so a tool that only reads may go ahead
+//! where everything it reads has landed ([`wait_filled`]): the chat plays while the
+//! rest downloads. A reader that wants a part not in place yet says so in
+//! `<marker>.want` ([`Sync::wants`]), and the producer fills it next. Both files are
+//! emptied by [`Sync::begin`], and the ledger is read only while its producer holds
+//! the owner lock past its head, so no earlier sync's ledger is ever believed.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -35,6 +43,12 @@ pub struct Sync {
     head: Option<FileLock>,
     /// The owner lock: this sync marks heads. Released first on drop (below).
     owner: Option<FileLock>,
+    /// `<marker>.filled` and `<marker>.want`, emptied when this sync began.
+    filled: PathBuf,
+    want: PathBuf,
+    /// `<marker>.partial` ([`partial`]): written by [`Sync::complete_partial`], removed by
+    /// [`Sync::complete`].
+    partial: PathBuf,
 }
 
 /// Shared locks stay held through the caller's write, preventing a new seed
@@ -58,7 +72,7 @@ pub enum Probe {
 pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        match probe(path)? {
+        match probe_within(path, deadline)? {
             Probe::Ready(ready) => {
                 drop(ready);
                 return Ok(());
@@ -85,6 +99,51 @@ fn head_marker(folder: &Path) -> io::Result<PathBuf> {
 
 fn owner_marker(folder: &Path) -> io::Result<PathBuf> {
     sidecar(folder, ".owner")
+}
+
+fn filled_ledger(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".filled")
+}
+
+fn want_ledger(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".want")
+}
+
+fn partial_note(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".partial")
+}
+
+/// Why `folder` is ready with only part of its files ([`Sync::complete_partial`]): its copy's
+/// source went away mid-fill, and the machine kept what landed so the chat plays on, as a game
+/// plays the part it downloaded. None for a whole folder, a folder with no sync, or a note
+/// that cannot be read. A later sync that completes the folder takes the note away.
+pub fn partial(folder: &Path) -> Option<String> {
+    let note = partial_note(&resolved(folder).ok()?).ok()?;
+    std::fs::read_to_string(note).ok().filter(|reason| !reason.trim().is_empty())
+}
+
+/// Whether `ledger` (the lines of a `<marker>.filled`) holds `relative`, a path below the
+/// synced folder (`/`-separated, empty for the folder itself). A line is a file (`a/b.rs`),
+/// `/` (the folder's own files), `a/b/` (that folder's own files, not its subfolders) or
+/// `a/b/**` (everything below `a/b`, and `**` everything). A folder (`is_dir`) is held only whole, since a
+/// search of it reads all of it; a file is held by its own folder's line, so one that is
+/// absent there is absent from the checkout too.
+pub fn ledger_holds(ledger: &str, relative: &str, is_dir: bool) -> bool {
+    let relative = relative.trim_matches('/');
+    let parent = match relative.rsplit_once('/') {
+        Some((parent, _)) => format!("{parent}/"),
+        None => String::from("/"),
+    };
+    ledger.lines().any(|entry| match entry.strip_suffix("**") {
+        Some("") => true,
+        Some(base) => {
+            let base = base.trim_end_matches('/');
+            relative == base
+                || relative.strip_prefix(base).is_some_and(|rest| rest.starts_with('/'))
+        }
+        None if entry.ends_with('/') => !is_dir && !relative.is_empty() && entry == parent,
+        None => !is_dir && entry == relative,
+    })
 }
 
 fn sidecar(folder: &Path, suffix: &str) -> io::Result<PathBuf> {
@@ -117,6 +176,20 @@ fn open(path: &Path, create: bool) -> io::Result<File> {
     Ok(file)
 }
 
+/// [`open`] of an existing file for appending, with the same checks.
+fn open_append(path: &Path) -> io::Result<File> {
+    let file = OpenOptions::new()
+        .append(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    let meta = file.metadata()?;
+    // SAFETY: geteuid has no preconditions.
+    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::other("invalid repository sync marker"));
+    }
+    Ok(file)
+}
+
 /// `kind` on `file` now: the lock, or the file back when another holder has it. Every lock here
 /// is a [`FileLock`], which unlocks before it closes: a child that another thread of this process
 /// forked meanwhile (a git run) keeps no lock through its copy of the descriptor.
@@ -133,18 +206,49 @@ fn try_take(file: File, kind: Kind) -> io::Result<Result<FileLock, File>> {
 /// wait for each other's writes or startup. They live outside the repository
 /// and share a location even when daemon processes have different TMPDIRs.
 /// Never unlink these inodes, for the same reason as the repository markers.
+///
+/// One empty file per folder ever probed (every ancestor of every tool path), so /tmp keeps
+/// a few hundred of them on a busy machine. They stay: a reader must take the lease even
+/// before any marker exists, and no process can tell a file nobody will open again from one
+/// a reader is about to lock, so a sweep could split a lease. A reboot clears /tmp.
 fn creation_lock(folder: &Path) -> io::Result<File> {
+    open(&creation_lock_path(folder), true)
+}
+
+/// Where [`creation_lock`] keeps `folder`'s lease.
+pub fn creation_lock_path(folder: &Path) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let hash = format!("{:x}", Sha256::digest(folder.as_os_str().as_bytes()));
-    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
+    PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock"))
 }
 
-fn wait_take(file: File, kind: Kind) -> io::Result<FileLock> {
-    FileLock::take_within(file, kind, Duration::from_secs(30), Duration::from_millis(10)).map_err(
+/// How long one lock wait may take when the caller names no deadline ([`probe`], [`Sync::begin`]).
+const LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// A lock wait ran out of its budget while another holder kept the lock: the wait decided
+/// nothing about the repository's sync, unlike a marker that says syncing or failed.
+#[derive(Debug)]
+pub struct LockWaitElapsed;
+
+impl std::fmt::Display for LockWaitElapsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("repository is in use")
+    }
+}
+
+impl std::error::Error for LockWaitElapsed {}
+
+/// Whether `error` is a [`LockWaitElapsed`]: a wait that ran out, not a marker's verdict.
+pub fn lock_wait_elapsed(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LockWaitElapsed>())
+}
+
+fn wait_take(file: File, kind: Kind, budget: Duration) -> io::Result<FileLock> {
+    FileLock::take_within(file, kind, budget, Duration::from_millis(10)).map_err(
         |error| match error {
-            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, "repository is in use"),
+            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, LockWaitElapsed),
             LockError::Io(error) => error,
         },
     )
@@ -160,17 +264,53 @@ impl Sync {
         // while the owner lock is held and the head lock free, so until both are taken this
         // sync reads as short of its head. Only the marker's holder takes them, and a reader
         // holds either only for one probe, so these waits are short.
-        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive)?;
-        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive)?;
+        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
+        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
-        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive)?;
+        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive, LOCK_WAIT)?;
         let file = marker.file_mut();
         file.write_all(b"0")?;
         file.set_len(1)?;
         file.sync_data()?;
-        Ok(Self { marker, head: Some(head), owner: Some(owner) })
+        // No reader believes the ledger before the head (the head lock is held), so an
+        // earlier sync's lines go before anyone could read them as this one's.
+        let (filled, want) = (filled_ledger(folder)?, want_ledger(folder)?);
+        open(&filled, true)?.set_len(0)?;
+        open(&want, true)?.set_len(0)?;
+        let partial = partial_note(folder)?;
+        Ok(Self { marker, head: Some(head), owner: Some(owner), filled, want, partial })
+    }
+
+    /// These parts of the checkout are in place ([`ledger_holds`] says what a line holds).
+    /// Say it only once every file the lines cover is written: a reader may read them at
+    /// once. A failed write only leaves readers waiting for the whole checkout.
+    pub fn filled<S: AsRef<str>>(&mut self, lines: &[S]) -> io::Result<()> {
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(line.as_ref());
+            text.push('\n');
+        }
+        let mut file = open(&self.filled, true)?;
+        file.seek(SeekFrom::End(0))?;
+        file.write_all(text.as_bytes())
+    }
+
+    /// What readers have asked for since the last call (paths below the folder), emptied.
+    /// A want written between the read and the emptying is lost; its reader asks again.
+    pub fn wants(&mut self) -> Vec<String> {
+        let Ok(mut file) = open(&self.want, true) else { return Vec::new() };
+        let mut text = String::new();
+        if file.read_to_string(&mut text).is_err() {
+            return Vec::new();
+        }
+        let _ = file.set_len(0);
+        let mut wants: Vec<String> =
+            text.lines().map(|line| line.trim_matches('/').to_owned()).collect();
+        wants.sort();
+        wants.dedup();
+        wants
     }
 
     /// The head is in place and the rest of the checkout still arrives: a reader
@@ -186,7 +326,34 @@ impl Sync {
     }
 
     /// A failed durability step leaves the barrier incomplete.
-    pub fn complete(mut self) -> io::Result<()> {
+    pub fn complete(self) -> io::Result<()> {
+        // Whole now: an earlier partial sync's note goes first, so the folder never reads
+        // ready and whole while it still says what it lacks, nor partial once whole.
+        match std::fs::remove_file(&self.partial) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        self.mark_ready()
+    }
+
+    /// Ready with only what landed: the source of the copy went away (`reason` says how), and
+    /// the folder's head is in place ([`Sync::head_ready`] was called), so the chat that opened
+    /// there plays on with what it has instead of every tool failing for good. The note
+    /// ([`partial`]) is written before the ready byte, so no reader sees the folder ready and
+    /// whole when it is not. A sync that completes the folder later removes it.
+    pub fn complete_partial(self, reason: &str) -> io::Result<()> {
+        if self.head.is_some() {
+            return Err(io::Error::other("a partial sync must have marked its head"));
+        }
+        let mut note = open(&self.partial, true)?;
+        note.set_len(0)?;
+        note.write_all(reason.as_bytes())?;
+        note.sync_data()?;
+        self.mark_ready()
+    }
+
+    fn mark_ready(mut self) -> io::Result<()> {
         let file = self.marker.file_mut();
         file.seek(SeekFrom::Start(0))?;
         file.write_all(b"1")?;
@@ -227,11 +394,29 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
 /// returns immediately, so a running sync never blocks a reader thread.
 /// No marker means an ordinary local repository, which needs no sync wait.
 pub fn probe(path: &Path) -> io::Result<Probe> {
+    probe_within(path, Instant::now() + LOCK_WAIT)
+}
+
+/// [`probe`], whose creation-lease waits all end by `deadline`: one shared budget for every
+/// ancestor, not a full wait each, so a caller with its own deadline (a hook answered within its
+/// registered timeout) is never held past it. A wait that runs out is a [`LockWaitElapsed`].
+pub fn probe_within(path: &Path, deadline: Instant) -> io::Result<Probe> {
+    probe_with(path, deadline, |_, _| Ok(false))
+}
+
+/// [`probe`], where a folder still syncing past its head counts as ready when `held` says
+/// so, given that folder and the resolved `path` (the folder's ledger holds it).
+fn probe_with(
+    path: &Path,
+    deadline: Instant,
+    mut held_there: impl FnMut(&Path, &Path) -> io::Result<bool>,
+) -> io::Result<Probe> {
     let path = resolved(path)?;
     let mut held = Vec::new();
     let mut head_only = false;
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
-        held.push(wait_take(creation_lock(folder)?, Kind::Shared)?);
+        let budget = deadline.saturating_duration_since(Instant::now());
+        held.push(wait_take(creation_lock(folder)?, Kind::Shared, budget)?);
         let file = match open(&marker(folder)?, false) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -243,7 +428,9 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
             // outer folder still syncing short of its head wins below.
             Err(file) => match syncing_state(folder, file)? {
                 Syncing::PastHead => {
-                    head_only = true;
+                    if !held_there(folder, &path)? {
+                        head_only = true;
+                    }
                     continue;
                 }
                 Syncing::ShortOfHead => return Ok(Probe::Syncing),
@@ -261,6 +448,57 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
         return Ok(Probe::HeadReady);
     }
     Ok(Probe::Ready(Ready(held)))
+}
+
+/// [`wait_ready`] for a tool that only reads `path`: it goes ahead as soon as every folder
+/// still syncing says it holds `path` ([`Sync::filled`]), or once the whole checkout is in.
+/// While it waits it asks the producer for `path` ([`Sync::wants`]), about every 500 ms.
+pub fn wait_filled(path: &Path, timeout: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    let mut asked: Option<Instant> = None;
+    loop {
+        let ask = asked.is_none_or(|at| at.elapsed() >= Duration::from_millis(500));
+        let state = probe_with(path, deadline, |folder, path| {
+            let relative = path.strip_prefix(folder).unwrap_or(Path::new(""));
+            let relative = relative.to_string_lossy();
+            // A path not there yet may be a folder still to come (`a/b` while only `a/`'s
+            // own files are in): only a whole folder's line (`a/**`) holds it.
+            let is_dir = std::fs::symlink_metadata(path).map_or(true, |meta| meta.is_dir());
+            let mut ledger = String::new();
+            if let Ok(mut file) = open(&filled_ledger(folder)?, false) {
+                file.read_to_string(&mut ledger)?;
+            }
+            let held = ledger_holds(&ledger, &relative, is_dir);
+            if !held
+                && ask
+                && let Ok(mut want) = open_append(&want_ledger(folder)?)
+            {
+                let _ = want.write_all(format!("{relative}\n").as_bytes());
+            }
+            Ok(held)
+        })?;
+        if ask {
+            asked = Some(Instant::now());
+        }
+        match state {
+            Probe::Ready(ready) => {
+                drop(ready);
+                return Ok(());
+            }
+            Probe::Incomplete => {
+                return Err(io::Error::other("repository synchronization failed; retry the sync"));
+            }
+            Probe::HeadReady | Probe::Syncing => {
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "repository synchronization did not finish",
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
 }
 
 enum Syncing {
@@ -321,80 +559,5 @@ impl Drop for Ready {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The window review F1 (cmux#38084, 8843ee22f76) found: the reader saw the marker locked,
-    /// then the producer failed and dropped both locks. The head lock is free now, but the
-    /// producer never marked its head, so the folder is not past its head.
-    #[test]
-    fn a_producer_that_failed_between_the_reads_is_never_past_its_head() {
-        let dir = std::env::temp_dir().join(format!("cmux-sync-unit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let repo = dir.canonicalize().unwrap().join("repo");
-        let sync = Sync::begin(&repo).unwrap();
-        let marker = open(&marker(&repo).unwrap(), false).unwrap();
-        let marker =
-            try_take(marker, Kind::Shared).unwrap().expect_err("the reader sees the marker locked");
-        drop(sync);
-        assert!(matches!(syncing_state(&repo, marker).unwrap(), Syncing::Ended(_)));
-        assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Review F1 (cmux#38084, 9efddcbb52a): a producer from before head locks holds only the
-    /// marker. The head sidecar an earlier sync left is free, and that must not read as this
-    /// producer's head.
-    #[test]
-    fn an_older_producer_beside_a_left_head_sidecar_is_short_of_its_head() {
-        let dir = std::env::temp_dir().join(format!("cmux-sync-legacy-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let repo = dir.canonicalize().unwrap().join("repo");
-        let mut sync = Sync::begin(&repo).unwrap();
-        sync.head_ready();
-        sync.complete().unwrap();
-        assert!(head_marker(&repo).unwrap().exists() && owner_marker(&repo).unwrap().exists());
-        let legacy = open(&marker(&repo).unwrap(), true).unwrap();
-        let legacy = try_take(legacy, Kind::Exclusive).unwrap().expect("the marker is free");
-        assert!(matches!(probe(&repo).unwrap(), Probe::Syncing));
-        drop(legacy);
-        assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A sync that ended frees its locks at once, also while a child forked meanwhile (any
-    /// thread of a process that runs git, as the seed job's does) still has copies of its
-    /// descriptors: a lock belongs to the open file description, which a close alone leaves
-    /// held until the child execs or exits. Before, the next reader saw the ended sync as still
-    /// running and the next sync was refused "repository is in use" (LOCK-AUDIT, c-conc's
-    /// symptom: a lock refused after a wait proved it free).
-    #[test]
-    fn an_ended_sync_frees_its_locks_while_a_forked_child_still_has_its_descriptors() {
-        let dir = std::env::temp_dir().join(format!("cmux-sync-forked-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let repo = dir.canonicalize().unwrap().join("repo");
-        let mut sync = Sync::begin(&repo).unwrap();
-        sync.head_ready();
-        // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
-        let child = unsafe { libc::fork() };
-        assert!(child >= 0, "fork failed");
-        if child == 0 {
-            loop {
-                // SAFETY: as above.
-                unsafe { libc::pause() };
-            }
-        }
-        sync.complete().unwrap();
-        let ready = matches!(probe(&repo), Ok(Probe::Ready(_)));
-        let again = Sync::begin(&repo).map(drop);
-        let mut status = 0;
-        // SAFETY: `child` is this test's own child and `status` outlives the call.
-        unsafe {
-            libc::kill(child, libc::SIGKILL);
-            libc::waitpid(child, &mut status, 0);
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(ready, "an ended sync read as running while a forked child kept its descriptors");
-        again.expect("an ended sync's locks are free while a forked child keeps its descriptors");
-    }
-}
+#[path = "sync_barrier_tests.rs"]
+mod tests;

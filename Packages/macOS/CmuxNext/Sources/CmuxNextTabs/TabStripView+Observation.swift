@@ -23,16 +23,16 @@ extension TabStripView {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
             let changes = ObservationStream {
-                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.trailingButtons.value,
-                              groupLook: GroupChipGlass.current, busyUnreadMark: TabTunables.busyUnreadMark.value)
+                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.effectiveTrailingButtons,
+                              groupLook: GroupChipGlass.current, cellLooks: CellLooks())
             }
             for await snapshot in changes {
                 guard let self else { return }
                 // The chips repaint in place: the look never changes their size.
                 for chip in self.groups.chips.values { chip.look = snapshot.groupLook }
-                if snapshot.busyUnreadMark != self.busyUnreadMark {
-                    // The cells resolve the look as they draw; their metrics are unchanged, so redraw them here.
-                    self.busyUnreadMark = snapshot.busyUnreadMark
+                if snapshot.cellLooks != self.cellLooks {
+                    // The cells resolve these looks as they draw; their metrics are unchanged, so redraw them here.
+                    self.cellLooks = snapshot.cellLooks
                     for cell in self.cells.values {
                         cell.layoutLayers()
                         cell.updateColors(animated: false)

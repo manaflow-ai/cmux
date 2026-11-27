@@ -93,6 +93,8 @@ enum DebugUpdater {
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
+        case "input": // Update When Idle's harness input time (`UpdaterService.debugInput`; DEV and bench builds)
+            return .object(services.updater.debugInput(clear: params["clear"]?.boolValue == true).mapValues(JSONValue.bool))
         default:
             throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"press\", \"snooze\", \"tip\", \"tips\", \"star\", \"untip\", \"updated\", \"newest\", \"feedCards\", \"share\" or \"share-copy\"")
         }

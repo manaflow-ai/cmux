@@ -23,6 +23,19 @@
  */
 
 const BLOCK_SIZE = 64;
+/// The most leaves the tree spans (2^36 rows, more than a page holds). The descents halve `high - low` with `>>> 1`,
+/// which is exact only below 2^32, and the doubling in `splice` was `capacity <<= 1`, which wraps to 0 past 2^31 and
+/// then doubled 0 forever with the page's main thread held. A splice past it throws instead.
+const MAX_LEAVES = 2 ** 30;
+
+/// The mark of a row that carries its height but neither takes nor gives a gap: the rows on either
+/// side gap as if it were not there. A row collapsing to nothing is placed so (model.ts
+/// `collapsingHeight`), its own gaps folded into its height as it shrinks, so the rows under it move
+/// with it and nothing steps when it reaches 0.
+export const PASS_MARK = 255;
+
+/// Whether a row takes and gives gaps: it draws (height > 0) and is no pass row.
+const gapped = (height: number, mark: number) => height > 0 && mark !== PASS_MARK;
 
 /// The gap between two drawn rows, by their marks (transcriptGrid.ts `transcriptGap` at a scale).
 export type GapBetween = (previousMark: number, nextMark: number) => number;
@@ -109,8 +122,8 @@ function summarize(
   let beforeLastMark = 0;
   for (let offset = 0; offset < heights.length; offset += 1) {
     const height = heights[offset]!;
-    if (height > 0) {
-      const mark = marks?.[offset] ?? 0;
+    const mark = marks?.[offset] ?? 0;
+    if (gapped(height, mark)) {
       if (drawn === 0) {
         firstMark = mark;
         firstGap = gaps?.[offset] ?? 0;
@@ -134,6 +147,7 @@ function summarize(
 }
 
 function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: number): Leaf | undefined {
+  // ends: each pass halves high - low
   while (node && high - low > 1) {
     const middle = low + ((high - low) >>> 1);
     if (leafIndex < middle) {
@@ -167,6 +181,7 @@ function prefixBeforeLeaf(
   let node = root;
   let low = 0;
   let high = capacity;
+  // ends: each pass halves high - low
   while (node && high - low > 1) {
     const middle = low + ((high - low) >>> 1);
     if (leafIndex < middle) {
@@ -244,7 +259,10 @@ export class PlacedHeightIndex {
   /// Marks of the last two drawn rows (0 where there is none), for transcriptGrid.ts `tailGap`.
   get lastMarks(): { last: number; beforeLast: number } {
     const summary = summaryOf(this.root);
-    return { last: summary.drawn > 0 ? summary.lastMark : 0, beforeLast: summary.beforeLastMark };
+    return {
+      last: summary.drawn > 0 ? summary.lastMark : 0,
+      beforeLast: summary.beforeLastMark,
+    };
   }
 
   private leafAt(index: number): Leaf | undefined {
@@ -270,7 +288,7 @@ export class PlacedHeightIndex {
   /// Steps `cursor` over row `offset` of `leaf`, returning that row's top.
   private step(cursor: Cursor, leaf: Leaf, offset: number): number {
     const height = leaf.heights[offset]!;
-    if (height > 0) {
+    if (gapped(height, leaf.marks?.[offset] ?? 0)) {
       cursor.top += this.gapOf(cursor, leaf, offset);
       cursor.drawn = true;
       cursor.lastMark = leaf.marks?.[offset] ?? 0;
@@ -304,7 +322,7 @@ export class PlacedHeightIndex {
     const rows = leaf.heights.length;
     const places = { tops: new Float64Array(rows), gaps: new Float64Array(rows) };
     for (let at = 0; at < rows; at += 1) {
-      if (leaf.heights[at]! > 0) places.gaps[at] = this.gapOf(cursor, leaf, at);
+      if (gapped(leaf.heights[at]!, leaf.marks?.[at] ?? 0)) places.gaps[at] = this.gapOf(cursor, leaf, at);
       places.tops[at] = this.step(cursor, leaf, at);
     }
     this.leafPlaces.set(leafIndex, places);
@@ -338,9 +356,11 @@ export class PlacedHeightIndex {
     let leafIndex = Math.floor(start / BLOCK_SIZE);
     const cursor = this.cursorAtLeaf(leafIndex);
     let index = leafIndex * BLOCK_SIZE;
+    // ends: each pass reads the next leaf, which holds at least one row, so `index` rises; no leaf, or an empty one,
+    // returns
     while (index < end) {
       const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
-      if (!leaf) return;
+      if (!leaf || leaf.heights.length === 0) return;
       for (let offset = 0; offset < leaf.heights.length && index < end; offset += 1, index += 1) {
         const top = this.step(cursor, leaf, offset);
         if (index >= start && visit(index, top, leaf.heights[offset]!) === false) return;
@@ -374,14 +394,23 @@ export class PlacedHeightIndex {
     }
     // Re-sum the copied bounded leaf instead of subtracting floating-point
     // values from the old aggregate: corrections that settle must settle exactly.
-    const leaf: Leaf = { heights, marks, gaps, summary: summarize(heights, marks, gaps, this.rules.between) };
+    const leaf: Leaf = {
+      heights,
+      marks,
+      gaps,
+      summary: summarize(heights, marks, gaps, this.rules.between),
+    };
     const between = this.rules.between;
     const replace = (node: Node | undefined, low: number, high: number): Node => {
       if (high - low === 1) return { leaf, summary: leaf.summary };
       const middle = low + ((high - low) >>> 1);
       const left = leafIndex < middle ? replace(node?.left, low, middle) : node?.left;
       const right = leafIndex >= middle ? replace(node?.right, middle, high) : node?.right;
-      return { left, right, summary: join(summaryOf(left), summaryOf(right), between) };
+      return {
+        left,
+        right,
+        summary: join(summaryOf(left), summaryOf(right), between),
+      };
     };
     return new PlacedHeightIndex(this.count, this.capacity, replace(this.root, 0, this.capacity), this.rules);
   }
@@ -402,9 +431,12 @@ export class PlacedHeightIndex {
     const leafCount = Math.max(1, Math.ceil(count / BLOCK_SIZE));
     let capacity = this.capacity;
     let root = this.root;
+    if (leafCount > MAX_LEAVES)
+      throw new RangeError(`PlacedHeightIndex: ${count} rows is past the most it places (${MAX_LEAVES * BLOCK_SIZE})`);
+    // ends: `capacity` doubles each pass, and `leafCount` is at most MAX_LEAVES, a power of two
     while (capacity < leafCount) {
       root = root ? { left: root, summary: root.summary } : undefined;
-      capacity <<= 1;
+      capacity *= 2;
     }
     const between = this.rules.between;
     const fromLeaf = Math.floor(start / BLOCK_SIZE);
@@ -443,7 +475,11 @@ export class PlacedHeightIndex {
       const left = build(node?.left, low, middle);
       const right = build(node?.right, middle, high);
       if (!left && !right) return undefined;
-      return { left, right, summary: join(summaryOf(left), summaryOf(right), between) };
+      return {
+        left,
+        right,
+        summary: join(summaryOf(left), summaryOf(right), between),
+      };
     };
     return new PlacedHeightIndex(count, capacity, build(root, 0, capacity), this.rules);
   }
@@ -466,6 +502,7 @@ export class PlacedHeightIndex {
     let high = this.capacity;
     // The descent picks the leftmost subtree whose last row's top is past `target`; a top
     // that rounding puts on the other side is caught by the leaf scans below.
+    // ends: each pass halves high - low
     while (node && high - low > 1) {
       const middle = low + ((high - low) >>> 1);
       const left = summaryOf(node.left);
@@ -489,6 +526,7 @@ export class PlacedHeightIndex {
     }
     let leafIndex = Math.max(0, low - 1);
     // Scan from the leaf before the descent's, in case rounding put the answer there.
+    // ends: `leafIndex` rises by one each pass, past the last row's leaf at most
     while (leafIndex * BLOCK_SIZE < this.count) {
       const places = this.placesOf(leafIndex);
       if (!places) break;

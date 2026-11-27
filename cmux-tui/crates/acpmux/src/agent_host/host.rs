@@ -166,6 +166,9 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        // A replacement host is the holder of the harness it took over.
+        holder: Some(true),
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -216,8 +219,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
-    // session's start is over.
+    // Never at background class or this host's utility disk tier (`cpu_class.rs`): the daemon
+    // lowers a `background` session's harness once its start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = crate::home_fs::remove_file(&spec.socket);
@@ -236,6 +239,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }
     })?;
+    let holder = spec.keeps_holder().then(|| holder_of(&child, spec)).flatten();
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -250,6 +254,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        holder: Some(holder.is_some()),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -260,12 +266,6 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         return Err(e);
     }
     cleanup.paths.clear();
-    // Only a harness that speaks ACP itself: a translator's state is the host's (`custody.rs`).
-    let holder = spec
-        .holder
-        .as_ref()
-        .filter(|_| spec.translator.is_none() && !spec.codex_bridge)
-        .and_then(|_| holder_of(&child, spec));
     Ok(Started { record, listener, harness: Harness::Spawned(child), holder, _live: live })
 }
 
@@ -331,6 +331,9 @@ enum Event {
     /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
     /// `host/orphan.rs`).
     Orphan(u64, Option<bool>),
+    /// The Claude translator has stdin replies it worked out off the stdout reader (a
+    /// repo-sync hook's answer, `claude_stdio/hook_callback.rs`): write them now.
+    ClaudeReplies,
 }
 
 /// How long a pooled host waits for its first controller. A daemon may be
@@ -542,6 +545,44 @@ fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
     false
 }
 
+/// Debug builds only: `ACPMUX_TEST_TRANSLATOR_PANIC` in the harness's environment makes the
+/// Claude translator panic on a stdout line of type `acpmux_test_panic`, so the daemon's
+/// integration tests can drive a translator crash mid-turn. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn test_translator_panic(harness_env: &[(String, String)], raw: &Value) {
+    #[cfg(debug_assertions)]
+    if raw.get("type").and_then(Value::as_str) == Some("acpmux_test_panic")
+        && harness_env.iter().any(|(k, _)| k == "ACPMUX_TEST_TRANSLATOR_PANIC")
+    {
+        crate::daemon::test_panic("test: the translator panics on an acpmux_test_panic line");
+    }
+}
+
+/// Whether a Claude stdout line ends requests: its final `result`, or a control answer.
+fn claude_answer(raw: &Value) -> bool {
+    matches!(raw.get("type").and_then(Value::as_str), Some("result" | "control_response"))
+}
+
+/// Runs one call into a translator, the crash-prone part of a host, so that a panic in it ends
+/// that call and not the host that holds the harness's pipes (`translator_panicked`).
+async fn contained<T>(call: impl std::future::Future<Output = T>) -> Result<T, String> {
+    use futures::FutureExt as _;
+    std::panic::AssertUnwindSafe(call).catch_unwind().await.map_err(panic_text)
+}
+
+/// [`contained`], for the Codex translator's calls, which do not wait.
+fn contained_sync<T>(call: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).map_err(panic_text)
+}
+
+fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_owned())
+}
+
 impl Started {
     async fn serve(self, spec: SpawnSpec) -> Result<()> {
         let Started { record, listener, harness, holder, _live } = self;
@@ -742,6 +783,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -753,6 +800,9 @@ impl Started {
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {
                 *slot = Some(sid.clone());
+            }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
             }
             tr
         });
@@ -816,6 +866,19 @@ impl Started {
             });
         }
 
+        if let Some(tr) = &state.translator {
+            let ready = tr.replies_ready();
+            let tx = events_tx.clone();
+            // Ends with the event loop (its channel closes) or the translator.
+            tr.scope().spawn_until_cancelled("claude-replies-ready", async move {
+                loop {
+                    ready.notified().await;
+                    if tx.send(Event::ClaudeReplies).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
         state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
@@ -877,6 +940,7 @@ impl Started {
                         state.maybe_push_exit();
                     }
                 }
+                Event::ClaudeReplies => state.write_late_claude_replies().await,
                 Event::OwnerWaitOver => {
                     if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
                         tracing::warn!("no daemon attached to this pooled host; ending it");
@@ -898,10 +962,9 @@ impl Started {
                 Event::Accepted(stream) => {
                     next_conn += 1;
                     let id = next_conn;
-                    // Custody may be asked on it (`custody.rs`): a copy of its socket until then.
-                    if state.holder.is_some()
-                        && let Ok(sock) = super::custody::dup(stream.as_raw_fd())
-                    {
+                    // Custody may be asked on it (`custody.rs`): a copy of its socket until then,
+                    // so that even a host with no holder answers the ask (with no).
+                    if let Ok(sock) = super::custody::dup(stream.as_raw_fd()) {
                         state.custody_socks.insert(id, sock);
                     }
                     let (mut rd, mut wr) = stream.into_split();
@@ -984,6 +1047,9 @@ impl Started {
         super::tree::kill_still_running(&state.under);
         remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
+        // What double-forked away after that look is still in the host's scope: end it there,
+        // the host with it, when switched on (`scope_kill.rs`). Nothing after this runs then.
+        super::scope_kill::end_own_scope();
         Ok(())
     }
 }
@@ -1209,23 +1275,23 @@ impl State {
             // For Claude only its final `result` (or a control answer) ends
             // requests; other oversized lines carry tool output and are
             // dropped with the note above.
-            let claude_answer = serde_json::from_str::<Value>(&line)
-                .ok()
-                .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
-                .is_some_and(|t| t == "result" || t == "control_response");
+            let parsed = serde_json::from_str::<Value>(&line).ok();
             if let Some(cx) = self.codex.clone() {
-                // An answer to one of the translator's requests: it gets an
-                // error in its place, so what waits on it is answered.
-                if let Ok(v) = serde_json::from_str::<Value>(&line)
-                    && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
-                {
-                    let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "codex app-server answer was over the size limit"}});
-                    self.codex_out(cx.from_server(&err));
+                if let Some(v) = &parsed {
+                    self.codex_answer_failed(
+                        &cx,
+                        v,
+                        "codex app-server answer was over the size limit",
+                    );
                 }
             } else if let Some(tr) = self.translator.clone() {
-                if claude_answer {
-                    for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.into_value() });
+                if parsed.as_ref().is_some_and(claude_answer) {
+                    let failed = contained(tr.fail_pending("agent answer was over the size limit"));
+                    match failed.await {
+                        Ok(failed) => failed
+                            .into_iter()
+                            .for_each(|m| self.push(Entry::In { msg: m.into_value() })),
+                        Err(why) => self.translator_panicked("Claude", &why),
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
@@ -1247,11 +1313,17 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                    msg: Message::notification(&kind, crate::codex_app_server::logged(&raw))
                         .into_value(),
                 });
             }
-            self.codex_out(cx.from_server(&raw));
+            match contained_sync(|| cx.from_server(&raw)) {
+                Ok(outs) => self.codex_out(outs),
+                Err(why) => {
+                    self.translator_panicked("Codex", &why);
+                    self.codex_answer_failed(&cx, &raw, "the translator panicked on this answer");
+                }
+            }
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -1271,16 +1343,75 @@ impl State {
         // Keep the raw Claude line in the log under its own kind.
         // Translated first, so the raw line moves into its record instead of being
         // copied; the raw record still comes first.
-        let translated = tr.inbound(&raw).await;
+        let answer = claude_answer(&raw);
+        let env = &self.spec.env;
+        let translated = contained(async {
+            test_translator_panic(env, &raw);
+            tr.inbound(&raw).await
+        })
+        .await;
         self.push(Entry::Tap {
             dir: TapDir::In,
             msg: crate::claude_stdio::logged_line_owned(raw).into_value(),
         });
-        for l in tr.take_stdin_replies().await {
-            self.write_claude_line(l);
+        let translated = match translated {
+            Ok(translated) => translated,
+            Err(why) => {
+                self.translator_panicked("Claude", &why);
+                // An answer it dropped still ends what waits on it.
+                if answer {
+                    contained(tr.fail_pending("the translator panicked on the agent's answer"))
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            }
+        };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
         }
         for m in translated {
             self.push(Entry::In { msg: m.into_value() });
+        }
+    }
+
+    /// A translator call panicked (cmuxterm-hq `docs/handbook/durable-state-beside-crash-prone-code.md`):
+    /// the line it was on is dropped and named in the log. The host keeps the harness's pipes,
+    /// so the agent and its turn go on; ending the host would cut the turn, since a translated
+    /// harness gets no custody (`custody.rs`).
+    fn translator_panicked(&mut self, which: &str, why: &str) {
+        self.push(Entry::Err {
+            line: format!(
+                "[the {which} translator panicked on a line and dropped it: {why}; the agent and its turn go on]"
+            ),
+        });
+    }
+
+    /// The Codex app-server's answer `raw` was not translated (over the size limit, or the
+    /// translator panicked on it): the translator gets an error in its place, so what waits on
+    /// it is answered.
+    fn codex_answer_failed(
+        &mut self,
+        cx: &crate::codex_app_server::Translator,
+        raw: &Value,
+        why: &str,
+    ) {
+        let Some(id) = raw.get("id").filter(|_| raw.get("method").is_none()) else { return };
+        let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": why}});
+        match contained_sync(|| cx.from_server(&err)) {
+            Ok(outs) => self.codex_out(outs),
+            Err(why) => self.translator_panicked("Codex", &why),
+        }
+    }
+
+    /// A controller request the translator panicked on gets an error answer, so it never waits.
+    fn request_failed(&mut self, message: &Message) {
+        if let Message::Request { id, .. } = message {
+            let err =
+                crate::rpc::RpcError::internal("the agent's translator panicked on this request");
+            self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
         }
     }
 
@@ -1327,6 +1458,15 @@ impl State {
         });
     }
 
+    /// The translator's stdin replies worked out off the stdout reader ([`Event::ClaudeReplies`]).
+    async fn write_late_claude_replies(&mut self) {
+        let Some(tr) = self.translator.clone() else { return };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
+        }
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -1351,7 +1491,13 @@ impl State {
                 msg: crate::codex_app_server::redact(&message.to_value()),
             });
             // Answers and updates the translator gives itself go out as if Codex sent them.
-            self.codex_out(cx.from_client(&message.to_value()));
+            match contained_sync(|| cx.from_client(&message.to_value())) {
+                Ok(outs) => self.codex_out(outs),
+                Err(why) => {
+                    self.translator_panicked("Codex", &why);
+                    self.request_failed(&message);
+                }
+            }
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -1360,7 +1506,14 @@ impl State {
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-        match tr.outbound(&message).await {
+        let outbound = match contained(tr.outbound(&message)).await {
+            Ok(outbound) => outbound,
+            Err(why) => {
+                self.translator_panicked("Claude", &why);
+                return self.request_failed(&message);
+            }
+        };
+        match outbound {
             Outbound::Lines(lines) => {
                 for l in lines {
                     self.write_claude_line(l);
@@ -1368,6 +1521,13 @@ impl State {
             }
             // An immediate local answer, as if Claude replied.
             Outbound::Reply(reply) => self.push(Entry::In { msg: reply.to_value() }),
+            // Written first, so Claude Code reads them; then answered without it.
+            Outbound::LinesThenReply(lines, reply) => {
+                for l in lines {
+                    self.write_claude_line(l);
+                }
+                self.push(Entry::In { msg: reply.to_value() });
+            }
         }
     }
 
@@ -1435,6 +1595,9 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);
@@ -1518,13 +1681,16 @@ impl State {
 impl State {
     /// `ControllerFrame::Custody` on connection `id` (`custody.rs`): the daemon gets copies of
     /// the harness's stdio, ring and pidfd, with the spawn spec, and the connection closes. A
-    /// wrong token gets nothing; a host with no holder, or whose harness's output ended, says no.
+    /// wrong token, a host with no holder, or one whose harness's output ended, says no
+    /// (`spec: None`), so the daemon reads an answer and never an end of file.
     fn custody(&mut self, id: u64, token: &str) {
+        let sock = self.custody_socks.remove(&id);
         let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else { return };
         // Its writer ends with this sender: the connection closes once the daemon read it all.
         self.pending_conns.remove(pos);
-        let Some(sock) = self.custody_socks.remove(&id) else { return };
+        let Some(sock) = sock else { return };
         if !constant_time_eq(token.as_bytes(), self.record.owner_token.as_bytes()) {
+            super::custody::refuse(sock);
             return;
         }
         // The nonce the harness was started with: this host's, or the first host's.
@@ -1675,73 +1841,5 @@ fn can_enter(dir: &std::path::Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
-    #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-
-    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
-    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
-    /// does not need.
-    #[test]
-    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
-        use super::{Entry, encode_entry};
-        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
-        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
-        assert!(!needed, "a stderr note keeps no orphaned host waiting");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["h"], 5);
-        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
-
-        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
-        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
-        assert!(needed, "an answer is logged by a next daemon");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
-        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
-
-        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
-    }
-
-    /// An entry too big for one frame is replaced, not dropped with its connection: an
-    /// answer by an error answer to the same id, anything else by a stderr note.
-    #[test]
-    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
-        use super::{Entry, TapDir, over_frame_limit};
-        let answer =
-            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
-        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
-        assert_eq!(msg["id"], 7);
-        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
-        assert!(msg.get("result").is_none());
-
-        let update =
-            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
-        for entry in [
-            Entry::In { msg: update },
-            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
-        ] {
-            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
-            assert_eq!(line, "[entry 4 over the frame limit dropped]");
-        }
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

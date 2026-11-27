@@ -178,7 +178,7 @@ test("Ask rows show each harness mark without action or Return hints", async () 
     expect(ask.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe(
       harness === "codex" ? "openai" : "claude",
     );
-    expect(ask.querySelector("kbd, .nt-row-action")).toBeNull();
+    expect(ask.querySelector(".ui-key-hint, .nt-row-action")).toBeNull();
   }
 });
 
@@ -197,11 +197,9 @@ test("command rows show catalog icons and live shortcut keycaps", async () => {
     "browser",
     "tunable.sidebar",
   ]);
-  expect(commands.map((row) => [...row.querySelectorAll("kbd")].map((cap) => cap.textContent))).toEqual([
-    ["⌃", "`"],
-    ["⌥", "B"],
-    [],
-  ]);
+  expect(
+    commands.map((row) => [...row.querySelectorAll(".nt-row-shortcut .ui-key-hint-key")].map((cap) => cap.textContent)),
+  ).toEqual([["⌃", "`"], ["⌥", "B"], []]);
   expect(commands.every((row) => row.getAttribute("aria-selected") === "false")).toBe(true);
   expect(document.querySelector(".nt-section, .nt-popover .nt-row-action")).toBeNull();
   await key(field, "ArrowDown");
@@ -213,12 +211,12 @@ test("command rows show catalog icons and live shortcut keycaps", async () => {
     [
       ...rows()
         .find((row) => row.dataset.type === "action")!
-        .querySelectorAll("kbd"),
+        .querySelectorAll(".nt-row-shortcut .ui-key-hint-key"),
     ].map((cap) => cap.textContent),
   ).toEqual(["⇧", "⌘", "J"]);
 });
 
-test("commands use the host's symbol image when the catalog has no override", async () => {
+test("commands use the host's symbol image when the cmux pack has no icon for the symbol", async () => {
   const asked: string[] = [];
   const src = "data:image/png;base64,iVBORw0KGgo=";
   const release = setHarnessSymbolHost(async (name) => {
@@ -226,11 +224,11 @@ test("commands use the host's symbol image when the catalog has no override", as
     return src;
   });
   try {
-    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "sparkles" }]);
+    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "tortoise" }]);
     await type("custom");
     const command = rows().find((row) => row.dataset.type === "action")!;
-    expect(asked).toEqual(["sparkles"]);
-    const symbol = command.querySelector<HTMLElement>("[data-symbol=sparkles]")!;
+    expect(asked).toEqual(["tortoise"]);
+    const symbol = command.querySelector<HTMLElement>("[data-symbol=tortoise]")!;
     expect(symbol.style.maskImage).toContain(src);
   } finally {
     release();

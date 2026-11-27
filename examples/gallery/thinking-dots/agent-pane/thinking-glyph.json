@@ -1,0 +1,36 @@
+// The starter thinking dots: a cmux.particles/1 document (the format is ABI.md "Particles
+// choreography" in cmux-tui/crates/cmux-app-host/js). Each dot is [x, y, scale]: x and y in
+// points from the glyph's center, scale from 0 to 4 times particle.size. A phase is a list of
+// frames at 0..1 of its duration; a trigger names the phases an activity plays (an activity with
+// no trigger of its own plays `cycle`).
+{
+  "$schema": "cmux.particles/1",
+  "particle": { "shape": "circle", "size": 3.0, "color": "accent", "max": 3 },
+  "phases": {
+    "lone": { "duration": 350, "frames": [{ "at": 0, "dots": [[0, 0, 0.6]] }] },
+    "trade": {
+      "duration": 1400,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[-6.5, 0, 0.6], [0, 0, 1.2], [6.5, 0, 0.6]] },
+        { "at": 0.5, "dots": [[-8, 0, 1.0], [0, 0, 0.55], [8, 0, 1.0]] },
+        { "at": 1, "dots": [[-6.5, 0, 0.6], [0, 0, 1.2], [6.5, 0, 0.6]] }
+      ]
+    },
+    "orbit": {
+      "duration": 1200,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[0, -6, 1.0], [5.2, 3, 0.7], [-5.2, 3, 0.7]] },
+        { "at": 0.5, "dots": [[5.2, 3, 0.7], [-5.2, 3, 1.0], [0, -6, 0.7]] },
+        { "at": 1, "dots": [[-5.2, 3, 0.7], [0, -6, 1.0], [5.2, 3, 0.7]] }
+      ]
+    }
+  },
+  "triggers": {
+    "execute": ["trade"],
+    "read": ["orbit"],
+    "sendMessage": { "intro": ["lone"], "loop": ["trade"] },
+    "cycle": ["trade"]
+  }
+}

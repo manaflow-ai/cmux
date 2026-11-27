@@ -1,0 +1,48 @@
+{
+  "$comment": "Tier 2 of the design system: what a thing is made of, as expressions over tier 1 (schemas/design-scale, schemas/type-scale). webviews/scripts/pages/gen-design-scale.mjs writes each field as a --role-<name>-<field> variable into the design-scale block of webviews/src/pages/shared/desktop.css, as calc() over the --ds-* variables so Settings' page density and the host's button corner reach it, and lists the resolved pixels in webviews/src/ui/designTokens.generated.ts. `bun run check:design-scale` fails when the block drifts. A component reads --role-* only. The corner rule (hq docs/design/design-debate-2026-11-22.md, Instrument v0.1): corner = min(inner corner + inset, floor4(shortest height / 3)), so a thin surface never turns into a capsule. Names: space.N, control.NAME, radius.NAME and text.NAME.lineHeight are tier 1; ROLE.FIELD is another role; self.FIELD is this role, so a role that is `like` another rebinds it. floor4(x) rounds down to the 4 px grid.",
+  "roles": [
+    {
+      "name": "control",
+      "for": "a button, field or chip: the tab's corner (Lawrence 2026-11-12, buttons round as tabs)",
+      "height": "control.row",
+      "radius": "radius.control"
+    },
+    {
+      "name": "row",
+      "for": "a menu or list row's highlight, inside a floating surface's inset",
+      "height": "control.row",
+      "radius": "radius.sm"
+    },
+    {
+      "name": "floating",
+      "for": "anything that floats over the page: one corner, one inset (the brief's control corner + inset is 12, Leo's pending popup-corner call; flip `row.radius` to `control.radius` here)",
+      "inset": "space.1",
+      "minHeight": "row.height + 2 * self.inset",
+      "radius": "min(row.radius + self.inset, floor4(self.minHeight / 3))"
+    },
+    { "name": "menu", "for": "a context or dropdown menu", "like": "floating" },
+    { "name": "popover", "for": "a popover with rows or a form", "like": "floating" },
+    {
+      "name": "tooltip",
+      "for": "a one-line label with a shortcut hint",
+      "like": "floating",
+      "minHeight": "control.compact"
+    },
+    {
+      "name": "toast",
+      "for": "a notice in the stack: one line of text at an 8 px inset, about 34 px tall",
+      "like": "floating",
+      "inset": "space.2",
+      "minHeight": "text.body.lineHeight + 2 * self.inset",
+      "radius": "min(control.radius + self.inset, floor4(self.minHeight / 3))"
+    },
+    {
+      "name": "dialog",
+      "for": "a modal dialog: its buttons at the inset, so the corner is the button's plus the inset",
+      "like": "floating",
+      "inset": "space.5",
+      "minHeight": null,
+      "radius": "control.radius + self.inset"
+    }
+  ]
+}

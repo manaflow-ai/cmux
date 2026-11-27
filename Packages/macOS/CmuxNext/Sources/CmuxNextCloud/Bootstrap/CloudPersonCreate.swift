@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextDaemon
 public import Foundation
 import os
@@ -56,7 +57,8 @@ extension CloudMachineRequest {
 /// (``CloudCreateRoute/direct``), through the same session call that answers an approval
 /// (`CloudApprovalAnswer.Call`), in the team the relay would pin (`x-cmux-team`). The person's
 /// session never goes to the daemon, and nothing here logs it.
-public nonisolated enum CloudPersonCreate {
+public nonisolated struct CloudPersonCreate {
+    public nonisolated init() {}
     /// One POST of a JSON body to the API Worker as the signed-in person; returns the reply body.
     /// The same shape as `CloudApprovalAnswer.Call`.
     public typealias Call = @Sendable (_ path: String, _ body: Data) async throws -> Data
@@ -70,11 +72,30 @@ public nonisolated enum CloudPersonCreate {
         public var description: String { reason }
     }
 
-    /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`).
-    public static func post(_ url: URL, body: Data, bearer: String, team: String?) -> URLRequest {
+    /// How long a session call waits for its answer: an approval's read or answer comes at once.
+    public static let callTimeout: TimeInterval = 15
+    /// How long a direct create waits for its answer. The server answers a person's create once the provider made
+    /// the machine, or after 25 s with the machine still `provisioning` (cmux-platform CloudCore `REQUEST_WAIT_MS`),
+    /// so the wait is longer than that: at ``callTimeout`` a create the provider took 15 s over timed out, and the
+    /// one same-key resend (``CloudConnectHedge``) failed a start whose machine took 30 s.
+    public static let createTimeout: TimeInterval = 40
+
+    /// The session a person's calls go on, each waiting `timeout` for its answer: no cache, no cookies, and
+    /// redirects refused, so the person's bearer never follows one (as `InstallHTTPTransport`).
+    public static func session(timeout: TimeInterval = callTimeout) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = timeout
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudPersonCreate", configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+    }
+
+    /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`); it waits
+    /// `timeout` for its answer.
+    public static func post(_ url: URL, body: Data, bearer: String, team: String?, timeout: TimeInterval = callTimeout) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 15
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization")
         if let team, !team.isEmpty { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
@@ -93,19 +114,33 @@ public nonisolated enum CloudPersonCreate {
     /// done (the create's `user.ensure`: nothing holds a direct create, so its bind must find the user). A call that
     /// throws before anything went out (no session) is ``Unavailable``; a transport failure may have reached the
     /// server, so it is thrown as is and the key stays on this route.
+    ///
+    /// A call whose request was sent again after a connection failure (``CloudConnectHedge/Resends``) may have run
+    /// the op on its first attempt, so a route refusal answered to the resend is no ``Unavailable`` either: the relay
+    /// would send a new key, a second machine. It is ``indeterminate``, and a Retry sends the same key on this route.
     public static func ops(_ call: @escaping Call, after first: @escaping @Sendable () async -> Void) -> CloudAppOp {
         { op, args, key, origin in
             let sent = try Self.body(op: op, params: args, key: key, origin: origin)
             await first()
+            let resends = CloudConnectHedge.Resends()
             let reply: Data
             do {
-                reply = try await call("v1/ops", sent)
-            } catch let error where !(error is URLError) && !(error is CancellationError) {
+                // concurrency-allow: the async binding inside an async closure: a task is always current here, and it is unbound when the call returns
+                reply = try await CloudConnectHedge.$resends.withValue(resends) { try await call("v1/ops", sent) }
+            } catch let error where !(error is URLError) && !(error is CancellationError) && !resends.any {
                 throw Unavailable(reason: "not_signed_in")
             }
-            return try Self.answer(reply)
+            do {
+                return try Self.answer(reply)
+            } catch let refused as Unavailable where resends.any {
+                throw CloudAppOpFailure(code: indeterminate, message: "the create may have reached the Cloud before it was refused (\(refused.reason))")
+            }
         }
     }
+
+    /// The answer of a direct create that may have run before its route refused a resend (``ops(_:after:)``): not a
+    /// definitive refusal, so the key and its route stay for a Retry.
+    public static let indeterminate = "cmux.cloud.indeterminate"
 
     /// The op's value from a `/v1/ops` reply; a refusal as the relay would answer it (`cmux.cloud.<reason>`, with its
     /// details), or ``Unavailable`` when the route itself refused before the op ran.

@@ -50,6 +50,29 @@ struct CloudStartSessionTests {
         return services.registry.capturingRefusal { invoke(invocation) }
     }
 
+    /// A machine made for this start is its alone until the session starts: a failure that strands the start deletes
+    /// it (hq#11835 row 8); a machine it found, or a failure whose Retry reuses the machine, is never deleted, and a
+    /// delete that fails says how to delete it.
+    @Test func aFailedStartDeletesTheMachineItMade() async throws {
+        let services = Self.fixture().services
+        let start = CloudStartSession(services: services)
+        var deleted = 0
+        func run(made: Bool, _ error: any Error, delete: @escaping @MainActor () async throws -> Void = {}) async -> (any Error)? {
+            do {
+                _ = try await start.releasing(made: made, name: "chat-1", id: "vm-chat-1", account: services.cloud.account, delete: { deleted += 1; try await delete() }) { () async throws -> Int in throw error }
+                return nil
+            } catch { return error }
+        }
+        let failure = ActionFailure(message: "claude did not start")
+        #expect(await run(made: true, failure) as? ActionFailure == failure, "the start's own error goes on unchanged")
+        #expect(deleted == 1, "a failed start left its new machine behind")
+        _ = await run(made: false, failure)
+        _ = await run(made: true, CancellationError())
+        #expect(deleted == 1, "a found machine or a cancelled start's machine was deleted")
+        let kept = await run(made: true, failure) { throw ActionFailure(message: "delete refused") } as? ActionFailure
+        #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
+    }
+
     @Test func itIsACLIVerbAndAnMCPToolThatWaitsForThePerson() throws {
         let descriptor = try #require(Self.fixture().services.registry.descriptor(for: CloudStartSession.action))
         let text = try #require(descriptor.description, "no description for cmux action describe and MCP")
@@ -463,6 +486,22 @@ struct CloudStartSessionTests {
         #expect(route.userMessage.hasPrefix("\("cursor".chiefHarnessName)'s model route isn't available on devbox-3."), "\(route.userMessage)")
     }
 
+    /// The Cloud carrier drill (cmuxterm-hq run 43973035740): the machine refused the start with acpmux's reason in
+    /// `data.reason`, and the CLI said only "refused to start the agent chat (agent_session.refused)". The machine's
+    /// reason code goes with the code; prose in its place never does.
+    @Test func aGenericRefusalCarriesTheMachinesReason() {
+        func refusal(_ data: [String: CmuxNextDaemon.JSONValue]) -> AgentRemoteStartRefusal {
+            AgentRemoteStartRefusal.refused(AgentSessionAttachError(code: "agent_session.refused", message: "acpmux refused the request (permission.denied)",
+                                                                    details: .object(data)),
+                                            code: "agent_session.refused", machine: "devbox-3", folder: nil, harness: "carrier-drill", name: \String.chiefHarnessName)
+        }
+        let refused = refusal(["reason": .string("permission.denied")])
+        #expect(refused.userMessage == "devbox-3 refused to start the agent chat (agent_session.refused: permission.denied).")
+        let cli = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "carrier-drill")
+        #expect(cli.contains("permission.denied"), "\(cli)")
+        #expect(refusal(["reason": .string("some prose, not a code")]).userMessage == "devbox-3 refused to start the agent chat (agent_session.refused).")
+    }
+
     @Test(arguments: [AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home"])
     func aStartWithNoFolderSaysToPassOne(code: String) {
         let message = CloudStartSession.startFailure(AgentRemoteStartRefusal(code: code, machine: "devbox-3"), name: "devbox-3", id: "vm-devbox3", agent: "claude")
@@ -555,6 +594,35 @@ struct CloudStartSessionTests {
         #expect(failure.message.contains("`cmux cloud list-machines`"))
         #expect(failure.message.contains("`cmux cloud start-session --name \(name) --agent claude`"))
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
+    }
+
+    /// `cmux chat --on vm:new --harness codex` on a Mac whose only Codex sign-in is the CLI's (`codex-login`, which
+    /// serves no Cloud chat, model-connections.md Revision 2) and no team key: the composer shows Set up Cloud, and
+    /// the run now refuses the same way before any machine, instead of starting one whose first turn fails on
+    /// "Missing environment variable: `OPENAI_API_KEY`". A Cloud-serving ChatGPT connection goes on past it.
+    @Test func aRunWithNothingServingItsAgentInCloudTakesNoMachineAndSaysWhereToConnect() async throws {
+        let services = Self.fixture().services
+        let name = "codex-\(UUID().uuidString.prefix(6).lowercased())"
+        let cliLogin = CloudSetup.Connection(id: "codex-login", families: ["codex"], servesCloud: false)
+        services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin], organization: []) }
+        let invoke = try #require(services.registry.action(for: CloudStartSession.action)?.invoke)
+        let refused = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("codex"), "name": .string(name)])) }
+        guard case .failure(let failure) = await (try #require(refused.results.first, "start-session tracked no result")).value else {
+            Issue.record("a run with nothing serving codex in Cloud went on")
+            return
+        }
+        let request = CloudStartSession.Request(machineID: nil, name: name, agent: "codex", cwd: nil)
+        let link = "\(services.linkScheme)://settings/cloud/chatgpt"
+        #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", family: "codex", localLogin: true, link: link, command: request.command), "\(failure.message)")
+        // The Codex login on this Mac is named as Mac-only, and the refusal opens the exact Settings > Cloud row.
+        #expect(failure.message.hasPrefix("Your Codex login on this Mac works only on this Mac;"), "\(failure.message)")
+        #expect(failure.message.contains("`cmux link open --url \(link)`") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
+        #expect(!services.machines.cloud.contains { $0.machine.title == name })
+        // A ChatGPT connection that serves Cloud passes the gate (the unread machine list refuses next).
+        services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin, CloudSetup.Connection(id: "chatgpt-plan-1", families: ["codex"])], organization: []) }
+        let served = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("codex"), "name": .string(name + "-plan")])) }
+        guard case .failure(let next) = await (try #require(served.results.first, "start-session tracked no result")).value else { return }
+        #expect(next.message != failure.message && next.message.hasPrefix("Couldn't read your Cloud machines"), "\(next.message)")
     }
 
     /// A run asked in one account stops before its next step once another is signed in: the

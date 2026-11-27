@@ -100,59 +100,326 @@
           ]
         },
         {
-          "key": "agents.modelRouter.model",
-          "name": "modelRouterModel",
-          "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",
+          "key": "agents.claudeOutputStyle",
+          "name": "claudeOutputStyle",
+          "note": "Claude Code's outputStyle for the chats cmux starts; acpmux puts it in the launch's one --settings at each Claude Code start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs). agent (the default) passes nothing, so Claude Code's own settings decide; a --settings of the profile's that names outputStyle keeps its value.",
           "title": {
-            "key": "settings.agents.modelRouter.model",
-            "text": "cmux Model Router Model"
+            "key": "settings.agents.claudeOutputStyle",
+            "text": "Claude Code Response Style"
           },
           "help": {
-            "key": "settings.agents.modelRouter.model.help",
-            "text": "The model new cmux model router chats start on."
+            "key": "settings.agents.claudeOutputStyle.help",
+            "text": "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting."
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "deepseek/deepseek-v4.1-flash-1017",
+              "value": "agent",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash1017",
-                "text": "DeepSeek V4.1 Flash 1017 (Images)"
+                "key": "settings.choice.agentOwnSetting",
+                "text": "Agent’s Own"
               }
             },
             {
-              "value": "deepseek/deepseek-v4.1-flash",
+              "value": "default",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash",
-                "text": "DeepSeek V4.1 Flash"
+                "key": "settings.choice.claudeOutputStyleDefault",
+                "text": "Default"
               }
             },
             {
-              "value": "deepseek/deepseek-v4-flash",
+              "value": "Explanatory",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Flash",
-                "text": "DeepSeek V4 Flash"
+                "key": "settings.choice.claudeOutputStyleExplanatory",
+                "text": "Explanatory"
               }
             },
             {
-              "value": "deepseek/deepseek-v4-pro",
+              "value": "Learning",
               "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Pro",
-                "text": "DeepSeek V4 Pro"
+                "key": "settings.choice.claudeOutputStyleLearning",
+                "text": "Learning"
               }
             }
           ],
-          "default": "deepseek/deepseek-v4.1-flash-1017",
+          "default": "agent",
           "keywords": [
-            "model",
-            "router",
-            "cmux router",
-            "deepseek",
-            "vision",
-            "images",
-            "inference",
-            "default model",
+            "output style",
+            "response style",
+            "style",
+            "personality",
+            "explanatory",
+            "learning",
+            "claude",
             "new chat"
+          ]
+        },
+        {
+          "key": "agents.codexPersonality",
+          "name": "codexPersonality",
+          "note": "Codex's personality config for the chats cmux starts; acpmux passes it as -c personality=\"...\" at each codex app-server start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs). The values are the ones codex accepts (codex 0.171: none, friendly, pragmatic). agent (the default) passes nothing, so Codex's own config decides; a -c personality of the profile's keeps its value.",
+          "title": {
+            "key": "settings.agents.codexPersonality",
+            "text": "Codex Personality"
+          },
+          "help": {
+            "key": "settings.agents.codexPersonality.help",
+            "text": "The personality new Codex chats use. Agent’s Own keeps Codex’s setting."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "agent",
+              "title": {
+                "key": "settings.choice.agentOwnSetting",
+                "text": "Agent’s Own"
+              }
+            },
+            {
+              "value": "pragmatic",
+              "title": {
+                "key": "settings.choice.codexPersonalityPragmatic",
+                "text": "Pragmatic"
+              }
+            },
+            {
+              "value": "friendly",
+              "title": {
+                "key": "settings.choice.codexPersonalityFriendly",
+                "text": "Friendly"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.codexPersonalityNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "agent",
+          "keywords": [
+            "personality",
+            "response style",
+            "style",
+            "tone",
+            "friendly",
+            "pragmatic",
+            "codex",
+            "new chat"
+          ]
+        },
+        {
+          "key": "agents.commitAttribution",
+          "name": "commitAttribution",
+          "note": "strip gives Claude Code attribution {commit: \"\", pr: \"\"} in the launch's one --settings at each Claude Code start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs), so its commits and pull requests carry no co-author line. Claude Code only: Codex has no config for its attribution (codex 0.171 follows the ChatGPT workspace's policy). agent (the default) passes nothing; a --settings of the profile's that names attribution or includeCoAuthoredBy keeps its value.",
+          "title": {
+            "key": "settings.agents.commitAttribution",
+            "text": "Co-Author Line on Commits and PRs"
+          },
+          "help": {
+            "key": "settings.agents.commitAttribution.help",
+            "text": "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "agent",
+              "title": {
+                "key": "settings.choice.agentOwnSetting",
+                "text": "Agent’s Own"
+              }
+            },
+            {
+              "value": "strip",
+              "title": {
+                "key": "settings.choice.commitAttributionStrip",
+                "text": "Remove"
+              }
+            }
+          ],
+          "default": "agent",
+          "keywords": [
+            "attribution",
+            "co-author",
+            "co-authored-by",
+            "commit",
+            "pull request",
+            "pr",
+            "credit",
+            "claude",
+            "git"
+          ]
+        },
+        {
+          "key": "agents.claudeCodeInboxRelay",
+          "name": "claudeCodeInboxRelay",
+          "note": "Off by default: acpmux never edits Claude Code's config unasked (desktop_link's rule). On, the first time acpmux delivers a message into a Claude Code chat that runs no inbox relay, it adds the tool-less cmux-inbox MCP server to Claude Code's user config (claude mcp add-json --scope user), so later chats write acpmux's deliveries themselves and Claude Code does not hold them (cmux-tui/crates/acpmux/src/desktop_link.rs ensure_inbox_relay_once, read at each delivery). acpmux desktop link adds the same relay by hand (Leo 2026-11-20, ask-4f683bf7d8).",
+          "title": {
+            "key": "settings.agents.claudeCodeInboxRelay",
+            "text": "Add Message Relay to Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.claudeCodeInboxRelay.help",
+            "text": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "inbox",
+            "relay",
+            "held message",
+            "claude",
+            "claude code",
+            "messages",
+            "verified",
+            "mcp"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agentTools",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentTools",
+        "text": "cmux Tools"
+      },
+      "note": "Settings > Agents > cmux Tools: whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server (on by default), beside the card that lists the agents on this Mac, an old cmux entry in one's own config (with Remove) and the manual lines for agents started elsewhere.",
+      "rows": [
+        {
+          "key": "agents.cmuxMcp",
+          "name": "cmuxMcp",
+          "note": "Whether agents cmux starts get its cmux MCP server (cmux mcp serve, which carries cmux Computer Use): a Claude Code or Codex typed into a cmux terminal (the claude and codex shims, cmux-tui agent_mcp_choice.rs) and the app's agent chats (acpmux agent_tools.rs agents_get_cmux), all with one server definition named cmux (acpmux agent_tools::cmux_server) and the app's settings file. Only through the launch: cmux never writes an agent's own config; cmux setup mcp reports which agents get it and the manual lines a person runs to use it elsewhere. on (the default, also unset or any value but off: cmux's tools come with the app) gives the server (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off gives none. A Chief turn keeps its own cmux tool list either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.",
+          "title": {
+            "key": "settings.agents.cmuxMcp",
+            "text": "Give Agents cmux’s Tools"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcp.help",
+            "text": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
+          },
+          "summary": {
+            "key": "settings.agents.cmuxMcp.summary",
+            "text": "Whether agents you start in cmux get cmux’s tools"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.agents.cmuxMcp.on",
+                "text": "On"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.agents.cmuxMcp.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "on",
+          "keywords": [
+            "mcp",
+            "mcp server",
+            "cmux tools",
+            "computer use",
+            "claude",
+            "codex",
+            "coding agents",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpClaude",
+          "name": "cmuxMcpClaude",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Claude Code started in cmux (the claude shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpClaude",
+            "text": "Use in Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpClaude.help",
+            "text": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "claude",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpCodex",
+          "name": "cmuxMcpCodex",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Codex started in cmux (the codex shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpCodex",
+            "text": "Use in Codex"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpCodex.help",
+            "text": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "codex",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.appControl",
+          "name": "appControl",
+          "note": "Whether agents in cmux may change the app or only read it, enforced by the daemon (cmux-tui-core server/agent_app_control.rs): on read, every app-changing request from a process in a cmux terminal (socket-peer ancestry or its launch credential) or from an agent chat (its ACP launch credential) is refused with origin.forbidden reason agents_read_only: new workspaces, tabs and panes, input to terminals, moves, closes, renames, settings writes. Reads, streams and an agent's own reports (hooks, notifications, status) still work. change (unset) is today's behavior. A process outside cmux (another terminal app, the app itself) is the person's and is never refused. The daemon reads it in cmux-tui-core mux/settings.rs.",
+          "title": {
+            "key": "settings.agents.appControl",
+            "text": "Agents Can Change cmux"
+          },
+          "help": {
+            "key": "settings.agents.appControl.help",
+            "text": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+          },
+          "summary": {
+            "key": "settings.agents.appControl.summary",
+            "text": "Whether agents in cmux may drive and change the app"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "change",
+              "title": {
+                "key": "settings.agents.appControl.change",
+                "text": "Read and Change"
+              }
+            },
+            {
+              "value": "read",
+              "title": {
+                "key": "settings.agents.appControl.read",
+                "text": "Read Only"
+              }
+            }
+          ],
+          "default": "change",
+          "keywords": [
+            "agents",
+            "remote control",
+            "drive",
+            "control",
+            "read only",
+            "automation",
+            "socket",
+            "cli",
+            "permission"
           ]
         }
       ]

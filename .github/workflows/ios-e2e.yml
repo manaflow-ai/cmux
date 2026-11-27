@@ -15,6 +15,7 @@ name: iOS E2E
 # dispatchable on any branch the `ios-e2e` environment allows.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
   workflow_dispatch:
     inputs:
@@ -39,10 +40,12 @@ permissions:
 # (docs/ci/ios-e2e.md#secrets-and-tailnet-identity).
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ios-e2e-pr-{0}', github.event.pull_request.number) || format('ios-e2e-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'pull_request' && format('ios-e2e-pr-{0}', github.event.pull_request.number) || format('ios-e2e-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Deterministic backend name: the macOS job must address the backend while
   # both run, and job outputs only publish when a job completes. run_attempt
   # keeps a rerun from colliding with a not-yet-expired ephemeral node.
@@ -60,14 +63,58 @@ env:
   IROH_RELAY_SHA256: 3d6c37a66f8b21da620f9d83ce4682639aa2de9910bbf1e8e7981cf8478964ea
 
 jobs:
+  # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
+  # is only a base merge onto a head whose full run passed carries that run, so route answers false and no e2e job
+  # starts. Its tier is "none" only then; any lookup error, an overlap with the change's own files, a merge with its
+  # own edits, or no full run at the parent leaves it empty and everything runs. vars.CI_FULL_CI_BASE_MERGE_CARRY ==
+  # '0' turns it off.
+  full-carry:
+    name: full-ci base merge carry
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing. The PR
+    # tailnet gate (vars.IOS_E2E_PR_TAILNET) is route's too.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && vars.IOS_E2E_PR_TAILNET == 'true' && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    outputs:
+      tier: ${{ steps.carry.outputs.tier }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Full-ci base merge carry
+        id: carry
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
+
   route:
     # Cheap Linux layer so every PR gets a routed conclusion once the trigger
     # is promoted. The classifier integration remains intentionally explicit.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # While the repo variable IOS_E2E_PR_TAILNET is not 'true', a pull_request
+    # run could only ever route run_e2e=false, so neither this job nor
+    # ios-e2e-status starts a runner (a job-level `if:` is judged server-side;
+    # both report skipped). RFD 0023 "one router per push": route plus status
+    # cost about 0.54 runner-min per feat-cmux-next PR head and decided
+    # nothing (211 route runs, 237 runner-min in 4 h, 2026-11-21 02:00Z-06:00Z).
+    # With the variable on, both run exactly as before; a dispatch always runs.
+    needs: full-carry
+    if: ${{ (!cancelled() && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
-      run_e2e: ${{ steps.decide.outputs.run_e2e }}
-      run_clients: ${{ steps.decide.outputs.run_clients }}
+      run_e2e: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.decide.outputs.run_e2e }}
+      run_clients: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.decide.outputs.run_clients }}
       backend_tag: ${{ steps.decide.outputs.backend_tag }}
       web_changed: ${{ steps.decide.outputs.web_changed }}
     steps:
@@ -75,7 +122,7 @@ jobs:
       # which is most of this job's time and gates the macOS job's start.
       - name: Checkout
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Depth 2 reaches both parents of a PR merge commit, which is all
           # the backend-tag path check needs to diff.
@@ -151,11 +198,8 @@ jobs:
     # macOS job touches its done-file; the macOS job therefore does not
     # `needs:` it and waits on its health endpoints instead.
     needs: route
-    if: >-
-      success()
-      && needs.route.outputs.run_e2e == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( success() && needs.route.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
@@ -165,7 +209,7 @@ jobs:
       # Only what the backend runs: a full checkout of this repository is the
       # slowest step otherwise.
       - name: Checkout backend sources
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -189,10 +233,16 @@ jobs:
           key: ios-e2e-bun-${{ hashFiles('workers/iroh-v2/bun.lock', 'workers/presence/bun.lock') }}
           restore-keys: ios-e2e-bun-
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # wrangler requires Node 22; the runner image ships 20.
       - name: Setup Node
@@ -215,7 +265,7 @@ jobs:
           wait "$pull"
 
       - name: Save Bun package cache
-        if: steps.bun-cache.outputs.cache-hit != 'true'
+        if: ${{ (steps.bun-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -247,7 +297,7 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP/iroh-relay" ./iroh-relay
 
       - name: Save iroh-relay archive
-        if: steps.relay-cache.outputs.cache-hit != 'true'
+        if: ${{ (steps.relay-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/iroh-relay-archive
@@ -321,10 +371,7 @@ jobs:
     # Deliberately not `needs: backend`: the backend holds until this job
     # releases it, so waiting for its completion would deadlock.
     needs: route
-    if: >-
-      success()
-      && needs.route.outputs.run_clients == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( success() && needs.route.outputs.run_clients == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     environment: ios-e2e
@@ -343,7 +390,7 @@ jobs:
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -430,16 +477,15 @@ jobs:
       - name: Boot fresh named simulator
         run: |
           set -euo pipefail
-          # Newest available iOS runtime, then the newest iPhone it supports.
-          # "iPhone" productFamily also lists iPod touch, and the last device
-          # type overall may have no runtime on the image.
-          read -r runtime devtype < <(xcrun simctl list runtimes -j | python3 -c '
-          import json, sys
-          runtimes = [r for r in json.load(sys.stdin)["runtimes"]
-                      if r.get("isAvailable") and r.get("platform") == "iOS"]
-          if not runtimes:
-              sys.exit("no available iOS runtime")
-          runtime = max(runtimes, key=lambda r: [int(x) for x in r["version"].split(".")])
+          # The fleet's pinned iOS runtime when the host has it, else the
+          # newest (scripts/ci/ios_sim_runtime.py --prefer-pin), then the
+          # newest iPhone it supports. "iPhone" productFamily also lists iPod
+          # touch, and the last device type overall may have no runtime on the image.
+          runtimes_json="$(xcrun simctl list runtimes -j)"
+          runtime_id="$(printf '%s' "$runtimes_json" | python3 -I scripts/ci/ios_sim_runtime.py --prefer-pin --runtime-only)"
+          read -r runtime devtype < <(printf '%s' "$runtimes_json" | RUNTIME_ID="$runtime_id" python3 -c '
+          import json, os, sys
+          runtime = next(r for r in json.load(sys.stdin)["runtimes"] if r["identifier"] == os.environ["RUNTIME_ID"])
           phones = [d for d in runtime.get("supportedDeviceTypes", [])
                     if d.get("productFamily") == "iPhone" and d["name"].startswith("iPhone")]
           if not phones:
@@ -575,8 +621,10 @@ jobs:
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
     needs: [route, backend, mac-ios-e2e]
-    if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Same tailnet gate as `route` (RFD 0023 "one router per push"): with it
+    # off, a pull_request run starts no runner here either.
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate

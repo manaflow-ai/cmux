@@ -23,11 +23,21 @@ state=$(sed -n "${n}p" "$QUEUE"); state=${state:-deferred}
 { echo "tree_state=$state"; echo "tree_key=abc"; echo "tree_fetch_key="; echo "tree_reason=stub $state"; } >> "$GITHUB_OUTPUT"
 STUB
 chmod +x "$TMP/probe"
+# The stub older-tree: none unless OLDER names a tree; counts its calls.
+cat > "$TMP/older" <<'STUB'
+#!/usr/bin/env bash
+echo x >> "$QUEUE.older"
+[[ -n "${OLDER:-}" ]] || { echo "older-tree: none" >&2; exit 1; }
+printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=0\nbehind_hours=0\ntree_from=%s 160 1\n' \
+  "$(printf 'c%.0s' {1..40})" "$OLDER" "$(printf 'd%.0s' {1..40})" "$(printf 'e%.0s' {1..40})" "$(printf 'f%.0s' {1..40})"
+STUB
+chmod +x "$TMP/older"
 
 run() { # <states...>
-  printf '%s\n' "$@" > "$TMP/queue"; rm -f "$TMP/queue.n" "$TMP/queue.dispatch"; : > "$TMP/out"
+  printf '%s\n' "$@" > "$TMP/queue"; rm -f "$TMP/queue.n" "$TMP/queue.dispatch" "$TMP/queue.older"; : > "$TMP/out"
   status=0
-  out=$(CMUX_TUI_TREE_DISPATCH=1 QUEUE="$TMP/queue" GITHUB_OUTPUT="$TMP/out" CMUX_DEV_TREE_PROBE="$TMP/probe" \
+  out=$(CMUX_TUI_TREE_DISPATCH=1 QUEUE="$TMP/queue" GITHUB_OUTPUT="$TMP/out" CMUX_DEV_TREE_PROBE="$TMP/probe" CMUX_DEV_TREE_OLDER="$TMP/older" \
+    CMUX_DEV_TREE_OLDER_EVERY_SECONDS="${OLDER_EVERY:-600}" \
     CMUX_DEV_TREE_POLL_SECONDS=0 CMUX_DEV_TREE_WAIT_SECONDS="${WAIT:-60}" bash "$SCRIPT" 2>&1) || status=$?
 }
 [[ -f "$SCRIPT" ]] || fail "missing $SCRIPT"
@@ -65,4 +75,26 @@ grep -q "still not published" <<<"$out" || fail "the deadline must give a reason
 WAIT=0 run deferred deferred deferred
 [[ "$status" != 0 ]] && grep -q "still not published" <<<"$out" || fail "a deadline must fail with a reason (exit $status):" "$out"
 
-echo "PASS: a DEV daily run waits for its own cmux-tui tree, then builds it"
+# Own tree ready on the first look: the older-tree search never runs.
+run ready
+[[ "$status" == 0 && ! -e "$TMP/queue.older" ]] || fail "a ready tree must not search older trees (exit $status):" "$out"
+
+# Path routing said skipped (its 50-commit fallback found nothing) and the own
+# tree stays cold: the nightly's older published tree is taken on the first
+# look (run 45955325112, 2026-11-27: every compile skipped, no DEV publish).
+key=$(printf 'a%.0s' {1..40})
+OLDER=$key run failed failed failed
+[[ "$status" == 0 ]] || fail "an older published tree must let the DEV app build (exit $status):" "$out"
+grep -qx "tree_state=ready" "$TMP/out" && grep -qx "tree_fetch_key=$key" "$TMP/out" \
+  || fail "the output must say ready and fetch the older tree:" "$(cat "$TMP/out")"
+grep -qx "tree_key=$(printf 'e%.0s' {1..40})" "$TMP/out" || fail "tree_key stays this commit's own tree:" "$(cat "$TMP/out")"
+[[ "$(grep -c '^tree_state=' "$TMP/out")" == 1 ]] || fail "one tree_state only:" "$(cat "$TMP/out")"
+[[ "$(cat "$TMP/queue.n")" == 1 ]] || fail "the older tree is taken on the first look, got $(cat "$TMP/queue.n") probes"
+
+# No older tree on the first look: keep waiting, ask again each interval.
+OLDER_EVERY=0 run deferred deferred ready
+[[ "$status" == 0 && "$(wc -l < "$TMP/queue.older")" == 2 ]] || fail "older-tree must be asked each interval (exit $status, $(wc -l < "$TMP/queue.older" 2>/dev/null) asks):" "$out"
+OLDER_EVERY=600 run deferred deferred ready
+[[ "$(wc -l < "$TMP/queue.older")" == 1 ]] || fail "older-tree is asked once per interval, got $(wc -l < "$TMP/queue.older")"
+
+echo "PASS: a DEV daily run waits for its own cmux-tui tree, or builds against the nightly's older published tree"

@@ -9,6 +9,7 @@ extension BrowserChromeView {
     /// Accessibility identifiers of the toolbar (UI automation, e2e suites).
     public static let backIdentifier = "browser.toolbar.back"
     public static let forwardIdentifier = "browser.toolbar.forward"
+    // retry-prompt-ok: the toolbar's Reload command, not a retry prompt
     public static let reloadIdentifier = "browser.toolbar.reload"
     public static let omnibarIdentifier = "browser.toolbar.omnibar"
     public static let pageGoneIdentifier = "browser.page.gone"
@@ -177,7 +178,7 @@ extension BrowserChromeView {
     func applyToolbarLayout() {
         let resolved = BrowserToolbarLayout.resolve(
             width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
-            showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
+            showsExtensions: extensionToolbar.isShowingExtensions, metrics: toolbarMetrics
         )
         guard resolved != toolbarLayout else { return }
         toolbarLayout = resolved
@@ -185,11 +186,13 @@ extension BrowserChromeView {
         extensionToolbar.visibleLimit = resolved.visiblePinned
     }
 
-    static var toolbarMetrics: BrowserToolbarLayout.Metrics {
-        BrowserToolbarLayout.Metrics(
-            button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
-            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
-            margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
+    /// The toolbar's sizes on this window's pixels (``OmnibarStyle/onPixels(_:scale:)``), as its views draw them.
+    var toolbarMetrics: BrowserToolbarLayout.Metrics {
+        let scale = OmnibarStyle.scale(of: self)
+        return BrowserToolbarLayout.Metrics(
+            button: OmnibarStyle.buttonSize(scale: scale), navigationSpacing: OmnibarStyle.buttonSpacing(scale: scale),
+            extensionSpacing: OmnibarStyle.buttonSpacing(scale: scale), inset: OmnibarStyle.toolbarInset,
+            margin: OmnibarStyle.barMargin(scale: scale), preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
     }

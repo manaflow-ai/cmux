@@ -2,8 +2,8 @@
 //! (`support/catalog.rs`): Screen Sharing for its phrases, and the daily commands for their
 //! everyday queries.
 //!
-//! Cmd-Shift-P "share screen" listed Share Screen with Chief first and Screen Sharing third: the
-//! Screen Sharing phrases were keywords only. They are its built-in aliases now, and a row's own
+//! Cmd-Shift-P "share screen" once listed Share Screen with Chief (since removed) first and Screen
+//! Sharing third: the Screen Sharing phrases were keywords only. They are its built-in aliases now, and a row's own
 //! alias ranks it like the user's `palette.aliases`.
 
 #[path = "support/catalog.rs"]
@@ -33,10 +33,11 @@ fn screen_sharing_is_first_for_its_phrases() {
     }
 }
 
+/// Share Screen with Chief is gone (user 2026-11-20): "share screen" finds no Chief row at all.
 #[test]
-fn chief_screen_sharing_stays_in_reach_for_share_screen() {
-    let order = top("share screen", 5);
-    assert!(order.iter().any(|id| id == "action:chief.screenShare.start"), "{order:?}");
+fn share_screen_finds_no_chief_screen_share_row() {
+    let order = ranked("share screen");
+    assert!(!order.iter().any(|id| id.starts_with("action:chief.screenShare.")), "{order:?}");
 }
 
 /// The everyday queries (the daily commands' titles and their short forms) and the row each

@@ -27,6 +27,11 @@ extension SidebarBridge {
             if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
             return
         }
+        // A chat dropped on another machine moves there (``ChatMoveDrop``); a refused move or any other row there snaps back.
+        if let moved = ChatMoveDrop(host: services).drop(intent) {
+            if !moved { resync() }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -59,6 +64,15 @@ extension SidebarBridge {
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
+        // A hover card port row: the workspace's own daemon opens it in a browser tab there (`workspace.open_url`).
+        case let .openPort(id, url, _):
+            guard !model.isPlaceholder(id), let (workspace, daemon) = services.machines.workspace(id: id.rawValue),
+                  let resource = workspace.resourceID?.rawValue else { return }
+            let capability = WorkspaceOpenURLClient.capability
+            guard daemon.supports(capability) else { return services.registry.refuse(daemon.missingCapabilityMessage(capability)) }
+            model.apply(.select(id))
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
+            command("workspace.open_url", on: daemon, for: intent) { c in try await WorkspaceOpenURLClient(c).open(url, inWorkspace: resource) }
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
@@ -75,8 +89,8 @@ extension SidebarBridge {
             // The plain "+" in a local window is the person's New Workspace, as Cmd-N (the Cloud toggle applies); a machine turned
             // off by policy (DisabledFeatures) gets nothing, not a local stand-in (`SidebarBridgeRules.newWorkspace`).
             let named = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }, own = services.machines.daemon(machine: state.machineID)
-            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil,
-                                                         localWindow: state.machineID == MachineRegistry.localID, windowDaemon: own != nil)
+            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil, localWindow: state.machineID == MachineRegistry.localID,
+                                                         windowDaemon: own != nil, cloudMachine: machine.flatMap { services.machines.session($0.rawValue) } != nil)
             if plan == .newTab {
                 services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
                 return
@@ -84,14 +98,11 @@ extension SidebarBridge {
             guard let plan, plan != .nothing else { return }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
             // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
-            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : nil
-            let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
-            let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
-            services.windows.newWorkspace(in: state, on: daemon, at: slot)
-        case .viewScreen, .shareScreen:
-            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
-                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
-            }
+            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : plan == .cloudChat ? services.machines.local : nil // cloudChat: here (cmux#46021)
+            let slot = group.map { NewWorkspacePlacements.rule(for: state.id, in: services.windows).slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
+            services.windows.newWorkspace(in: state, on: daemon, at: slot, picksCloud: plan == .cloudChat)
+        case .viewScreen, .shareScreen: // the header's screen button and its menu's View Screen (SidebarScreenIntentActions.bindViewScreen)
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) { services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane) }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {

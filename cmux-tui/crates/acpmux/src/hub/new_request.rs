@@ -4,8 +4,14 @@
 use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
-pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+pub(super) fn unique_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    agent: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
     for n in 0.. {
         let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
         if !taken.contains(&candidate) {
@@ -13,6 +19,33 @@ pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent:
         }
     }
     unreachable!()
+}
+
+/// The `_meta.acpmux.ifNameTaken` value that keeps a taken name with a `-N` suffix.
+pub const SUFFIX_TAKEN_NAME: &str = "suffix";
+
+/// `name` when no session in `sessions` has it, else `name-N` for the first N from 2 not taken:
+/// the requested name kept, never the agent's.
+pub(super) fn suffixed_name_among(
+    sessions: &HashMap<String, Arc<Session>>,
+    evicted: &[String],
+    name: &str,
+) -> String {
+    let mut taken: Vec<String> =
+        sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
+    taken.extend_from_slice(evicted);
+    suffixed_name(&taken, name)
+}
+
+/// [`suffixed_name_among`] over the names `taken`.
+pub fn suffixed_name(taken: &[String], name: &str) -> String {
+    if !taken.iter().any(|t| t == name) {
+        return name.to_owned();
+    }
+    (2..)
+        .map(|n| format!("{name}-{n}"))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or_else(|| name.to_owned())
 }
 
 /// Whether the harness takes its model on the command line or in env.
@@ -65,6 +98,11 @@ pub struct NewRequest {
     pub harness: Option<String>,
     pub preset: Option<String>,
     pub name: Option<String>,
+    /// `_meta.acpmux.ifNameTaken: "suffix"`: a `name` another session here has is kept with the
+    /// first free `-N` suffix (`NAME-2`, `NAME-3`...) instead of refused. A start placed on or
+    /// forwarded to this machine asks for it, so it keeps the name it was given and never falls
+    /// back to the agent's (`codex`); its answer reports the name it got.
+    pub suffix_taken_name: bool,
     /// None: the adopted session's recorded cwd, else the home directory.
     pub cwd: Option<PathBuf>,
     pub policy: Option<PermissionPolicy>,
@@ -114,6 +152,12 @@ pub struct NewRequest {
     /// Folders the chat sees beside its own (`additional_dirs.rs`), already checked by the
     /// caller.
     pub additional_directories: Vec<PathBuf>,
+    /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `stop_condition.rs`),
+    /// already checked by the caller; None for none.
+    pub stop_condition: Option<String>,
+    /// `_meta.acpmux.restricted` (`restricted.rs`): read-only work in a folder the person chose
+    /// not to trust; its policy was already held to review by the caller.
+    pub restricted: bool,
     /// The person asks for this chat (`Session::person`): this host's app, or a connection that
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
@@ -130,11 +174,24 @@ pub struct NewRequest {
     /// The owner's Cloud credential for this chat's agent (`_meta.acpmux.credentials`, unix
     /// socket only, `agent_credentials.rs`): kept on the session in memory, never in its meta.
     pub credential: Option<crate::agent_credentials::AgentCredential>,
+    /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
+    /// create sent again with it, after a restart cut its reply, gets the session it made.
+    pub create_key: Option<String>,
+    /// `_meta.acpmux.placedBy` (`SessionMeta::placed_by`): only `autoCloud` is kept.
+    pub placed_by: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
-/// it can): it never finished a turn, or another profile ran it and this
-/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
+/// it can): it never finished a turn, or the store this profile resumes from
+/// (its CLAUDE_CONFIG_DIR) does not have it.
+///
+/// The store is checked whoever ran the chat last. A conversation can leave
+/// the store a profile of its own never left: the Chief compactor deletes a
+/// transcript it folded, and a pruned, rotated or deleted store loses the
+/// rest. `--resume` on one of those fails every turn of that session forever
+/// (`No conversation found with session ID`, no turn, no self-healing), while
+/// a refusal here costs one fresh conversation with the transcript restored
+/// from acpmux's own log (`lifecycle.rs`).
 pub(super) fn claude_resume_refusal(
     meta: &SessionMeta,
     profile: &HarnessProfile,
@@ -143,12 +200,20 @@ pub(super) fn claude_resume_refusal(
     if meta.claude_unstored {
         return Some("never finished a turn");
     }
-    let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
-    if ran_elsewhere {
-        let store = meta.claude_store(&profile.env);
-        if !crate::adopt::claude_session_exists(&store, sid) {
-            return Some("is not in this profile's Claude store");
-        }
+    let store = meta.claude_store(&profile.env);
+    if !crate::adopt::claude_session_exists_near(&store, sid, &meta.cwd) {
+        // Which store it is missing from, so the log and the `resume_failed`
+        // row read as what happened.
+        let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
+        return Some(if ran_elsewhere {
+            "is not in this profile's Claude store"
+        } else {
+            "is no longer in Claude's store"
+        });
     }
     None
 }
+
+#[cfg(test)]
+#[path = "claude_resume_tests.rs"]
+mod claude_resume_tests;

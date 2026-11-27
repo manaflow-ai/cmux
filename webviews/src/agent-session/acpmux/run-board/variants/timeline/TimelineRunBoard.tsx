@@ -1,5 +1,7 @@
 // l10n-allow-file: DEV gallery Run board timeline prototype, not shipped UI.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useAutoRetry } from "../../../autoRetry";
+import { KeyHint } from "../../../../../ui/KeyHint";
 import { sessionSummary } from "../../../summary/sessionSummary";
 import {
   canApprove,
@@ -18,7 +20,7 @@ import {
   type RunApiClient,
 } from "../../runApi";
 import { attachRunTerminal } from "../../runAttach";
-import { attachTicketExpired } from "../../runBoardModel";
+import { attachWithFreshTicket } from "../../runBoardModel";
 
 export type TimelineRunBoardProps = {
   snapshot: RunBoardSnapshot;
@@ -224,7 +226,7 @@ function SelectedPreview({ attempt }: { attempt: RunAttempt }) {
           <i /> <i /> <i />
         </span>
         <small>{attempt.label.toLowerCase().replaceAll(" ", "-")}.workspace</small>
-        <span>⌘ K</span>
+        <KeyHint keys="⌘K" />
       </div>
       <div className="timeline-preview-content">
         <aside>
@@ -307,7 +309,7 @@ function Provenance({ attempt, cursor }: { attempt: RunAttempt; cursor: string }
 
 export function TimelineRunBoard({
   snapshot,
-  recovered = snapshot,
+  recovered,
   disconnected = false,
   client,
   onAttach,
@@ -330,19 +332,29 @@ export function TimelineRunBoard({
     session.current = new RunBoardApiSession(snapshot.id, client);
   }, [client, snapshot.id]);
 
+  // A disconnected board reconnects and replays on its own (autoRetry.ts), never behind a
+  // "Reconnect and replay" button: a replay is a read with no cost (Leo, 2026-11-22: "vacuous
+  // decisions like that should be just done"). Only a failure that lasts the deadline shows one
+  // quiet line. With no client and no `recovered` fixture there is nothing to replay.
+  const [replaying, setReplaying] = useState(false);
   const replay = useCallback(async () => {
+    if (!client) {
+      if (recovered) dispatch({ type: "receive", snapshot: recovered });
+      return;
+    }
+    setReplaying(true);
     try {
-      setError(undefined);
-      if (!client) {
-        dispatch({ type: "receive", snapshot: recovered });
-        return;
-      }
       const next = await session.current?.snapshotAndReplay();
       if (next) dispatch({ type: "receive", snapshot: next });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+    } catch {
+      // Asked again on its own while the board stays disconnected.
+    } finally {
+      setReplaying(false);
     }
   }, [client, recovered]);
+  const { stillTrying } = useAutoRetry(state.connection === "disconnected", () => void replay(), {
+    busy: replaying,
+  });
 
   useEffect(() => {
     if (!client || disconnected || !session.current || pollMs <= 0) return;
@@ -373,18 +385,16 @@ export function TimelineRunBoard({
       setPending("attach");
       setAttachState("idle");
       setError(undefined);
-      const ticket = onAttach
-        ? await onAttach(intent)
-        : client?.requestAttachTicket
-          ? await client.requestAttachTicket(intent)
-          : undefined;
-      if (ticket && attachTicketExpired(ticket))
-        throw new RunApiHttpError(
-          410,
-          "This attach ticket has expired. Request a fresh ticket and try again.",
-          "run_attach_expired",
-        );
-      if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
+      // An expired or used ticket is replaced once on this click (runBoardModel.ts `attachWithFreshTicket`).
+      const ticket = await attachWithFreshTicket(
+        async () =>
+          onAttach
+            ? await onAttach(intent)
+            : client?.requestAttachTicket
+              ? await client.requestAttachTicket(intent)
+              : undefined,
+        onAttachTicket ?? attachRunTerminal,
+      );
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
       setAttachState(ticket ? "attached" : "idle");
     } catch (cause) {
@@ -454,22 +464,14 @@ export function TimelineRunBoard({
         </div>
       </section>
 
-      {state.connection === "disconnected" && (
-        <section className="timeline-recovery" aria-live="polite" data-recovery="available">
-          <span className="timeline-recovery-icon" aria-hidden="true">
-            ↻
-          </span>
+      {state.connection === "disconnected" && stillTrying && (
+        <section className="timeline-recovery" aria-live="polite" data-recovery="trying">
           <div>
-            <strong>Disconnected after event {state.snapshot.cursor}</strong>
-            <p>Your workers are retained. The board is showing the last durable activity and evidence.</p>
+            <p>
+              Still trying to reach the run… Showing the last durable activity after event {state.snapshot.cursor}; your
+              workers are retained.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void replay()}
-            aria-label={`Reconnect and replay from saved event ${state.snapshot.cursor}`}
-          >
-            Reconnect and replay
-          </button>
         </section>
       )}
       {error && (
@@ -506,23 +508,16 @@ export function TimelineRunBoard({
                   ? "Attaching…"
                   : state.attached === attempt.id
                     ? "Worker terminal attached"
-                    : attachState === "expired"
-                      ? "Attach expired · Retry"
-                      : attachState === "replayed"
-                        ? "Attach used · Retry"
-                        : attachState === "error"
-                          ? "Attach failed · Retry"
-                          : "Attach worker terminal"}
+                    : // retry-prompt-ok: Attach opens the worker's terminal, only on the person's click.
+                      "Attach worker terminal"}
                 <span aria-hidden="true">↗</span>
               </button>
             </header>
             {(attachState === "expired" || attachState === "replayed" || attachState === "error") && (
-              <p className="timeline-attach-status" role={attachState === "error" ? "alert" : "status"}>
-                {attachState === "expired"
-                  ? "The one-use ticket expired. Requesting a fresh ticket is safe."
-                  : attachState === "replayed"
-                    ? "That ticket was already consumed. Request a fresh ticket to reconnect."
-                    : "The worker session could not be attached. Try again while it is retained."}
+              // An expired or used ticket was already replaced once on the click: what is left says
+              // what failed, with no "Try again".
+              <p className="timeline-attach-status" role="alert">
+                Couldn’t open this worker’s terminal.
               </p>
             )}
             <div className="timeline-review-grid">

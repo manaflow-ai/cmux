@@ -3,37 +3,30 @@ public import CmuxNextDesign
 
 extension TerminalHostView {
     /// The ground a terminal with `theme` (nil: the config's) paints in `view`'s scope before its program sets one (OSC
-    /// 11): the user's terminal background (`appearance.surfaces.terminal`), else, where panes paint their background or
-    /// the terminal keeps its Ghostty background over a picture (``keepsGhosttyBackground(over:in:)``), its theme's,
-    /// else the config's. Nil over a see-through window, where a terminal leaves the window's sheet showing.
+    /// 11): the user's terminal background (`appearance.surfaces.terminal`), else, where panes paint their background, its
+    /// theme's, else the config's. Nil over a see-through window, where a terminal leaves the window's sheet showing:
+    /// over a background picture too, whatever the Ghostty config files' own `background-opacity`, so the user's window
+    /// Opacity reaches terminals (user, Nov 17: "it's no longer transparent"; c90b89beed41 painted it solid).
     /// A pane whose terminal is not made yet (a split's stand-in, made after its key's frame) shows it from the key's
     /// frame, not the window's color (SPLIT NEW PANE GROUND, m81); the terminal's host paints the same when it comes in.
     public static func ground(theme: GhosttyThemeConfig?, in view: NSView) -> CGColor? {
-        if let fill = view.performWithTheme({ Palette.surfaceOverride(.terminal) }) { return fill.cgColor }
         let scope = view.themeScope
         let backdrop = WindowBackdrop(scope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
-        if backdrop.panesPaintBackground { return opaqueGround(theme) }
-        return keepsGhosttyBackground(over: backdrop, in: scope) ? solidGround(theme) : nil
+        let tint = Self.sheet(view.themeTokens.surfaceBackground.withAlpha(1), under: backdrop)
+        if let fill = view.performWithTheme({ Palette.surfaceOverride(.terminal, overSheet: tint) }) { return fill.cgColor }
+        return backdrop.panesPaintBackground ? opaqueGround(theme) : nil
     }
 
-    /// Whether a terminal in a window over a background picture draws its own Ghostty background, solid, as Ghostty
-    /// does, instead of the picture at the window's tint: the Ghostty config files' `background-opacity` is 1
-    /// (Ghostty's default) and the user set no terminal background of their own (`appearance.surfaces.terminal`).
-    /// The picture then shows in the sidebar, the chrome and the other panes (user, Nov 17: "colors between ghostty
-    /// and cmux-next are definitely still different": over the picture at 0.85 the terminal's #272822 measured
-    /// #3a3d3b on average, and every cell a program paints in the theme background stood out as a dark patch).
-    /// A Ghostty config with `background-opacity` under 1 asks for a see-through terminal, as in Ghostty itself.
-    static func keepsGhosttyBackground(over backdrop: WindowBackdrop, in scope: ThemeScope) -> Bool {
-        backdrop.selection != nil && !backdrop.panesPaintBackground && !scope.surfaceBackgrounds.overridesTerminal
-            && GhosttyConfigBackground.loaded.opacity >= 1
-    }
-
-    /// `theme`'s background (nil: the config's) at full opacity, whatever the window's opacity: the color Ghostty
-    /// fills an opaque terminal with.
-    static func solidGround(_ theme: GhosttyThemeConfig?) -> CGColor {
-        guard let rgb = theme?.colors?.background ?? GhosttyRuntime.shared.themeColors?.background else { return opaqueGround(theme) }
-        return ThemeRGB(r: rgb.r, g: rgb.g, b: rgb.b).cgColor
+    /// The color of the window's one tint under a terminal for `backdrop` (`around`: the theme background of the
+    /// scope around it), when it is an alpha layer a custom terminal color can be compensated for
+    /// (``SurfaceBackgrounds/fill(for:tokens:windowTint:overSheet:)``): nil in an opaque window and under Liquid Glass,
+    /// which tints itself.
+    static func sheet(_ around: ThemeRGB?, under backdrop: WindowBackdrop) -> ThemeRGB? {
+        switch backdrop.material {
+        case .opaque, .glass: nil
+        default: around
+        }
     }
 
     /// An opaque window paints the terminal's theme background, like
@@ -42,10 +35,13 @@ extension TerminalHostView {
     /// sheet and the host stays clear, as the panes around it do, unless the
     /// terminal's own theme differs from theirs: its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). Over a
-    /// background picture a terminal whose Ghostty config is opaque paints its
-    /// own background solid, as Ghostty draws it (``keepsGhosttyBackground(over:in:)``).
+    /// background picture the same holds at the user's window Opacity, whatever
+    /// the Ghostty config files' own `background-opacity` (c90b89beed41 painted
+    /// it solid there; user, Nov 17: "it's no longer transparent"); at Opacity 1
+    /// the window is opaque and the first case paints it solid.
     /// The user's terminal background (`appearance.surfaces.terminal`) replaces
-    /// all of these; the surfaces then draw a transparent default background.
+    /// all of these, compensated for the window's tint under it; the surfaces
+    /// then draw a transparent default background.
     func paintGround() {
         let (scope, tokens) = (themeScope, themeTokens)
         // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
@@ -57,11 +53,10 @@ extension TerminalHostView {
         let owner = superview == nil ? nil : paneGroundOwner
         let owned = owner?.ownsContentGround ?? false
         GhosttyRuntime.setSeeThrough(superview != nil && (owned || !backdrop.panesPaintBackground), host: self)
-        let keepsOwn = Self.keepsGhosttyBackground(over: backdrop, in: scope)
         // Under an App Theme, a terminal on the terminal theme that shows the window through draws on the App Theme's
-        // one veil (sidebar and panes alike), its colors raised to read on it; on an opaque window, on its own solid
-        // background over a picture, or with its own theme it keeps its own background and colors.
-        let veil = !backdrop.panesPaintBackground && !keepsOwn && theme == nil && scope.store.appTheme != nil
+        // one veil (sidebar and panes alike), its colors raised to read on it; on an opaque window or with its own
+        // theme it keeps its own background and colors.
+        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
         onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
         let given = owned ? hatchGround : nil
         if given != ownedGround {
@@ -72,22 +67,23 @@ extension TerminalHostView {
             layer?.backgroundColor = nil
             return
         }
-        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
+        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
+        let fill = performWithTheme { Palette.surfaceOverride(.terminal, overSheet: Self.sheet(around, under: backdrop)) }
         if let fill {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        guard !backdrop.panesPaintBackground, !keepsOwn else {
+        guard !backdrop.panesPaintBackground else {
             // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
-            // the colour of its empty cells. Over a picture the surfaces draw a transparent default background
-            // (`GhosttyRuntimeSurfacePolicy`), so this is the background under every cell.
-            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor
-                ?? (keepsOwn ? Self.solidGround(theme) : Self.opaqueGround(theme))
+            // the colour of its empty cells.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
             return
         }
-        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
-        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+        // Over a floating pane's solid card the window's sheet is not under the host: its own background is opaque
+        // there. At the window's tint it would mix with the card's color under the text.
+        let alpha = owner?.hasSolidGroundUnder == true ? 1 : backdrop.tintOpacity
+        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(alpha).cgColor
     }
 
     /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's

@@ -6,12 +6,13 @@ import Foundation
 import Testing
 
 /// SECURITY: a device asking to see or control this Mac is answered Allow only by the person's own click on
-/// one of the three Allow answers (Allow Once, Always Allow View Only, Always Allow Full Control), as the join
+/// one of the two Allow answers (Allow, the hub's Always at the scope asked for, and Allow Only This Time), as the join
 /// consent is (``CmuxDialogPersonClick``): no key (Return after a click into the card), no Accessibility press,
 /// no programmatic click and no click another process posts reaches an Allow. Escape and any press may Deny.
 @MainActor
 struct MacScreenApprovalPersonClickTests {
-    static let allows: [MacScreenApprovalChoice] = [.once, .alwaysView, .alwaysFull]
+    /// The two Allows of a Full Control request: Allow (Always Allow Full Control) and Allow Only This Time.
+    static let allows: [MacScreenApprovalChoice] = [.alwaysFull, .once]
 
     private static func prompt() -> (MacScreenApprovalPrompt, Recorded) {
         let prompt = MacScreenApprovalPrompt()
@@ -23,6 +24,14 @@ struct MacScreenApprovalPersonClickTests {
     }
 
     final class Recorded { var choices: [MacScreenApprovalChoice] = [] }
+
+    /// SECURITY: the prompt's panel is left out of captures (`sharingType` none), as the join consent's is.
+    @Test func panelIsLeftOutOfCaptures() throws {
+        let (prompt, _) = Self.prompt()
+        defer { prompt.update([]) }
+        let panel = try #require(prompt.dialogView?.window)
+        #expect(panel.sharingType == .none, "a screenshot, a recording or an agent's capture never holds Allow")
+    }
 
     /// Return answers nothing, and no Allow shows a key; Escape still denies.
     @Test func noKeyAllows() throws {

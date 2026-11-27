@@ -14,6 +14,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
+    /// The composites a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    static var memo: TokenMemos { DesignSettings.shared.tokenMemos }
     /// Applies the one live chrome multiplier (when `interfaceScaleEnabled`) to every metric token.
     public static func scale(_ value: CGFloat) -> CGFloat {
         value * (DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1)
@@ -36,6 +38,18 @@ public struct Metrics {
         return tokens.resolve(compact: compact, comfortable: comfortable, token: token)
     }
 
+    /// A look's `appearance.metrics.<key>` in points at the interface scale, or nil when unset (the density's value
+    /// stands). Observation-tracked, so a look applied or removed re-lays out live.
+    public static func lookOverride(_ key: MetricKey) -> CGFloat? { DesignSettings.shared.overrides[key].map(scale) }
+
+    /// The spacing grid step `value` at the density's spacing and a look's `appearance.metrics.spacingScale` (a
+    /// multiplier, on the half-point grid); unset, the density's alone.
+    static func spaced(_ value: CGFloat) -> CGFloat {
+        let step = tokens.space(value)
+        guard let multiplier = DesignSettings.shared.overrides[.spacingScale], multiplier != 1 else { return step }
+        return DensityTokens.half(step * multiplier)
+    }
+
     // MARK: Window chrome
 
     /// Default sidebar width when visible.
@@ -52,7 +66,8 @@ public struct Metrics {
     /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
     /// A tab that follows the sidebar's row (``chromeRowHeight``) grows the strip by as much, so the
     /// room around the pill stays exactly the density's (both pairs resolve and round alike).
-    public static var tabStripHeight: CGFloat {
+    public static var tabStripHeight: CGFloat { memo.tabStripHeight.value { uncachedTabStripHeight } }
+    private static var uncachedTabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
             let strip = MetricTunables.tabStripHeight
             // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
@@ -94,7 +109,8 @@ public struct Metrics {
     /// toolbar buttons and its omnibar take too (Lawrence 2026-11-09: "the sizes of the icons/omnibar
     /// etc should match the tabbar tab height, which should match the workspace row height, at all
     /// density levels").
-    public static var chromeRowHeight: CGFloat {
+    public static var chromeRowHeight: CGFloat { memo.chromeRowHeight.value { uncachedChromeRowHeight } }
+    private static var uncachedChromeRowHeight: CGFloat {
         // From the row's own inputs, not `SidebarRowTokens.current`: its corner radius reads the
         // tab strip's inset, which reads the tab height, which reads this.
         let sections = DesignSettings.shared.sidebarSections
@@ -117,7 +133,8 @@ public struct Metrics {
     /// pill, or a set `tabHeight`; under `appearance.metrics.tabStripHeight` the bar's height less the
     /// density's own room around its pill, so a taller bar has taller tabs. The Compact tabs pill is
     /// never taller than the row it tightens: its 22 pt token predates Compact's 20 pt Helium rows.
-    public static var tabHeight: CGFloat {
+    public static var tabHeight: CGFloat { memo.tabHeight.value { uncachedTabHeight } }
+    private static var uncachedTabHeight: CGFloat {
         let metric = MetricTunables.tabHeight
         let tab = metric.explicitValue ?? (compactTabs ? min(metric.value, chromeRowHeight) : chromeRowHeight)
         // A set corner padding derives the strip from this tab, ahead of a strip-height override.
@@ -144,12 +161,12 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public static var space1: CGFloat { scale(tokens.space(ChromeTunables.space1.value)) }
-    public static var space2: CGFloat { scale(tokens.space(ChromeTunables.space2.value)) }
-    public static var space3: CGFloat { scale(tokens.space(ChromeTunables.space3.value)) }
-    public static var space4: CGFloat { scale(tokens.space(ChromeTunables.space4.value)) }
-    public static var space5: CGFloat { scale(tokens.space(ChromeTunables.space5.value)) }
-    public static var space6: CGFloat { scale(tokens.space(ChromeTunables.space6.value)) }
+    public static var space1: CGFloat { scale(spaced(ChromeTunables.space1.value)) }
+    public static var space2: CGFloat { scale(spaced(ChromeTunables.space2.value)) }
+    public static var space3: CGFloat { scale(spaced(ChromeTunables.space3.value)) }
+    public static var space4: CGFloat { scale(spaced(ChromeTunables.space4.value)) }
+    public static var space5: CGFloat { scale(spaced(ChromeTunables.space5.value)) }
+    public static var space6: CGFloat { scale(spaced(ChromeTunables.space6.value)) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
@@ -173,6 +190,9 @@ public struct Metrics {
     /// Height of the fade at a scrolling list's top or bottom edge while
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
+    /// Height of the fade at a scrolling list's bottom edge while content is hidden below
+    /// (`ScrollEdgeFade`): taller than the top's.
+    public static var scrollEdgeFadeBottom: CGFloat { MetricTunables.scrollEdgeFadeBottom.value }
 
     public static var dividerThickness: CGFloat { MetricTunables.dividerThickness.value }
     /// Width of the sidebar's resting edge line (`sidebar.border`,
@@ -253,16 +273,18 @@ public struct Metrics {
         let pixels = max(scale, 1)
         return max(0, (((rowHeight - iconSize) / 2 + iconSize / 16) * pixels).rounded() / pixels)
     }
-    /// The one gap at both ends of a tab strip, the same at every density: from the strip's leading edge (the
-    /// sidebar or the pane's edge) to the first tab, and from the last tab to the + button (Lucas 2026-11-15: "the
-    /// padding to the left is always the same ... the padding between the + and the last tab is also the same ... the
-    /// padding is the same for left tab and sidebar as it is for + and the last tab").
+    /// The one gap at both ends of a tab strip: from the strip's leading edge (the sidebar or the pane's edge) to the
+    /// first tab, and from the last tab to the + button (Lucas 2026-11-15: "the padding is the same for left tab and
+    /// sidebar as it is for + and the last tab"). It is the pill's own top gap in the strip (`PaneChromeMetrics.pillTop`,
+    /// on the 2x grid; the strip snaps it to its screen's, `TabStripMetrics.endGap(scale:)`), so the first tab rests
+    /// as far from the card's side as from its top (Lawrence 2026-11-17, a pinned tab at Compact sat 4 pt in from the
+    /// side and 2.5 from the top: "ensure top and left padding are the same here").
     public static var tabStripEndGap: CGFloat {
         // A set corner (`layout.cornerPadding`, `layout.paneCornerRadius`) keeps the first pill `cornerPadding` in from
         // the card, so its corner stays concentric with the card's (ConcentricCornerSettingTests).
         if DesignSettings.shared.paneChrome.cornerPadding != nil || cornerRadiusIsSet { return paneChromeInset }
         // A density's own end gap (the Density Playground's Strip end insets).
-        return densityToken("tabStripEndGap") ?? scale(4)
+        return densityToken("tabStripEndGap") ?? PaneChromeMetrics.current.pillTop(scale: 2)
     }
     /// Where the first tab's icon starts in a pane's strip: the strip's end gap plus the icon's inset in its pill.
     /// The browser's back arrow starts its ink there (`OmnibarStyle.toolbarInset`).
@@ -446,9 +468,10 @@ public struct Typography {
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         Metrics.tokens.textSize(compact: compactSize, comfortable: comfortableSize) * scale
     }
-    /// The system font designs chrome uses.
+    /// The system font designs chrome uses. `rounded` (SF Pro Rounded) and `serif` (New York) are
+    /// the system's own designs, for app scenes' `fontDesign` (a widget's Lock Screen time).
     public enum Design: Hashable, Sendable {
-        case `default`, monospaced, monospacedDigit
+        case `default`, monospaced, monospacedDigit, rounded, serif
     }
 
     /// The system font of `design` at `size` and `weight`, made once per
