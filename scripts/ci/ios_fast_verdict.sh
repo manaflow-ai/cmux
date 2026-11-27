@@ -109,8 +109,9 @@ if [[ -n "$app" ]]; then
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
     -destination 'generic/platform=iOS Simulator' -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$tmp}/dd" "${packages[@]}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet \
-    'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build || status=1
-  phase "app build (CmuxMobileApp, iOS Simulator)" $((SECONDS - t))
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build-for-testing || status=1
+  # build-for-testing: the scheme's test target CmuxMobileAppUITests compiles too (cmux#55664 broke only it).
+  phase "app build-for-testing (CmuxMobileApp + CmuxMobileAppUITests, iOS Simulator)" $((SECONDS - t))
 fi
 
 phase "fast verdict total" $((SECONDS - started))
