@@ -170,22 +170,6 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             scripts/cmux-next
-            scripts/ci/cargo_affected.py
-            scripts/ci/check_cmux_tui_tree_inputs.py
-            scripts/ci/defaults_guard.py
-            scripts/ci/job_inputs.py
-            scripts/ci/fast_check_route.py
-            scripts/ci/detect_linux_guard_changes.py
-            scripts/ci/workflow_guard_groups.py
-            scripts/ci/workload_entrypoints.py
-            scripts/ci/same_tree_reuse.py
-            scripts/ci/fast-check-inputs.json
-            scripts/ci/generated-files.json
-            scripts/ci/generated-files-baseline.txt
-            scripts/ci/affected-jobs.json
-            scripts/ci/pr_router.json
-            scripts/ci/job-inputs-always.json
-            scripts/ci/same_tree_reuse.json
             .gitmodules
           persist-credentials: false
 

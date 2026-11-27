@@ -129,7 +129,7 @@ jobs:
     needs: plan
     if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
     # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TIP_TEST_COMPILE_GATEWAY/CI_COMPILE_CHECK_GATEWAY (cmux#54437)
+    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
     permissions:
       contents: read
       actions: read

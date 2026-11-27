@@ -30,6 +30,18 @@ SWITCHES = {
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
 }
 LEAD = re.compile(r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| ")
+# Dispatch-only jobs without a fleet switch may still lead with an explicit JIT label before their retry pool.
+NIGHTLY_LEAD = re.compile(r"github\.run_attempt == 1 && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| ")
+# These jobs need a one-job macOS VM because they change host state as root. They cannot use a Linux JIT label or an
+# owned Mac pool, so validate their dedicated Blacksmith fallback directly.
+MACOS_EPHEMERAL = {
+    "machine-vault-e2e.yml": re.compile(
+        r"github\.repository_owner != 'manaflow-ai' && 'macos-26' \|\| 'blacksmith-[0-9]+vcpu-macos-[0-9]+'"
+    ),
+    "relay-tls.yml": re.compile(
+        r"github\.repository_owner != 'manaflow-ai' && 'macos-26' \|\| 'blacksmith-[0-9]+vcpu-macos-[0-9]+'"
+    ),
+}
 # workflow -> (marked lines that do not lead with a JIT label yet, why). A count, so a new unmoved job still fails.
 EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
@@ -65,8 +77,17 @@ class WriteTokenJitLabelTests(unittest.TestCase):
         failures = []
         unmoved: dict[str, int] = {}
         for name, number, runs_on in marked_jobs():
+            if name in MACOS_EPHEMERAL:
+                if MACOS_EPHEMERAL[name].fullmatch(runs_on.removeprefix("${{ ").removesuffix(" }}")) is None:
+                    failures.append(f"{name}:{number} has an invalid one-job macOS route: {runs_on}")
+                continue
             rest = after_fork_branches(runs_on)
             matched = LEAD.match(rest) if rest is not None else None
+            if name == "ios-asc-subscription-records.yml":
+                matched = NIGHTLY_LEAD.match(runs_on.removeprefix("${{ "))
+                if matched is None or matched.group(1) != "cmux-gcp-nightly-jit-x64":
+                    failures.append(f"{name}:{number} must lead with the nightly JIT label: {runs_on}")
+                continue
             if matched is None:
                 unmoved[name] = unmoved.get(name, 0) + 1
                 if name not in EXCEPTIONS:
@@ -86,6 +107,11 @@ class WriteTokenJitLabelTests(unittest.TestCase):
                 unmoved[name] = unmoved.get(name, 0) + 1
         for name, (count, _) in EXCEPTIONS.items():
             self.assertEqual(unmoved.get(name, 0), count, f"{name}: update its exception count")
+
+    def test_macos_ephemeral_jobs_are_explicit_exceptions(self) -> None:
+        names = {name for name, _, _ in marked_jobs()}
+        for name in MACOS_EPHEMERAL:
+            self.assertIn(name, names, f"stale macOS exception {name}")
 
     def test_the_lead_reading_refuses_a_blacksmith_first_selector(self) -> None:
         rest = after_fork_branches(FORK_BRANCH + "contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'), "
