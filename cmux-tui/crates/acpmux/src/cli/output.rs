@@ -696,6 +696,47 @@ pub(crate) struct CollectResult {
     pub permissions_denied: u64,
 }
 
+/// Caller policy belongs to a prompt, not one socket attachment. A rejection can reach
+/// the daemon even when its RPC reply is lost; replay must preserve that outcome and must
+/// not count the same pending permission twice. Replayed asks must still be answered.
+#[derive(Default)]
+struct PermissionProgress {
+    asked: u64,
+    denied: u64,
+    fail: bool,
+    pending: std::collections::HashSet<String>,
+}
+
+impl PermissionProgress {
+    fn pending(&mut self, p: &Value, mode: OnPermission) {
+        let first = p
+            .get("permissionId")
+            .and_then(Value::as_str)
+            .is_none_or(|id| self.pending.insert(id.to_owned()));
+        if first {
+            self.asked += 1;
+            if mode != OnPermission::Wait {
+                self.denied += 1;
+            }
+        }
+        self.fail |= mode == OnPermission::Fail;
+    }
+
+    fn error(&self, id: &str, mode: OnPermission) -> Result<()> {
+        if self.fail || (self.asked > 0 && self.denied == self.asked && mode == OnPermission::Deny)
+        {
+            return Err(crate::cli::errors::AppError::new(
+                crate::cli::errors::Code::PermissionDenied,
+                "all_denied",
+                format!("every permission in the turn was denied ({}/{})", self.denied, self.asked),
+            )
+            .with_session(id)
+            .into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct StreamProgress {
     /// Text already emitted for the trailing assistant item. After a gap,
@@ -704,6 +745,7 @@ struct StreamProgress {
     assistant_item: Option<usize>,
     reconnecting: bool,
     last_tool: String,
+    permissions: PermissionProgress,
 }
 
 /// Answer a pending permission on the caller's behalf when the run policy
@@ -896,9 +938,6 @@ async fn stream_prompt_once(
     let mut turn = turn;
     let started = tokio::time::Instant::now();
     let mut activity = false;
-    let mut asked = 0u64;
-    let mut denied = 0u64;
-    let mut fail_permission = false;
     let mut suppressor = crate::cli::orchestrate::ReadSuppressor::default();
     let result = loop {
         let stall_at = if opts.stall_secs > 0 && !activity {
@@ -950,9 +989,8 @@ async fn stream_prompt_once(
                     activity = true;
                 }
                 if m == method::MUX_PERMISSION_PENDING {
-                    asked += 1;
+                    progress.permissions.pending(&p, opts.on_permission);
                     if opts.on_permission != OnPermission::Wait {
-                        denied += 1;
                         // Transport failures reattach to recover the pending ask; the caller's
                         // timeout still uses ownership-aware cancellation.
                         let failed = match before_deadline(deadline, id, auto_answer(&client, id, &p, opts.on_permission)).await {
@@ -961,7 +999,6 @@ async fn stream_prompt_once(
                             Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
                         };
                         if failed {
-                            fail_permission = true;
                             let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                         }
                         continue;
@@ -1012,16 +1049,7 @@ async fn stream_prompt_once(
             }
         }
     };
-    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)
-    {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::PermissionDenied,
-            "all_denied",
-            format!("every permission in the turn was denied ({denied}/{asked})"),
-        )
-        .with_session(id)
-        .into());
-    }
+    progress.permissions.error(id, opts.on_permission)?;
     // A steer's reply is the reply of the turn it went into, from the log: the stream may have
     // missed it (a resend after that turn ended, dropped events).
     let streamed = t.items.iter().rev().find_map(|i| match i {
@@ -1226,6 +1254,7 @@ pub(crate) async fn collect_reply(
         Some(deadline) => Some(deadline),
         None => caller_deadline(opts.timeout)?,
     };
+    let mut permissions = PermissionProgress::default();
     let mut attempt = 0u32;
     let mut client = client;
     let mut reconnect_pause = Duration::from_millis(50);
@@ -1233,7 +1262,9 @@ pub(crate) async fn collect_reply(
     // new prompt id; the daemon would otherwise answer with the failure.
     let mut prompt = prompt.clone();
     loop {
-        match collect_once(client.clone(), id, text, opts, &prompt, deadline).await {
+        match collect_once(client.clone(), id, text, opts, &prompt, deadline, &mut permissions)
+            .await
+        {
             Ok(r) => return Ok(r),
             Err(e) => {
                 if waiting_transport_error(&e) {
@@ -1266,11 +1297,13 @@ pub(crate) async fn collect_reply(
                 let attachments = std::mem::take(&mut prompt.attachments);
                 prompt = PromptId::new(None);
                 prompt.attachments = attachments;
+                permissions = PermissionProgress::default();
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn collect_once(
     client: Arc<Client>,
     id: &str,
@@ -1278,6 +1311,7 @@ async fn collect_once(
     opts: CollectOpts,
     prompt: &PromptId,
     deadline: Option<tokio::time::Instant>,
+    permissions: &mut PermissionProgress,
 ) -> Result<CollectResult> {
     let mut notes = attach_prompt(&client, id, deadline).await?;
     let c = client.clone();
@@ -1293,9 +1327,6 @@ async fn collect_once(
     let started = tokio::time::Instant::now();
     let mut activity = false;
     let mut produced = false;
-    let mut asked = 0u64;
-    let mut denied = 0u64;
-    let mut fail_permission = false;
     let result = loop {
         let stall_at = if opts.stall_secs > 0 && !activity {
             Some(started + std::time::Duration::from_secs(opts.stall_secs))
@@ -1350,15 +1381,15 @@ async fn collect_once(
                     method::MUX_EVENT => {
                         // Rules and policies answer on the server; count those too.
                         if p.get("kind").and_then(Value::as_str) == Some("permission_auto") {
-                            asked += 1;
+                            permissions.asked += 1;
                             if p.pointer("/msg/optionId").and_then(Value::as_str).map(|o| o.starts_with("reject") || o == "no").unwrap_or(false) {
-                                denied += 1;
+                                permissions.denied += 1;
                             }
                         }
                         t.apply_event(&p)
                     }
                     method::MUX_PERMISSION_PENDING => {
-                        asked += 1;
+                        permissions.pending(&p, opts.on_permission);
                         produced = true;
                         match opts.on_permission {
                             OnPermission::Wait => {
@@ -1366,14 +1397,12 @@ async fn collect_once(
                                 eprintln!("permission needed: {title}  ({})", crate::question_answer::pending_hint(p.get("request").unwrap_or(&Value::Null), id));
                             }
                             mode => {
-                                denied += 1;
                                 let failed = match before_deadline(deadline, id, auto_answer(&client, id, &p, mode)).await {
                                     Ok(failed) => failed,
                                     Err(error) if waiting_transport_error(&error) => return Err(error),
                                     Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
                                 };
                                 if failed {
-                                    fail_permission = true;
                                     let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                                 }
                             }
@@ -1384,16 +1413,7 @@ async fn collect_once(
             }
         }
     };
-    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)
-    {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::PermissionDenied,
-            "all_denied",
-            format!("every permission in the turn was denied ({denied}/{asked})"),
-        )
-        .with_session(id)
-        .into());
-    }
+    permissions.error(id, opts.on_permission)?;
     let result = match result {
         Ok(v) => v,
         // A daemon that answered it is restarting handed the turn to the next one, as one that
@@ -1448,7 +1468,12 @@ async fn collect_once(
     }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
-    Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
+    Ok(CollectResult {
+        reply,
+        stop_reason,
+        permissions_asked: permissions.asked,
+        permissions_denied: permissions.denied,
+    })
 }
 
 /// The end of the turn a steer went into, once `end_wait` is armed; never before.
@@ -1614,6 +1639,7 @@ mod prompt_tests {
     /// Inject the exact RPC errors a remote peer restart returns, while the caller's local
     /// socket stays open. All other requests/notifications reach a real daemon and fake agent.
     /// The ordered faults let us cut the foreground before acceptance, then its reattachment.
+    #[cfg(unix)]
     async fn peer_fault_proxy(
         backend: &std::path::Path,
         socket: &std::path::Path,
@@ -1642,6 +1668,7 @@ mod prompt_tests {
                     let (upstream, mut requests) = upstream.into_split();
                     let mut input = BufReader::new(incoming).lines();
                     let mut answers = BufReader::new(upstream).lines();
+                    let mut deferred_fault: Option<(Value, String)> = None;
                     loop {
                         tokio::select! {
                             line = input.next_line() => {
@@ -1650,9 +1677,15 @@ mod prompt_tests {
                                     let mut faults = faults.lock().unwrap();
                                     if faults.front().is_some_and(|(m, _)| *m == method) {
                                         let (_, reason) = faults.pop_front().unwrap();
-                                        Some(Message::Response { id, result: None,
+                                        let after = reason.strip_prefix("after:");
+                                        let response = Message::Response { id: id.clone(), result: None,
                                             error: Some(crate::rpc::RpcError::internal("peer disconnected")
-                                                .with_data(json!({"reason": reason, "peer": "remote"}))) }.to_line())
+                                                .with_data(json!({"reason": after.unwrap_or(reason), "peer": "remote"}))) }.to_line();
+                                        if after.is_some() {
+                                            // Deliver the answer, then lose only its acknowledgment.
+                                            deferred_fault = Some((id, response));
+                                            None
+                                        } else { Some(response) }
                                     } else { None }
                                 } else { None };
                                 if let Some(fault) = fault {
@@ -1661,7 +1694,12 @@ mod prompt_tests {
                             }
                             line = answers.next_line() => {
                                 let Ok(Some(line)) = line else { break };
-                                if outgoing.write_all(format!("{line}\n").as_bytes()).await.is_err() { break; }
+                                let response = if let Ok(Message::Response { id, .. }) = Message::parse(&line)
+                                    && deferred_fault.as_ref().is_some_and(|(lost, _)| *lost == id)
+                                {
+                                    deferred_fault.take().unwrap().1
+                                } else { format!("{line}\n") };
+                                if outgoing.write_all(response.as_bytes()).await.is_err() { break; }
                             }
                         }
                     }
@@ -1673,6 +1711,7 @@ mod prompt_tests {
 
     /// The local durable receipt preceded a peer reset before the foreground was accepted.
     /// Recovery must survive a second peer failure during attach, preserving one execution.
+    #[cfg(unix)]
     #[tokio::test]
     async fn waiting_sends_recover_peer_restart_before_acceptance() {
         for stream in [false, true] {
@@ -1743,69 +1782,95 @@ mod prompt_tests {
 
     /// A transport failure answering an ask must reattach, not mark the unanswered ask seen
     /// forever while the original prompt's accepted waiter survives the remote restart.
+    #[cfg(unix)]
     #[tokio::test]
     async fn waiting_sends_recover_peer_restart_while_answering_permission() {
-        for stream in [false, true] {
-            let (hub, daemon, dir) = daemon().await;
-            hub.config.write().await.permission_policy = PermissionPolicy::Ask;
-            let session = daemon
-                .request(
-                    method::SESSION_NEW,
-                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
-                )
-                .await
-                .unwrap();
-            let id = session["sessionId"].as_str().unwrap();
-            let (client, faults, proxy) = peer_fault_proxy(
-                daemon.socket(),
-                &dir.path().join("peer.sock"),
-                vec![(method::MUX_PERMISSION_RESPOND, "peer_disconnected")],
-            )
-            .await;
-            let prompt = PromptId::new(None);
-            let opts = CollectOpts {
-                timeout: Some(20),
-                deadline: None,
-                on_permission: OnPermission::Deny,
-                stall_secs: 0,
-                retries: 0,
-                steer: false,
-            };
-            let error = if stream {
-                stream_prompt(
-                    client,
-                    id,
-                    "ask: peer restart permission",
-                    false,
-                    true,
-                    false,
-                    opts,
-                    false,
-                    &prompt,
-                )
-                .await
-                .unwrap_err()
-            } else {
-                collect_reply(client, id, "ask: peer restart permission", opts, &prompt)
+        for (stream, fault) in [
+            (false, "peer_disconnected"),
+            (true, "peer_disconnected"),
+            (false, "after:peer_disconnected"),
+            (true, "after:peer_disconnected"),
+        ] {
+            for mode in [OnPermission::Deny, OnPermission::Fail] {
+                let (hub, daemon, dir) = daemon().await;
+                hub.config.write().await.permission_policy = PermissionPolicy::Ask;
+                let session = daemon
+                    .request(
+                        method::SESSION_NEW,
+                        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+                    )
                     .await
-                    .err()
-                    .expect("the recovered permission must be denied")
-            };
-            assert_eq!(
-                error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
-                Some("all_denied")
-            );
-            assert!(faults.lock().unwrap().is_empty());
-            assert_eq!(last_replies(&daemon, id, 1).await.unwrap(), vec!["chose no"]);
-            assert_eq!(
-                hub.events(id, 0, 1000)
-                    .unwrap()
-                    .iter()
-                    .filter(|e| e.kind == "user_message")
-                    .count(),
-                1
-            );
-            proxy.abort();
+                    .unwrap();
+                let id = session["sessionId"].as_str().unwrap();
+                let (client, faults, proxy) = peer_fault_proxy(
+                    daemon.socket(),
+                    &dir.path().join("peer.sock"),
+                    vec![(method::MUX_PERMISSION_RESPOND, fault)],
+                )
+                .await;
+                let prompt = PromptId::new(None);
+                let opts = CollectOpts {
+                    timeout: Some(20),
+                    deadline: None,
+                    on_permission: mode,
+                    stall_secs: 0,
+                    retries: 0,
+                    steer: false,
+                };
+                let error = if stream {
+                    stream_prompt(
+                        client,
+                        id,
+                        "ask: peer restart permission",
+                        false,
+                        true,
+                        false,
+                        opts,
+                        false,
+                        &prompt,
+                    )
+                    .await
+                    .unwrap_err()
+                } else {
+                    collect_reply(client, id, "ask: peer restart permission", opts, &prompt)
+                        .await
+                        .err()
+                        .expect("the recovered permission must be denied")
+                };
+                assert_eq!(
+                    error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
+                    Some("all_denied")
+                );
+                assert!(faults.lock().unwrap().is_empty());
+                assert!(error.to_string().contains("(1/1)"), "one ask across reconnects: {error}");
+                if mode == OnPermission::Deny {
+                    assert_eq!(last_replies(&daemon, id, 1).await.unwrap(), vec!["chose no"]);
+                }
+                assert_eq!(
+                    hub.events(id, 0, 1000)
+                        .unwrap()
+                        .iter()
+                        .filter(|e| e.kind == "user_message")
+                        .count(),
+                    1
+                );
+                proxy.abort();
+            }
+        }
+    }
+
+    #[test]
+    fn permission_policy_survives_a_lost_answer_acknowledgment() {
+        let pending = json!({"permissionId": "same-ask"});
+        for mode in [OnPermission::Deny, OnPermission::Fail] {
+            let mut progress = PermissionProgress::default();
+            progress.pending(&pending, mode);
+            // A reconnect with no pending ask must retain the result. If the daemon still
+            // has the ask, it is answered again without counting it twice.
+            assert!(progress.error("session", mode).is_err());
+            progress.pending(&pending, mode);
+            assert_eq!((progress.asked, progress.denied), (1, 1));
+            assert!(progress.error("session", mode).is_err());
         }
     }
 
