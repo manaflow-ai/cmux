@@ -67,6 +67,8 @@ import contextvars
 import copy
 import functools
 import hashlib
+import base64
+import gzip
 import importlib.util
 import io
 import json
@@ -83,6 +85,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections import Counter
@@ -7760,7 +7763,8 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
         step, bracket, unit = own[0].partition(" [")
         first = unit.removesuffix("]") if bracket else step
         return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
-                and bool(named[4]) and first.startswith(named[4]))
+                and bool(named[4]) and (first.startswith(named[4])  # the unit, maybe cut at the status's room
+                                        or named[4].startswith((first + ", ", first + " "))))  # more units after it
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8261,6 +8265,50 @@ def local_kept_run(repo: str, sha: str, state: str, url: str = "", env=os.enviro
     return max(found, key=lambda run: (run["ended"], int(run["run_id"])), default=None)
 
 
+# 2026-11-26: land-judge refused lw#11366 and lw#8853 as red_not_excused, "'ws-check' on ...: its status links nothing,
+# not a manaflow-ai/cmuxterm-hq Actions run". Their ws-check ran in place on a lane VM (leo-workspace tools/ws-check
+# lane_vm_check), whose status links no run and names a log kept only on the host that judged it, so no other host could
+# read which tests failed, and a test red on main in every lane run (test_cargo_target) blocked every such head. A red
+# lane run now publishes the lines this reads of a log (ws-check lane_verdict_lines: each failed unit's group, its
+# FAILED line, the run's base pass lines and WS_CHECK_RESULT) on the head itself, as a completed check run named
+# WS_CHECK_LANE_CHECK whose output text is JSON {"sha", "rev" (the merge it tested), "tree" (that merge's), "main", "vm",
+# "state", "lines" (gzip, base64)}. Only the statuses App's check run is read (WS_CHECK_LANE_APPS: GitHub names the App
+# that made a check run, and only a holder of its key can make one as it), the newest one, of this head and this state.
+WS_CHECK_LANE_CHECK = "ws-check verdict lines"  # leo-workspace tools/ws-check LANE_VERDICT_CHECK
+WS_CHECK_LANE_APPS = frozenset({"quota-goblin-9000"})  # leo-workspace machines/gh-app-roles.json: the statuses App
+WS_CHECK_LANE_TAG = re.compile(r" \[[^\[\]]+\]$")  # tools/ws-check LANE_TAG
+
+
+def ws_check_lane_published(repo: str, sha: str, state: str, github) -> dict | None:
+    """{"run_id", "snapshot" (the merge tested), "tree", "log", "lane": VM} of the verdict lines a lane VM run of
+    REPO's head SHA published (WS_CHECK_LANE_CHECK by a WS_CHECK_LANE_APPS App) for verdict STATE; the newest such
+    check run, or None when there is none to read."""
+    try:
+        runs = github.json(f"repos/{repo}/commits/{sha}/check-runs?check_name={urllib.parse.quote(WS_CHECK_LANE_CHECK)}"
+                           "&filter=all&per_page=100").get("check_runs") or []
+    except Refused:
+        return None
+    for run in sorted((r for r in runs if isinstance(r, dict)), key=lambda r: (str(r.get("completed_at") or ""),
+                                                                               int(r.get("id") or 0)), reverse=True):
+        app = run.get("app") if isinstance(run.get("app"), dict) else {}
+        if (run.get("name") != WS_CHECK_LANE_CHECK or run.get("head_sha") != sha or str(app.get("slug") or "")
+                not in WS_CHECK_LANE_APPS or run.get("status") != "completed"):
+            continue
+        try:
+            body = json.loads(((run.get("output") or {}).get("text")) or "")
+            text = gzip.decompress(base64.b64decode(body["lines"], validate=True)).decode("utf-8", errors="replace")
+        except (ValueError, KeyError, TypeError, OSError, EOFError, zlib.error):
+            continue
+        if not (isinstance(body, dict) and body.get("sha") == sha and body.get("state") == state
+                and isinstance(body.get("rev"), str) and HEX40.fullmatch(body["rev"])
+                and isinstance(body.get("tree"), str) and HEX40.fullmatch(body["tree"])
+                and isinstance(body.get("vm"), str) and body["vm"] and text.strip()):
+            continue
+        return {"run_id": f"lane-check-{run.get('id')}", "snapshot": body["rev"], "tree": body["tree"], "log": text,
+                "lane": body["vm"]}
+    return None
+
+
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
     "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
@@ -8288,10 +8336,21 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if not link:
         # No Actions run: the lane-gh broker ran it on its own host (local_kept_run), and kept its log there.
         local = local_kept_run(repo, sha, state, found["url"])
+        if local is None and not found["url"]:
+            # Or a lane VM ran it in place, and published its verdict lines as a check run (ws_check_lane_published).
+            local = ws_check_lane_published(repo, sha, state, github)
+            if local is not None:
+                # The status ends with the VM's tag (" [VM; log ...]"); the description is read without it.
+                tag = WS_CHECK_LANE_TAG.search(description)
+                untagged = (description[:tag.start()] if tag and tag[0].startswith(f" [{local['lane']}")
+                            else description)
+                named = (WS_CHECK_DESCRIPTION.fullmatch(untagged)
+                         or WS_CHECK_LONG_DESCRIPTION.fullmatch(untagged) or named)
         if local is None:
             raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run, and this "
                           f"host's lane-gh broker keeps no settled local run of {sha[:12]} ending {state} "
-                          "(local_kept_run: read on the broker host, within its record retention)")
+                          "(local_kept_run: read on the broker host, within its record retention), nor did a lane VM "
+                          f"publish its verdict lines ('{WS_CHECK_LANE_CHECK}' check run, ws_check_lane_published)")
         link = (found["url"], local["run_id"], None)
     if local is not None:
         run, lines = {}, lines_of(local["log"])
@@ -8340,7 +8399,14 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
             or result.get("ok") is not False or len(set(failed)) != len(failed)):
         raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
-    if local is not None:
+    if local is not None and local.get("lane"):
+        # A lane VM ran ws-check on the head merged with main (REV), and its WS_CHECK_RESULT names that merge: the run
+        # is held to the merge's whole tree, as a broker-local run's is (ws_check_tested_tree).
+        if result.get("head") != local["snapshot"]:
+            raise Refused(f"{where}: the verdict lines {local['run_id']} published name another head "
+                          f"({str(result.get('head'))[:12]}, not the merge {local['snapshot'][:12]} it tested)")
+        found["snapshot"] = {"run": link[1], "tree": local["tree"], "whole": True}
+    elif local is not None:
         # The broker always tests a snapshot commit of the head merged with its base, and writes the receipt itself.
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
         try:
