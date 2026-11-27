@@ -5733,6 +5733,15 @@ jobs:
             fi
           fi
 
+      # This run's Linux build for linux-release-sign.sh, over the runner's artifact token: gh run download
+      # spends the installation's REST budget, and its 403 left 80d30ecb unsigned (run 45994285415).
+      - name: Download this run's Linux build
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-tui-*-unknown-linux-musl
+          path: ${{ runner.temp }}/linux-release-artifacts
+
       - name: Sign and upload the Linux release file
         continue-on-error: true
         env:
@@ -5743,6 +5752,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
           LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}
+          LINUX_RELEASE_ARTIFACTS: ${{ runner.temp }}/linux-release-artifacts
           PUBLISH_TREE: ${{ needs.publish-tree.result }}
           TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
         run: |
@@ -5807,6 +5817,16 @@ jobs:
             fi
           fi
 
+      # This run's Linux build for linux-release-sign.sh, over the runner's artifact token: gh run download
+      # spends the installation's REST budget, and its 403 left 80d30ecb unsigned (run 45994285415).
+      - name: Download this run's Linux build
+        if: needs.verify-publish.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-tui-*-unknown-linux-musl
+          path: ${{ runner.temp }}/linux-release-artifacts
+
       - name: Sign and upload the channel
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -5817,7 +5837,8 @@ jobs:
           # The dedicated Linux release key (linux-signed-packages.md section 3): signs the Linux release
           # files beside SIGNING_KEY once web-update-keys.json lists it; unset, they carry SIGNING_KEY's alone.
           LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
-          GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
+          GH_TOKEN: ${{ github.token }}  # gh run download, the Linux release file's fallback
+          LINUX_RELEASE_ARTIFACTS: ${{ runner.temp }}/linux-release-artifacts
           VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
           PUBLISH_TREE: ${{ needs.publish-tree.result }}
           TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
