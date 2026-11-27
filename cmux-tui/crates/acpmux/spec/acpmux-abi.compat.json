@@ -79,6 +79,36 @@
           "default": null
         }
       ]
+    },
+    {
+      "rev": 3,
+      "note": "Session Info's Carried memory is removed (taking back #52924): the _acpmux/agent_home and _acpmux/agent_home_resolve methods.",
+      "changes": [
+        {
+          "message": "request:_acpmux/agent_home",
+          "op": "remove",
+          "path": "/params",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/agent_home",
+          "op": "remove",
+          "path": "/data",
+          "default": null
+        },
+        {
+          "message": "request:_acpmux/agent_home_resolve",
+          "op": "remove",
+          "path": "/params",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/agent_home_resolve",
+          "op": "remove",
+          "path": "/data",
+          "default": null
+        }
+      ]
     }
   ]
 }

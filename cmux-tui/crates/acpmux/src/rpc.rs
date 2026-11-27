@@ -650,6 +650,11 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// Open, list and close a listen on another member's agent address, and read what it receives.
     pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
+    /// RFD 0170 phase 1 views of the team directory (`server/team_directory.rs`): the navigator,
+    /// the recipient picker and a session's Session Info, each for the calling principal.
+    pub const MUX_TEAM_NAVIGATOR: &str = "_acpmux/team/navigator";
+    pub const MUX_TEAM_PICK: &str = "_acpmux/team/pick";
+    pub const MUX_TEAM_SESSION_INFO: &str = "_acpmux/team/session_info";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -813,10 +818,6 @@ pub mod method {
     pub const MUX_STASH_MOVE: &str = "_acpmux/stash_move";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
-    /// Session Info's carried agent memory: the head's files and the proposals waiting (`agent_home.rs`).
-    pub const MUX_AGENT_HOME: &str = "_acpmux/agent_home";
-    /// The person's Accept or Drop of carried-memory proposals, one or a batch.
-    pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
     pub const MUX_ASK: &str = "_acpmux/ask";

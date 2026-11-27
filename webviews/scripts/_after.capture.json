@@ -1,0 +1,3 @@
+{ "envs": [["dark","none"]], "shots": [
+ { "name": "session-info-all-sections", "entry": "agent-pane.chat-inspector", "variant": "compact-more-open", "width": 420, "height": 1400, "deviceScaleFactor": 2,
+   "setup": "const b=document.querySelector('.acpmux-session-info-more'); if(b && !/less/i.test(b.textContent||'')) b.click();", "arms": { "now": "" } } ] }

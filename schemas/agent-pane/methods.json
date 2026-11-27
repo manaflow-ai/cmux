@@ -147,8 +147,6 @@
     "_acpmux/stash_get": {"params": ["chat", "id"]},
     "_acpmux/stash_drop": {"params": ["chat", "id"]},
     "_acpmux/stash_move": {"params": ["chat", "to"]},
-    "_acpmux/agent_home": {"params": ["sessionId"]},
-    "_acpmux/agent_home_resolve": {"params": ["sessionId", "accept", "drop"]},
     "_acpmux/subagents": {"params": ["sessionId", "ended"]},
     "_acpmux/account/sign_in": {"params": ["family", "sessionId"]},
     "_acpmux/account/sign_in.finish": {"params": ["loginId", "sessionId"]},

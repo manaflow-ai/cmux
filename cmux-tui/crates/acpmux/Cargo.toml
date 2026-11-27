@@ -98,6 +98,7 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
 # unavailable (peer_tailnet.rs).
@@ -205,7 +206,7 @@ serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
 sha1.workspace = true
 sha2.workspace = true
-# Diffs of a proposed carried-memory change (src/agent_home.rs).
+# Three-way merges of a memory mount's files (src/memory_mount/merge.rs).
 diffy.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.

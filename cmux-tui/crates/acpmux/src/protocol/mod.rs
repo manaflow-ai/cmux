@@ -334,8 +334,6 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StashDropParams>(method::MUX_STASH_DROP, Request),
         keyed::<params::StashMoveParams>(method::MUX_STASH_MOVE, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
-        keyed::<params::AgentHomeParams>(method::MUX_AGENT_HOME, Request),
-        keyed::<params::AgentHomeResolveParams>(method::MUX_AGENT_HOME_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),

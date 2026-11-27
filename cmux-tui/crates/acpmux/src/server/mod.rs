@@ -38,7 +38,6 @@ mod ack_latency_bench;
 #[cfg(test)]
 #[path = "acp_list_tests.rs"]
 mod acp_list_tests;
-mod agent_home;
 mod agent_login;
 mod agent_messages;
 mod app_assets;
@@ -249,6 +248,7 @@ pub mod tailnet_ingress;
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
 mod team;
+mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;

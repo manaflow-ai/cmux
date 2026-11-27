@@ -543,6 +543,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // A listen on another member's agent address: open, list, close, and read what it receives
     // (`server/team.rs` `listen`), under the same team-messaging gate.
     Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
+    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
+    // team-messaging gate (`server/team_directory.rs`).
+    Capability {
+        id: "team-directory-v1",
+        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -570,10 +576,6 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
-    Capability {
-        id: "agent-home-v1",
-        wire: &[method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE],
-    },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log

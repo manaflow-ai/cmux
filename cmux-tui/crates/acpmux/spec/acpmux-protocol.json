@@ -889,22 +889,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/agent_home",
-      "params": {
-        "$ref": "#/types/AgentHomeParams"
-      },
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/agent_home_resolve",
-      "params": {
-        "$ref": "#/types/AgentHomeResolveParams"
-      },
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/prompt_coach",
       "params": {
         "$ref": "#/types/PromptCoachParams"
@@ -3391,28 +3375,6 @@
           "$ref": "#/types/RequestMeta"
         },
         "held": true,
-        "sessionId": true
-      },
-      "type": "object"
-    },
-    "AgentHomeParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "sessionId": true
-      },
-      "type": "object"
-    },
-    "AgentHomeResolveParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "accept": true,
-        "drop": true,
         "sessionId": true
       },
       "type": "object"
