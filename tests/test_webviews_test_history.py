@@ -1074,6 +1074,53 @@ class PassedBefore(unittest.TestCase):
         self.assertIn("403", said)
         self.assertFalse(out.exists())
 
+    def test_the_batch_list_drops_files_whose_last_real_run_is_too_old(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("commit", "b" * 40 + "\n")
+            archive.writestr("files", "test/new.test.ts\ntest/old.test.ts\ntest/undated.test.ts\n")
+            archive.writestr("ran", "1000 test/new.test.ts\n10 test/old.test.ts\n")
+        listing = json.dumps({"artifacts": [
+            {"id": 5, "name": "react-apps-batch-passed-shard2", "created_at": "2026-11-22T01:00:00Z", "expired": False,
+             "archive_download_url": "https://api.example/artifacts/5/zip",
+             "workflow_run": {"id": 50, "head_branch": "feat-cmux-next", "repository_id": 7, "head_repository_id": 7}},
+            {"id": 6, "name": "react-apps-passed-shard2", "created_at": "2026-11-22T02:00:00Z", "expired": False,
+             "archive_download_url": "https://api.example/artifacts/6/zip",
+             "workflow_run": {"id": 60, "head_branch": "feat-cmux-next", "repository_id": 7, "head_repository_id": 7}},
+        ]}).encode()
+        urls = []
+
+        def get(url, token):
+            urls.append(url)
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/5/zip":
+                return 200, {}, buf.getvalue()
+            return 404, {}, b""
+
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "feat-cmux-next", 2, 99, out, get=get,
+                                     artifact=history.BATCH_PASSED_ARTIFACT, max_age_hours=1, now=1000 + 3000)
+        self.assertIn("name=react-apps-batch-passed-shard2", urls[0])
+        self.assertIn("2 last ran over 1 h ago", said)
+        self.assertEqual((out / "files").read_text(), "test/new.test.ts\n")
+        self.assertEqual((out / "ran").read_text(), "1000 test/new.test.ts\n")
+
+    def test_passed_ran_carries_a_reused_files_time_and_dates_a_run_file_now(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        passed, before = root / "passed", root / "before"
+        passed.mkdir()
+        before.mkdir()
+        (passed / "files").write_text("test/ran.test.ts\ntest/kept.test.ts\ntest/kept.test.ts\n")
+        (before / "ran").write_text("500 test/kept.test.ts\n400 test/ran.test.ts\n")
+        (root / "reused").write_text("test/kept.test.ts\n")
+        self.assertEqual(history.passed_ran(passed, before, root / "reused", now=900), 2)
+        self.assertEqual((passed / "ran").read_text(), "900 test/ran.test.ts\n500 test/kept.test.ts\n")
+        # No earlier times (a first list): a reused file with no time is dated now, so it runs within the bound.
+        (before / "ran").unlink()
+        history.passed_ran(passed, before, root / "reused", now=950)
+        self.assertEqual((passed / "ran").read_text(), "950 test/ran.test.ts\n950 test/kept.test.ts\n")
+
 
 class SharedBaseReplay(unittest.TestCase):
     """A base check reads the base replays other pull requests' base checks shared at its merge parent's inputs key."""

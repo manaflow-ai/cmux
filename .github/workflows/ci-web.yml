@@ -1504,6 +1504,25 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: python3 scripts/ci/webviews_test_history.py passed-before "$RUNNER_TEMP/webviews-passed-before" --repo "$GITHUB_REPOSITORY" --branch "$HEAD_REF" --shard "$SHARD" --run-id "$GITHUB_RUN_ID"
 
+      # The post-merge batch reuses its own passes the same way: each feat-cmux-next batch shard keeps the files that
+      # passed at its commit (Upload the files that passed at this batch commit, below), and the same shard of the next
+      # batch skips those the merges between the two commits cannot reach. Every shard ran every file before: 8 shards of
+      # about 37 min, 298 of the 617 job-min of batch run 45949821001, about 79 job-min a merged pull request (11-27).
+      # A red, a timeout or a file not run is never on the list, so the base reds and the held-red history still come
+      # from real runs, and a file is reused only while its last real run is under CI_REACT_BATCH_REUSE_HOURS (6) old.
+      # The reused files are passes in this run's history upload (CMUX_WEB_TEST_REUSED_AS_PASS). Best effort: no list
+      # runs every file. Undo: the repository variable CI_REACT_BATCH_REUSE=0.
+      - name: Download the files that passed at the previous batch commit
+        id: batch-passed-before
+        if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.sha != '' && inputs.sha == github.sha && inputs.only == '' && github.ref_name == 'feat-cmux-next' && vars.CI_REACT_BATCH_REUSE != '0' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHARD: ${{ matrix.shard }}
+          MAX_AGE_HOURS: ${{ vars.CI_REACT_BATCH_REUSE_HOURS || '6' }}
+        run: python3 scripts/ci/webviews_test_history.py passed-before "$RUNNER_TEMP/webviews-passed-before" --repo "$GITHUB_REPOSITORY" --branch feat-cmux-next --shard "$SHARD" --run-id "$GITHUB_RUN_ID" --artifact react-apps-batch-passed-shard --max-age-hours "$MAX_AGE_HOURS"
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -1563,6 +1582,9 @@ jobs:
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
+          # The post-merge batch's reuse (Download the files that passed at the previous batch commit): 1 there, else 0.
+          BATCH_REUSE: ${{ (github.event_name != 'pull_request' && inputs.sha != '' && inputs.sha == github.sha && inputs.only == '' && github.ref_name == 'feat-cmux-next' && vars.CI_REACT_BATCH_REUSE != '0') && '1' || '0' }}
+          CMUX_WEB_TEST_REUSED_AS_PASS: ${{ (github.event_name != 'pull_request' && inputs.sha != '' && inputs.sha == github.sha && inputs.only == '' && github.ref_name == 'feat-cmux-next' && vars.CI_REACT_BATCH_REUSE != '0') && '1' || '0' }}
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
           # Every failed or timed-out file gets its alone retry before it counts
           # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
@@ -1680,8 +1702,9 @@ jobs:
           # A pull request's passes, as they come, for its next head (Upload the files that passed): the merge commit
           # they passed at, then the files. The files that passed at the previous head and that the change since
           # (webviews_affected.py from that merge commit to this one) cannot reach are not run again; a list without
-          # its commit, a commit that does not fetch, or a change that reaches every file reuses nothing.
-          if [ -n "$BASE_REF" ]; then
+          # its commit, a commit that does not fetch, or a change that reaches every file reuses nothing. The post-merge
+          # batch (BATCH_REUSE=1) does the same from the previous batch commit's list (CI_REACT_BATCH_REUSE).
+          if [ -n "$BASE_REF" ] || [ "${BATCH_REUSE:-0}" = 1 ]; then
             passed="$RUNNER_TEMP/webviews-passed"
             mkdir -p "$passed"
             git rev-parse HEAD > "$passed/commit"
@@ -1726,6 +1749,33 @@ jobs:
           path: |
             ${{ runner.temp }}/webviews-passed/commit
             ${{ runner.temp }}/webviews-passed/files
+          if-no-files-found: ignore
+          retention-days: 1
+
+      # The post-merge batch's list for its next run (Download the files that passed at the previous batch commit), with
+      # each file's last real run: a reused file keeps its time, so it runs again once CI_REACT_BATCH_REUSE_HOURS pass.
+      - name: Date the files that passed at this batch commit
+        id: batch-passed-ran
+        if: ${{ always() && github.event_name != 'pull_request' && inputs.sha != '' && inputs.sha == github.sha && inputs.only == '' && github.ref_name == 'feat-cmux-next' && vars.CI_REACT_BATCH_REUSE != '0' && steps.webview-tests.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          reused=""
+          [ -s "$RUNNER_TEMP/webviews-reused" ] && reused="$RUNNER_TEMP/webviews-reused"
+          python3 scripts/ci/webviews_test_history.py passed-ran "$RUNNER_TEMP/webviews-passed" --before "$RUNNER_TEMP/webviews-passed-before" --reused "$reused"
+
+      - name: Upload the files that passed at this batch commit
+        if: ${{ always() && github.event_name != 'pull_request' && inputs.sha != '' && inputs.sha == github.sha && inputs.only == '' && github.ref_name == 'feat-cmux-next' && vars.CI_REACT_BATCH_REUSE != '0' && steps.webview-tests.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-apps-batch-passed-shard${{ matrix.shard }}
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/webviews-passed/commit
+            ${{ runner.temp }}/webviews-passed/files
+            ${{ runner.temp }}/webviews-passed/ran
           if-no-files-found: ignore
           retention-days: 1
 
