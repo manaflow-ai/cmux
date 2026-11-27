@@ -216,6 +216,8 @@ export const FREESTYLE_CREATE_ATTEMPT_METADATA_KEY = "cmuxCreateAttempt";
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+/** Freestyle refuses an exec whose `command` exceeds 64 KiB (BAD_REQUEST). */
+export const FREESTYLE_MAX_COMMAND_BYTES = 64 * 1024;
 
 /**
  * Run a public VM command with the home directory belonging to the account

@@ -471,7 +471,10 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
 session protocol, but the managed API does not mint or expose its scoped identities. This keeps
 workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
-`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
+`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported: the route answers
+`501 vm_attach_transport_unsupported` (non-retryable, `supportedTransports: ["cmux-remote"]`) so
+clients show a real message and `vm ssh` falls back to the cmux-remote path, rather than the
+framework's HTML 404, which reads as a missing machine.
 
 ## Freestyle customer
 
