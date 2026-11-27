@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import OSLog
+import CmuxMobileDesign
 import QuartzCore
 
 /// Starts the terminal engine (`ghostty_init`, the app's config, `ghostty_app_new`) once, when the
@@ -33,6 +34,8 @@ public final class TerminalEngineWarmup {
 
     private func warm() {
         let start = CACurrentMediaTime()
+        LaunchMarks.shared.mark("terminal_engine_warm")
+        defer { LaunchMarks.shared.mark("terminal_engine_warm_done") }
         guard (try? CmuxMobileGhosttyApp.shared()) != nil else { return }
         Self.log.info("timing launch terminal_engine_warm \(Int(((CACurrentMediaTime() - start) * 1000).rounded()), privacy: .public)ms")
     }

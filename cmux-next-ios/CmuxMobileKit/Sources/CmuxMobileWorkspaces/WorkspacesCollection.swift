@@ -151,6 +151,16 @@ final class WorkspacesCollectionView: UICollectionView {
     /// The list came back on screen (its controller applies what it held).
     var onWindow: (() -> Void)?
 
+    private var laidOut = false
+
+    override func layoutSubviews() {
+        guard !laidOut, bounds.width > 0 else { return super.layoutSubviews() }
+        laidOut = true
+        LaunchMarks.shared.mark("list_layout")
+        super.layoutSubviews()
+        LaunchMarks.shared.mark("list_layout_done")
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
@@ -318,6 +328,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     // MARK: Building the view
 
     func makeView() -> WorkspacesCollectionView {
+        LaunchMarks.shared.mark("list_make_view")
         var config = UICollectionLayoutListConfiguration(appearance: .plain)
         config.backgroundColor = .clear
         config.headerMode = .none
@@ -446,6 +457,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         let plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
         items = next.items
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 && !sections.isEmpty else { return }
+        if applyCount == 0 { LaunchMarks.shared.mark("list_apply") }
         if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
             if !animated, !plan.membershipChanged, let moves = Self.moves(from: shownSections, to: sections) {
                 // A live reorder (a row went to the top): moved items only, in place.
@@ -468,6 +480,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                 dataSource.apply(snapshot, animatingDifferences: animated)
             }
             applyCount += 1
+            if applyCount == 1 { LaunchMarks.shared.mark("list_apply_done") }
         }
         shownSections = sections
         // Changed rows: the cells on screen take their new value in place (only a

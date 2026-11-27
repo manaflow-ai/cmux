@@ -203,6 +203,7 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         defer { LaunchMarks.shared.mark("did_finish_launching_done") }
         // The main thread's first free turn after launch: what runs before the first frame.
         DispatchQueue.main.async { LaunchMarks.shared.mark("first_runloop") }
+        LaunchMarks.shared.markWhenIdle("first_idle")
         UNUserNotificationCenter.current().delegate = self
         // A terminal page turns with the phone.
         TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }

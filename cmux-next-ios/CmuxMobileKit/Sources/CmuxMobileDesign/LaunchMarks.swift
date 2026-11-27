@@ -20,10 +20,16 @@ import SwiftUI
 ///   `init_auth`, `app_init_done`: each of the App's `init` steps ended
 /// - `did_finish_launching`, `did_finish_launching_done`: the app delegate's launch began and ended
 /// - `first_runloop`: the main thread's first free turn after the app delegate's launch
+/// - `first_idle`: the main run loop first went to sleep after the launch, past UIKit's commit of
+///   the frame it built (what is left to `first_frame` is the render server's)
 /// - `root_init`, `root_body`: the root view was first created, and first drew its body
 /// - `shell_model_start`, `shell_model_built`, `shell_model_attached`: the signed-in shell's one model
 ///   began, was built, and was wired to the live coordinator
 /// - `shell_body`, `list_body`: the shell and the Workspaces list first drew their bodies
+/// - `list_make_view`: the Workspaces list's collection view was built
+/// - `list_apply`, `list_apply_done`: the list's first snapshot apply began and ended
+/// - `list_layout`, `list_layout_done`: the list's first layout with a size began and ended
+/// - `terminal_engine_warm`, `terminal_engine_warm_done`: the terminal engine's warm start began and ended
 /// - `first_frame`: the first SwiftUI frame (the launch mark) was presented
 /// - `shell_frame`: the signed-in shell's first frame was presented
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
@@ -72,6 +78,22 @@ public final class LaunchMarks {
         #if DEBUG
         LaunchMarksBoard.shared?.update()
         #endif
+    }
+
+    /// Takes `name` the first time the main run loop is about to sleep, after
+    /// UIKit's commit of the frame built in this turn (the observer's order is
+    /// the last), once per process.
+    public func markWhenIdle(_ name: String) {
+        guard !has(name), pending.insert(name).inserted else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { observer, _ in
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+            // main-proof: the observer is on the main run loop.
+            MainActor.assumeIsolated {
+                LaunchMarks.shared.pending.remove(name)
+                LaunchMarks.shared.mark(name)
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
     /// Takes `name` when the next frame is presented (a one-shot display link),
