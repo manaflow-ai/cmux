@@ -214,14 +214,15 @@ test("the header's clock has one start and one formula, running and ended, and n
   // Running: it ticks from the stretch's start.
   expect(running!.at).toBe(20_000);
   expect(running!.durationMs).toBeUndefined();
-  // The answer has come: the turn folds under its line before its end, which reads from the same
-  // start to the answer.
+  // The answer has come but the turn has not ended: the clock still ticks from the same start, as
+  // calls may run on past the answer (Leo, 2026-11-27: "but shouldn't the worked for count the
+  // timelines of the tool calls").
   const answered = header(live(continuedAnswered, 32_000), "cu");
-  expect(answered!.durationMs).toBe(30_000 - 20_000);
-  // Ended: the same start, the same end.
+  expect(answered!.at).toBe(20_000);
+  expect(answered!.durationMs).toBeUndefined();
+  // Ended: the same start, to the turn's last event (its end), never just the answer.
   const done = header(ended(continuedEnded), "cu");
-  expect(done!.durationMs).toBe(30_000 - 20_000);
-  expect(answered!.durationMs).toBe(done!.durationMs);
+  expect(done!.durationMs).toBe(31_000 - 20_000);
 });
 
 test("the header's clock never decreases, tick by tick, across the answer and the turn's end", () => {
@@ -261,14 +262,15 @@ test("a notice steered in while the agent works keeps the turn's clock at the pr
       shown(turnView(rows, new Set(), { now: 402_000, agentFamily, working }));
     expect(header(view(steered.slice(0, -1), true), "sw")!.at, agentFamily).toBe(0);
     const done = header(view([...steered, summary(404_500, 404_500)], false), "sw");
-    expect(done!.durationMs, agentFamily).toBe(404_000);
+    // To the turn's end, its last event (the wall span), not the answer.
+    expect(done!.durationMs, agentFamily).toBe(404_500);
   }
   // A notice after the agent's reply, with no call between, still starts a stretch of its own.
   const woke = [...steered.slice(0, 3), steered[4]!, steered[5]!, steered[6]!];
-  expect(header(ended([...woke, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  expect(header(ended([...woke, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_500 - 397_000);
   // So does one after a call a history page placed after the reply, though it started before it.
   const paged = [...steered.slice(0, 3), call("sw-early", 299_000, [run("sw-early-1", "rg Reply")]), ...woke.slice(3)];
-  expect(header(ended([...paged, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  expect(header(ended([...paged, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_500 - 397_000);
   // Reopened mid-turn, the calls already read fold away (`readAtOpen`), yet the clock still counts
   // from the prompt: they were the agent at work.
   const reopened = steered.slice(0, -1).map((each) => (each.kind === "activity" ? { ...each, readAtOpen: 1 } : each));

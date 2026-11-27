@@ -70,7 +70,11 @@ const quick = () =>
       at: at(10),
     },
     {
-      ...row("assistant", 1, { id: "quick-wall-answer", text: "feat-cmux-next, clean.", assistantPhase: "final_answer" }),
+      ...row("assistant", 1, {
+        id: "quick-wall-answer",
+        text: "feat-cmux-next, clean.",
+        assistantPhase: "final_answer",
+      }),
       at: at(600),
     },
     {
@@ -89,7 +93,7 @@ export default agentPaneEntry({
   id: "agent-pane.worked-for-wall-span",
   title: "Worked for: the turn's wall span, tools included; 0s under a second",
   area: "Agent pane",
-  height: 320,
+  height: 560,
   covers: [
     "agent-session/acpmux/conversation/turns.ts",
     "agent-session/acpmux/conversation/waterfallSpans.ts",

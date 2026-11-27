@@ -38,7 +38,12 @@ const outlastingTurn = (): AcpmuxRow[] => [
     ],
   }),
   row("answer", 10_300, "assistant", { text: "Queued.", assistantPhase: "final_answer" }),
-  row("summary", 10_300, "turnSummary", { status: "completed", toolCount: 2, durationMs: 300, turnStartedAtMs: 10_000 }),
+  row("summary", 10_300, "turnSummary", {
+    status: "completed",
+    toolCount: 2,
+    durationMs: 300,
+    turnStartedAtMs: 10_000,
+  }),
 ];
 
 test("wallSpan: the earlier of the start and the first span, the later of the end and the last", () => {
@@ -73,7 +78,12 @@ test("a turn under a second reads Worked for 0s", () => {
     row("prompt", 10_000, "user", { text: "Hi" }),
     row("act", 10_010, "activity", { items: [call("one", 10_050, 10_200), call("two", 10_200, 10_400)] }),
     row("answer", 10_500, "assistant", { text: "Done.", assistantPhase: "final_answer" }),
-    row("summary", 10_600, "turnSummary", { status: "completed", toolCount: 2, durationMs: 600, turnStartedAtMs: 10_000 }),
+    row("summary", 10_600, "turnSummary", {
+      status: "completed",
+      toolCount: 2,
+      durationMs: 600,
+      turnStartedAtMs: 10_000,
+    }),
   ];
   const view = turnView(rows, new Set(), { agentFamily: "claude" });
   const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
