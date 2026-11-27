@@ -95,6 +95,7 @@ pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;
 mod digest;
 pub(crate) mod dispatch;
+pub(crate) mod draft_attachments;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 mod acp_version;
@@ -134,7 +135,7 @@ mod git_watch;
 // RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
+pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
@@ -179,6 +180,8 @@ mod key_store;
 pub(crate) mod session_lifecycle;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
+// A closed session's exit record goes to its parent (`exit_notify.rs`).
+mod exit_notify;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
@@ -472,6 +475,7 @@ mod trust_wait;
 mod turn_artifacts;
 mod turn_attestation;
 pub(crate) mod turn_cap;
+mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
