@@ -379,7 +379,7 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
         self.assertIn('context="merge freeze / merge freeze"', status["run"])
         self.assertIs(status["continue-on-error"], True)
         self.assertIn("!github.event.pull_request.draft", status["if"])
-        self.assertEqual(steps["Checkout the merge freeze checker from main"]["with"]["ref"], "main")
+        self.assertEqual(steps["Checkout the merge freeze checker from main"]["with"]["ref"], "refs/heads/main")  # full ref since #56905
         self.assertEqual(risk["jobs"]["evidence"]["permissions"]["statuses"], "write")
 
     def test_risk_tier_skips_a_title_only_edit(self):

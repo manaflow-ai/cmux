@@ -215,7 +215,39 @@ class CollectionTests(unittest.TestCase):
 
         github.graphql.side_effect = graphql
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 3)
+        self.assertEqual(github.graphql.call_count, -(-len(shas) // NOTES.COMMIT_BATCH))
+
+    def test_a_commit_with_more_than_five_prs_is_paged_not_refused(self):
+        sha = "c" * 40
+        github = self.github([{"status": "ahead", "total_commits": 1, "commits": [{"sha": sha}]}])
+        merged = {**self.merged(10, sha), "baseRefName": "main"}
+        opens = [{**self.merged(n, sha), "mergedAt": None, "mergeCommit": None} for n in range(20, 25)]
+
+        def graphql(query):
+            if 'after: "p2"' in query:
+                return {"c0": {"associatedPullRequests": {"pageInfo": {"hasNextPage": False}, "nodes": [merged]}}}
+            return {"c0": {"associatedPullRequests": {"pageInfo": {"hasNextPage": True, "endCursor": "p2"}, "nodes": opens}}}
+
+        github.graphql.side_effect = graphql
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "rc/v1.2.3"), [merged])
+        self.assertEqual(github.graphql.call_count, 2)
+        self.assertIn("first: 5, after", github.graphql.call_args.args[0])
+
+    def test_a_call_label_past_the_first_label_page_is_found(self):
+        sha = "c" * 40
+        github = self.github([{"status": "ahead", "total_commits": 1, "commits": [{"sha": sha}]}])
+        pr = {**self.merged(10, sha), "labels": {"pageInfo": {"hasNextPage": True, "endCursor": "l2"},
+                                                  "nodes": [{"name": f"area-{n}"} for n in range(20)]}}
+
+        def graphql(query):
+            if "pullRequest(number: 10)" in query:
+                self.assertIn('after: "l2"', query)
+                return {"pr": {"labels": {"pageInfo": {"hasNextPage": False}, "nodes": [{"name": "needs-a-call"}]}}}
+            return {"c0": self.associations(pr)}
+
+        github.graphql.side_effect = graphql
+        [found] = NOTES.collect_prs(github, BASE, HEAD, "main")
+        self.assertEqual(NOTES.category(found), "Changed defaults")
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
@@ -243,6 +275,30 @@ class CollectionTests(unittest.TestCase):
                 github.graphql.return_value = {"c0": obj}
                 with self.assertRaises(RuntimeError):
                     NOTES.collect_prs(github, BASE, HEAD, "main")
+
+
+class RequestTests(unittest.TestCase):
+    def test_every_connection_bound_is_numeric_and_small(self):
+        github = Mock(repo=REPO)
+        github.rest.return_value = {"status": "ahead", "total_commits": 1, "commits": [{"sha": "c" * 40}]}
+        github.graphql.return_value = {"c0": {"associatedPullRequests": {"pageInfo": {"hasNextPage": False}, "nodes": []}}}
+        NOTES.collect_prs(github, BASE, HEAD, "main")
+        query = github.graphql.call_args.args[0]
+        bounds = {name: [int(n) for n in re.findall(name + r"\(first: (\d+)", query)]
+                  for name in ("associatedPullRequests", "labels", "files")}
+        self.assertEqual({k: max(v) for k, v in bounds.items()},
+                         {"associatedPullRequests": 5, "labels": 20, "files": 30})
+        self.assertLessEqual(NOTES.COMMIT_BATCH, 4)
+        self.assertNotIn("first: 100", query)
+
+    def test_timeout_is_retried_then_succeeds(self):
+        import subprocess
+        from unittest import mock
+        ok = subprocess.CompletedProcess([], 0, '{"data": {"repository": {}}}', "")
+        with mock.patch.object(NOTES.subprocess, "run", side_effect=[subprocess.TimeoutExpired("gh", 60), ok]) as run, \
+                mock.patch.object(NOTES.time, "sleep"):
+            self.assertEqual(NOTES.GitHub.request(["graphql"])["data"], {"repository": {}})
+        self.assertEqual(run.call_count, 2)
 
 
 class AppcastTests(unittest.TestCase):
@@ -324,6 +380,39 @@ class AppcastTests(unittest.TestCase):
                 NOTES.update_appcasts(directory, "102", "Fresh notes")
             self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
 
+
+    def test_arm64_only_track_updates_its_one_feed(self):
+        # #57110: the nightly publishes appcast-arm64.xml alone; four were required and every publish failed.
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+            self.assertEqual(ET.parse(directory / "appcast-arm64.xml").getroot().findtext("channel/item/description"), "Fresh notes")
+
+    def test_arm64_only_track_still_fails_on_a_missing_or_extra_feed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            before = {name: (directory / name).read_bytes() for name in APPCASTS}
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+            self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
+            (directory / "appcast-arm64.xml").unlink()
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+
+    def test_every_nightly_publish_names_the_feeds_it_ships(self):
+        root = Path(__file__).resolve().parents[1]
+        for workflow in (".github/workflows/nightly.yml", ".github/workflows/auto-resume-nightly-notarization.yml"):
+            with self.subTest(workflow=workflow):
+                text = (root / workflow).read_text()
+                call = text[text.index("scripts/ci/nightly_release_notes.py \\"):]
+                call = call[:call.index("\n\n")]
+                self.assertIn("--feeds appcast-arm64.xml", call)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -57,21 +57,16 @@ jobs:
     # always(), skips too (tests/test_ci_fix_cause_labels_start_no_jobs.py). An open pull request
     # still plans and gates on every label it gets.
     if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-gate-jit-x64' }} # ephemeral-required: trusted tokens; the required-gate JIT label first
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint). The ceiling fits the worst
-    # retried path: probe 3 x 60 s, base checkout 2 x 60 s, head fetch and blob read 3 x 90 s each,
-    # plus backoff (about 15 minutes); a healthy run never comes near it.
-    timeout-minutes: 16
+    # retried path: probe 3 x 60 s, base checkout 3 x 240 s plus its 180 s blob read, head fetch and blob
+    # read 3 x 90 s each, plus 20 s backoff per retried read (about 28 minutes); a healthy run never comes near it.
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
     outputs:
       migrations: ${{ steps.same-tree.outputs.same == 'true' && 'false' || steps.files.outputs.migrations }}
-    env:
-      # The fleet VM's full cmux mirror (pool.sh layer 003-cmux-git-mirror, fetched each minute: branch tips and every
-      # PR's head and merge refs). Every git read below borrows it as an alternate first, so a commit it holds needs no
-      # network. A GitHub-hosted or Blacksmith runner has none, and every step there runs as before.
-      CMUX_GIT_MIRROR: /var/lib/cmux-git/cmux.git
     steps:
       # Most heads never touch migrations, and the full base checkout below took 184 s at p50 on the gate
       # JIT pool for every PR head into main (11-20 13:00Z..11-21 11:00Z, controller timing feed: about
@@ -94,10 +89,13 @@ jobs:
           # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
           # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
           # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          # The low-speed abort is 1 B/s for 60 s, never higher: GitHub sends next to nothing while it builds
+          # the shallow, filtered pack of this 3 GB repository (p50 66 s, p95 286 s), so 1000 B/s for 30 s cut
+          # healthy fetches mid-build. The wall clock (timeout LIMIT) bounds a real hang.
           git_retry() {
             local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
             while :; do
-              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
               [ "$status" -ne 124 ] || err="${err:+$err
           }hung past $limit s"
               [ -z "$err" ] || printf '%s\n' "$err" >&2
@@ -112,13 +110,14 @@ jobs:
               sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
             done
           }
-          # The fleet's mirror holds the base and, within a minute of a push, the head: then nothing is fetched. The
-          # treeless fetch from github.com hung past its 60 s on the gate JIT VMs (run 45767986647, 2026-11-26).
-          if [ -e "${CMUX_GIT_MIRROR:-}/cmux-ready" ] && [ -d "${CMUX_GIT_MIRROR:-}/objects" ]; then
-            printf '%s\n' "${CMUX_GIT_MIRROR:-}/objects" > .git/objects/info/alternates
-          fi
-          if git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null && git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            echo "base and head read from the runner's mirror (${CMUX_GIT_MIRROR:-}), no fetch"
+          # A pool runner's git mirror (fetched each minute: branch tips, every PR's head and merge) holds both
+          # commits nearly always; borrowing its objects answers with no network. GitHub's shallow, filtered
+          # fetch of this repository is what timed out here (60 s, runs 45772484255 and 45744047896).
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
+          inmirror() { [ -e "$mirror/cmux-ready" ] && git -c safe.directory="$mirror" --git-dir="$mirror" cat-file -e "$1^{commit}" 2>/dev/null; }
+          if inmirror "$BASE_SHA" && inmirror "$HEAD_SHA"; then
+            echo "$mirror/objects" > .git/objects/info/alternates
+            echo "base and head read from the runner's git mirror"
           elif ! git_retry "treeless fetch of the base and the head" 60 -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
             echo "treeless fetch failed: full plan"; exit 0
           fi
@@ -137,71 +136,76 @@ jobs:
           else
             echo "base ${base_tree:-unresolved}, head ${head_tree:-unresolved}: full plan"
           fi
-      # The base from the fleet VM's mirror, with no network: the same commit (by sha) actions/checkout would fetch,
-      # checked out sparse into trusted/. On the gate JIT VMs every fetch from github.com stalled: 9 of 16 failed plans
-      # in the 40 newest failed runs (2026-11-26 06:25-07:18Z) were both 60 s checkout attempts timing out, the rest the
-      # head fetch below (run 45767986647: the second attempt fetched in 36 s, then its lazy blob fetch ran out the
-      # minute). A runner without the mirror, or a base it lacks, falls through to the bounded checkout below.
-      - name: Base from the runner's git mirror
-        id: mirror-base
+      # Only backend/ is read from the base (migrate.ts, its lockfile, the migrations). On a pool runner the
+      # base comes from the runner's git mirror (/var/lib/cmux-git/cmux.git, fetched each minute: branch tips
+      # and every PR's head and merge), borrowed through objects/info/alternates: no network. Elsewhere, or
+      # when the mirror lacks the commit, it is a blobless one-commit fetch from github.com. That fetch is
+      # GitHub building a shallow, filtered pack of a 3 GB repository: p50 66 s, p95 286 s on the pool
+      # (2026-11-24, pool.sh's mirror notes), so a 60 s bound failed both attempts on PRs 56905, 53402 and
+      # 57565 on 2026-11-26 while the runner's mirror already held the base. Each network attempt is bounded
+      # with a low-speed abort, tried three times with backoff (git_retry, as every read below), and a failure names its cause.
+      # Freestyle guests (fsr, runner group cmux-freestyle-linux) take this job's gate label too and have no mirror: a
+      # 1.3-9 MB/s link and a git store baked once a day. There the 60 s actions/checkout timed out twice on jobs
+      # 139897638176, 139897631159, 139898168920, 139897472857 and 139898135049 (2026-11-26 12:12-12:15Z), each a false
+      # red of plan and of `backend migrations applied`, so each try gets 240 s and the blob read 180 s.
+      - name: Checkout base (trusted tooling)
+        id: checkout
         if: steps.same-tree.outputs.same != 'true'
+        # 3 x 240 s fetch, 20 s backoff, 180 s blob read: 920 s.
+        timeout-minutes: 17
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          if [ ! -e "${CMUX_GIT_MIRROR:-}/cmux-ready" ] || [ ! -d "${CMUX_GIT_MIRROR:-}/objects" ] || [ -e trusted ]; then
-            echo "no mirror on this runner: actions/checkout fetches the base"; exit 0
-          fi
-          made=""
-          if git init -q trusted && made=1 &&
-             printf '%s\n' "${CMUX_GIT_MIRROR:-}/objects" > trusted/.git/objects/info/alternates &&
-             git -C trusted cat-file -e "$BASE_SHA^{commit}" 2>/dev/null &&
-             git -C trusted remote add origin "https://github.com/$REPO" &&
-             git -C trusted sparse-checkout set --cone backend &&
-             GIT_TERMINAL_PROMPT=0 timeout 60 git -C trusted -c advice.detachedHead=false checkout -q --detach "$BASE_SHA" &&
-             [ "$(git -C trusted rev-parse HEAD)" = "$BASE_SHA" ] && [ -d trusted/backend ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "base $BASE_SHA checked out from the runner's mirror (${CMUX_GIT_MIRROR:-}), no fetch"
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          # The low-speed abort is 1 B/s for 60 s, never higher: GitHub sends next to nothing while it builds
+          # the shallow, filtered pack of this 3 GB repository (p50 66 s, p95 286 s), so 1000 B/s for 30 s cut
+          # healthy fetches mid-build. The wall clock (timeout LIMIT) bounds a real hang.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
+          rm -rf trusted && git init -q trusted && cd trusted || { echo "::error::could not create trusted/"; exit 1; }
+          git remote add origin "https://github.com/$REPO.git"
+          git config gc.auto 0
+          how=""
+          if [ -e "$mirror/cmux-ready" ] && git -c safe.directory="$mirror" --git-dir="$mirror" cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "$mirror/objects" > .git/objects/info/alternates
+            how="the runner's git mirror, no network"
           else
-            echo "the mirror lacks base $BASE_SHA (or the checkout failed): actions/checkout fetches it"
-            [ -z "$made" ] || rm -rf trusted  # only what this step made: trusted did not exist before it
+            if git_retry "base fetch of $BASE_SHA from github.com" 240 -c protocol.version=2 fetch -q --no-tags --filter=blob:none --depth=1 origin "+$BASE_SHA:refs/remotes/origin/base"; then
+              how="github.com"
+            else
+              echo "::error::base fetch of $BASE_SHA from github.com failed (124 is the 240 s bound) on runner ${RUNNER_NAME:-unknown}, and the runner has no git mirror holding it: a fetch problem on this runner, not the PR"
+              exit 1
+            fi
           fi
-      # Only backend/ is read from the base (migrate.ts, its lockfile, the migrations), so the checkout is
-      # blobless and sparse: the full one-commit fetch of main (about 150 MB) hung on the gate pool until the
-      # job's 10-minute cancel on every attempt (run 45091304441). Each attempt is bounded and tried twice,
-      # so a hang fails in about 2 minutes with its cause named.
-      - name: Checkout base (trusted tooling)
-        id: checkout
-        if: steps.same-tree.outputs.same != 'true' && steps.mirror-base.outputs.ok != 'true'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          path: trusted
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: backend
-      - name: Checkout base (trusted tooling), second attempt
-        id: checkout-retry
-        if: steps.same-tree.outputs.same != 'true' && steps.mirror-base.outputs.ok != 'true' && steps.checkout.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          path: trusted
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: backend
-      - name: Base checkout did not finish
-        if: steps.checkout-retry.outcome == 'failure'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-        run: |
-          echo "::error::base checkout of $BASE_SHA from github.com failed or hung past 60 s on both attempts (runner ${RUNNER_NAME:-unknown}): a fetch problem on this runner, not the PR"
-          exit 1
+          git sparse-checkout set --cone backend || { echo "::error::sparse-checkout of backend/ failed"; exit 1; }
+          # A blobless base fetches backend/'s blobs here: bound it too.
+          if ! GIT_TERMINAL_PROMPT=0 timeout 180 git -c advice.detachedHead=false checkout -q --detach "$BASE_SHA"; then
+            echo "::error::checking out backend/ at $BASE_SHA failed or hung past 180 s (from $how) on runner ${RUNNER_NAME:-unknown}"
+            exit 1
+          fi
+          echo "base $BASE_SHA backend/ from $how"
       # The file list, when the migrations tree differs, is read on the manaflow-glaeda-route
       # App's own budget (GITHUB_TOKEN's, which every workflow shares, ran out on 2026-10-21);
       # a failed mint or a refused read uses GITHUB_TOKEN. Pull requests only: a merge group
@@ -222,10 +226,13 @@ jobs:
           # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
           # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
           # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          # The low-speed abort is 1 B/s for 60 s, never higher: GitHub sends next to nothing while it builds
+          # the shallow, filtered pack of this 3 GB repository (p50 66 s, p95 286 s), so 1000 B/s for 30 s cut
+          # healthy fetches mid-build. The wall clock (timeout LIMIT) bounds a real hang.
           git_retry() {
             local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
             while :; do
-              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
               [ "$status" -ne 124 ] || err="${err:+$err
           }hung past $limit s"
               [ -z "$err" ] || printf '%s\n' "$err" >&2
@@ -240,20 +247,35 @@ jobs:
               sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
             done
           }
-          # A head the mirror already holds (trusted/ borrows its objects) needs no fetch.
-          git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || exit 1
+          # A head the runner's mirror already holds (trusted/ borrows its objects when it served the base) needs no fetch.
+          git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null ||
+            git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || exit 1
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request_target' && steps.trees.outputs.same == 'false'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the glaeda-route token
         id: glaeda-token
         if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request_target' && steps.trees.outputs.same == 'false'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: read
@@ -276,10 +298,13 @@ jobs:
           # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
           # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
           # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          # The low-speed abort is 1 B/s for 60 s, never higher: GitHub sends next to nothing while it builds
+          # the shallow, filtered pack of this 3 GB repository (p50 66 s, p95 286 s), so 1000 B/s for 30 s cut
+          # healthy fetches mid-build. The wall clock (timeout LIMIT) bounds a real hang.
           git_retry() {
             local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
             while :; do
-              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
               [ "$status" -ne 124 ] || err="${err:+$err
           }hung past $limit s"
               [ -z "$err" ] || printf '%s\n' "$err" >&2
@@ -295,7 +320,7 @@ jobs:
             done
           }
           # The trees step above fetched the head already; fetch only a commit this clone lacks.
-          fetch_head() { git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"; }
+          fetch_head() { git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head"; }
           case "$BASE_REF" in refs/heads/main|refs/heads/feat-cmux-next|main|feat-cmux-next) ;; *) echo "::error::unexpected base branch"; exit 1 ;; esac
           if [ "$EVENT" = pull_request_target ]; then
             # Most PRs never touch migrations: decide that from git before using the API. The
@@ -393,7 +418,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-gate-jit-x64' }} # ephemeral-required: trusted tokens; the required-gate JIT label first
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-staging
@@ -404,7 +429,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: gh api -X DELETE "repos/$REPO/issues/$PR/labels/backend:apply-migrations" || true
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -428,12 +453,12 @@ jobs:
 
   apply-production:
     needs: apply-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-gate-jit-x64' }} # ephemeral-required: trusted tokens; the required-gate JIT label first
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-production
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -469,7 +494,7 @@ jobs:
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-gate-jit-x64' }} # ephemeral-required: trusted tokens; the required-gate JIT label first
     # Under 10s without migration changes; with them, bun install and a verify.
     timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
@@ -484,7 +509,7 @@ jobs:
       - name: No migration changes, or merge queue (verified at PR time)
         if: needs.plan.outputs.migrations != 'true' || github.event_name == 'merge_group'
         run: echo "nothing to verify here (no migration changes, or a merge group of PRs whose gate passed)"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
