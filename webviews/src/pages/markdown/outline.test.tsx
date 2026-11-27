@@ -140,7 +140,9 @@ test("a click opens the contents; a heading there scrolls to it and closes them"
   await unmount();
 });
 
-test("pointing opens the contents and leaving closes them; a pinned panel stays", async () => {
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("resting on the rail opens the contents, leaving closes them after a grace; a pinned panel stays", async () => {
   const { host, unmount } = await mount(HEADINGS);
   const nav = host.querySelector<HTMLElement>(".md-outline")!;
   const rail = host.querySelector<HTMLButtonElement>(".md-outline-rail")!;
@@ -150,8 +152,14 @@ test("pointing opens the contents and leaving closes them; a pinned panel stays"
   const leave = () =>
     nav.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
   await act(async () => enter());
+  // A sweep past the rail opens nothing; a rest does.
+  expect(host.querySelector(".md-outline-panel")).toBeNull();
+  await act(async () => wait(200));
   expect(host.querySelector(".md-outline-panel")).not.toBeNull();
   await act(async () => leave());
+  // Crossing the gap to the contents keeps them: they close only after the grace.
+  expect(host.querySelector(".md-outline-panel")).not.toBeNull();
+  await act(async () => wait(260));
   expect(host.querySelector(".md-outline-panel")).toBeNull();
   await act(async () => rail.click());
   await act(async () => leave());

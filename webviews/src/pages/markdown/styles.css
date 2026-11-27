@@ -1723,12 +1723,13 @@ body {
 }
 
 .md-outline {
-  position: absolute;
-  top: var(--ds-space-6);
+  position: fixed;
+  top: 50%;
   left: var(--ds-space-1);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   max-height: calc(100vh - var(--ds-space-6) * 3);
+  transform: translateY(-50%);
 }
 
 .md-outline-rail {
@@ -1745,8 +1746,14 @@ body {
   cursor: default;
 }
 
-.md-outline[data-open] .md-outline-rail {
-  background: var(--cmux-md-accent-background);
+.md-outline-dash {
+  transition:
+    opacity var(--cmux-motion-quick) var(--cmux-ease-out),
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+
+.md-outline[data-open] .md-outline-dash:not([data-active]) {
+  opacity: 0.35;
 }
 
 /* Each depth sets its dash's inset (`--md-dash-inset`); the dash fills the rest of the rail. */
@@ -1795,6 +1802,20 @@ body {
   box-shadow: var(--cmux-md-popover-shadow);
   font-size: var(--cmux-md-popover-font-size);
   user-select: none;
+  animation: md-outline-in var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+
+@keyframes md-outline-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-outline-panel {
+    animation: none;
+  }
 }
 
 .md-outline-item {
@@ -1827,8 +1848,7 @@ body {
 }
 
 .md-outline-item[aria-current] {
-  color: var(--cmux-md-text-color);
-  font-weight: 600;
+  color: var(--cmux-md-link-color);
 }
 
 /* Print or Save as PDF: the rendered document alone, on white, at its full length. The toolbar,
