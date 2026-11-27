@@ -1631,6 +1631,50 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
   --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
+# Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product area". The relevance map
+# (docs/benches/relevance-map.toml) and `cmux-bench for-paths`: the prefix index agrees with the old scan on random
+# paths, a 2,000-path change resolves in under 1 s and stays flat at 10x the rules, each risky area of
+# docs/benches/coverage-map.md has a mapping, every template exists, and the generated units match the layout.
+[step.bench-relevance-map]
+job = "linux"
+timeout = 180
+title = "Bench relevance map"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+inputs = [
+  "docs/benches/*",
+  "docs/benches/templates/*",
+  "scripts/bench/cmux-bench",
+  "scripts/bench/benchlib/relevance.py",
+  "tests/test_bench_relevance_map.py",
+  "cmux-tui/crates/*/Cargo.toml",
+  "cmux-next-ios/rust/crates/*/Cargo.toml",
+  "Packages/*/*/Package.swift",
+]
+run = "python3 -I tests/test_bench_relevance_map.py"
+
+# What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
+# for them, in the advisory log. Fail open: an unmapped path is a warning, a base with no for-paths or a broken map
+# is a notice, and nothing here fails a check. The benches and tests themselves run in their own routed steps.
+[step.bench-relevance]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 60
+title = "Benches and tests for these paths"
+about = "cmux-bench for-paths on the pull request's paths: areas, benches, targeted tests, check templates; unmapped paths warn"
+run = '''
+if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
+  echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
+  exit 0
+fi
+paths="${CI_PATHS_FILE:-$RUNNER_TEMP/paths.txt}"
+if [ ! -s "$paths" ]; then
+  echo "::notice::No changed-paths list; for-paths has nothing to read."
+  exit 0
+fi
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
+'''
+
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
 # it. When git could not list the paths it reads the files API, into its own file: the other steps run
 # beside it and read paths.txt.
