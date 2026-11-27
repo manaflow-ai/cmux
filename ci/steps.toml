@@ -371,6 +371,7 @@ inputs = [
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
+  "scripts/ci/ios_fast_dispatch.py",
   "scripts/ci/proof_record.py",
   "scripts/ci/ui_proof_verdict.py",
   "scripts/cmux-next/hot-verify.py",
@@ -383,6 +384,7 @@ inputs = [
   "tests/test_ci_timing_readout.py",
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
+  "tests/test_ci_ios_fast_dispatch.py",
   "tests/test_ci_routed_jobs_check_needs.py",
   "scripts/ci/cmux_next_pair_e2e.py",
   "tests/test_cmux_next_pair_e2e_guards.py",
@@ -392,6 +394,7 @@ status=0
 python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 tests/test_ci_ios_fast_dispatch.py || status=1
 python3 -I tests/test_ci_proof_record.py || status=1
 python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
@@ -3268,6 +3271,9 @@ alone = true
 title = "App Store shelf"
 about = "every App Store listing installs and shows something (the three cmux-tui shelf tests run and pass)"
 needs = ["rust", "zig"]
+# The nightly's shelf job runs the same script on the build commit; its red reds the run and files
+# report-nightly-shelf-red (it holds no publish since 2026-11-25). cmux#46903 reached it only through
+# `first-party-apps/**`, which --pr-scope left to the post-merge batch, so the nightly found it (fix cmux#61540).
 inputs = [
   ".github/workflows/app-store-shelf.yml",
   "first-party-apps/**",
@@ -3288,6 +3294,39 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
 unset CMUX_ZIG ZIG
 bash scripts/ci/app-store-shelf-check.sh
+'''
+
+# The nightly's "Generate third-party notices (cmux-next)" generates the Rust notices from the tree and refuses a
+# crate whose license it does not accept: cmux#59540 added jpeg-encoder (IJG) and the nightly stopped there hours
+# after the merge. cmux-next-guards.yml's rust-notices-tree runs the same command only with full-ci, so a landing
+# head on the affected tier never ran it; this step does (pr_router.py nightly_gate_steps). The inputs are that
+# job's filter.
+[step.rust-notices]
+job = "linux"
+# cmux-next-guards.yml's rust-notices-tree bound (25 min) less its checkout; cargo metadata over every workspace.
+alone = true
+timeout = 1200
+title = "Rust third-party notices (as the nightly generates them)"
+about = "the third-party notices generate from this tree's Rust crates and Swift packages, every license accepted"
+needs = ["rust"]
+nightly = [
+  "nightly.yml:nightly-next-one:Generate third-party notices (cmux-next)",
+  "nightly.yml:build-nightly-app:Generate third-party notices (cmux-next)",
+]
+inputs = [
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "scripts/cmux-next/remote-browser-host.pin.json",
+  "cmux-tui/build-support/notices/**",
+  "scripts/cmux-next/generate-third-party-notices.sh",
+  "scripts/cmux-next/notices/**",
+  "Packages/macOS/CmuxNext/Package.resolved",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$RUNNER_TEMP/cmux-notices" \
+  ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+  --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 '''
 
 # cmux-vm-clients.yml's rust job; its sdk job is the step cmux-vm-sdk, and `inputs` is the filter the two jobs

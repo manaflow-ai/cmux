@@ -2616,6 +2616,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-nat-probe"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-netwatch"
 version = "0.1.0"
 dependencies = [
