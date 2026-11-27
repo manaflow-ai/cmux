@@ -1377,11 +1377,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Workspace naming (hq#1957): the name a workspace made from a moved tab
         // takes, and the name a default-named workspace takes from its front tab
-        // (live label, or variant B's one-time rename). Pure rules; the App
-        // supplies its browser pages, New Tab pages and the rename command.
+        // (live label, or variant B's one-time rename). The rules are Rust's
+        // (cmux-workspace-naming, over the app FFI); the App supplies its browser
+        // pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextBridge",
                 "CmuxNextCompat",

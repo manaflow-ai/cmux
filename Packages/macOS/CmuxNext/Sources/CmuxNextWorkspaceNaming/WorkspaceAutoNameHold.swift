@@ -10,38 +10,41 @@
 /// observable: rows map under observation and must not write what they
 /// observe; a row maps again when its tab's name comes back, which is all a
 /// held name waits for. The app owns one (`AppServices.autoNameHold`).
+/// The held names live in Rust (`cmux-workspace-naming` `hold`), under this hold's id.
 @MainActor
 public final class WorkspaceAutoNameHold {
-    /// By workspace id, then by namer (`WorkspaceAutoNameReader.namer`): the name it gave last.
-    private var held: [String: [String: String]] = [:]
-    /// By workspace id: the launch name and chat of a workspace its launcher named after that chat's agent. acpmux
-    /// keeps only a few `formerNames` and drops one another session takes, so after enough renames the launch name
-    /// is no longer among them; this keeps the workspace following its agent anyway.
-    private var launcherNamed: [String: String] = [:]
+    private let id: UInt64
+    private let rules = WorkspaceNamingRules()
 
-    public init() {}
+    public init() { id = rules.nextID() }
+
+    nonisolated deinit { rules.send("hold_drop", HoldRequest(hold: id)) }
 
     /// The name a row shows: `label` when its namer gives one (held from now
     /// on), else the name the same namer gave last, else nil.
     func settle(workspace: String, namer: String, label: String?) -> String? {
-        guard let label else { return held[workspace]?[namer] }
-        if held[workspace]?[namer] != label { held[workspace, default: [:]][namer] = label }
-        return label
+        rules.string("hold_settle", HoldRequest(hold: id, workspace: workspace, namer: namer, label: label), key: "name")
     }
 
     /// Whether `workspace`, named `name`, is launcher-named after the agent of `session`: `matches` (its name is
     /// one the agent has had) now, or it matched before under the same name and chat. Remembers a match.
     func launcherNamed(workspace: String, name: String, session: String, matches: Bool) -> Bool {
-        let key = session + "\u{0}" + name
-        if matches {
-            if launcherNamed[workspace] != key { launcherNamed[workspace] = key }
-            return true
-        }
-        return launcherNamed[workspace] == key
+        rules.flag("hold_launcher_named", HoldRequest(hold: id, workspace: workspace, name: name, session: session, matches: matches),
+                   key: "launcher_named")
     }
 
     /// The user named `workspace`: nothing held for it outlives that name.
     func forget(workspace: String) {
-        if held[workspace] != nil { held[workspace] = nil }
+        rules.send("hold_forget", HoldRequest(hold: id, workspace: workspace))
+    }
+
+    private nonisolated struct HoldRequest: Encodable {
+        var hold: UInt64
+        var workspace: String?
+        var namer: String?
+        var label: String?
+        var name: String?
+        var session: String?
+        var matches: Bool?
     }
 }
