@@ -232,7 +232,10 @@ for (const arm of ["own", "turn", "calm"])
   });
 
 test("a retry shimmers as Thinking does", () => {
-  const html = renderToStaticMarkup(<Thinking since={0} now={() => NOW} retry={{ attempt: 2, maxRetries: 10 }} />);
+  // Retrying for a minute, past the quiet bound a retry waits before the line says so.
+  const html = renderToStaticMarkup(
+    <Thinking since={0} now={() => NOW} retry={{ attempt: 2, maxRetries: 10 }} retryAt={NOW - 60_000} />,
+  );
   expect(html).toContain(`cv-thinking ${SHIMMER_CLASS} cv-retrying`);
   expect(html).toContain("cv-shimmer__band");
 });
