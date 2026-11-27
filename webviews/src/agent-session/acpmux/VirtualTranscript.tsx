@@ -95,6 +95,7 @@ import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
 import { transition, type MotionList, registerListScroll, runningTransition } from "./conversation/motionOwner";
+import { captureRowFlip, endRowFlip, playRowFlip, type RowFlip } from "./conversation/rowFlip";
 import { type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
@@ -1278,6 +1279,9 @@ function TranscriptView({
   // The list the motion owner drives (set by the scroller's effect below), and the fold the click's
   // capture already declared a transition for (`declareFold`).
   const motionListRef = useRef<MotionList | undefined>(undefined);
+  /// The list's FLIP of the rows under a disclosure (rowFlip.ts), read before the change and played
+  /// after each placement until its clock ends.
+  const rowFlip = useRef<RowFlip | undefined>(undefined);
   const declaredFold = useRef<string | undefined>(undefined);
   // A disclosure's change (useDisclosure.ts, transcriptDisclosureModel.ts) as one transition of the
   // motion owner, anchored on the row it is drawn in. A click on a fold toggle already declared its
@@ -2836,6 +2840,8 @@ function TranscriptView({
   /// between activity rows (Leo, 2026-11-17: "why is there this big gap when i have shit expanded").
   /// Call it outside a commit (a task, a frame, an animation's event, a microtask): it may render.
   const settleMotion = useCallback(() => {
+    endRowFlip(rowFlip.current);
+    rowFlip.current = undefined;
     const threadNode = thread.current;
     if (threadNode) {
       const pinnedRow = pinnedLiveRow(threadNode);
@@ -5737,6 +5743,17 @@ function TranscriptView({
     },
     [],
   );
+  // After every commit, before the frame paints: a placement under a disclosure plays its rows from
+  // where they were drawn (O(mounted rows under the toggle), only while the flip's clock runs). A
+  // fold that moves whole rows (turnFold.ts) or a turn's end folding (turnEndFold.ts) moves those
+  // rows itself: the flip lands at once, so no row plays two motions.
+  useLayoutEffect(() => {
+    const flip = rowFlip.current;
+    if (!flip) return;
+    if (!turnFold.current && !turnEnd.current && playRowFlip(flip, performance.now())) return;
+    endRowFlip(flip);
+    if (rowFlip.current === flip) rowFlip.current = undefined;
+  });
   // Read at the click, so the callback stays the same across snapshots (rows compare it).
   const foldInputs = useRef({ layout, expanded, sessionId });
   foldInputs.current = { layout, expanded, sessionId };
@@ -5748,6 +5765,10 @@ function TranscriptView({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
+      // This fold moves the rows under the line itself: the list's flip of them, read at the click's
+      // capture (`declareFold`), lands first.
+      endRowFlip(rowFlip.current);
+      rowFlip.current = undefined;
       // A turn's end still folding lands first: the reader's own fold starts from the rows drawn.
       settleTurnEnd(host, turnEnd.current);
       turnEnd.current = undefined;
@@ -6768,7 +6789,31 @@ function TranscriptView({
         const at = ids.indexOf(rowId);
         return at < 0 ? [] : ids.slice(at + 1);
       },
-      settle: () => {},
+      // The rows under a disclosure play from where they were drawn to where the list places them
+      // (rowFlip.ts): one clock of `MOTION_MS.micro`, read before the change. A fold at the very
+      // bottom moves the rows above it instead (`bottomStackFold`): nothing here moves.
+      capture: (rowId, ids) => {
+        endRowFlip(rowFlip.current);
+        rowFlip.current = undefined;
+        const threadNode = thread.current;
+        const anchor = threadNode?.querySelector<HTMLElement>(
+          `:scope > .acpmux-row[data-row-id="${CSS.escape(rowId)}"]`,
+        );
+        if (!threadNode || !anchor || bottomStackFold.current || !(foldMs(anchor) > 0)) return;
+        const moving = new Set(ids);
+        const rows: HTMLElement[] = [];
+        for (const row of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
+          if (moving.has(row.dataset.rowId!)) rows.push(row);
+        rowFlip.current = captureRowFlip(anchor, rows, {
+          now: performance.now(),
+          ms: MOTION_MS.micro,
+          easing: foldMotion.easing(anchor),
+        });
+      },
+      settle: () => {
+        endRowFlip(rowFlip.current);
+        rowFlip.current = undefined;
+      },
     };
     motionListRef.current = motionList;
     // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
