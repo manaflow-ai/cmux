@@ -257,6 +257,47 @@ case "$(uname -m)" in
 esac
 
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
+
+# ZIG_KEEP_DIR: a directory on this runner that keeps the verified, patched Zig
+# install between jobs, at the version-pinned path ZIG_KEEP_DIR/ZIG_NAME. A kept
+# install answers at once (no download, no extraction), even with
+# ZIG_FORCE_LOCAL_INSTALL=1: it is never the system zig, and its marker names the
+# pinned tarball SHA-256 (scripts/ci/zig-tarballs.sha256) it came from. The first
+# job on a runner that lacks it installs there, so every later job reuses it.
+# Why: nightly-next-one downloaded ghostty-next's Zig 0.17.0 on every cold job
+# (2.6 min in run 45562645699; 21 min in run 45581454962 when two mirrors failed).
+ZIG_KEEP_DIR="${ZIG_KEEP_DIR:-}"
+ZIG_KEEP_DIR="${ZIG_KEEP_DIR%/}"
+ZIG_KEEP_MARKER=".cmux-zig-tarball-sha256"
+
+pinned_zig_sha256() {
+  if [ -n "$ZIG_EXPECTED_SHA256" ]; then
+    printf '%s\n' "$ZIG_EXPECTED_SHA256"
+    return 0
+  fi
+  awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' \
+    "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true
+}
+
+kept_zig_is_valid() {
+  local root="$1"
+  local pinned
+  pinned="$(pinned_zig_sha256)"
+  [ -n "$pinned" ] || return 1
+  [ -f "$root/$ZIG_KEEP_MARKER" ] || return 1
+  [ "$(cat "$root/$ZIG_KEEP_MARKER" 2>/dev/null || true)" = "$pinned" ] || return 1
+  [ -f "$root/lib/std/std.zig" ] || return 1
+  zig_std_is_reviewed "$root/lib" || return 1
+  [ -x "$root/zig" ] || return 1
+  [ "$("$root/zig" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ]
+}
+
+if [ -n "$ZIG_KEEP_DIR" ] && kept_zig_is_valid "$ZIG_KEEP_DIR/$ZIG_NAME"; then
+  echo "zig ${ZIG_REQUIRED} already kept at ${ZIG_KEEP_DIR}/${ZIG_NAME}"
+  publish_zig_for_later_steps "${ZIG_KEEP_DIR}/${ZIG_NAME}/zig"
+  exit 0
+fi
+
 mkdir -p "$ZIG_WORK_PARENT"
 ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
 cleanup_work_root() {
@@ -286,6 +327,109 @@ ZIG_SOURCE_RESERVE_SECONDS="${ZIG_SOURCE_RESERVE_SECONDS:-90}"
 # or a reused runner's cache). A cached tarball is used only when it matches
 # the expected SHA-256; any other file there is deleted.
 ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-}"
+# The build-fleet worker on every owned Mac keeps a tree of each Zig pin in use,
+# <fleet>/tools/zig-<version> (cmuxterm-hq build-fleet/cmd/worker
+# toolchain_provision.go: the ziglang.org tarball, its sha256 checked against
+# the download index, unpacked as is). A job that finds the tree of
+# ZIG_REQUIRED takes it instead of downloading: the nightly spent 2.6 minutes
+# installing Zig. A Zig that needs the std fix gets a clone of the tree (APFS
+# clonefile, no bytes copied) that the fix is applied to; the fleet's tree is
+# never edited. An empty ZIG_FLEET_TOOLS_DIR turns this off (tests).
+ZIG_FLEET_TOOLS_DIR="${ZIG_FLEET_TOOLS_DIR-${CMUX_FLEET_DIR:-/Users/Shared/cmux-build-fleet}/tools}"
+ZIG_FROM_FLEET_TREE=0
+# The unpacked, std-fixed Zig tree, kept in the CI cache bucket (scripts/ci/r2-cache.sh, a tar.zst) under
+# zig_tree_key: the tarball's pinned SHA-256 and the fixed std file's SHA-256. A runner with no Zig restores
+# it instead of downloading and unpacking the .tar.xz. Why: on 2026-11-25 the fast tier (cargo) job of
+# cmux#55016 (Freestyle runner fsr-1795642087-817423) spent 37 min in this script: 90 s downloading, 31 min
+# in `tar xf` of the xz tarball and 5 min in `sudo cp -R` of the tree, and its 30-min job timeout cancelled
+# it; a healthy Freestyle runner takes 14 s. zig-tarball-r2.sh seed saves the tree from feat-cmux-next. A
+# restored tree is used only when its zig reports ZIG_REQUIRED and its std is the reviewed one
+# (zig_std_is_reviewed); anything else is a miss and the verified download runs. ZIG_TREE_R2_URL is the
+# bucket's public URL (default https://ci-cache-next.cmux.com under GitHub Actions; empty turns it off).
+if [ -z "${ZIG_TREE_R2_URL+set}" ] && [ "${GITHUB_ACTIONS:-}" = true ]; then
+  ZIG_TREE_R2_URL=https://ci-cache-next.cmux.com
+fi
+ZIG_TREE_R2_URL="${ZIG_TREE_R2_URL:-}"
+ZIG_TREE_NAMESPACE="${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+
+# The cache key of the patched tree; fails when the tarball has no pinned SHA-256.
+zig_tree_key() {
+  local pinned
+  pinned="$(awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' \
+    "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true)"
+  [ -n "$pinned" ] || return 1
+  printf 'zig-tree-v1-%s-%s-%s\n' "$ZIG_NAME" "$(printf '%s' "$pinned" | cut -c1-16)" \
+    "$(printf '%s' "${ZIG_STD_PATCH_TO:-unpatched}" | cut -c1-16)"
+}
+
+if [ "${ZIG_PRINT_TREE_KEY:-0}" = 1 ]; then
+  zig_tree_key
+  exit 0
+fi
+
+# Restore the patched tree from the bucket into ZIG_DIR. Returns 1, saying why, on any miss.
+restore_zig_tree_from_bucket() {
+  [ -n "$ZIG_TREE_R2_URL" ] || return 1
+  [ -f "$SCRIPT_DIR/ci/r2-cache.sh" ] || return 1
+  local key
+  key="$(zig_tree_key)" || return 1
+  local dest="${ZIG_WORK_ROOT}/tree-cache"
+  local started="$SECONDS"
+  CI_CACHE_R2_PUBLIC_URL="$ZIG_TREE_R2_URL" CI_CACHE_R2_NAMESPACE="$ZIG_TREE_NAMESPACE" GITHUB_OUTPUT='' \
+    bash "$SCRIPT_DIR/ci/r2-cache.sh" restore "$dest" "$key" >/dev/null 2>&1 || true
+  local tree="$dest/$ZIG_NAME"
+  if [ ! -x "$tree/zig" ]; then
+    echo "no cached zig tree ${key}; downloading the tarball" >&2
+    rm -rf "$dest"
+    return 1
+  fi
+  if [ "$("$tree/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] || [ ! -f "$tree/lib/std/std.zig" ] \
+      || ! zig_std_is_reviewed "$tree/lib"; then
+    echo "the cached zig tree ${key} is not a reviewed zig ${ZIG_REQUIRED}; downloading the tarball" >&2
+    rm -rf "$dest"
+    return 1
+  fi
+  rm -rf "$ZIG_DIR"
+  mv "$tree" "$ZIG_DIR"
+  rm -rf "$dest"
+  echo "zig ${ZIG_REQUIRED}: restored the patched tree ${key} from the CI cache in $((SECONDS - started)) s (no download, no unpack of the .tar.xz)"
+}
+
+# Use the fleet's prebaked tree of ZIG_REQUIRED when there is one. Publishes it
+# and exits when its std is already the reviewed one; else clones it to
+# ZIG_DIR (ZIG_FROM_FLEET_TREE=1) for the std fix and install below. Returns 1,
+# saying why, when there is no usable tree (the caller downloads).
+use_fleet_zig_tree() {
+  [ -n "$ZIG_FLEET_TOOLS_DIR" ] || return 1
+  local tree="${ZIG_FLEET_TOOLS_DIR%/}/zig-${ZIG_REQUIRED}"
+  if [ ! -x "$tree/zig" ]; then
+    if [ -d "$ZIG_FLEET_TOOLS_DIR" ]; then
+      echo "no fleet-prebaked zig ${ZIG_REQUIRED} at ${tree}; downloading it" >&2
+    fi
+    return 1
+  fi
+  if [ "$("$tree/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] || [ ! -f "$tree/lib/std/std.zig" ]; then
+    echo "the fleet zig tree ${tree} is not a complete zig ${ZIG_REQUIRED}; downloading it" >&2
+    return 1
+  fi
+  if zig_std_is_reviewed "$tree/lib"; then
+    echo "zig ${ZIG_REQUIRED}: using the fleet-prebaked tree ${tree} (no download)"
+    publish_zig_for_later_steps "$tree/zig"
+    exit 0
+  fi
+  rm -rf "$ZIG_DIR"
+  # -c: clonefile on APFS (macOS cp); anything else copies.
+  if ! cp -cR "$tree" "$ZIG_DIR" 2>/dev/null; then
+    rm -rf "$ZIG_DIR"
+    if ! cp -R "$tree" "$ZIG_DIR"; then
+      rm -rf "$ZIG_DIR"
+      echo "could not copy the fleet zig tree ${tree}; downloading it" >&2
+      return 1
+    fi
+  fi
+  echo "zig ${ZIG_REQUIRED}: cloned the fleet-prebaked tree ${tree} for the std fix (no download)"
+  ZIG_FROM_FLEET_TREE=1
+}
 
 download_now_seconds() {
   # Tests may provide a monotonic clock file so retry/deadline behavior can be
@@ -492,7 +636,42 @@ verify_zig_sha256() {
   fi
 }
 
+# Move the verified, patched tree to ZIG_KEEP_DIR/ZIG_NAME and publish it. A
+# kept copy that turned valid meanwhile (a concurrent job on this runner) wins
+# and ours is dropped; a broken one is replaced. Any failure returns 1 and the
+# caller installs job-locally as before.
+install_zig_kept() {
+  local target="${ZIG_KEEP_DIR}/${ZIG_NAME}"
+  local staged="${ZIG_KEEP_DIR}/.${ZIG_NAME}.$$"
+  mkdir -p "$ZIG_KEEP_DIR" 2>/dev/null || return 1
+  rm -rf "$staged"
+  pinned_zig_sha256 > "$ZIG_DIR/$ZIG_KEEP_MARKER" || return 1
+  mv "$ZIG_DIR" "$staged" || { rm -rf "$staged"; return 1; }
+  if kept_zig_is_valid "$target"; then
+    rm -rf "$staged"
+    echo "zig ${ZIG_REQUIRED} was kept at ${target} by another job meanwhile"
+  else
+    rm -rf "$target"
+    # On any miss, hand the tree back to the caller's job-local install.
+    if ! mv "$staged" "$target" 2>/dev/null; then
+      mv "$staged" "$ZIG_DIR"
+      return 1
+    fi
+    if ! kept_zig_is_valid "$target"; then
+      mv "$target" "$ZIG_DIR"
+      return 1
+    fi
+    echo "kept zig ${ZIG_REQUIRED} at ${target} for later jobs on this runner"
+  fi
+  publish_zig_for_later_steps "${target}/zig"
+  "${target}/zig" version
+}
+
 install_zig_without_sudo() {
+  if [ -n "$ZIG_KEEP_DIR" ] && [ -z "${ZIG_INSTALL_ROOT:-}" ] && [ -n "$(pinned_zig_sha256)" ]; then
+    install_zig_kept && return 0
+    echo "could not keep zig ${ZIG_REQUIRED} under ${ZIG_KEEP_DIR}; installing it job-locally" >&2
+  fi
   local install_parent="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
   local install_root="${ZIG_INSTALL_ROOT:-${install_parent}}"
   local source_root
@@ -538,7 +717,14 @@ install_zig_with_sudo() {
   esac
   sudo mkdir -p "$bin_dir" "$lib_dir"
   sudo rm -rf "${lib_dir}/zig" "$install_root"
-  sudo cp -R "$ZIG_DIR" "$install_root"
+  # ZIG_DIR is this run's own scratch copy: move it (a rename on one filesystem) rather than copy it file by
+  # file (`sudo cp -R` took 5 min on a slow Freestyle disk, 2026-11-25), then make it root's as a copy was.
+  if ! sudo mv "$ZIG_DIR" "$install_root"; then
+    sudo rm -rf "$install_root"
+    sudo cp -R "$ZIG_DIR" "$install_root"
+  fi
+  # Owned by whoever sudo runs as (root on a runner), as `sudo cp -R` left it.
+  sudo chown -R "$(sudo id -u):$(sudo id -g)" "$install_root"
   sudo ln -s "${install_root}/lib" "${lib_dir}/zig"
   # Zig 0.16 on Linux can derive lib_dir from the invoked /usr/local/bin/zig
   # symlink instead of the target executable. A wrapper pins the library root
@@ -562,62 +748,70 @@ install_zig_with_sudo() {
   "${bin_dir}/zig" version
 }
 
-echo "Installing verified zig ${ZIG_REQUIRED}"
-rm -f "$ZIG_TAR" "$ZIG_SIG"
-ZIG_DOWNLOAD_START_SECONDS="$(download_now_seconds)"
-case "$ZIG_DOWNLOAD_START_SECONDS" in
-  ''|*[!0-9]*)
-    echo "Invalid download clock value: ${ZIG_DOWNLOAD_START_SECONDS}" >&2
-    exit 1
-    ;;
-esac
-ZIG_DOWNLOAD_DEADLINE_SECONDS=$((ZIG_DOWNLOAD_START_SECONDS + ZIG_DOWNLOAD_BUDGET_SECONDS))
-echo "Zig download budget: ${ZIG_DOWNLOAD_BUDGET_SECONDS}s"
-ZIG_MINISIGN_AVAILABLE=0
-if command -v minisign >/dev/null 2>&1; then
-  ZIG_MINISIGN_AVAILABLE=1
-fi
-ZIG_RESOLVED_SHA256="$(resolve_zig_sha256)"
-ZIG_CACHED_TAR=""
-ZIG_CACHED_SIG=""
-if [ -n "$ZIG_TARBALL_CACHE_DIR" ]; then
-  ZIG_CACHED_TAR="${ZIG_TARBALL_CACHE_DIR}/${ZIG_NAME}.tar.xz"
-  ZIG_CACHED_SIG="${ZIG_CACHED_TAR}.minisig"
-fi
-ZIG_FROM_CACHE=0
-if [ -n "$ZIG_CACHED_TAR" ] && [ -f "$ZIG_CACHED_TAR" ]; then
-  cp "$ZIG_CACHED_TAR" "$ZIG_TAR"
-  if verify_zig_sha256 "$ZIG_RESOLVED_SHA256" >/dev/null 2>&1; then
-    ZIG_FROM_CACHE=1
-    echo "Using the verified cached Zig tarball ${ZIG_CACHED_TAR}"
-  else
-    echo "Cached Zig tarball ${ZIG_CACHED_TAR} does not match the expected SHA-256; discarding it" >&2
-    rm -f "$ZIG_TAR" "$ZIG_CACHED_TAR" "$ZIG_CACHED_SIG"
+# Download, verify and unpack the Zig tarball into ZIG_DIR.
+install_downloaded_zig_tree() {
+  echo "Installing verified zig ${ZIG_REQUIRED}"
+  rm -f "$ZIG_TAR" "$ZIG_SIG"
+  ZIG_DOWNLOAD_START_SECONDS="$(download_now_seconds)"
+  case "$ZIG_DOWNLOAD_START_SECONDS" in
+    ''|*[!0-9]*)
+      echo "Invalid download clock value: ${ZIG_DOWNLOAD_START_SECONDS}" >&2
+      exit 1
+      ;;
+  esac
+  ZIG_DOWNLOAD_DEADLINE_SECONDS=$((ZIG_DOWNLOAD_START_SECONDS + ZIG_DOWNLOAD_BUDGET_SECONDS))
+  echo "Zig download budget: ${ZIG_DOWNLOAD_BUDGET_SECONDS}s"
+  ZIG_MINISIGN_AVAILABLE=0
+  if command -v minisign >/dev/null 2>&1; then
+    ZIG_MINISIGN_AVAILABLE=1
   fi
-fi
-if [ "$ZIG_FROM_CACHE" -eq 0 ]; then
-  download_zig_artifact "" "$ZIG_TAR"
-  verify_zig_sha256 "$ZIG_RESOLVED_SHA256"
-  if [ -n "$ZIG_CACHED_TAR" ]; then
-    mkdir -p "$ZIG_TARBALL_CACHE_DIR"
-    cp "$ZIG_TAR" "${ZIG_CACHED_TAR}.tmp.$$" && mv -f "${ZIG_CACHED_TAR}.tmp.$$" "$ZIG_CACHED_TAR"
+  ZIG_RESOLVED_SHA256="$(resolve_zig_sha256)"
+  ZIG_CACHED_TAR=""
+  ZIG_CACHED_SIG=""
+  if [ -n "$ZIG_TARBALL_CACHE_DIR" ]; then
+    ZIG_CACHED_TAR="${ZIG_TARBALL_CACHE_DIR}/${ZIG_NAME}.tar.xz"
+    ZIG_CACHED_SIG="${ZIG_CACHED_TAR}.minisig"
   fi
-fi
+  ZIG_FROM_CACHE=0
+  if [ -n "$ZIG_CACHED_TAR" ] && [ -f "$ZIG_CACHED_TAR" ]; then
+    cp "$ZIG_CACHED_TAR" "$ZIG_TAR"
+    if verify_zig_sha256 "$ZIG_RESOLVED_SHA256" >/dev/null 2>&1; then
+      ZIG_FROM_CACHE=1
+      echo "Using the verified cached Zig tarball ${ZIG_CACHED_TAR}"
+    else
+      echo "Cached Zig tarball ${ZIG_CACHED_TAR} does not match the expected SHA-256; discarding it" >&2
+      rm -f "$ZIG_TAR" "$ZIG_CACHED_TAR" "$ZIG_CACHED_SIG"
+    fi
+  fi
+  if [ "$ZIG_FROM_CACHE" -eq 0 ]; then
+    download_zig_artifact "" "$ZIG_TAR"
+    verify_zig_sha256 "$ZIG_RESOLVED_SHA256"
+    if [ -n "$ZIG_CACHED_TAR" ]; then
+      mkdir -p "$ZIG_TARBALL_CACHE_DIR"
+      cp "$ZIG_TAR" "${ZIG_CACHED_TAR}.tmp.$$" && mv -f "${ZIG_CACHED_TAR}.tmp.$$" "$ZIG_CACHED_TAR"
+    fi
+  fi
 
-if [ "$ZIG_MINISIGN_AVAILABLE" -eq 1 ]; then
-  if [ -n "$ZIG_CACHED_SIG" ] && [ -f "$ZIG_CACHED_SIG" ]; then
-    cp "$ZIG_CACHED_SIG" "$ZIG_SIG"
+  if [ "$ZIG_MINISIGN_AVAILABLE" -eq 1 ]; then
+    if [ -n "$ZIG_CACHED_SIG" ] && [ -f "$ZIG_CACHED_SIG" ]; then
+      cp "$ZIG_CACHED_SIG" "$ZIG_SIG"
+    else
+      download_zig_artifact ".minisig" "$ZIG_SIG"
+      if [ -n "$ZIG_CACHED_SIG" ]; then cp "$ZIG_SIG" "$ZIG_CACHED_SIG"; fi
+    fi
+    minisign -Vm "$ZIG_TAR" -x "$ZIG_SIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
   else
-    download_zig_artifact ".minisig" "$ZIG_SIG"
-    if [ -n "$ZIG_CACHED_SIG" ]; then cp "$ZIG_SIG" "$ZIG_CACHED_SIG"; fi
+    echo "minisign not found; verified Zig tarball with SHA-256 from ${ZIG_INDEX_URL}"
   fi
-  minisign -Vm "$ZIG_TAR" -x "$ZIG_SIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
-else
-  echo "minisign not found; verified Zig tarball with SHA-256 from ${ZIG_INDEX_URL}"
-fi
 
-rm -rf "$ZIG_DIR"
-tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
+  rm -rf "$ZIG_DIR"
+  tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
+}
+
+use_fleet_zig_tree || true
+if [ "$ZIG_FROM_FLEET_TREE" -eq 0 ] && ! restore_zig_tree_from_bucket; then
+  install_downloaded_zig_tree
+fi
 patch_zig_std "$ZIG_DIR/lib"
 # The system zig (/usr/local/bin/zig) is the classic ghostty submodule's Zig.
 # A host that runs both classic and ghostty-next jobs must keep it: a job that

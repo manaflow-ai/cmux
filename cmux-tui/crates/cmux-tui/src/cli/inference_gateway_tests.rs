@@ -522,7 +522,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     // Ghost calls: tasks whose provider call never ends and that no `cancel` reaches.
     let ghosts: Vec<_> = (0..unreserved)
         .map(|_| {
-            let slot = slots.try_take(false).expect("a slot under the share");
+            let slot = slots.try_take(false).expect("a permit under the share");
             tokio::spawn(async move {
                 std::future::pending::<()>().await;
                 drop(slot);
@@ -542,7 +542,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     // A `cancel` aborts the call's task: dropping it frees the slot (RAII), and the waiter takes it.
     ghosts[0].abort();
     let taken = waiter.await.unwrap();
-    assert!(taken.is_some(), "the freed slot goes to the waiting call");
+    assert!(taken.is_some(), "the freed permit goes to the waiting call");
     assert_eq!(slots.in_flight(), unreserved);
     for ghost in &ghosts {
         ghost.abort();
@@ -553,7 +553,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     assert_eq!(
         slots.in_flight(),
         1,
-        "every aborted call gave its slot back; the waiter's is the one left"
+        "every aborted call gave its permit back; the waiter's is the one left"
     );
 }
 
@@ -610,7 +610,7 @@ async fn a_call_past_the_wait_gets_a_529_overloaded_error_with_a_jittered_retry_
     assert_eq!(body["error"]["type"], "overloaded_error");
     assert_eq!(body["error"]["code"], "inference.gateway_busy");
     assert_eq!(frames[2]["t"], "end");
-    assert_eq!(slots.in_flight(), MAX_CALLS, "a busy call takes no slot");
+    assert_eq!(slots.in_flight(), MAX_CALLS, "a busy call takes no permit");
     drop(held);
 }
 
@@ -620,4 +620,17 @@ fn busy_retry_after_is_full_jitter_within_its_bound() {
     assert!(samples.iter().all(|s| (1..=BUSY_RETRY_AFTER_MAX_S).contains(s)));
     let distinct: std::collections::HashSet<_> = samples.iter().collect();
     assert!(distinct.len() > 5, "spread out, not one value: {distinct:?}");
+}
+
+/// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
+/// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
+#[test]
+fn call_line_splits_head_from_stream() {
+    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
+    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
+    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
+    let longest =
+        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
 }

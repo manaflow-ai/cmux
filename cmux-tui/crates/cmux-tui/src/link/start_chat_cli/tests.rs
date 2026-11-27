@@ -1614,6 +1614,17 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     );
     assert_eq!(asked.borrow().len(), 1);
 
+    // With the install token on stdin after the session's, the ensure sends the install token: the
+    // platform's machine route verifies a team claim, which the session's lacks (its 401 in production).
+    let with_install = plan_with(
+        &path,
+        &request(&self::key(), "user-leo/"),
+        &mut "session-1\ninstall-1\n".as_bytes(),
+        &made,
+    );
+    assert_eq!(with_install["machine"], json!("vm-hot"), "{with_install}");
+    assert_eq!(asked.borrow().last().map(|(_, credential)| credential.as_str()), Some("install-1"));
+
     // A team's send, and a personal one without the credential flag, keep the App's create.
     let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
     let team =

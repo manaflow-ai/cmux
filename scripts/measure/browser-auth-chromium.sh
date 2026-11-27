@@ -108,6 +108,7 @@ cli="$app/Contents/Resources/bin/cmux"
 [[ -x "$cli" ]] || cli="$(command -v cmux || true)"
 mkdir -p "$work/bin" && ln -sf "$cli" "$work/bin/cmux"
 PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" \
+  --app-pid "$(cat "$CMUX_SIDE_ROOT/$name/pid" 2>/dev/null || echo 0)" --diag-dir "$out" \
   ${only:+--only "$only"} 2>&1 | tee "$out/fixture.log"
 [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
 "$side" stop "$name" >&2 || true
