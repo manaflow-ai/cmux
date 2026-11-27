@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::wire::{
-    Anchor, FolderPageResult, FolderPosition, FolderRow, FolderWindow, ListView, Page, Position,
-    Sub,
+    Anchor, FolderPageResult, FolderPosition, FolderRow, FolderWindow, ListView, Page, PageSide,
+    Position, Sub,
 };
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{RowKey, Summary};
 use serde_json::value::RawValue;
 use std::fs::OpenOptions;
@@ -13,20 +14,6 @@ use std::time::Instant;
 
 const ROUNDS: usize = 5;
 const SAMPLES: usize = 200;
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    let index = ((values.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-    values.get(index).copied().unwrap_or(1)
-}
-
-fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-    rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(1)
-}
-
-fn pooled_p95(rounds: &[Vec<u128>]) -> u128 {
-    p95(&mut rounds.iter().flatten().copied().collect::<Vec<_>>())
-}
 
 fn gate(name: &str, small: u128, god: u128, god_all: u128) {
     let line = format!(
@@ -67,7 +54,7 @@ fn window_request() -> Sub {
 }
 
 fn deep_request(count: usize, cursor: usize) -> Page {
-    let mut page = Page::new("folders", "list", crate::wire::PageSide::After, 0);
+    let mut page = Page::new("folders", "list", PageSide::After, 0);
     page.view = Some(ListView::Folders);
     page.max_bytes = folder_page_budget();
     page.after = Some(Position::Folder(FolderPosition {
@@ -151,12 +138,23 @@ fn folders_serving_release_gates() {
     assert!(small_window.has_after && god_window.has_after);
     let small_window = measure_window(&small_hub, &request);
     let god_window = measure_window(&god_hub, &request);
+    gate_rounds::report(
+        "v2.pr05f.serving_window",
+        &[("small", &small_window), ("god", &god_window)],
+    );
     let small = best_p95(&small_window);
     let god = best_p95(&god_window);
-    let all_god = pooled_p95(&god_window);
-    assert!(god <= small.saturating_mul(12) / 10, "window ratio {god}/{small}");
-    assert!(all_god <= small.saturating_mul(2), "window pooled ratio {all_god}/{small}");
+    let all_god = all_p95(&god_window);
+    // Each row is written before it is judged, and every judgement waits for the last row, so one
+    // red row neither hides its own numbers nor the next row's ("the gate did not report a measure").
     gate("v2.pr05f.serving_window", small, god, all_god);
+    let mut failures = Vec::new();
+    if god > small.saturating_mul(12) / 10 {
+        failures.push(format!("window ratio {god}/{small}"));
+    }
+    if all_god > small.saturating_mul(2) {
+        failures.push(format!("window pooled ratio {all_god}/{small}"));
+    }
 
     let small_page = deep_request(5, 0);
     let god_page = deep_request(2_000, 999);
@@ -175,10 +173,19 @@ fn folders_serving_release_gates() {
     assert!(small_page_result.has_after && god_page_result.has_after);
     let small_rounds = measure_page(&small_hub, &small_page);
     let god_rounds = measure_page(&god_hub, &god_page);
+    gate_rounds::report("v2.pr05f.serving_page", &[("small", &small_rounds), ("god", &god_rounds)]);
     let small = best_p95(&small_rounds);
     let god = best_p95(&god_rounds);
-    let all_god = pooled_p95(&god_rounds);
-    assert!(god <= small.saturating_mul(12) / 10, "page ratio {god}/{small}");
-    assert!(all_god <= small.saturating_mul(2), "page pooled ratio {all_god}/{small}");
+    let all_god = all_p95(&god_rounds);
     gate("v2.pr05f.serving_page", small, god, all_god);
+    if god > small.saturating_mul(12) / 10 {
+        failures.push(format!("page ratio {god}/{small}"));
+    }
+    if all_god > small.saturating_mul(2) {
+        failures.push(format!("page pooled ratio {all_god}/{small}"));
+    }
+    assert!(
+        failures.is_empty(),
+        "PR5f serving gate failures (all rows were emitted): {failures:?}"
+    );
 }

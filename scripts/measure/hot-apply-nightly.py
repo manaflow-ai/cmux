@@ -33,6 +33,7 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
 
 ROOT = Path(__file__).resolve().parents[2]
 HOT = ROOT / "scripts/cmux-next/hot-apply.py"
+OTHER = "hotapply-other"  # the second session (sessions=1), as a Chief's beside the app's own
 
 
 def load(name: str, path: Path):
@@ -107,6 +108,39 @@ def version(cli: Path) -> str:
     return subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
 
 
+HOST_MARKS = ("cmux-tui-host", "__terminal-host", "cmux-holder", "__holder")
+
+
+def processes() -> list[dict]:
+    rows = []
+    for line in subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,command="], capture_output=True,
+                               text=True).stdout.splitlines():
+        pid, ppid, command = (line.split(None, 2) + ["", ""])[:3]
+        if pid.isdigit():
+            rows.append({"pid": int(pid), "ppid": int(ppid), "command": command})
+    return rows
+
+
+def terminal_hosts(app: Path, terms: list[dict]) -> dict:
+    """The copy's terminal-host processes (pid, ppid, command) and the host each shell runs under (its
+    parent): a host no shell runs under is the standby spare the daemon keeps for its next terminal."""
+    rows = processes()
+    hosts = [r for r in rows if str(app) in r["command"] and any(m in r["command"] for m in HOST_MARKS)]
+    parent = {r["pid"]: r["ppid"] for r in rows}
+    shells = {t["terminal_id"]: {"shell_pid": t["shell_pid"], "host_pid": parent.get(int(t["shell_pid"] or 0))}
+              for t in terms}
+    serving = {v["host_pid"] for v in shells.values()}
+    return {"hosts": [dict(h, command=h["command"][:300], serves_a_shell=h["pid"] in serving) for h in hosts],
+            "shells": shells}
+
+
+def same_hosts(before: dict, after: dict) -> bool:
+    """Every shell runs under the host it ran under before, and that host is still up."""
+    up = {h["pid"] for h in after["hosts"]}
+    return all(after["shells"].get(t, {}).get("host_pid") == v["host_pid"] and v["host_pid"] in up
+               for t, v in before["shells"].items())
+
+
 def shells_survive(sock: str, terms: list[dict], token: str) -> dict:
     """Each shell still runs (same shell pid), its marker is on screen, and new input echoes."""
     out = {}
@@ -130,10 +164,20 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--pid-file", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--prefetch", action="store_true", help="run `hot-apply.py prefetch SHA` before the apply")
+    parser.add_argument("--sessions", action="store_true",
+                        help="a second session's daemon from the copy's bin (as a Chief's) with a shell, and "
+                             "`apply --restart-sessions`: it must be handed over and back with its shell kept")
+    parser.add_argument("--acpmux", action="store_true",
+                        help="`apply --restart-acpmux`: every acpmux daemon from the copy's bin restarts, its "
+                             "sessions resume (the receipt's acpmux layer)")
+    parser.add_argument("--rounds", type=int, default=1,
+                        help="after the checked round, apply and roll back ROUNDS-1 more times (exit codes checked): "
+                             "samples for each layer's p95 (`hot-apply.py layers`)")
     args = parser.parse_args()
     app, out = Path(args.app), Path(args.out)
     cli = (app / hot.BIN / "cmux").resolve()
-    receipt: dict = {"app_commit": hot.app_commit(app), "sha": args.sha, "checks": {}}
+    receipt: dict = {**hot.app_commit_receipt(app), "sha": args.sha, "checks": {}}
     t0 = time.monotonic()
     app_pid = int(Path(args.pid_file).read_text().strip())
     # A fresh copy starts its terminal daemon with its first terminal. A new workspace opens on the
@@ -172,7 +216,41 @@ def main() -> int:
             and t["marker"] in s and shell_pid(s, "PID0") and s)
         t["shell_pid"] = shell_pid(screen, "PID0")
 
-    code, applied = run_hot("apply", args.sha, "--app", str(app), "--socket", sock, "--parts", "rust")
+    other = None
+    if args.sessions:
+        # Another session's owner from the same bin, as the app runs its Chief's: started by the copy's CLI.
+        ensured = subprocess.run([str(cli), "--session", OTHER, "--json", "server", "ensure"], capture_output=True,
+                                 text=True, timeout=60)
+        started = json.loads(ensured.stdout or "{}")
+        other = {"socket": started.get("socket"), "pid": started.get("pid")}
+        receipt["other_session"] = dict(other)
+        receipt["checks"]["other_session_started"] = bool(other["socket"] and other["pid"])
+        made = request(Path(other["socket"]), {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
+        other["terms"] = [{"terminal_id": made["terminal_id"], "surface": made["surface"],
+                           "marker": f"hot-apply-{os.getpid()}-other"}]
+        for t in other["terms"]:
+            request(Path(other["socket"]), {"cmd": "send", "surface": t["surface"],
+                                            "text": f"echo {t['marker']}; echo PID$((0))=$$\n"})
+            screen = wait_until("marker", time.monotonic() + 15, lambda t=t: (
+                s := request(Path(other["socket"]), {"cmd": "read-screen", "surface": t["surface"]}).get("text") or "")
+                and t["marker"] in s and shell_pid(s, "PID0") and s)
+            t["shell_pid"] = shell_pid(screen, "PID0")
+
+    def handed(done: dict | None) -> dict:
+        """The other session's row in a receipt's rust step: handed to a new owner, with its time."""
+        rows = [r for r in ((done or {}).get("steps", {}).get("rust", {}).get("sessions") or [])
+                if r.get("socket") == other["socket"]]
+        return rows[0] if rows else {}
+
+    receipt["terminal_hosts"] = {"before_apply": terminal_hosts(app, terms)}
+    if args.prefetch:
+        # As once CI publishes SHA: everything apply needs is fetched and checked first, so the apply only swaps.
+        code, fetched = run_hot("prefetch", args.sha, "--app", str(app))
+        receipt["prefetch"] = {"exit": code, "seconds": (fetched or {}).get("seconds"),
+                               "phases": (fetched or {}).get("phases")}
+    apply_args = ("apply", args.sha, "--app", str(app), "--socket", sock, "--parts", "rust",
+                  *(["--restart-sessions"] if other else []), *(["--restart-acpmux"] if args.acpmux else []))
+    code, applied = run_hot(*apply_args)
     receipt["apply"] = applied
     rust = (applied or {}).get("steps", {}).get("rust", {})
     receipt["applied_version"] = version(cli)
@@ -180,7 +258,19 @@ def main() -> int:
     receipt["checks"]["applied_rust"] = "rust" in (applied or {}).get("applied", [])
     receipt["checks"]["bin_is_published_sha"] = sha256(cli) == rust.get("to") and rust.get("to") != before
     receipt["checks"]["new_daemon_owner"] = bool(rust.get("new_pid")) and rust.get("new_pid") != rust.get("old_pid")
+    if args.acpmux:
+        restarted = (applied or {}).get("steps", {}).get("acpmux") or []
+        receipt["checks"]["acpmux_restarted_from_new_daemon"] = bool(restarted) and all(
+            r.get("new_pid") and r.get("new_pid") != r.get("old_pid") for r in restarted)
     receipt["after_apply_shells"] = shells_survive(sock, terms, "applied")
+    receipt["terminal_hosts"]["after_apply"] = terminal_hosts(app, terms)
+    receipt["checks"]["apply_keeps_each_shell_s_host"] = same_hosts(receipt["terminal_hosts"]["before_apply"],
+                                                                    receipt["terminal_hosts"]["after_apply"])
+    if other:
+        row = handed(applied)
+        receipt["other_session_apply"] = row
+        receipt["checks"]["other_session_handed_over"] = bool(row.get("new_pid")) and row.get("new_pid") != other["pid"]
+        receipt["after_apply_other_shells"] = shells_survive(other["socket"], other["terms"], "applied")
 
     code, rolled = run_hot("rollback", "--app", str(app), "--socket", sock)
     receipt["rollback"] = rolled
@@ -190,8 +280,37 @@ def main() -> int:
     receipt["checks"]["bin_is_nightly_sha_again"] = sha256(cli) == before
     receipt["checks"]["rollback_new_daemon_owner"] = bool(back.get("new_pid")) and back.get("new_pid") != back.get("old_pid")
     receipt["after_rollback_shells"] = shells_survive(sock, terms, "rolledback")
+    receipt["terminal_hosts"]["after_rollback"] = terminal_hosts(app, terms)
+    receipt["checks"]["rollback_keeps_each_shell_s_host"] = same_hosts(receipt["terminal_hosts"]["before_apply"],
+                                                                       receipt["terminal_hosts"]["after_rollback"])
+    if other:
+        row = handed(rolled)
+        receipt["other_session_rollback"] = row
+        receipt["checks"]["other_session_handed_back"] = bool(row.get("new_pid")) and \
+            row.get("new_pid") != (receipt["other_session_apply"] or {}).get("new_pid")
+        receipt["after_rollback_other_shells"] = shells_survive(other["socket"], other["terms"], "rolledback")
+        subprocess.run([str(cli), "--session", OTHER, "server", "stop", "--end-terminals"], capture_output=True,
+                       timeout=60)
 
-    for stage in ("after_apply_shells", "after_rollback_shells"):
+    extra, applies = [], [applied]
+    for n in range(2, args.rounds + 1):
+        # More samples for each layer's p95: the same swap and its rollback, exit codes only.
+        code_a, again = run_hot(*apply_args)
+        code_r, _ = run_hot("rollback", "--app", str(app), "--socket", sock)
+        applies.append(again)
+        extra.append({"round": n, "apply_exit": code_a, "rollback_exit": code_r, "layers": (again or {}).get("layers")})
+        if code_a or code_r:
+            break
+    if extra:
+        receipt["rounds"] = extra
+        receipt["checks"]["every_round_exit_0"] = all(not r["apply_exit"] and not r["rollback_exit"] for r in extra)
+        receipt["after_rounds_shells"] = shells_survive(sock, terms, "rounds")
+        receipt["checks"]["after_rounds_shells_kept"] = all(
+            v["same_shell"] and v["marker_kept"] for v in receipt["after_rounds_shells"].values())
+    receipt["layers"] = hot.layer_summary(json.dumps(r) for r in applies if r)
+
+    for stage in ("after_apply_shells", "after_rollback_shells") + (
+            ("after_apply_other_shells", "after_rollback_other_shells") if other else ()):
         receipt["checks"][f"{stage}_kept"] = all(v["same_shell"] and v["marker_kept"] for v in receipt[stage].values())
     try:
         os.kill(app_pid, 0)

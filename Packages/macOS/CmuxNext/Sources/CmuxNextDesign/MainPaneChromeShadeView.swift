@@ -25,7 +25,7 @@ public final class MainPaneChromeShadeView: NSView {
     /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
-    /// Repaints the divider on a live change to `chrome.dividerStrength` (Debug Settings), as the update and the
+    /// Repaints the divider on a live change to `chrome.dividerStrength` or `chrome.tabRowDivider` (Debug Settings), as the update and the
     /// appearance do.
     private var dividerStrengthWatch: Task<Void, Never>?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
@@ -48,7 +48,7 @@ public final class MainPaneChromeShadeView: NSView {
         dividerLayer.fillRule = .evenOdd
         layer?.addSublayer(dividerLayer)
         dividerStrengthWatch = Task { [weak self] in
-            for await _ in ObservationStream({ ChromeTunables.dividerStrength.value }) { self?.rebuild() }
+            for await _ in ObservationStream({ (ChromeTunables.dividerStrength.value, ChromeTunables.tabRowDivider.value) }) { self?.rebuild() }
         }
     }
 
@@ -160,7 +160,8 @@ public final class MainPaneChromeShadeView: NSView {
             path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
             shade.path = path
         }
-        shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
+        // Black, or Subtle Tone's ink (`Metrics.chromeFrameInk`), in the window's theme scope.
+        shade.fillColor = performWithTheme { Metrics.chromeFrameInk() }.withAlphaComponent(alpha).cgColor
     }
 }
 

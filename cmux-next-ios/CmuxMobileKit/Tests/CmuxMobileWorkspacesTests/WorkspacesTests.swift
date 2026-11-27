@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -28,12 +29,21 @@ import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
 
+/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
+/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
+/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
+@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
+    source.paneFilter = PaneFilterSetting(defaults: nil)
+    source.paneFilter.showsBrowsers = true
+    return source
+}
+
 @MainActor @Suite struct WorkspaceTabsSourceTests {
     func make(_ memory: [String: String] = [:], backend: (any WorkspaceCreationBackend)? = MockWorkspaceCreationBackend(latency: .zero))
         -> (AppStore, WorkspaceTabsSource) {
         let store = AppStore.mock(tabMemory: .inMemory(memory))
         let creator = backend.map { WorkspaceCreator(store: store, backend: $0) }
-        return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
+        return (store, everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator)))
     }
 
     /// Close Tabs to the Left / to the Right: the unpinned tabs before or after the tab in its
@@ -140,6 +150,23 @@ import SwiftUI
         #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone.") == true)
     }
 
+    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". Another + while a
+    /// tab is opening opens right after it, never "Still opening … Try again once it's open."
+    @Test func aSecondNewTabWhileOneIsOpeningOpensAfterIt() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .milliseconds(50))
+        let (_, source) = make(backend: backend)
+        let count = source.tabs.count
+        let agent = try #require(source.newTabOptions.first { $0.id == "agent" })
+        let terminal = try #require(source.newTabOptions.first { $0.title == "New Terminal" })
+        _ = await source.createTab(agent)
+        #expect(source.pendingTabTitle == agent.title)
+        _ = await source.createTab(terminal)
+        #expect(source.toastText?.contains("Try again") != true)
+        for _ in 0..<300 where source.tabs.count < count + 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.count == count + 2)
+        #expect(source.pendingTabTitle == nil)
+    }
+
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
     /// Chat (its default agent), never one "New Claude Chat" per harness; another agent or
     /// model is one step away (New Agent Chat With…).
@@ -243,7 +270,7 @@ import SwiftUI
         #expect(source.toastText?.contains("your Mac") == false)
         // Agents not connected yet: the entry stays, the chooser does not.
         older.kinds = [.terminal]
-        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected. Try again in a moment.")]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
     }
 
@@ -289,6 +316,33 @@ import SwiftUI
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(source.tabs.first?.id == order[1])
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
+    }
+
+    /// A terminal link the terminal sends to the Mac (its dev server on a tap, or any page
+    /// through the link menu's Open on Mac) opens in a browser tab beside the terminal on the
+    /// Mac; with no tab to open it beside, it opens on this iPhone, never nothing. Which links
+    /// a tap sends here is `TerminalLinkRoute` and the Rust `link_open_side` (Leo, 2026-11-14:
+    /// "if you're in the terminal and you highlight a link and it's a github.com link").
+    @Test func aTerminalLinkSentToTheMacOpensBesideTheTerminal() async throws {
+        let (store, source) = make()
+        var onPhone: [URL] = []
+        source.openOnPhone = { onPhone.append($0) }
+        let count = source.tabs.count
+        let dev = URL(string: "http://localhost:3000/")!
+        await source.openLink(dev, fromTab: "t-zsh")
+        #expect(onPhone.isEmpty)
+        #expect(source.tabs.count == count + 1)
+        let opened = try #require(store.workspace(id: "ws-cmux")?.tabs.last)
+        #expect(opened.url == dev && opened.kind == .browser && source.openedTab == opened.id)
+
+        // Open on Mac for a public page: the Mac opens it too.
+        let github = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
+        await source.openLink(github, fromTab: "t-zsh")
+        #expect(onPhone.isEmpty)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.last?.url == github)
+
+        await source.openLink(github, fromTab: "t-gone")
+        #expect(onPhone == [github])
     }
 
     /// A page's link that opens a new tab or window (`rb.open_tab`): a browser tab beside the
@@ -553,7 +607,7 @@ import SwiftUI
     @Test func forkToANewWorkspaceNamesThisMacsWorkspace() async throws {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         let backend = ForkToWorkspaceBackend(store: store)
-        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend))
+        let source = everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend)))
         let chat = try #require(source.workspaceTab("t-claude"))
         await source.fork("t-claude", to: .workspace)
         #expect(source.toastText == "Forked \(chat.title) to Forked Here.")
@@ -565,6 +619,9 @@ import SwiftUI
         let claude = try #require(source.tabs.first { $0.id == "t-claude" })
         let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
         #expect(menu.contains("Fork Conversation…") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        // Its glyph is the pack's agent.fork split arrow (CmuxSymbol.fork), not the system branch symbol.
+        let forkRow = try #require(source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" })
+        #expect(forkRow.systemImage == CmuxSymbol.fork && forkRow.symbolBundle == CmuxSymbol.bundle)
         // Fork Conversation… asks where (the Mac's fork destinations); In a New Tab is the fork beside it.
         source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" }?.action()
         #expect(source.forkingTab?.id == "t-claude")
@@ -637,12 +694,24 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
-    @Test func everyActivationIsRememberedButReopeningStartsAtTheTopLeft() {
+    @Test func everyActivationIsRemembered() {
         let (store, source) = make()
         source.activate("t-zsh")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-zsh")
-        // Reopening the workspace starts at its opening tab again (no layout: the first).
-        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        #expect(store.lastActiveTabByWorkspace["ws-cmux"] == "t-zsh")
+    }
+
+    /// Back to the list and into the workspace again (a new screen, as the list's tap pushes):
+    /// the tab that was on screen, not the first (Leo 2026-11-14).
+    @Test func reenteringTheWorkspaceOpensTheTabLeftOnScreen() {
+        let (store, first) = make()
+        first.opened()
+        #expect(first.activeTabID == "t-claude")
+        first.activate("t-zsh")
+        let reentered = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(reentered.activeTabID == "t-zsh")
+        reentered.opened()
+        #expect(reentered.activeTabID == "t-zsh")
     }
 
     /// A notification or Feed item for a tab of the workspace already on screen rebuilds its
@@ -662,7 +731,7 @@ import SwiftUI
         #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
     }
 
-    @Test func aRequestedTabOpensOnceThenTheTopLeftAgain() {
+    @Test func aRequestedTabIsTakenOnceThenTheTabLeftOnScreenOpens() {
         let (store, _) = make()
         store.requestOpen(tabID: "t-docs", in: "ws-cmux")
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
@@ -670,7 +739,9 @@ import SwiftUI
         source.opened()
         #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
         #expect(source.activeTabID == "t-docs")
-        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        source.activate("t-zsh")
+        // The request is spent: the next screen opens where this one was left.
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
     @Test func closingTheActiveTabActivatesItsNeighbor() async {
@@ -690,6 +761,21 @@ import SwiftUI
         #expect(source.tabs.last?.id == id)
         #expect(source.activeTabID == id)
         #expect(store.lastTabByWorkspace["ws-cmux"] == id)
+    }
+
+    /// Leo, 2026-11-25: "the top area is black and has no background nor theming". The band
+    /// behind the top bar over a terminal is the terminal's ground, never the kit's black;
+    /// other pages keep the kit's band.
+    @Test func aTerminalsTopBarBandIsItsPagesGround() throws {
+        let (_, source) = make()
+        let tabs = Dictionary(uniqueKeysWithValues: source.tabs.map { ($0.id, $0) })
+        let terminal = try #require(tabs["t-zsh"])
+        #expect(source.topBarGround(for: terminal) != nil, "a terminal's band shows its ground")
+        #expect(tabs["t-claude"].flatMap { source.topBarGround(for: $0) } == nil)
+        #expect(tabs["t-docs"].flatMap { source.topBarGround(for: $0) } == nil)
+        // The ground's color is the terminal theme's background, as the page under the bar.
+        let theme = CmuxMobileTerminalThemes.shared.theme(for: source.workspace?.macID) ?? .stock
+        #expect(TerminalPageGround.background(macID: source.workspace?.macID) == theme.backgroundColor)
     }
 
     @Test func tabsMapToTabsKitChrome() {

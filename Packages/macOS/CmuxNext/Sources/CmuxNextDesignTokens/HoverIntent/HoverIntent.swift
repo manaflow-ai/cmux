@@ -3,20 +3,21 @@ public import Foundation
 /// The app's one hover-intent policy (Leo, 2026-10-14: tooltips and hover
 /// cards appeared at once everywhere). Tooltips wait before the first one
 /// shows, then a neighbor's shows at once while the group is warm; hover
-/// cards wait longer, stay while the pointer heads into them, and linger a
-/// moment after it leaves. The native sidebar row and tab cards wait
-/// the default delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
+/// cards wait Chrome's delay (`cardDelay`, below), stay while the pointer heads into them, and
+/// linger a moment after it leaves. The native sidebar row and tab cards wait
+/// that delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
 /// Pages use the same numbers
 /// (webviews/src/ui/hoverIntent.ts, `HOVER_INTENT`; a web test reads this
 /// file and fails when they drift).
 ///
 /// Apple's numbers: AppKit's tooltip waits `NSInitialToolTipDelay`
 /// (milliseconds; about 1000 ms at the default setting), and once one
-/// shows, the next view's tooltip shows at once. cmux waits 450 ms (Leo,
-/// 2026-10-14: 400-500): a pointer crossing a 24-30 pt toolbar button at
+/// shows, the next view's tooltip shows at once. cmux waits 250 ms (Leo,
+/// 2026-10-14 asked 400-500; 2026-11-22, on a keyed tooltip: "such a
+/// bullshit long hover"): a pointer crossing a 24-30 pt toolbar button at
 /// sweep speed (300-1000 pt/s) is on it for 30-100 ms, far under the delay,
 /// so a sweep still shows nothing, while a deliberate rest gets its answer
-/// in under half a second instead of AppKit's full second. The warm time
+/// in a quarter second instead of AppKit's full second. The warm time
 /// (500 ms) is the gap between two buttons a reader moves across. Each
 /// value is a tunable (Debug > Tunables > Hover).
 public nonisolated struct HoverIntentTiming: Hashable, Sendable {
@@ -39,7 +40,7 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
 
     /// The defaults (`HOVER_INTENT` in webviews/src/ui/hoverIntent.ts mirrors these).
     public static let standard = HoverIntentTiming(
-        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
+        tooltipDelay: .milliseconds(250), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
 
     /// The values now, with any tunable override.
     public static var current: HoverIntentTiming {
@@ -50,6 +51,54 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
     }
 
     private static func duration(_ seconds: Double) -> Duration { .milliseconds(Int((max(0, seconds) * 1_000).rounded())) }
+}
+
+/// Hover card timing: the one source every hover card in the app reads (sidebar workspace rows,
+/// pinned rows, the rail, tabs, group headers and chips, the Update Ready card, Home link chips;
+/// the pages' cards read the same numbers from `HOVER_INTENT` in webviews/src/ui/hoverIntent.ts,
+/// and webviews/test/hover-intent-parity.test.ts fails when they drift).
+/// webviews/test/hover-card-timing-source.test.ts fails when a hover card source names a delay of its own.
+///
+/// Chrome's numbers (Lawrence 2026-11-15, msg 32286: "copy chrome's delay exactly, make sure to
+/// read chrome's source code ... make sure it is consistent between every thing"), read in
+/// Chromium at 6845f5c3ba82 (2026-11-15):
+/// - chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc `GetShowDelay`:
+///   `kMinimumTriggerDelay` 300 ms for a tab at pinned width, rising on a log scale to
+///   `kMaximumTriggerDelay` 800 ms at standard width, plus `kTabHoverCardAdditionalMaxWidthDelay`
+///   (features param, default 500 ms) once a tab is at standard width or wider: 1300 ms. A vertical
+///   tab strip scales by the strip's width from `kVerticalTabStripCollapsedWidth` 56 to
+///   `kVerticalTabStripDefaultUncollapsedWidth` 240 (chrome/browser/ui/tabs/vertical_tab_strip_state.h),
+///   and the horizontal strip uses its widest tab, "so that the delay is consistent for all tabs".
+///   Chrome's horizontal tabs are never wider than standard width, so 1300 ms is the longest a tab
+///   waits; a default-width vertical strip waits the same. cmux's rows and tabs read as full-width
+///   tabs, so every card waits that standard-width value (`cardDelay`), with no width scaling.
+/// - `ShouldShowImmediately`: within `kShowWithoutDelayTimeBuffer` 300 ms after the pointer left
+///   the last card's target, the next card shows at once (`cardReshow`).
+/// - `UpdateOrShowCard`: while a card shows, the next target takes it at once and the card slides
+///   over (`kHoverCardSlideDuration` 200 ms, tab_hover_card_bubble_view.h). No delay.
+/// - `UpdateHoverCard` with no target: the card hides at once, no grace (`HideHoverCard`; fade-out
+///   150 ms, fade-in 200 ms, `views::WidgetFadeAnimator` in ui/views/animation/widget_fade_animator.h).
+///   cmux plays its fades and slide on the app's motion scale (`HoverCardMotion`, Leo 2026-10-20).
+/// There is no rest-detection shortcut: a pointer that stops on a target still waits the whole delay.
+public nonisolated extension HoverIntentTiming {
+    /// The cold wait before the first hover card opens: Chrome's delay for a standard-width tab.
+    static let cardDelay: Duration = .milliseconds(1300)
+    /// After a card went, a hover this soon shows the next card at once (Chrome's
+    /// `kShowWithoutDelayTimeBuffer`).
+    static let cardReshow: Duration = .milliseconds(300)
+
+    /// Chrome's `GetShowDelay` for a target `width` wide where `minWidth` is a pinned tab (or a
+    /// collapsed vertical strip) and `standardWidth` a standard tab (or a default-width strip).
+    /// At `standardWidth` it gives `cardDelay`; past it (only a vertical strip gets wider) the log
+    /// keeps rising slowly. cmux does not scale by width; this documents and tests the source.
+    static func chromeShowDelay(width: Double, minWidth: Double, standardWidth: Double) -> Duration {
+        let minimum = 300.0, maximum = 800.0, additionalAtStandardWidth = 500.0
+        guard width > minWidth else { return .milliseconds(Int(minimum)) }
+        let fraction = log(width - minWidth + 1) / log(standardWidth - minWidth + 1)
+        var ms = fraction * (maximum - minimum) + minimum
+        if width >= standardWidth { ms += additionalAtStandardWidth }
+        return .milliseconds(Int(ms.rounded()))
+    }
 }
 
 /// Hover intent for one warm group of tooltips: a target under the pointer

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
 SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
@@ -105,7 +107,8 @@ mkdir -p "$OUT_DIR"
   bun install --frozen-lockfile
   if [ -n "$REPORT_DIR" ]; then
     mkdir -p "$REPORT_DIR"
-    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" build_app
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" \
+      CMUX_ARTIFACT_RUNTIME_METAFILE="$REPORT_DIR/webviews-artifact-runtime.json" build_app
   else
     CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
   fi

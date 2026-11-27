@@ -8,9 +8,14 @@ import type {
   ImportCounts,
   ImportRow,
   ImportState,
+  MakeItYoursBackground,
+  MakeItYoursDensity,
+  MakeItYoursState,
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -129,6 +134,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
@@ -361,20 +387,30 @@ export function importState(kind: ImportFixture = "ready"): OnboardingState {
 
 // MARK: Computer Use
 
-export type ComputerUseFixture = "fresh" | "oneGranted" | "allGranted" | "helperFailed" | "off" | "unavailable";
+/** `finished`: the person's Allow got the last grant on (the done view); `confirmingCapture`: Screen
+ * Recording was just allowed here while Accessibility still waits (the Screenshots row's capture note). */
+export type ComputerUseFixture =
+  | "fresh"
+  | "oneGranted"
+  | "allGranted"
+  | "finished"
+  | "confirmingCapture"
+  | "helperFailed"
+  | "off"
+  | "unavailable";
 
 export function computerUseState(kind: ComputerUseFixture = "fresh"): OnboardingState {
+  const allOn = kind === "allGranted" || kind === "finished";
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || kind === "allGranted" ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
       pane: "screenRecording",
       control:
-        kind === "allGranted"
+        allOn || kind === "confirmingCapture"
           ? "done"
           : kind === "helperFailed"
             ? "hidden"
@@ -386,13 +422,13 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   ];
   return {
     step: "computerUse",
-    footer: footer({ primary: "done", primaryEnabled: kind === "allGranted" }),
+    footer: footer({ primary: "done", primaryEnabled: allOn }),
     agents: null,
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
       rows,
-      allGranted: kind === "allGranted",
+      allGranted: allOn,
       note:
         kind === "helperFailed"
           ? "helperFailed"
@@ -402,7 +438,151 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               ? "unavailable"
               : null,
       showsRestart: kind === "helperFailed",
-      comebacks: kind === "oneGranted" ? 1 : 0,
+      comebacks: kind === "oneGranted" || kind === "confirmingCapture" ? 1 : kind === "finished" ? 2 : 0,
+      finished: kind === "finished",
+      confirmsCapture: kind === "confirmingCapture" || kind === "finished",
     },
   };
 }
+
+// MARK: Make cmux Yours
+
+export type MakeItYoursFixture = "fresh" | "loading" | "terminal" | "picked";
+
+/** A painting stand-in: a dark sky over a hill, in `sky` and `hill`. */
+function painting(sky: string, hill: string): HostImage {
+  return {
+    template: false,
+    src: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="${sky}"/><circle cx="118" cy="30" r="12" fill="#f3e3b5" opacity="0.8"/><path d="M0 72 Q40 48 80 66 T160 60 V100 H0z" fill="${hill}"/></svg>`, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+    )}`,
+  };
+}
+
+const BACKGROUNDS: MakeItYoursBackground[] = [
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: fixture painting
+  { id: "van-gogh-starry-night", name: "The Starry Night", preview: painting("#1d2b52", "#0e1424") }, // colour-allow: fixture painting
+  { id: "hokusai-great-wave", name: "The Great Wave off Kanagawa", preview: painting("#d9ccb0", "#2a4a6a") }, // colour-allow: fixture painting
+  { id: "friedrich-wanderer", name: "Wanderer above the Sea of Fog", preview: painting("#8a96a0", "#2a2622") }, // colour-allow: fixture painting
+  { id: "dahl-dresden-moonlight", name: "View of Dresden by Moonlight", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: fixture painting
+  { id: "monet-water-lilies-setting-sun", name: "Water Lilies, Setting Sun", preview: painting("#c07a3a", "#3a4a2a") }, // colour-allow: fixture painting
+  { id: "hiroshige-kanbara-snow", name: "Night Snow at Kanbara", preview: painting("#2c3236", "#e8e8e8") }, // colour-allow: fixture painting
+  { id: "van-gogh-almond-blossom", name: "Almond Blossom", preview: painting("#6aa6b0", "#e8efe8") }, // colour-allow: fixture painting
+  { id: "bruegel-hunters-snow", name: "The Hunters in the Snow", preview: painting("#9aaca8", "#eaeae4") }, // colour-allow: fixture painting
+  { id: "roerich-himalayas", name: "Himalayas", preview: painting("#3a5a8a", "#a06a4a") }, // colour-allow: fixture painting
+  { id: "vermeer-pearl-earring", name: "Girl with a Pearl Earring", preview: painting("#101418", "#3a4a6a") }, // colour-allow: fixture painting
+];
+
+/** Every built-in density, by Settings' names. */
+const DENSITIES: MakeItYoursDensity[] = [
+  { id: "ultraCompact", name: "Ultra-compact" },
+  { id: "compact", name: "Compact" },
+  { id: "cozy", name: "Default" },
+  { id: "comfortable", name: "Comfortable" },
+  { id: "spacious", name: "Spacious" },
+];
+
+/** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
+ * Terminal First, and after a person picked Compact and a painting. */
+export function makeItYoursState(
+  kind: MakeItYoursFixture = "fresh",
+  { introWalk = false, walk }: { introWalk?: boolean; walk?: MakeItYoursState["walk"] } = {},
+): OnboardingState {
+  const choices: MakeItYoursState = {
+    workStyle: kind === "terminal" ? "terminal" : "gui",
+    density: kind === "picked" ? "compact" : "cozy",
+    densities: DENSITIES,
+    background: kind === "picked" ? "dahl-dresden-moonlight" : null,
+    backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    opacity: kind === "picked" ? 0.6 : 1,
+    opacitySet: kind === "picked",
+    material: kind === "picked" ? "frosted" : null,
+    materials: ["none", "frosted", "glass", "glass-clear"],
+    chatsRunIn: kind === "picked" ? "cloud" : "local",
+    loaded: kind !== "loading",
+    ...(introWalk ? { introWalk: true } : {}),
+    ...(walk ? { walk } : {}),
+  };
+  return {
+    step: "makeItYours",
+    footer: footer({ primary: "continue" }),
+    agents: null,
+    importer: null,
+    computerUse: null,
+    makeItYours: choices,
+  };
+}
+
+// MARK: The intro walk's gallery arms (gallery only: no host op, nothing shipped reads these)
+
+/** A whole-app look, applied as one atomic write with one Undo (the walk's step 1). `traits` draw its
+ * miniature; `sets` is what the one write would change, as settings keys. */
+export interface WalkBundle {
+  id: string;
+  name: string;
+  line: string;
+  sets: string[];
+  traits: { glass?: boolean; twoTone?: boolean; solid?: boolean; dense?: boolean };
+}
+
+/** The five bundles the walk's look step offers (House is the control: today's defaults). */
+export const WALK_BUNDLES: readonly WalkBundle[] = [
+  { id: "house", name: "House", line: "Today's cmux, as it ships.", sets: [], traits: {} },
+  {
+    id: "glasshouse",
+    name: "Glasshouse",
+    line: "Glass panes over a painting that shows through.",
+    sets: ["appearance.backgroundImage", "appearance.backgroundBlur: glass", "appearance.backgroundOpacity: 60%"],
+    traits: { glass: true },
+  },
+  {
+    id: "twoToneStudio",
+    name: "Two-Tone Studio",
+    line: "Sidebar and tab bar in a second color from your theme.",
+    sets: ["appearance.twoTone: auto"],
+    traits: { twoTone: true },
+  },
+  {
+    id: "quietSolid",
+    name: "Quiet Solid",
+    line: "Opaque, no picture and no glass: the calmest window.",
+    sets: ["appearance.backgroundImage: none", "appearance.backgroundBlur: none"],
+    traits: { solid: true },
+  },
+  {
+    id: "denseOperator",
+    name: "Dense Operator",
+    line: "Compact rows, so many sessions fit at once.",
+    sets: ["appearance.density: compact"],
+    traits: { dense: true },
+  },
+];
+
+/** `agents.defaultPermissionMode`, with the shipped value (fullAccess) first-picked. */
+export const WALK_PERMISSIONS = [
+  {
+    id: "ask",
+    name: "Ask",
+    line: "Agents ask before they edit a file or run a command.",
+  },
+  {
+    id: "standard",
+    name: "Standard",
+    line: "Each agent keeps its own rules, as it does outside cmux.",
+  },
+  {
+    id: "fullAccess",
+    name: "Full access",
+    line: "Agents edit and run commands without asking; stop one any time.",
+  },
+] as const;
+export const WALK_SHIPPED_PERMISSION = "fullAccess";
+
+/** Notification noise: `notifications.desktop` and `notifications.sound` together. The shipped pair
+ * (unlessFocused, default sound) is Banners and sound. */
+export const WALK_NOISE = [
+  { id: "quiet", name: "Quiet", line: "No banners or sounds; the sidebar marks a chat that needs you." },
+  { id: "banners", name: "Banners", line: "A banner when an agent finishes or needs you, silent." },
+  { id: "bannersSound", name: "Banners and sound", line: "A banner and a sound when an agent finishes or needs you." },
+] as const;
+export const WALK_SHIPPED_NOISE = "bannersSound";

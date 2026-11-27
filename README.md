@@ -121,6 +121,22 @@ brew upgrade --cask cmux
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
+### Linux and SSH machines (the cmux CLI and daemon)
+
+One line installs `~/.cmux/bin/cmux`, no sudo. It downloads the installer at a fixed commit of this repository,
+checks it against the sha256 printed here, and runs it only when it matches; the installer then installs only a
+build named by cmux's signed release file. Both the commit and the sha256 come from this page on GitHub, not from
+cmux.com:
+
+```bash
+d="$(mktemp -d)" && curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/1bbe36058aa72302b52c4e6fd49ef8c669d71140/web/public/tui/install-static.sh -o "$d/install.sh" && echo "2050d00553e82de1c51a2f890ce8fca3f944b71b6cdc62641ba2630d82ec1323  $d/install.sh" | $(command -v sha256sum || echo shasum -a 256) -c && sh "$d/install.sh"; rm -rf "$d"
+```
+
+Script arguments go after `sh "$d/install.sh"` (`--server` also keeps a cmux session running there as a service;
+`--dry-run` prints what would happen). `mktemp -d` makes a folder only you can open, so the file checked is the
+file run. A change to the installer moves this commit and sha256 with it; `tests/test_tui_install_pin.py` fails
+when they disagree.
+
 ### Shell completion
 
 The Homebrew cask installs completions for zsh, bash, and fish. Start a new shell after installing. If they don't load, make sure Homebrew's completion directories are wired into your shell (see [Homebrew's shell completion docs](https://docs.brew.sh/Shell-Completion)).
@@ -482,6 +498,11 @@ New here? [Start here](docs/start-here.md) is the short path from "I want to
 change something" to a merged pull request, including what you can fix without a
 Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
+
+To run your change with no build, copy your nightly and swap your code in: `cmux app try .` in your checkout
+starts a copy of cmux NIGHTLY beside yours with your web UI and daemon code in (`--extract` keeps the code,
+`--stop` deletes the copy). Dev builds stay available for Swift changes
+([how it works](docs/cmux-next/hot-reload.md#the-loop)).
 
 Ways to get involved:
 

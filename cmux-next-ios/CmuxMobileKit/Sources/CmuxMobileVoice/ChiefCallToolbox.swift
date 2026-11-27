@@ -70,7 +70,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         }
         guard chief.isConnected else {
             let reason = chief.unavailableReason ?? "not connected"
-            return "Runs on the user's Mac; \(reason). Messages wait in the outbox and send when Chief connects."
+            return "Runs on the user's Mac; \(reason). Messages send when Chief connects."
         }
         let mac = chief.macName.map { "on \($0)" } ?? "on the user's Mac"
         return "Runs \(mac) and is connected\(chief.isWorking ? "; it is working on something now" : "")."
@@ -81,12 +81,17 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return VoiceCallToolResult(object: ["error": "empty message"]) }
         let connected = chief.acceptsSendsNow && chief.isConnected
-        chief.send(ConversationComposeMessage(text: text), asksForAlerts: false)
+        guard chief.send(ConversationComposeMessage(text: text), asksForAlerts: false) else {
+            // retry-prompt-ok: a message the person dictated, not sent; sending it again is theirs (Chief refused to queue it)
+            return VoiceCallToolResult(
+                object: ["status": "not_sent", "note": "Chief isn't connected, so nothing was sent. Tell the user and offer to try again later."],
+                activity: String(localized: "Not sent to Chief: “\(text)”"))
+        }
         return VoiceCallToolResult(
-            object: ["status": connected ? "sent" : "queued",
+            object: ["status": connected ? "sent" : "sending",
                      "note": connected ? "Chief got the message; its reply will arrive as a system message."
-                         : "Chief isn't connected; the message waits and sends when it connects."],
-            activity: connected ? String(localized: "Sent to Chief: “\(text)”") : String(localized: "Queued for Chief: “\(text)”"))
+                         : "Chief is connecting; the message sends once it does."],
+            activity: String(localized: "Sent to Chief: “\(text)”"))
     }
 
     public func readChiefMessages(count: Int) -> VoiceCallToolResult {

@@ -2,7 +2,7 @@ public import Foundation
 
 /// The parts of an app manifest the UI renders: name, description, icon,
 /// publisher, categories, scopes with their reasons, the interfaces it
-/// implements, `presentation` and `contributes.toolbarItems`. The app
+/// implements, `presentation`, `contributes.toolbarItems` and `contributes.menus`. The app
 /// supervisor in the daemon validates manifests (the Rust
 /// `cmux-app-manifest` crate) and sends each app's manifest in `apps-list`;
 /// the client only reads the fields it shows and ignores everything else,
@@ -31,6 +31,8 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var presentation: AppPresentation?
     /// Manifest v2 `contributes.toolbarItems` (app-platform.md 17).
     public var toolbarItems: [AppToolbarItem]
+    /// Manifest v2 `contributes.menus`: rows in cmux's own right-click menus.
+    public var menuItems: [AppMenuItem]
     /// The whole document, as the supervisor sent it.
     public var raw: AppJSON
 
@@ -42,6 +44,9 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var sessionInfoSections: [AppImplementation] { implementations.filter(\.isSessionInfoSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
+    /// The app's web pages (`render: web`: any interface implemented by a page under
+    /// `runtime.web.root`, such as codemirror's `cmux.editor/1`), in interface order.
+    public var webPages: [AppImplementation] { implementations.filter(\.isWebPage) }
     /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
     /// deployed instance (docs/app-store-platonic-ideal.md 7).
     public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }
@@ -66,6 +71,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         implementations = Self.implementations(o)
         presentation = AppPresentation(json: o["presentation"])
         toolbarItems = AppToolbarItem.list(json)
+        menuItems = AppMenuItem.list(json)
     }
 
     /// Parses UTF-8 JSON; nil when it is not a manifest object.
@@ -80,7 +86,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
             return implements.sorted { $0.key < $1.key }.map { interface, entry in
                 AppImplementation(interface: interface, title: AppLocalizedText(json: entry["title"]), symbol: entry["symbol"]?.stringValue,
                                   export: entry["export"]?.stringValue, native: entry["native"]?.stringValue,
-                                  options: entry["options"]?.objectValue ?? [:])
+                                  web: entry["web"]?.stringValue, options: entry["options"]?.objectValue ?? [:])
             }
         }
         let contributes = o["contributes"]?.objectValue ?? [:]
@@ -94,7 +100,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
                 guard let id = entry["id"]?.stringValue else { return nil }
                 return AppImplementation(interface: interface, id: id, title: AppLocalizedText(json: entry["title"]),
                                          symbol: entry["symbol"]?.stringValue, export: (entry["render"] ?? entry["run"])?.stringValue,
-                                         options: entry)
+                                         web: entry["web"]?.stringValue, options: entry)
             }
         }
     }

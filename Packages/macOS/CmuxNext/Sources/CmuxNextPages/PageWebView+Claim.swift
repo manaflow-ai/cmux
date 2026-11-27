@@ -55,14 +55,13 @@ final class PageClaimState {
 /// document refuses (it already ran: a released host parked again) or does not answer within
 /// ``claimAcknowledgementBudget`` does the host reload it, as every claim did before.
 extension PageWebView {
-    /// The fallback deadline for the claim acknowledgement: 50 ms, three 60 Hz frames. The
-    /// acknowledgement is one script evaluation and one reply message, but it waits for the main
-    /// thread to finish the claim's turn (the new window, the tab): 3-11 ms in the harness
-    /// (PageHostPoolClaimReadyBenchmark, build host at load 54), 16 ms and more than 20 ms in a
-    /// live app when a second and an incognito window opened Settings. A one-frame budget (20 ms
-    /// was tried) reloaded the incognito claim, and a false reload costs 50-500 ms, far more than
-    /// the 30 extra milliseconds a silent document now waits before its reload.
-    public static let claimAcknowledgementBudget: Duration = .milliseconds(50)
+    /// The fallback deadline for the claim acknowledgement: 250 ms. The acknowledgement is one script
+    /// evaluation and one reply, but on the first open after launch the parked document answered 45-88 ms
+    /// after its claim on a fleet Mac (bench-settings-open.py, 2026-11-15), and the 50 ms budget then
+    /// reloaded a live document in 3 of 5 first opens: the page showed at about 285 ms instead of 176 ms.
+    /// A false reload costs 100-500 ms; a document that really is silent (none was seen) now waits 250 ms
+    /// before its reload, and one that already ran answers `refused` at once.
+    public static let claimAcknowledgementBudget: Duration = .milliseconds(250)
 
     static let claimOp = "cmux.page.claim"
     static let parkedScript = "globalThis.__cmuxPageParked = true;"
@@ -86,6 +85,7 @@ extension PageWebView {
         state.start = .now
         if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) }
         applyTheme(force: true)
+        applyLanguage()
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router
@@ -133,6 +133,7 @@ extension PageWebView {
     /// a fragment navigation in WebKit, so this reloads from script).
     func reloadDocument() {
         let fragment = route ?? "/"
+        // retry-prompt-ok: page script reloading its own document after a claim, not text a person reads
         webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
                                    completionHandler: nil)
     }

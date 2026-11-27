@@ -65,10 +65,50 @@ pub fn home() -> PathBuf {
     default_home()
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
+    resolve_supervised_home(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// `<account_home>/.acpmux`, or the real directory it links to when it is a symlink to the
+/// person's own supervised home (`<account_home>/.acpmux-supervised/<name>`, what a supervised
+/// daemon's `ACPMUX_HOME` names). The private-state directory opens with O_NOFOLLOW and the
+/// consent check refuses redirection, so both must see the real path. A link anywhere else is
+/// returned unresolved and keeps being refused.
+pub fn resolve_supervised_home(account_home: &Path) -> PathBuf {
+    let link = default_home_in(account_home);
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link(&link) {
+        return link;
+    }
+    let supervised = account_home.join(".acpmux-supervised");
+    if is_link(&supervised) {
+        return link;
+    }
+    let (Ok(real), Ok(account)) =
+        (std::fs::canonicalize(&link), std::fs::canonicalize(account_home))
+    else {
+        return link;
+    };
+    if real.parent() == Some(account.join(".acpmux-supervised").as_path()) && real.is_dir() {
+        real
+    } else {
+        link
+    }
+}
+
+/// [`default_home`] for the OS account whose home folder is `account_home`.
+pub fn default_home_in(account_home: &Path) -> PathBuf {
+    account_home.join(".acpmux")
 }
 
 /// Whether a command may start a daemon in `home`, given this process's `ACPMUX_HOME` and
@@ -473,12 +513,54 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
         "{}",
         writable_refusal(path, metadata.mode(), "600")
     );
-    refuse_extended_acl(file, path)?;
+    if !acl_checked(&metadata) {
+        refuse_extended_acl(file, path)?;
+        if metadata.mode() & 0o077 == 0 {
+            remember_acl_checked(&metadata);
+        }
+    }
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
     Ok(())
+}
+
+/// The files whose extended ACL was checked, by file and change time: a state file read again
+/// (each page of a chat's log opens its segments) is checked once, not on each open. Any change
+/// to a file's ACL, mode or owner moves its change time (`ctime`), so a file changed since is
+/// checked again. The owner and mode checks above still run on every open: they read the
+/// `fstat` the open already needs. Leo's daemon, 2026-11-18: an attach spent a tenth of its
+/// reads in `acl_get_fd_np` (`store/segment_starts.rs`).
+#[cfg(unix)]
+type AclKey = (u64, u64);
+
+#[cfg(unix)]
+static ACL_CHECKED: std::sync::Mutex<Option<std::collections::HashMap<AclKey, (i64, i64)>>> =
+    std::sync::Mutex::new(None);
+
+/// The most files remembered; past it the memo starts over.
+#[cfg(unix)]
+const ACL_CHECKED_MAX: usize = 65_536;
+
+#[cfg(unix)]
+fn acl_checked(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memo.as_ref()
+        .and_then(|memo| memo.get(&(metadata.dev(), metadata.ino())))
+        .is_some_and(|&changed| changed == (metadata.ctime(), metadata.ctime_nsec()))
+}
+
+#[cfg(unix)]
+fn remember_acl_checked(metadata: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    let mut memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let memo = memo.get_or_insert_with(Default::default);
+    if memo.len() >= ACL_CHECKED_MAX {
+        memo.clear();
+    }
+    memo.insert((metadata.dev(), metadata.ino()), (metadata.ctime(), metadata.ctime_nsec()));
 }
 
 /// Open or create an owner-only regular state file for read/write without
@@ -1095,7 +1177,8 @@ pub struct WebSocketConfig {
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name, or the name peers dial on a non-loopback `listen`, where every
-    /// other name is refused). Both lists are read when the listener starts.
+    /// other name is refused). Both lists apply from the next connection after
+    /// `_acpmux/reload_config` (`acpmux config --set` and `acpmux web --tailnet` send it).
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
@@ -1237,10 +1320,21 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `lanes`: the host's lane cap each session's default memory ceiling is sized from
+    /// (RAM / lanes x 2, `session_budget.rs`). Unset: `ACPMUX_HOST_LANES`, else this host's
+    /// fleet-registry.json `lanes.max_lanes`, else none (half the RAM). 0 is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u64>,
+    /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
+    /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
-    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
-    /// Claude Code launcher (`cpu_class::default_for`).
+    /// start is over (it starts at normal), `dynamic`, `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// overrides it, a profile's env overrides both. Unset: `normal`, a terminal shell's
+    /// priority and disk tier (`cpu_class::default_for`). `dynamic` is opt-in and yields only
+    /// during measured contention.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1306,6 +1400,26 @@ impl Default for ArtifactsSyncConfig {
 }
 
 impl ArtifactsSyncConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// The fleet memory mount (`memory_mount.rs`): `~/.cmux/memory/{private,team}` kept in sync with
+/// the memory store on cmux-platform. On by default on a machine joined to cmux Cloud ("autocloud
+/// default on"); `"memory": {"sync": false}` turns it off.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySyncConfig {
+    /// Unset: on. `false`: the daemon never syncs (`acpmux memory sync` still does, by hand).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<bool>,
+    /// The mount's root, `~/.cmux/memory` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<PathBuf>,
+}
+
+impl MemorySyncConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -1416,6 +1530,31 @@ impl ContextOverrides {
     }
 }
 
+/// `personHold` (`hub/person_hold.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonHoldConfig {
+    /// The chats, by name, whose person's prompts wait.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
+/// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
+/// these chats starts a turn only when it is a page (a block or question from a session, a
+/// first-seen FIRE or program block, a message from or tagged for the person); the rest waits
+/// for the next notice, at most `inbox.rs` `FLUSH_MS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRuleConfig {
+    /// The chats, by name (`NAME`, or `HOST/NAME` as fleet-registry.json `coordinators` writes
+    /// them), that only a page wakes.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1430,10 +1569,19 @@ pub struct Config {
     /// Optional platform artifact and memory synchronization.
     #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
     pub artifacts_sync: ArtifactsSyncConfig,
+    #[serde(default, skip_serializing_if = "MemorySyncConfig::is_default")]
+    pub memory: MemorySyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// `peerWake`: `{"argv": [...]}`, the command run once when a message for a session on a
+    /// peer finds its link down (`Peer::wake`), with the peer's name appended: the machine
+    /// layer's resume for whatever provider the peer's machine is on (a paused VM, a
+    /// stopped VM). Unset (the default): only the route's own ProxyCommand sees the wake
+    /// mark (`peer_wanted.rs` WAKE_ENV), as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake: Option<PeerWake>,
     /// The read replica and write journal for paused machines (`crate::write_journal`). Off
     /// unless `writeJournal.enabled` is true; off changes nothing.
     #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
@@ -1507,6 +1655,18 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `personHold`: the chats whose person's prompts wait a while to go in together, unless the
+    /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold: Option<PersonHoldConfig>,
+    /// `pageRule`: the coordinator chats only a page wakes (`hub/inbox_page_rule.rs`). Unset:
+    /// none, every chat wakes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_rule: Option<PageRuleConfig>,
+    /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
+    /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
+    #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_store: Option<std::path::PathBuf>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -1554,6 +1714,16 @@ pub struct Config {
         deserialize_with = "crate::hub::auto_resume::delays_from_config"
     )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
+    /// `capacityFallbackAfter`: after this many capacity attempts on one cut prompt (HTTP 529,
+    /// "overloaded"), the next runs on a smaller model of the same harness, and the chat's own
+    /// model comes back once a turn there ends well (`hub/auto_resume/capacity_failover.rs`).
+    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 0 (off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback_after: Option<u64>,
+    /// `autoResumeDiskFreeBytes`: how much free space a chat a full disk cut waits for before
+    /// it goes on (`hub/auto_resume/disk_wait.rs`). Default 16 MiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_resume_disk_free_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -1571,6 +1741,10 @@ pub struct Config {
     /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
+    /// `autoCloudEnroll`: this machine's AutoCloud enrollment as `_acpmux/autocloud_enroll` last
+    /// set it (`autocloud_enroll.rs`); absent, the settings key `cloud.autoCloudEnroll` decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_cloud_enroll: Option<serde_json::Value>,
     /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
@@ -1583,9 +1757,49 @@ pub struct Config {
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
-    /// Labs-only transport switches (`transport.wireguard`).
+    /// `autoEvacuate`: idle chats leave this machine on their own while it stays over its budget
+    /// (`hub/auto_evacuate.rs`). Off unless `autoEvacuate.enabled` is true.
+    #[serde(default, skip_serializing_if = "AutoEvacuateConfig::is_default")]
+    pub auto_evacuate: AutoEvacuateConfig,
+    /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
+    /// hub carrier does not need them.
     #[serde(default)]
     pub transport: TransportConfig,
+    /// `remoteDaemon`: the loopback `host:port` of this machine's cmux-tui remote daemon
+    /// (`cmux --headless --remote-ws 127.0.0.1:PORT`), which this person's other machines reach
+    /// through the hub carrier (`cmux remote exec|cp|connect --via-machine`). Unset (the
+    /// default): no circuit reaches it. A joined machine also needs its "control" consent
+    /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_daemon: Option<String>,
+    /// `laneGhBroker`: the lane-gh broker's unix socket on this machine (its `socket`, e.g.
+    /// `~/.cache/lane-gh-broker/broker.sock`), which the person's other machines reach as a
+    /// carrier service, each its own `client-<machine>.sock` beside it (RFD 0127 cut 2,
+    /// `hub_carrier_broker.rs`). Unset (the default): no stream reaches it. Set with
+    /// `acpmux config --set lane_gh_broker=PATH`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_gh_broker: Option<String>,
+    /// `laneGhCarrier`: the machines (names in the hub's address book, in order of preference)
+    /// whose lane-gh broker this lane machine reaches over the held carrier link instead of the
+    /// broker's `ssh -R` forward (RFD 0060 Weft move 3). Set, the daemon holds the forward
+    /// `acpmux machine broker-forward` runs, at [`crate::cli::host_broker_forward::held_socket_path`]
+    /// (`~/.cache/lane-gh/carrier.sock`), and an agent session it starts gets `LANE_GH_SOCKET` set
+    /// to it while one owner's broker answered its last progress check; with none answering, a new
+    /// session keeps `lane-gh`'s default (the `ssh -R` socket). Unset (the default): nothing
+    /// changes. Set with `acpmux config --set lane_gh_carrier=OWNER[,OWNER...]`; a restart applies it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_gh_carrier: Option<Vec<String>>,
+    /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
+    /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
+    /// machines on it first when their name resolves to a private address (one GCP region's VPC),
+    /// with the relay as the fallback. The same Noise XX and node keys as a relay circuit admit a
+    /// connection, so it lets in no one the relay would not. Unset (the default): no dial by name,
+    /// but the carrier listens on a port of its own and punches a direct path to a machine on
+    /// another network (`hub_carrier_punch.rs`), the relay meanwhile and when no punch connects;
+    /// 0: relay only (so does `ACPMUX_DIRECT_PUNCH=0`).
+    /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_port: Option<u16>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1598,13 +1812,24 @@ pub struct Config {
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    pub send_relay: Option<SendRelay>,
+    /// `sendHop`: `true` lets a paired peer daemon hand this daemon a send for a host this
+    /// daemon peers and that peer does not (one hop, `server/send_hop.rs`); the far chat names
+    /// the true sender (`fromRelay`). Unset (the default): such a hop is refused, and a peer
+    /// never selects another peer through this daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_hop: Option<bool>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
     /// default): no relay. `teamMessaging` (team addresses and inboxes) is on unless `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    pub mesh_relay: Option<crate::mesh_relay_config::MeshRelayConfig>,
     /// `artifacts`: the agent tools that save to and search the person's cmux artifacts
     /// (`acpmux_mcp_artifacts.rs`). On whenever `meshRelay` holds a cmux sign-in;
     /// `{"enabled": false}` turns them off, `baseUrl` names another cmux-platform deployment.
@@ -1692,6 +1917,10 @@ pub struct MachineWakeConfig {
 pub struct WriteJournalConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// RFD 0144 piece 2: also answer the app's and phone's file tree, file and search reads of a
+    /// paused machine from its replica and journal, with no wake. Needs `enabled`; off by default.
+    #[serde(default)]
+    pub serve_paused_reads: bool,
 }
 
 impl WriteJournalConfig {
@@ -1700,479 +1929,74 @@ impl WriteJournalConfig {
     }
 }
 
-impl Config {
-    /// Set a host-wide session resource setting from the CLI. `default`,
-    /// `none`, and `clear` remove an override and restore the computed default.
-    /// `acpmux config --set KEY=VALUE`: a permission-mode key
-    /// (`set_permission_mode`), else a session resource limit
-    /// (`set_session_resource`).
-    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        if self.set_permission_mode(key, value)? {
-            return Ok(());
-        }
-        self.set_session_resource(key, value)
-    }
-
-    /// The permission mode new chats start in: `permissions.default` (also
-    /// `defaultPermissionMode`) for every harness, `permissions.HARNESS` (also
-    /// `defaults.HARNESS.permissionMode`) for one family or profile. Values:
-    /// `yolo` / `fullAccess`, `standard`, `ask`, or `default` to clear.
-    /// `Ok(false)`: not a permission key.
-    pub fn set_permission_mode(&mut self, key: &str, value: &str) -> Result<bool> {
-        let key = key.trim();
-        let harness = if matches!(
-            key,
-            "permissions.default" | "defaultPermissionMode" | "default_permission_mode"
-        ) {
-            None
-        } else if let Some(h) = key.strip_prefix("permissions.") {
-            Some(h)
-        } else if let Some(h) = key.strip_prefix("defaults.").and_then(|r| {
-            r.strip_suffix(".permissionMode").or_else(|| r.strip_suffix(".permission_mode"))
-        }) {
-            Some(h)
-        } else {
-            return Ok(false);
-        };
-        if harness.is_some_and(|h| h.is_empty() || h.contains('.')) {
-            anyhow::bail!("{key}: name one harness, for example permissions.codex");
-        }
-        let mode = match value.trim() {
-            "" | "default" | "none" | "clear" => None,
-            v => Some(normalize_permission_mode(v).ok_or_else(|| {
-                anyhow::anyhow!("{key} must be yolo (fullAccess), standard, ask or default")
-            })?),
-        };
-        match harness {
-            None => self.default_permission_mode = mode.map(str::to_owned),
-            Some(h) => {
-                let entry = self.defaults.entry(h.to_owned()).or_default();
-                entry.permission_mode = mode.map(str::to_owned);
-                if entry.is_empty() {
-                    self.defaults.remove(h);
-                }
-            }
-        }
-        Ok(true)
-    }
-
-    pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
-        let key = key.trim().replace('-', "_").to_ascii_lowercase();
-        if matches!(
-            key.as_str(),
-            "session.cpu_class" | "session.cpuclass" | "cpu_class" | "cpuclass"
-        ) {
-            let value = value.trim();
-            self.session.cpu_class = match value.to_ascii_lowercase().as_str() {
-                "" | "default" | "none" | "clear" => None,
-                _ => Some(crate::cpu_class::CpuClass::parse(value).ok_or_else(|| {
-                    anyhow::anyhow!("{key} must be `background`, `normal` or `default`")
-                })?),
-            };
-            return Ok(());
-        }
-        let slot = match key.as_str() {
-            "session.memory_mb" | "session.memorymb" | "memory_mb" | "memorymb" => {
-                &mut self.session.memory_mb
-            }
-            "session.swap_mb" | "session.swapmb" | "swap_mb" | "swapmb" => {
-                &mut self.session.swap_mb
-            }
-            "session.tasks_max" | "session.tasksmax" | "tasks_max" | "tasksmax" => {
-                &mut self.session.tasks_max
-            }
-            "session.sessions_tasks_max"
-            | "session.sessionstasksmax"
-            | "sessions_tasks_max"
-            | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
-            _ => anyhow::bail!(
-                "unknown session resource setting `{key}` (use session.memory_mb, \
-                 session.swap_mb, session.tasks_max, session.sessions_tasks_max or \
-                 session.cpu_class)"
-            ),
-        };
-        let tasks = key.contains("tasks");
-        let value = value.trim();
-        *slot = match value.to_ascii_lowercase().as_str() {
-            "" | "default" | "none" | "clear" => None,
-            // A task cap of 0 is no cap; `infinity` says the same.
-            "infinity" if tasks => Some(0),
-            _ => Some(value.parse::<u64>().with_context(|| {
-                if tasks {
-                    format!("{key} must be a non-negative integer count, `infinity` or `default`")
-                } else {
-                    format!("{key} must be a non-negative integer MiB or `default`")
-                }
-            })?),
-        };
-        Ok(())
-    }
-
-    /// `agentInbox`, or its default: on.
-    pub fn agent_inbox(&self) -> bool {
-        self.agent_inbox.unwrap_or(true)
-    }
-
-    /// `agentStartTimeoutMs`, or its 90 s default.
-    pub fn agent_start_timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
-    }
-
-    /// `uploadsMaxAgeDays`, or its 30-day default; None when it is 0 (keep them).
-    pub fn uploads_max_age(&self) -> Option<std::time::Duration> {
-        match self.uploads_max_age_days.unwrap_or(30) {
-            0 => None,
-            days => Some(std::time::Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
-        }
-    }
-
-    /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
-    pub fn silent_turn(&self) -> Option<std::time::Duration> {
-        match self.silent_turn_ms.unwrap_or(90_000) {
-            0 => None,
-            ms => Some(std::time::Duration::from_millis(ms)),
-        }
-    }
-
-    /// `stalledTurnMs`, or its 10 minute default; None when it is 0 (off).
-    pub fn stalled_turn(&self) -> Option<u64> {
-        match self.stalled_turn_ms.unwrap_or(600_000) {
-            0 => None,
-            ms => Some(ms),
-        }
-    }
-
-    /// `stalledTurnEndMs`, or its 6 h default; None when it is 0 (off).
-    pub fn stalled_turn_end(&self) -> Option<std::time::Duration> {
-        match self.stalled_turn_end_ms.unwrap_or(6 * 60 * 60 * 1000) {
-            0 => None,
-            ms => Some(std::time::Duration::from_millis(ms)),
-        }
-    }
-
-    /// Family of a configured profile.
-    pub fn family(&self, profile: &str) -> Option<String> {
-        self.harnesses.get(profile).map(|p| derive_family(profile, p))
-    }
-
-    /// Families with their profiles, in name order.
-    pub fn families(&self) -> BTreeMap<String, Vec<String>> {
-        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (name, p) in &self.harnesses {
-            out.entry(derive_family(name, p)).or_default().push(name.clone());
-        }
-        out
-    }
-
-    /// The profile for a `-m` head: a family (its `prefer` list, else its
-    /// only profile, else the profile named like it), else a profile name.
-    /// Anything else, or a family with several profiles and no `prefer`,
-    /// is an error that names what exists.
-    pub fn resolve_harness(&self, head: &str) -> std::result::Result<String, String> {
-        let fams = self.families();
-        if let Some(members) = fams.get(head) {
-            if let Some(d) = self.defaults.get(head) {
-                // An unavailable profile is skipped; the next preference serves.
-                // Only the family's own profiles count; a stray name never
-                // routes the family to another family's profile.
-                if let Some(p) = d.prefer.iter().find(|p| {
-                    members.contains(*p)
-                        && self.harnesses.contains_key(*p)
-                        && !self.unavailable.contains_key(*p)
-                }) {
-                    return Ok(p.clone());
-                }
-            }
-            if members.len() == 1 {
-                return Ok(members[0].clone());
-            }
-            if members.iter().any(|m| m == head) {
-                return Ok(head.to_owned());
-            }
-            return Err(format!(
-                "family {head:?} has several profiles ({}) and no preference; write one of them, or `acpmux defaults {head} prefer=…`",
-                members.join(", ")
-            ));
-        }
-        if self.harnesses.contains_key(head) {
-            return Ok(head.to_owned());
-        }
-        Err(format!(
-            "unknown harness {head:?}; families: {}; profiles: {}; presets: {}",
-            fams.keys().cloned().collect::<Vec<_>>().join(", "),
-            self.harnesses.keys().cloned().collect::<Vec<_>>().join(", "),
-            if self.presets.is_empty() {
-                "none".to_owned()
-            } else {
-                self.presets.keys().cloned().collect::<Vec<_>>().join(", ")
-            }
-        ))
-    }
-
-    /// Defaults that apply to a profile: the family's entry, then the
-    /// `defaults` entry named after the profile, then the profile's own
-    /// inline `model`/`effort`/`policy`.
-    pub fn defaults_for(&self, profile: &str) -> SessionDefaults {
-        let mut d = SessionDefaults::default();
-        if let Some(f) = self.family(profile) {
-            if let Some(fd) = self.defaults.get(&f) {
-                d.overlay(fd);
-            }
-            if f != profile
-                && let Some(pd) = self.defaults.get(profile)
-            {
-                d.overlay(pd);
-            }
-        }
-        if let Some(p) = self.harnesses.get(profile) {
-            d.overlay(&SessionDefaults {
-                model: p.model.clone(),
-                effort: p.effort.clone(),
-                policy: p.policy,
-                ..Default::default()
-            });
-        }
-        d
-    }
-
-    pub fn path() -> PathBuf {
-        home().join("config.json")
-    }
-
-    /// Load config. When no file exists, build defaults and try to import
-    /// agent profiles from `~/.acpx/config.json` so existing setups keep working.
-    pub fn load() -> Result<Self> {
-        Self::load_from(&Self::path())
-    }
-
-    pub fn load_from(path: &Path) -> Result<Self> {
-        Self::load_from_with(path, &ProfileSources::current())
-    }
-
-    /// `load_from` with explicit profile file sources.
-    pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
-        let path = path.to_owned();
-        let mut cfg = match std::fs::symlink_metadata(&path) {
-            Ok(_) => {
-                let mut text = String::new();
-                private_state_file(&path)?
-                    .read_to_string(&mut text)
-                    .with_context(|| format!("read {}", path.display()))?;
-                serde_json::from_str::<Config>(&text)
-                    .with_context(|| format!("parse {}", path.display()))?
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Config { file_missing: true, ..Config::default() }
-            }
-            Err(error) => return Err(error.into()),
-        };
-        cfg.join_profiles(profiles::load(sources));
-        // A capture fixture (`harness_fixture.rs`) stands in for PATH,
-        // `~/.acpx` and the ACP Registry: nothing of this host's joins.
-        if let Some(fixture) = crate::harness_fixture::active() {
-            cfg.join_fixture(fixture);
-        } else {
-            let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
-            cfg.join_discovered(discover_harnesses(route.as_deref()));
-            cfg.pick_auto_default();
-        }
-        // Installed ACP Registry agents (the cached copy; no network, nothing
-        // started), after the default so a registry agent never becomes it
-        // while a built-in harness exists.
-        if crate::harness_fixture::active().is_none()
-            && let Some(registry) = crate::registry::load_cached(&home())
-        {
-            let found = crate::registry::discovered(
-                &registry,
-                crate::registry::platform(),
-                &which,
-                &|id| cfg.harnesses.contains_key(id),
-            );
-            // Never the default: a registry agent runs only when picked.
-            cfg.join_discovered(found);
-        }
-        cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
-        cfg.profile_sources = sources.clone();
-        cfg.cloud_host = crate::cloud_host::is_cloud_vm();
-        cfg.path = Some(path);
-        let read = (!cfg.file_missing).then(|| cfg.on_disk_value().ok()).flatten();
-        cfg.saved = save_merge::SavedBase::new(read);
-        Ok(cfg)
-    }
-
-    /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
-    /// Terminal and Chief harnesses are chosen only explicitly.
-    fn pick_auto_default(&mut self) {
-        if self.default_harness.is_none() {
-            self.auto_default = true;
-            self.default_harness = crate::default_harness::auto_default_harness(&self.harnesses);
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn pick_auto_default_for_tests(&mut self) {
-        self.pick_auto_default();
-    }
-
-    /// A capture fixture's harnesses join as discovered ones would
-    /// (`harness_fixture.rs`); configured entries still win.
-    pub fn join_fixture(&mut self, fixture: &crate::harness_fixture::Fixture) {
-        self.join_discovered(fixture.harnesses.clone());
-        self.pick_auto_default();
-    }
-
-    /// Adds the profiles from profile files and cmux.json. They win over
-    /// config.json entries with the same id (kept for `save`).
-    pub fn join_profiles(&mut self, loaded: LoadedProfiles) {
-        for (id, (profile, meta)) in loaded.profiles {
-            if let Some(old) = self.harnesses.insert(id.clone(), profile)
-                && !self.profile_meta.contains_key(&id)
-            {
-                self.shadowed_config.insert(id.clone(), old);
-            }
-            self.profile_meta.insert(id, meta);
-        }
-        self.profile_diagnostics.extend(loaded.diagnostics);
-    }
-
-    /// Joins discovered harnesses to the configured ones (configured entries
-    /// always win) and sets the automatic Claude fallbacks and preference.
-    pub fn join_discovered(&mut self, discovered: BTreeMap<String, HarnessProfile>) {
-        let cfg = self;
-        // Harnesses found on PATH join the configured ones, so installing an
-        // adapter such as pi-acp is enough; configured entries always win.
-        for (name, profile) in discovered {
-            if !cfg.harnesses.contains_key(&name) {
-                cfg.discovered.insert(name.clone());
-                cfg.harnesses.insert(name, profile);
-            }
-        }
-        // A configured CodeRouter route (`claude-cr`) is the first `claude`
-        // preference and the direct login's fallback. The subrouter pool
-        // (`claude-sr`) stays a profile a user names; discovery never
-        // prefers it or falls back onto it.
-        let route = CODEROUTER_CLAUDE_PROFILE;
-        if cfg.discovered.contains(route) {
-            if let Some(c) = cfg.harnesses.get_mut("claude")
-                && c.fallback.is_none()
-                && c.kind == HarnessKind::ClaudeStdio
-            {
-                c.fallback = Some(route.into());
-                cfg.auto_fallback = Some(("claude".into(), route.into()));
-            }
-            // The route falls back to, and `-m claude` prefers, a direct
-            // login only on acpmux's own adapter, never an ACP `claude`.
-            let has_direct =
-                cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
-            if let Some(p) = cfg.harnesses.get_mut(route)
-                && p.fallback.is_none()
-                && has_direct
-            {
-                p.fallback = Some("claude".into());
-            }
-            let entry = cfg.defaults.entry("claude".into()).or_default();
-            if entry.prefer.is_empty() {
-                entry.prefer = [route, "claude"]
-                    .iter()
-                    .filter(|n| has_direct || **n != "claude")
-                    .map(|n| n.to_string())
-                    .collect();
-                cfg.auto_prefer = Some(entry.prefer.clone());
-            }
-        }
-        // Without a CodeRouter route, Claude falls back to the cmux router on DeepSeek V4 Flash
-        // (its profile default). The free tier serves it to a signed-out attested Mac, and a
-        // signed-in account pays under its plan (paid-plan.md §2). Only when no route took the slot.
-        let claude_has_no_fallback = cfg
-            .harnesses
-            .get("claude")
-            .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
-        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
-            && claude_has_no_fallback
-            && let Some(c) = cfg.harnesses.get_mut("claude")
-        {
-            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
-            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
-        }
-    }
-
-    /// Where preset directories live (`presets/` next to config.json); None
-    /// for an in-code config, which then takes no `systemPrompt`.
-    pub fn presets_dir(&self) -> Option<PathBuf> {
-        self.path.as_ref().and_then(|p| p.parent()).map(|d| d.join("presets"))
-    }
-
-    /// Write back to the file this config came from. No-op for in-code configs.
-    pub fn save(&self) -> Result<()> {
-        self.save_with_writer(write_atomic)
-    }
-
-    /// Preserve discovered/shadowed profile filtering when a caller needs a
-    /// stronger durability contract than ordinary config writes.
-    pub(crate) fn save_with_writer(
-        &self,
-        write: impl FnOnce(&Path, &[u8]) -> Result<()>,
-    ) -> Result<()> {
-        let Some(path) = &self.path else {
-            tracing::debug!("config has no file; not saved");
-            return Ok(());
-        };
-        if let Some(parent) = path.parent() {
-            private_state_dir(parent)?;
-        }
-        save_merge::save_merged(path, &self.saved, self.on_disk_value()?, write)
-    }
-
-    /// The config as a save writes it: without what discovery, profile files and this run
-    /// added, with the config.json entries profile files replaced.
-    fn on_disk_value(&self) -> Result<serde_json::Value> {
-        let mut on_disk = self.clone();
-        on_disk
-            .harnesses
-            .retain(|n, _| !self.discovered.contains(n) && !self.profile_meta.contains_key(n));
-        for (n, p) in &self.shadowed_config {
-            on_disk.harnesses.insert(n.clone(), p.clone());
-        }
-        if let Some((p, f)) = &self.auto_fallback
-            && let Some(prof) = on_disk.harnesses.get_mut(p)
-            && prof.fallback.as_deref() == Some(f.as_str())
-        {
-            prof.fallback = None;
-        }
-        if self.auto_default {
-            on_disk.default_harness = None;
-        }
-        if let Some(generated) = &self.auto_prefer
-            && let Some(d) = on_disk.defaults.get_mut("claude")
-            && d.prefer == *generated
-        {
-            d.prefer.clear();
-            if d.is_empty() {
-                on_disk.defaults.remove("claude");
-            }
-        }
-        Ok(serde_json::to_value(&on_disk)?)
-    }
-
-    pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
-        self.harnesses.get(name)
-    }
-
-    /// The web listener this daemon actually serves, if any.
-    pub fn web_listener(&self) -> Option<&WebSocketConfig> {
-        self.websocket.as_ref().filter(|_| !self.web_unbound)
-    }
+/// `peerWake`: the wake command's argv; `Peer::wake` appends the peer's name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerWake {
+    pub argv: Vec<String>,
 }
+
+/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
+/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
+/// `cli/send_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRelay {
+    pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ls_argv: Option<Vec<String>>,
+}
+
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
+}
+
+mod config_impl;
 
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // A copy of this file still waiting for the disk writer is older: it never lands after this.
+    crate::disk_writer::settle(path);
+    write_atomic_now(path, bytes)
+}
+
+/// [`write_atomic`] on the disk writer's thread (`disk_writer.rs`): the caller never waits on the
+/// disk, and newer bytes for `path` replace older ones still waiting. A failed write is logged,
+/// not returned: only for a file holding the latest state of something its next write (or a
+/// rebuild) makes up for, never one a caller must know is on disk before it goes on.
+pub fn write_atomic_later(path: &Path, bytes: Vec<u8>) {
+    crate::disk_writer::write_later(path, bytes);
+}
+
+/// [`write_atomic`] with no wait for the disk writer: the writer's own write.
+pub(crate) fn write_atomic_now(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
+    write_atomic_synced(path, bytes)
+}
+
+/// [`write_atomic`] for a writer that checked `path` with [`refuse_lost_home`] itself before
+/// preparing its folder: a second check would refuse a home replaced since the first, which the
+/// writer's held folder (`home_fs`) already keeps the file out of.
+pub(crate) fn write_atomic_checked(path: &Path, bytes: &[u8]) -> Result<()> {
+    crate::disk_writer::settle(path);
+    write_atomic_synced(path, bytes)
+}
+
+fn write_atomic_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     // Sync before rename so a power loss cannot leave empty chat metadata behind.
     write_atomic_with(path, bytes, |file, tmp| {
         #[cfg(test)]
         startup_seams::sync(tmp);
+        // The fault harness's slow disk (`cmux-fault` `disk.rs`) slows these syncs too.
+        #[cfg(debug_assertions)]
+        crate::store::disk_fault::sync();
         file.sync_all().with_context(|| format!("sync {}", tmp.display()))
     })?;
     // The rename itself is durable once its directory is synced.
@@ -2187,24 +2011,32 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// Only for checked, rebuildable copies. A lost copy is rebuilt from its source.
 /// The rename still keeps concurrent readers from seeing a partial write.
 pub(crate) fn write_atomic_unsynced(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
     write_atomic_with(path, bytes, |_, _| Ok(()))
 }
 
+/// The write [`write_atomic`] and [`write_atomic_unsynced`] make once `path` is checked.
 fn write_atomic_with(
     path: &Path,
     bytes: &[u8],
     sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
 ) -> Result<()> {
-    refuse_lost_home(path)?;
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes, sync);
-    // A failed write (a full disk) leaves no partial temporary file to hold
-    // the space it ran out of; every retry uses a new name.
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
+    // One name per file and process, every write (`dead_temps`: each new name is one more
+    // path fseventsd keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = {
+        let _turn = crate::dead_temps::hold(&tmp);
+        let written = write_then_rename(&tmp, path, bytes, sync);
+        // A failed write (a full disk) leaves no partial temporary file to hold
+        // the space it ran out of.
+        if written.is_err() {
+            let _ = crate::home_fs::remove_file(&tmp);
+        }
+        written
+    };
+    // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
+    // never removed its copy: the next write of the file does.
+    crate::dead_temps::remove_beside(path);
     written
 }
 
@@ -2263,8 +2095,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{user_program, which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
@@ -2272,18 +2104,21 @@ pub use discover::{
     CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
     add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;
 mod save_merge;
+mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
-pub use pool::PoolConfig;
+pub use pool::{PoolConfig, spare_personal_enabled};
 mod btw;
 pub use btw::BtwConfig;
+mod auto_evacuate;
 mod usage_warnings;
+pub use auto_evacuate::AutoEvacuateConfig;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
@@ -2311,6 +2146,23 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(
+    value: &str,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+    model: &str,
+) -> String {
+    let mut out = value
+        .replace("${cwd}", &cwd.to_string_lossy())
+        .replace("${home}", &home.to_string_lossy())
+        .replace("${model}", model);
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}
+
 #[cfg(test)]
 mod save_merge_tests;
 #[cfg(test)]
@@ -2318,3 +2170,42 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod startup_seams;
+
+/// A `remoteDaemon` address: a socket address on loopback, the only place a circuit may reach.
+pub fn loopback_daemon_address(value: &str) -> Result<std::net::SocketAddr> {
+    let address: std::net::SocketAddr = value
+        .trim()
+        .parse()
+        .with_context(|| format!("remote_daemon must be a loopback host:port, not `{value}`"))?;
+    anyhow::ensure!(
+        address.ip().is_loopback() && address.port() != 0,
+        "remote_daemon must be a loopback host:port with a port (127.0.0.1:PORT or [::1]:PORT)"
+    );
+    Ok(address)
+}
+
+/// `web_url` opening one session: `?session=<id>` before the fragment.
+pub fn web_url_for_session(url: &str, session: &str) -> String {
+    let (base, fragment) = url.split_once('#').map_or((url, None), |(b, f)| (b, Some(f)));
+    let joiner = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(f) => format!("{base}{joiner}session={session}#{f}"),
+        None => format!("{base}{joiner}session={session}"),
+    }
+}
+
+#[cfg(test)]
+mod web_url_tests {
+    use super::web_url_for_session;
+
+    #[test]
+    fn a_session_link_puts_the_session_in_the_query_and_keeps_the_fragment() {
+        let url = web_url_for_session("http://127.0.0.1:1/#token=t", "s1");
+        assert_eq!(url, "http://127.0.0.1:1/?session=s1#token=t");
+        assert_eq!(web_url_for_session("http://h/", "s1"), "http://h/?session=s1");
+        assert_eq!(
+            web_url_for_session("http://h/?a=1#token=t", "s"),
+            "http://h/?a=1&session=s#token=t"
+        );
+    }
+}

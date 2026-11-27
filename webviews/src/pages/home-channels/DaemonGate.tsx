@@ -16,6 +16,7 @@ import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { useLasting } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
@@ -69,13 +70,30 @@ type Phase =
   | { kind: "form"; error?: string }
   | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
-  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry
-   *  loop. `restart` when restarting cmux-tui is the fix. */
+  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no connect
+   *  loop, and the page says why. `restart` when restarting cmux-tui is the fix (a button: a restart is
+   *  the person's call); otherwise the page asks again on its own (`useAutoRetry`), so it opens once the
+   *  person has done what the sentence says, with no Connect to click. */
   | { kind: "blocked"; error: string; restart?: boolean }
   | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
+/** A shown page asks again at least this often, so it is back within 2 s of its daemon answering after
+ *  a restart or handoff (the agent chat's recovery step, hostRetry.ts). Asking is one local connect. */
+const SHOWN_BACKOFF_MAX_MS = 2_000;
+
+/** What a failed connect does next. Only a refused credential is dropped (`forget`, URL pages); a
+ *  daemon that is restarting or slow keeps it and is asked again: unreachable (no upgrade in time),
+ *  unresponsive (open, but no answer to its first command in time) or disconnected (closed while
+ *  it was asked). Anything else shows the form with its reason. */
+export function afterConnectFailure(code: string | undefined, source: "url" | "host"): "forget" | "retry" | "form" {
+  if (code === "auth_rejected" && source === "url") return "forget";
+  if (source === "host") return "retry";
+  return code === "auth_rejected" || code === "unreachable" || code === "unresponsive" || code === "disconnected"
+    ? "retry"
+    : "form";
+}
 
 export function DaemonGate({
   source,
@@ -98,6 +116,7 @@ export function DaemonGate({
       auth_rejected: t("connect.authRejected"),
       unreachable: t("connect.connecting"),
       disconnected: t("connect.connecting"),
+      unresponsive: t("connect.connecting"),
       timeout: t("connect.connecting"),
       [PAGE_LISTENER_REFUSED]: t("connect.listenerRefused"),
       [HOST_UNAVAILABLE]: OWNER_SENTENCE,
@@ -122,17 +141,14 @@ export function DaemonGate({
   /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
    *  says whether it closed before the page took it (a close listener added later never fires). */
   const open = (endpoint: string, auth: DaemonAuth) =>
-    DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+    DaemonSocket.connect(endpoint, auth).then((daemon) => {
       let closed = false;
       daemon.onClose(() => (closed = true));
-      try {
-        const identity = await daemon.request<{ capabilities?: string[] }>("identify");
-        // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
-        if (!identity.capabilities?.includes("ws-conversations-v1"))
-          throw Object.assign(new Error(t("connect.tooOld")), { code: TOO_OLD });
-      } catch (error) {
+      // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+      // `connect` read its identity, the probe that it answers at all.
+      if (!daemon.identity.capabilities?.includes("ws-conversations-v1")) {
         daemon.close();
-        throw error;
+        throw Object.assign(new Error(t("connect.tooOld")), { code: TOO_OLD });
       }
       return { daemon, closed: () => closed };
     });
@@ -191,12 +207,11 @@ export function DaemonGate({
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
-        // Only a refused credential is dropped; an unreachable daemon (a restart) keeps it.
-        if (error.code === "auth_rejected" && source.kind === "url") {
+        const next = afterConnectFailure(error.code, source.kind);
+        if (next === "forget") {
           sessionStorage.removeItem(storageKey(url));
           setPhase({ kind: "form", error: say(error) });
-        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host")
-          retry(say(error));
+        } else if (next === "retry") retry(say(error));
         else setPhase({ kind: "form", error: say(error) });
       });
   };
@@ -232,7 +247,8 @@ export function DaemonGate({
     if (!live.current.mounted || live.current.daemon) return;
     setPhase({ kind: "connecting", note });
     const step = live.current.attempt++;
-    const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
+    const max = document.visibilityState === "visible" ? SHOWN_BACKOFF_MAX_MS : BACKOFF_MAX_MS;
+    const delay = Math.min(max, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
     clearTimeout(live.current.timer);
     live.current.timer = setTimeout(resume, delay);
   };
@@ -259,6 +275,11 @@ export function DaemonGate({
   // nothing shows while the retries can still outlast it. Only one that lasts past the grace is
   // said, as one muted line: the last attempt's reason, never in red, since the retries go on.
   const lasting = useLasting(phase.kind === "connecting");
+  // A final refusal with no restart to offer (a daemon too old, a listener cmux cannot restart here):
+  // its fix is outside this page, so asking again is the only thing left, and it is not the person's
+  // decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). One local connect
+  // per ask, on the shared backoff, only while the page is shown.
+  useAutoRetry(phase.kind === "blocked" && !(phase.restart && restart) ? phase : undefined, resume);
   // A new store per connection: the key remounts the page on every reconnect.
   if (phase.kind === "ready")
     return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
@@ -276,9 +297,10 @@ export function DaemonGate({
       {phase.kind === "blocked" && (
         <>
           <p className="hc-gate-error">{phase.error}</p>
-          <div className="hc-gate-actions">
-            {phase.restart && restart ? (
-              // The fix is a restart (the app asks first); the page reconnects once cmux-tui is back.
+          {phase.restart && restart && (
+            <div className="hc-gate-actions">
+              {/* retry-prompt-ok: restarting cmux-tui ends its running work; the app asks first. The page
+                  reconnects once cmux-tui is back. */}
               <button
                 type="button"
                 onClick={() => {
@@ -288,18 +310,8 @@ export function DaemonGate({
               >
                 {t("connect.restart")}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setPhase({ kind: "connecting" });
-                  resume();
-                }}
-              >
-                {t("connect.button")}
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
       {phase.kind === "form" && (

@@ -3,8 +3,11 @@
 // Emoji by shortcode in the prompt (Leo, 2026-11-03: "yo wtf i want this kind of feature in
 // cmux-next too", of Claude desktop's `:` popover), in the real gallery stages laid out by Chromium:
 // - `:tedd` lists 🧸 :teddy_bear: first, in a compact menu over the typed `:`, inside the composer;
-// - `:DD` lists 😆 first and never the middle finger, with no row chosen (Return still sends);
-// - Return on a chosen row writes the glyph; a time or a URL opens nothing.
+// - `:DD` lists 😆 first and never the middle finger;
+// - the first row is always highlighted and Return writes it, never sends (Leo, 2026-11-20: "i click
+//   enter and it should do it"); Esc or typing on keeps the text, and an edit back to the same text
+//   brings the list back; a time or a URL opens nothing;
+// - while the list shows, the system's own completion (autocorrect, inline predictions) is off.
 // With FAST_CHECKS_OUT set it writes 2x stills of every look, light and dark, before it asserts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -13,6 +16,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   setDefaultTimeout(150_000);
@@ -63,27 +67,40 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   }
 
   function read(page: Page) {
-    return page.evaluate(() => {
-      const prompt = document.querySelector(".acpmux-composer-prompt [contenteditable='true']");
-      const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
-      const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
-      const rect = menu?.getBoundingClientRect();
-      return {
-        text: prompt?.textContent ?? "",
-        active: prompt?.getAttribute("aria-activedescendant") ?? null,
-        rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
-          row.getAttribute("aria-label"),
-        ),
-        menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
-        box: box ? { left: box.left, right: box.right, top: box.top } : null,
-      };
-    });
+    return page.evaluate(
+      ({ COMPOSER_EDITOR }) => {
+        const prompt = document.querySelector(COMPOSER_EDITOR);
+        const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
+        const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+        const rect = menu?.getBoundingClientRect();
+        return {
+          text: prompt?.textContent ?? "",
+          active: prompt?.getAttribute("aria-activedescendant") ?? null,
+          rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
+            row.getAttribute("aria-label"),
+          ),
+          highlighted: [...document.querySelectorAll(".acpmux-emoji-row")].findIndex((row) =>
+            row.classList.contains("acpmux-slash-active"),
+          ),
+          native: prompt
+            ? {
+                spellcheck: prompt.getAttribute("spellcheck"),
+                autocorrect: prompt.getAttribute("autocorrect"),
+                writingsuggestions: prompt.getAttribute("writingsuggestions"),
+              }
+            : null,
+          menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
+          box: box ? { left: box.left, right: box.right, top: box.top } : null,
+        };
+      },
+      { COMPOSER_EDITOR },
+    );
   }
 
   test("stills of every look, light and dark (with FAST_CHECKS_OUT)", async () => {
     if (!out) return;
     for (const look of ["caret", "wide", "strip"])
-      for (const variant of ["tedd", "emoticon-dd"])
+      for (const variant of ["tedd", "emoticon-dd", "later-line"])
         for (const colorScheme of ["light", "dark"] as const) {
           const page = await stage(variant, look, colorScheme);
           const { menu, box } = await read(page);
@@ -97,12 +114,13 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
         }
   });
 
-  test(":tedd lists the teddy bear first, none chosen, in a compact menu inside the composer", async () => {
+  test(":tedd lists the teddy bear first, highlighted, in a compact menu inside the composer", async () => {
     const page = await stage("tedd");
     const state = await read(page);
     expect(state.rows[0]).toBe("🧸 :teddy_bear:");
-    // No row chosen until the arrows choose one, so Return sends the text as typed.
-    expect(state.active).toBeNull();
+    // The first row is highlighted from the start, so Return writes it (Leo, 2026-11-20).
+    expect(state.active).toBe("acpmux-emoji-0");
+    expect(state.highlighted).toBe(0);
     expect(state.menu!.width).toBeLessThan(260);
     expect(state.menu!.left).toBeGreaterThanOrEqual(state.box!.left - 1);
     expect(state.menu!.right).toBeLessThanOrEqual(state.box!.right + 1);
@@ -112,16 +130,50 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     await page.close();
   });
 
-  test(":DD lists a laughing face, never the middle finger, with no row chosen", async () => {
+  test(":plead lists 🥺 first, highlighted, and turns off the system's own completion while it shows", async () => {
+    const page = await stage("pleading");
+    const state = await read(page);
+    expect(state.rows[0]).toBe("🥺 :pleading_face:");
+    expect(state.active).toBe("acpmux-emoji-0");
+    expect(state.highlighted).toBe(0);
+    // One completion UI: no autocorrect bubble or inline prediction under the caret.
+    expect(state.native).toEqual({ spellcheck: "false", autocorrect: "off", writingsuggestions: "false" });
+    await page.close();
+  });
+
+  // Leo, 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here".
+  test(":plead on a later line of the draft lists 🥺, highlighted, over the typed `:`", async () => {
+    const page = await stage("later-line");
+    const state = await read(page);
+    expect(state.rows[0]).toBe("🥺 :pleading_face:");
+    expect(state.active).toBe("acpmux-emoji-0");
+    expect(state.menu!.bottom).toBeLessThanOrEqual(state.box!.top);
+    await page.close();
+  });
+
+  test(":DD lists a laughing face, never the middle finger, highlighted", async () => {
     const page = await stage("emoticon-dd");
     const state = await read(page);
     expect(state.rows[0]).toBe("😆 :laughing:");
     expect(state.rows.some((row) => row?.includes("middle_finger") || row?.includes(":fu:"))).toBe(false);
-    expect(state.active).toBeNull();
+    expect(state.active).toBe("acpmux-emoji-0");
     await page.close();
   });
 
-  for (const variant of ["arrow-return", "return-sends", "emoticon-tab", "arrows-escape", "no-trigger", "heart"])
+  for (const variant of [
+    "arrow-return",
+    "return-picks",
+    "emoticon-tab",
+    "arrows-escape",
+    "escape-retype",
+    "type-past",
+    "no-trigger",
+    "heart",
+    "later-line-return",
+    "closing-colon",
+    // "skin-tone" is left out: in Chromium its play's 👋🏽 never showed in 5 s on the runner, while
+    // the jsdom lifecycle test writes it (test/composer-emoji-lifecycle.test.tsx). Open on #50354.
+  ])
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
       // What the play did, not how fast the runner drew it: a frame over 33 ms on the shared runner
@@ -129,8 +181,10 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
       const report = await page.evaluate(() => JSON.stringify(window.cmuxGalleryPlayReport ?? {}));
       expect([variant, playFailures(report)]).toEqual([variant, []]);
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
-      if (variant === "arrow-return") expect((await read(page)).text).toContain("Ship it 🧸");
-      if (variant === "return-sends") expect((await read(page)).text).not.toContain("🧸");
+      if (variant === "return-picks") expect((await read(page)).text).toContain("aw 🥺");
+      if (variant === "type-past") expect((await read(page)).text).toContain("aw :pl ok");
+      if (variant === "later-line-return") expect((await read(page)).text).toContain("🥺");
+      if (variant === "closing-colon") expect((await read(page)).text).toContain("aw 🥺");
       if (variant === "heart") expect((await read(page)).rows[0]).toBe("❤️ :heart:");
       await page.close();
     });

@@ -131,14 +131,25 @@ source scripts/ci/nightly-steps/app-host-build-root.sh
 # build: one missing or recorded in another tree drops the artifact state and resolves again
 # (spm_artifact_preflight.py). The project's local packages are read from cmux.xcodeproj, since the seeded tree
 # has no workspace-state.json to name them.
-(
+# A dead or half-dead github.com egress proxy on the mini: probed first, and a resolve that failed on it runs once
+# more, direct; the build below inherits the route (github-egress-direct.sh).
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source scripts/ci/github-egress-direct.sh
+github_egress_probe >&2
+spm_preflight_log="$(mktemp "${RUNNER_TEMP:-/tmp}/spm-preflight.XXXXXX")"
+spm_artifact_preflight() (
   cd "$build_root"
   python3 scripts/ci/spm_artifact_preflight.py .spm-cache --xcodeproj cmux.xcodeproj \
     --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
     xcodebuild -resolvePackageDependencies -scheme cmux \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache"
-) >&2
+)
+if ! spm_artifact_preflight 2>&1 | tee "$spm_preflight_log" >&2; then
+  github_egress_retry_direct "$spm_preflight_log" >&2 || { rm -f "$spm_preflight_log"; exit 1; }
+  spm_artifact_preflight >&2
+fi
+rm -f "$spm_preflight_log"
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
@@ -152,7 +163,7 @@ run_release_build() (
     --derived-data "$derived_data" --configuration Release --archs "$archs" \
     --log "$RUNNER_TEMP/helper-prebuild.log" -- \
   ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
+    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
     -destination 'generic/platform=macOS' \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \
@@ -180,6 +191,17 @@ finish_host_build() {
 fail_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" "$1" || true
 }
+# The stall window for this build: 8 min, not the wrapper's 15. Six healthy nightly-next-one Release builds on
+# 2026-11-15 (both nightly Macs, Xcode 26.6, clean DerivedData, 127 to 367 s) went at most 27 s without an
+# xcodebuild line; run 43673773157's deadlock went silent about a minute in. The CPU condition still has to hold.
+export CMUX_XCODEBUILD_STALL_SECONDS="${CMUX_XCODEBUILD_STALL_SECONDS:-480}"
+# Where run-xcodebuild-with-diagnostics.sh keeps a stalled build's `sample` of its build service: on the host,
+# outside RUNNER_TEMP (the runner empties that at the next job), one folder per run attempt, the last 30 days.
+if [[ -z "${CMUX_XCODEBUILD_STALL_DIR:-}" ]]; then
+  stall_root="$HOME/Library/Logs/cmux-ci/xcodebuild-stall"
+  find "$stall_root" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+  export CMUX_XCODEBUILD_STALL_DIR="$stall_root/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${GITHUB_JOB:-job}"
+fi
 # A build on the fleet cache that fails for any reason retries once with Xcode's local cache, keeping the
 # build's incremental inputs. The fleet cache has failed in one form after another (a corrupt object, a missing
 # module key, a precompile's "CAS operation failed", a compiler crash reading the CAS; runs 42100189059,
@@ -191,7 +213,11 @@ run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
 release_status=${PIPESTATUS[0]}
 set -e
 release_retry=""
-if [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
+# Status 124: run-xcodebuild-with-diagnostics.sh ended a build that had stopped. In run 43673773157 the build
+# service deadlocked and held the nightly-next slot for hours. A new build service gets one more try.
+if [[ "$release_status" -eq 124 ]]; then
+  release_retry="the Release build stalled (no output and no CPU use), so the wrapper ended it"
+elif [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
   release_retry="the Release build failed on the managed fleet compilation cache"
 elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   release_retry="the compilation cache failed"
@@ -203,6 +229,10 @@ if [[ -n "$release_retry" ]]; then
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
   retry_status=${PIPESTATUS[0]}
   set -e
+  if [[ "$retry_status" -eq 124 ]]; then
+    stall_samples="$(find "$CMUX_XCODEBUILD_STALL_DIR" -name '*.sample.txt' 2>/dev/null | sort | paste -sd' ' - || true)"
+    echo "::error::the Release build stalled again on its retry, with a new build service; the build service's stacks: ${stall_samples:-none taken (see $CMUX_XCODEBUILD_STALL_DIR)}"
+  fi
   [[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }
   summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build

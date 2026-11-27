@@ -51,6 +51,8 @@ EXEMPT = {
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
+    ("cmux-rd-windows.yml", "live-macos-viewer"):
+        "Rust only (the cmux-rd bench, VideoToolbox through the image's SDK); no Swift or xcodebuild",
     ("gateway-e2e.yml", "mac"): "runs the published cmux CLI and Bun against the inference gateway; builds nothing, no Xcode",
     ("machine-vault-e2e.yml", "e2e"): "runs the published cmux CLI and a disposable user's join; builds nothing, no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
@@ -75,6 +77,8 @@ EXEMPT = {
         "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "codesigns published tree binaries with the OS's /usr/bin/codesign; compiles nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
         "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",
@@ -107,13 +111,12 @@ EXEMPT = {
         "compile-check; the compile runs on a fleet worker, never with this "
         "runner's Xcode",
     ("cmux-next.yml", "app-compile-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "compile-check; the compile runs on a fleet worker, never with this "
-        "runner's Xcode",
-    ("cmux-next.yml", "fast-tier-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "run (package-test-lane.sh suites); the suites build on a fleet "
-        "worker, never with this runner's Xcode",
+        "reads the build fleet's posted compile result (fleet_compile_result.py); "
+        "the compile runs on a fleet worker, not on this runner",
+    ("cmux-next.yml", "fast-tier-fleet-mac"):
+        "mac fallback build-fleet gateway: checks nothing out and only runs "
+        "cmux-ci run (package-test-lane.sh suites); the suites build on a "
+        "fleet worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "
@@ -266,6 +269,8 @@ def check_workflow(name: str, text: str) -> list[str]:
             if BELOW_FLOOR in body and (name, job_id, step_name) not in BELOW_FLOOR_STEPS:
                 errors.append(f"{label} sets {BELOW_FLOOR}; only the SDK 15 helper may")
             scanned = re.sub(r".*select-ci-xcode\.sh.*", "", body)
+            # A whole-line YAML comment (`# Why: 2026-11-24-swift-test-1.md`, a note pointer) runs nothing.
+            scanned = re.sub(r"(?m)^\s*#.*$", "", scanned)
             uses_toolchain = TOOLCHAIN.search(job_id_token.sub("", scanned) if job_id_token else scanned)
             if uses_toolchain and first_select is not None and index < first_select:
                 errors.append(f"{label} uses the toolchain ({uses_toolchain.group(0)}) before {SELECTOR} runs")
@@ -392,6 +397,14 @@ def check_detects_regressions() -> list[str]:
                 "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
+        ),
+        "a comment naming swift is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Checkout\n        uses: actions/checkout@v6\n        with:\n"
+                "          # Why: 2026-11-24-swift-test-1.md\n          fetch-depth: 2\n      - name: Select Xcode\n",
+            ),
+            [],
         ),
         "selector through a step alias": (
             base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")

@@ -281,7 +281,17 @@ pub(super) struct CarrierRoutes {
     session: SessionId,
     next: AtomicUsize,
     current: Arc<CurrentRoute>,
+    /// A reconnect connected a route of this session ([`Self::connect`]): from then on the session's carrier is
+    /// what the reconnect set, never the first dial's ([`Self::first_route`]). Held while `current` is set.
+    moved: Mutex<bool>,
+    /// Told each failed [`ReconnectGroupSource::next_group`]: the connection
+    /// drops that error and resumes on the carrier it had, so this is the only
+    /// place it is seen ([`Self::reporting_discovery`]).
+    discovery: Option<DiscoveryReport>,
 }
+
+/// What [`CarrierRoutes`] tells of a next route it could not find.
+pub(super) type DiscoveryReport = Arc<dyn Fn(&ProviderError) + Send + Sync>;
 
 impl CarrierRoutes {
     /// The routes of a session that connected route `selected` on `group`,
@@ -307,6 +317,23 @@ impl CarrierRoutes {
             session,
             next: AtomicUsize::new(selected.saturating_add(1)),
             current,
+            moved: Mutex::new(false),
+            discovery: None,
+        }
+    }
+
+    /// These routes, telling `report` of every next route they could not find.
+    pub(super) fn reporting_discovery(mut self, report: DiscoveryReport) -> Self {
+        self.discovery = Some(report);
+        self
+    }
+
+    /// The first dial's route `name`, once its session opened: the session's carrier, unless a reconnect already
+    /// moved the session off it (the first route failed while the first mux stream opened), whose route stays.
+    pub(super) fn first_route(&self, name: &'static str) {
+        let moved = self.moved.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*moved {
+            self.current.set(name);
         }
     }
 
@@ -356,15 +383,20 @@ impl CarrierRoutes {
 #[async_trait]
 impl ReconnectGroupSource for CarrierRoutes {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        next_reconnect_route(
+        let next = next_reconnect_route(
             &self.next,
             &self.routes,
+            None,
             self.session,
             CARRIER_LANES,
             CARRIER_AUTH,
             self,
         )
-        .await
+        .await;
+        if let (Err(error), Some(report)) = (&next, &self.discovery) {
+            report(error);
+        }
+        next
     }
 }
 
@@ -415,7 +447,10 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
                 group
             }
         };
+        let mut moved = self.moved.lock().unwrap_or_else(PoisonError::into_inner);
+        *moved = true;
         self.current.set(dialer.name());
+        drop(moved);
         Ok(group)
     }
 }

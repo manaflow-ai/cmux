@@ -14,32 +14,39 @@ public import AppKit
 public final class CmuxToastPlaygroundWindow {
     private let center: CmuxToastCenter
     private let target: @MainActor () -> NSWindow?
+    private let cards: [CmuxToastPlaygroundCard]
+    private let openKeycaps: (@MainActor () -> Void)?
+    private let openTooltips: (@MainActor () -> Void)?
     private var window: NSWindow?
 
     /// - Parameters:
     ///   - center: The toasts' center (the app's shared one).
     ///   - window: The window Fire it shows toasts in (the active one); nil shows them in the playground.
-    public init(center: CmuxToastCenter, window: @escaping @MainActor () -> NSWindow?) {
+    ///   - cards: The sidebar cards it can show for real (``CmuxToastPlaygroundCard``); none by default.
+    ///   - openKeycaps: Opens the Keycap Playground (``CmuxKeycapPlaygroundWindow``) from a button at the top; nil
+    ///     shows no button.
+    ///   - openTooltips: Opens the Tooltip Gallery (``TooltipGalleryWindow``) from a button beside it; nil shows none.
+    public init(center: CmuxToastCenter, window: @escaping @MainActor () -> NSWindow?, cards: [CmuxToastPlaygroundCard] = [],
+                openKeycaps: (@MainActor () -> Void)? = nil, openTooltips: (@MainActor () -> Void)? = nil) {
         self.center = center
         target = window
+        self.cards = cards
+        self.openKeycaps = openKeycaps
+        self.openTooltips = openTooltips
     }
 
     /// The playground's window, once opened (tests, captures).
     public var shownWindow: NSWindow? { window }
 
-    /// Opens the playground (its sheets in `themes`), or brings it to the front.
+    /// Opens the playground (its sheets in `themes`, the styles Debug Settings > Toasts > Playground shows
+    /// picks), or brings it to the front with those styles.
     public func show(themes: CmuxToastPlaygroundThemes) {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 860),
-                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Toast Playground"
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 1000, height: 500)
+        let window = window ?? makeWindow()
+        self.window = window
         let center = center, target = target
-        let view = CmuxToastPlaygroundView(center: center, themes: themes) { [weak window] style in
+        let view = CmuxToastPlaygroundView(center: center, themes: themes,
+                                           focus: CmuxToastTunables.playgroundFocus.value(in: center.tunables), cards: cards,
+                                           openKeycaps: openKeycaps, openTooltips: openTooltips) { [weak window] style in
             guard let shownIn = target() ?? window else { return }
             for var toast in CmuxToastPlaygroundSamples.fired {
                 toast.style = style
@@ -48,11 +55,19 @@ public final class CmuxToastPlaygroundWindow {
             }
         }
         window.contentView = view
-        window.setAccessibilityIdentifier("cmux.toastPlayground")
-        window.center()
-        self.window = window
         window.makeKeyAndOrderFront(nil)
         view.layoutSubtreeIfNeeded()
         view.enter()
+    }
+
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 860),
+                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = "Toast Playground"
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 1000, height: 500)
+        window.setAccessibilityIdentifier("cmux.toastPlayground")
+        window.center()
+        return window
     }
 }

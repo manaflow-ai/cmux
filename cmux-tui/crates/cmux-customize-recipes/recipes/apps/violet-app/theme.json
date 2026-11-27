@@ -1,0 +1,32 @@
+// A violet desktop coding app, dark: a deep violet-black #13111a page, a #1a1722 sidebar, lavender-white ink and the pink
+// #e0559b accent. Picked by eye,
+// not measured.
+{
+  "name": "Violet coding app",
+  "description": "A violet-black #13111a page, a #1a1722 sidebar, lavender ink and a pink accent.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#13111a", "foreground": "#ece8f4", "selection": "#2d2838", "accent": "#e0559b" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1a1722",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#13111a",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#13111a",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#13111a",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#e0559b",
+
+  "appearance.density": "comfortable"
+}

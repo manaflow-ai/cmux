@@ -10,11 +10,16 @@ request's swift-test red with.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+sys.path.insert(0, str(ROOT / "tests"))
+from cmux_next_step_text import inline_steps  # noqa: E402
+
+# Moved steps (scripts/ci/cmux-next-steps/) read as the inline blocks they were.
+WORKFLOW = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
 
 
 def job(name: str) -> str:

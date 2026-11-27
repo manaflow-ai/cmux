@@ -127,10 +127,28 @@ fn newest_first_with_role_since_and_limit() {
 }
 
 #[test]
+fn search_matches_history_turn_time_for_replies_and_steers() {
+    let log = [
+        prompt(1, "match"),
+        chunk(2, "a", "match"),
+        rec(3, "mux", "user_message", json!({"text": "match", "steer": true})),
+        prompt(4, "match"),
+        chunk(5, "b", "match"),
+    ];
+    let found = hits(&store(&log), json!({"query":"match", "withTurnTime":true}));
+    let times: Vec<_> = found.iter().map(|hit| hit["turnStartedAt"].as_u64()).collect();
+    assert_eq!(times, [Some(4000), Some(4000), Some(1000), Some(1000), Some(1000)]);
+    assert_eq!(found[0]["at"], 5000);
+    let legacy = hits(&store(&log), json!({"query":"match"}));
+    assert!(legacy.iter().all(|hit| hit.get("turnStartedAt").is_none()));
+}
+
+#[test]
 fn a_bad_query_is_refused() {
     for params in [
         json!({}),
         json!({"query": "   "}),
+        json!({"query": "match", "withTurnTime": "yes"}),
         json!({"query": "x", "role": "system"}),
         json!({"query": "x", "limit": 0}),
         json!({"query": "x", "sinceMs": "yesterday"}),
@@ -139,6 +157,40 @@ fn a_bad_query_is_refused() {
     }
     let q = Query::from_params(&json!({"query": "x", "limit": 5000})).unwrap();
     assert_eq!(q.limit, MAX_LIMIT);
+}
+
+#[test]
+fn history_search_uses_the_opening_turn_time_and_skips_tool_text() {
+    let mut steer = prompt(3, "marker steer");
+    steer.msg["steer"] = json!(true);
+    let store = store(&[
+        prompt(1, "marker prompt"),
+        tool(2, "marker tool"),
+        steer,
+        chunk(4, "reply", "marker\nreply"),
+        prompt(5, "next marker"),
+    ]);
+    let query = Query::from_params(&json!({"query": "marker"})).unwrap();
+    let result = json!(search_messages(&store, "c", &query, TextView::Conversation).unwrap());
+    let hits = result["hits"].as_array().unwrap();
+    assert_eq!(seqs(hits), [5, 4, 3, 1]);
+    assert_eq!(hits[0]["turnTime"], "1970-01-01T00:00:05.000Z");
+    assert_eq!(hits[1]["turnTime"], "1970-01-01T00:00:01.000Z");
+    assert_eq!(hits[1]["snippet"], "marker reply");
+    assert_eq!(hits[2]["turnTime"], hits[1]["turnTime"]);
+}
+
+#[test]
+fn history_search_masks_the_peer_message_before_matching_or_cutting_it() {
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let store = store(&[prompt(1, &format!("check {token} before the deadline"))]);
+    let query = Query::from_params(&json!({"query": "deadline"})).unwrap();
+    let result = search_messages(&store, "c", &query, TextView::PeerConversation).unwrap();
+    assert!(result.hits[0].snippet.contains("[GitHub Personal Access Token]"));
+    let query = Query::from_params(&json!({"query": &token})).unwrap();
+    assert!(
+        search_messages(&store, "c", &query, TextView::PeerConversation).unwrap().hits.is_empty()
+    );
 }
 
 /// One message keeps at most [`MAX_TEXT`] bytes, cut at a character boundary.

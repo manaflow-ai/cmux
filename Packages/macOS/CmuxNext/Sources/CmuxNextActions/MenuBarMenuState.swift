@@ -63,30 +63,49 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         }
     }
 
-    /// Computer Use on this Mac: a session that drives an app, or the feature ready with none.
+    /// Computer Use on this Mac: the agent sessions cmux Remote's worker reports (who acts, on which
+    /// app), or the feature ready with none.
     public struct ComputerUse: Sendable, Hashable {
-        /// The newest live session, nil when Computer Use is on and nothing drives an app.
-        public var session: Session?
+        /// The sessions that acted, newest action first; empty when no agent used an app.
+        public var sessions: [Session]
+        /// The newest session, nil when Computer Use is on and nothing drives an app.
+        public var session: Session? { sessions.first }
 
-        /// A live session.
+        /// An agent session of the worker.
         public struct Session: Sendable, Hashable {
             public var id: String
-            /// The app it drives (its name and bundle id), nil before its first act.
+            /// The agent's name ("Claude Code"), nil when the worker has none.
+            public var agent: String?
+            /// The app it drives (its name and bundle id), nil when the worker does not know it.
             public var appName: String?
             public var bundleID: String?
-            /// The person took over: the agent waits until Hand Back.
-            public var paused: Bool
+            /// It acted within the last 2 s.
+            public var acting: Bool
+            /// The person stopped its Computer Use (the menu's Stop); Resume lets it act again.
+            public var stopped: Bool
 
-            public init(id: String, appName: String? = nil, bundleID: String? = nil, paused: Bool = false) {
+            public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false,
+                        stopped: Bool = false) {
                 self.id = id
+                self.agent = agent
                 self.appName = appName
                 self.bundleID = bundleID
-                self.paused = paused
+                self.acting = acting
+                self.stopped = stopped
             }
         }
 
-        public init(session: Session? = nil) {
-            self.session = session
+        /// The floating live preview panel (`computerUse.floatingPreview`, prototype): nil while the
+        /// setting is off (no row), else whether the panel shows now (the row hides or shows it).
+        public var floatingPreview: Bool?
+
+        public init(sessions: [Session] = [], floatingPreview: Bool? = nil) {
+            self.sessions = sessions
+            self.floatingPreview = floatingPreview
+        }
+
+        public init(session: Session?) {
+            self.init(sessions: session.map { [$0] } ?? [])
         }
     }
 
@@ -122,6 +141,8 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public var updateReady: Bool
     /// Show/Hide All Windows' system-wide key is on (`app.globalHotKey`): Open cmux shows it.
     public var showsGlobalKey: Bool
+    /// What Sign In signs in to ("Signs in to cmux.com"), the line under it while signed out; nil hides it.
+    public var signInBackend: String?
 
     /// - Parameters:
     ///   - account: The signed-in account, nil when signed out.
@@ -133,9 +154,12 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     ///   - unread: The Unread list; empty hides the section.
     ///   - running: The Running list; empty hides the section.
     ///   - keepingAwake: cmux keeps the Mac awake; nil hides the line.
+    ///   - signInBackend: What Sign In signs in to, shown under it while signed out; nil hides it.
     public init(account: Account? = nil, agentsWorking: Int = 0, agentsNeedingInput: Int = 0,
                 updateReady: Bool = false, showsGlobalKey: Bool = false, computerUse: ComputerUse? = nil,
-                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil) {
+                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil,
+                signInBackend: String? = nil) {
+        self.signInBackend = signInBackend
         self.computerUse = computerUse
         self.keepingAwake = keepingAwake
         self.unread = unread

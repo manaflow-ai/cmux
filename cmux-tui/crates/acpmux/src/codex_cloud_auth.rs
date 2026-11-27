@@ -24,11 +24,24 @@
 //! [`apply`] then does what the launcher does for own: `-c model_provider="openai"` (only over a
 //! config cmux generated) and no model-plane `OPENAI_BASE_URL` / placeholder `OPENAI_API_KEY`, so
 //! nothing outranks the person's sign-in and it is never sent to CodeRouter. A signed-out Codex in
-//! own mode then fails at once with its own "sign in" error, which the chat shows as its Sign in
-//! card, instead of hanging.
+//! own mode then fails at once instead of hanging. Codex's own words for it are a bare
+//! "Missing environment variable: `OPENAI_API_KEY`.", so the turn says "Codex is not signed in on
+//! this machine" ([`explain_missing_key`]), typed `auth.signed_out`, which the chat shows as its
+//! Sign in card.
+//!
+//! [`apply_team`] does what a login shell gives the launcher for team mode: the placeholder
+//! `OPENAI_API_KEY` that the generated `cmux` provider reads (`env_key`), which the machine's edge
+//! swaps for the real credential. A chat the Mac starts on the machine is remote-origin
+//! (`agent/command.rs` clears its env and applies no login env), so without it every Codex with
+//! no sign-in of its own failed its first turn on "Missing environment variable:
+//! `OPENAI_API_KEY`." while Claude, whose team pair goes in the launch env
+//! (`claude_cloud_auth.rs`), replied (Leo's NIGHTLY, vm_e58be1e72a22727f29ef, 2026-11-15).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// Where `cr use` records each agent's choice, under the home (`<dir>/<agent>`: `own` or `team`).
+pub(crate) const CHOICE_DIR: &str = ".config/cmux/agent-auth";
 
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
 /// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
@@ -54,7 +67,7 @@ pub struct Inputs<'a> {
 }
 
 impl Inputs<'_> {
-    fn codex_home(&self) -> PathBuf {
+    pub(crate) fn codex_home(&self) -> PathBuf {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
@@ -68,12 +81,11 @@ impl Inputs<'_> {
 
     /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
     pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
-        let text =
-            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
+        let text = std::fs::read_to_string(self.home.join(CHOICE_DIR).join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
-    fn own_login(&self) -> bool {
+    pub(crate) fn own_login(&self) -> bool {
         (self.var)("CODEX_API_KEY").is_some()
             || crate::agent_login::signed_in_at(
                 crate::agent_login::Agent::Codex,
@@ -85,10 +97,32 @@ impl Inputs<'_> {
     /// login shell sources ([`Self::model_plane_file`]). The daemon's login-env import keeps no `CMUX_` name, so on a
     /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
     /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
+    ///
+    /// A per-home file that kept only the OpenAI pair (a shell that carried `OPENAI_BASE_URL` but not
+    /// `CMUX_CODEROUTER_URL` rewrote it) still names the image's plane when its `OPENAI_BASE_URL` is
+    /// the image's: the origin then comes from the image's file. Without that, every Claude and Codex
+    /// with no sign-in on such a machine ran in own mode with no login ("Not logged in", the
+    /// 2026-11-25 cloud-claude-matrix sr2 rows). A per-home file naming any other plane keeps none.
     pub(crate) fn team_origin(&self) -> Option<String> {
         (self.var)("CMUX_CODEROUTER_URL")
             .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
+            .or_else(|| self.image_origin_for_home_plane())
             .filter(|u| u.starts_with("https://"))
+    }
+
+    /// The image's `CMUX_CODEROUTER_URL` when the per-home file has none but its `OPENAI_BASE_URL`
+    /// is the image's (the same plane, persisted without its origin).
+    fn image_origin_for_home_plane(&self) -> Option<String> {
+        let home = self.home.join(".config/cmux/model-plane.env");
+        let image = self.root.join(MODEL_PLANE_ENV);
+        if !home.is_file() || file_var(&home, "CMUX_CODEROUTER_URL").is_some() {
+            return None;
+        }
+        let ours = file_var(&home, "OPENAI_BASE_URL")?;
+        let theirs = file_var(&image, "OPENAI_BASE_URL")?;
+        (ours.trim_end_matches('/') == theirs.trim_end_matches('/'))
+            .then(|| file_var(&image, "CMUX_CODEROUTER_URL"))
+            .flatten()
     }
 
     /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
@@ -98,7 +132,7 @@ impl Inputs<'_> {
 
     /// The model-plane env file a login shell sources (`agent-config.sh`): the per-home copy when it
     /// exists, else the image's. Only one is read, so a per-home file with no (or an empty) origin
-    /// never falls through to the image's origin.
+    /// never falls through to the image's origin, except the same plane's ([`Self::team_origin`]).
     fn model_plane_file(&self) -> PathBuf {
         let home = self.home.join(".config/cmux/model-plane.env");
         if home.is_file() { home } else { self.root.join(MODEL_PLANE_ENV) }
@@ -176,18 +210,23 @@ where
 /// answer is waited for rather than read as unreachable, which would switch Codex to own mode.
 const RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The `host:port` a lookup of `host` (an https origin's host, port optional) asks for.
+pub(crate) fn lookup_target(host: String) -> String {
+    if host.contains(':') { host } else { format!("{host}:443") }
+}
+
 /// Whether `host` resolves (`agent-auth.sh` treats curl's exit 6 as unreachable); a resolver that
 /// gives no answer by `RESOLVE_DEADLINE` counts as unreachable.
 pub async fn host_resolves(host: String) -> bool {
-    let target = if host.contains(':') { host } else { format!("{host}:443") };
-    let lookup = tokio::time::timeout(RESOLVE_DEADLINE, tokio::net::lookup_host(target));
+    let lookup =
+        tokio::time::timeout(RESOLVE_DEADLINE, tokio::net::lookup_host(lookup_target(host)));
     match lookup.await {
         Ok(Ok(mut addrs)) => addrs.next().is_some(),
         _ => false,
     }
 }
 
-/// Own mode for one codex launch (module docs): the provider override right after the program, and
+/// Own mode for one codex launch (module docs): the provider override right after the subcommand, and
 /// the model-plane OpenAI pair out of the profile env and the inherited env (`routes::UNSET_KEY`).
 /// A value the person set (any other base URL or key) stays.
 pub fn apply(
@@ -197,8 +236,11 @@ pub fn apply(
     cmux_config: bool,
 ) {
     if cmux_config && !argv.iter().any(|a| a.starts_with("model_provider=")) && !argv.is_empty() {
+        // After the profile's own overrides (`codex_config_index`); the launch keeps them all before
+        // the subcommand (`harness_limits::codex_args`).
+        let at = crate::agent_credentials::codex_config_index(argv);
         for (i, a) in OWN_PROVIDER_ARGS.iter().enumerate() {
-            argv.insert(1 + i, (*a).to_owned());
+            argv.insert(at + i, (*a).to_owned());
         }
     }
     let origin = var("CMUX_CODEROUTER_URL").map(|o| o.trim_end_matches('/').to_owned());
@@ -233,185 +275,40 @@ pub fn apply(
     env.insert(crate::routes::UNSET_KEY.to_owned(), unset.join(","));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    struct Machine {
-        root: PathBuf,
-        home: PathBuf,
+/// Team mode for one codex launch on an owner Cloud machine (module docs): the placeholder key the
+/// generated `cmux` provider reads, in the launch's own env, so it reaches codex whether or not a
+/// login env is applied (a remote-origin chat gets none). Only over a config cmux generated, with
+/// a team plane to send to, and never over a key the launch env already sets. True when it added
+/// the key. Call it only when [`own_reason`] answered team (None).
+pub fn apply_team(env: &mut BTreeMap<String, String>, inputs: &Inputs<'_>) -> bool {
+    if !inputs.owner_cloud_image() || !inputs.cmux_config() || inputs.team_origin().is_none() {
+        return false;
     }
-
-    impl Drop for Machine {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
+    if env.get("OPENAI_API_KEY").is_some_and(|v| !v.is_empty()) {
+        return false;
     }
-
-    fn machine(kind: Option<&str>, script: bool) -> Machine {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let n = N.fetch_add(1, Ordering::SeqCst);
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-codex-cloud-auth-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
-        if let Some(kind) = kind {
-            std::fs::write(root.join("etc/cmux/vm-kind"), format!("{kind}\n")).unwrap();
-        }
-        if script {
-            std::fs::write(root.join("etc/cmux/agent-auth.sh"), "# image\n").unwrap();
-        }
-        let home = root.join("home");
-        std::fs::create_dir_all(home.join(".codex")).unwrap();
-        std::fs::write(
-            home.join(".codex/config.toml"),
-            "model_provider = \"cmux\"\n\n[model_providers.cmux]\nrequires_openai_auth = false\n",
-        )
-        .unwrap();
-        Machine { root, home }
-    }
-
-    fn vars(pairs: &[(&str, &str)]) -> Box<dyn Fn(&str) -> Option<String> + Sync> {
-        let map: BTreeMap<String, String> =
-            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Box::new(move |k: &str| map.get(k).cloned().filter(|v| !v.is_empty()))
-    }
-
-    async fn reason(
-        m: &Machine,
-        var: &(dyn Fn(&str) -> Option<String> + Sync),
-        broker: bool,
-        dns: bool,
-    ) -> Option<&'static str> {
-        let inputs = Inputs { root: &m.root, home: &m.home, var, broker };
-        own_reason(&inputs, |_| async move { dns }).await
-    }
-
-    const TEAM: &[(&str, &str)] = &[("CMUX_CODEROUTER_URL", "https://coderouter.cmux.internal")];
-
-    #[tokio::test]
-    async fn the_image_rule_picks_own_or_team() {
-        let m = machine(Some("owner"), true);
-        // A team plane that resolves, no sign-in: team, as the launcher.
-        assert_eq!(reason(&m, &vars(TEAM), false, true).await, None);
-        // It does not resolve: team mode could not work (the 2026-11-10 hang).
-        assert_eq!(reason(&m, &vars(TEAM), false, false).await, Some("team-unreachable"));
-        // No team plane at all.
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
-        // The Mac broker's access file, or the app's copy of `codex login`.
-        assert_eq!(reason(&m, &vars(TEAM), true, true).await, Some("login"));
-        std::fs::write(m.home.join(".codex/auth.json"), r#"{"tokens":{"access_token":"t"}}"#)
-            .unwrap();
-        assert_eq!(reason(&m, &vars(TEAM), false, true).await, Some("login"));
-        // A recorded choice wins over the sign-in, and the env pin over both.
-        let dir = m.home.join(".config/cmux/agent-auth");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("codex"), "team\n").unwrap();
-        assert_eq!(reason(&m, &vars(TEAM), true, true).await, None);
-        std::fs::write(dir.join("codex"), "own\n").unwrap();
-        assert_eq!(reason(&m, &vars(TEAM), false, true).await, Some("chosen"));
-        let pinned = [TEAM[0], ("CMUX_CODEX_AUTH", "team")];
-        assert_eq!(reason(&m, &vars(&pinned), false, true).await, None);
-    }
-
-    #[tokio::test]
-    async fn the_team_plane_comes_from_the_model_plane_file_too() {
-        // The daemon's env has no CMUX_ name: the login shell's model-plane file says where the plane is.
-        let m = machine(Some("owner"), true);
-        std::fs::write(
-            m.root.join(MODEL_PLANE_ENV),
-            "# generated by cmux\nexport OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
-             export CMUX_CODEROUTER_URL='https://coderouter.cmux.internal'\n",
-        )
-        .unwrap();
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
-        // The per-home file (a boot env agent-config.sh persisted) replaces the image's.
-        let dir = m.home.join(".config/cmux");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='http://plain'\n")
-            .unwrap();
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
-        // A per-home file with an empty or no origin is the one the shell reads: no image fallback.
-        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL=''\n").unwrap();
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
-        std::fs::write(dir.join("model-plane.env"), "export OPENAI_BASE_URL='https://x/v1'\n")
-            .unwrap();
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
-        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='https://plane'\n")
-            .unwrap();
-        assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
-    }
-
-    #[tokio::test]
-    async fn only_an_owner_cloud_image() {
-        // A team machine: shared-machine mode is the image's, never an own sign-in.
-        let team = machine(Some("team"), true);
-        assert_eq!(reason(&team, &vars(&[]), true, false).await, None);
-        // Unreadable or missing vm-kind fails closed.
-        let unknown = machine(None, true);
-        assert_eq!(reason(&unknown, &vars(&[]), true, false).await, None);
-        // Not a cmux Cloud image (a Mac, any other Linux box).
-        let plain = machine(Some("owner"), false);
-        assert_eq!(reason(&plain, &vars(&[]), true, false).await, None);
-    }
-
-    #[test]
-    fn own_mode_switches_the_provider_and_drops_the_model_plane() {
-        let var = vars(&[
-            ("CMUX_CODEROUTER_URL", "https://coderouter.cmux.internal/"),
-            ("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1"),
-            ("OPENAI_API_KEY", PLACEHOLDER_KEY),
-        ]);
-        let mut argv = vec!["/opt/cmux/current/bin/codex".to_owned(), "app-server".to_owned()];
-        let mut env = BTreeMap::from([
-            ("OPENAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
-            (crate::routes::UNSET_KEY.to_owned(), "ANTHROPIC_API_KEY".to_owned()),
-        ]);
-        apply(&mut argv, &mut env, &var, true);
-        assert_eq!(
-            argv,
-            ["/opt/cmux/current/bin/codex", "-c", "model_provider=\"openai\"", "app-server"]
-        );
-        // Still the app-server launch the bridge recognizes.
-        assert!(crate::codex_app_server::is_profile_launch(&argv));
-        assert!(!env.contains_key("OPENAI_API_KEY"));
-        assert_eq!(
-            env[crate::routes::UNSET_KEY],
-            "ANTHROPIC_API_KEY,OPENAI_BASE_URL,OPENAI_API_KEY"
-        );
-        // Twice is once.
-        apply(&mut argv, &mut env, &var, true);
-        assert_eq!(argv.len(), 4);
-    }
-
-    #[test]
-    fn a_persons_own_endpoint_and_config_stay() {
-        let var = vars(&[
-            ("CMUX_CODEROUTER_URL", "https://coderouter.cmux.internal"),
-            ("OPENAI_BASE_URL", "https://api.example.test/v1"),
-            ("OPENAI_API_KEY", "sk-own"),
-        ]);
-        let mut argv = vec!["codex".to_owned(), "app-server".to_owned()];
-        let mut env = BTreeMap::new();
-        // A config.toml the person wrote: no provider override.
-        apply(&mut argv, &mut env, &var, false);
-        assert_eq!(argv, ["codex", "app-server"]);
-        assert!(env.is_empty());
-        // No origin: a base URL with the placeholder key is the model plane's (agent-auth.sh).
-        let var =
-            vars(&[("OPENAI_BASE_URL", "https://edge/v1"), ("OPENAI_API_KEY", PLACEHOLDER_KEY)]);
-        apply(&mut argv, &mut env, &var, true);
-        assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");
-    }
-
-    #[test]
-    fn only_cmux_s_generated_config_counts() {
-        let m = machine(Some("owner"), true);
-        let var = vars(&[]);
-        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
-        assert!(inputs.cmux_config());
-        std::fs::write(m.home.join(".codex/config.toml"), "model_provider = \"azure\"\n").unwrap();
-        assert!(!inputs.cmux_config());
-    }
+    env.insert("OPENAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned());
+    true
 }
+
+/// The start of [`explain_missing_key`]'s text, so a text it made is never explained twice.
+pub const NOT_SIGNED_IN: &str = "Codex is not signed in on this machine";
+
+/// The named failure for codex's bare "Missing environment variable: `OPENAI_API_KEY`." (module
+/// docs: own mode with no login fails at once with a sign-in error, never a bare missing env
+/// var). None for any other text, or one already explained. Codex's own words stay at the end,
+/// so the text is still typed `auth.signed_out` (`recovery::says_missing_openai_key`).
+pub fn explain_missing_key(message: &str) -> Option<String> {
+    if !crate::recovery::says_missing_openai_key(message) || message.starts_with(NOT_SIGNED_IN) {
+        return None;
+    }
+    Some(format!(
+        "{NOT_SIGNED_IN}: it has no ChatGPT sign-in here and no team model plane to use instead. \
+         Sign in to Codex, then send the message again. (Codex said: {})",
+        message.trim()
+    ))
+}
+
+#[cfg(test)]
+#[path = "codex_cloud_auth_tests.rs"]
+mod tests;

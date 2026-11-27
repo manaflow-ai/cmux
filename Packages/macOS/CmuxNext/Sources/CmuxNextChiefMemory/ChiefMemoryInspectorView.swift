@@ -20,7 +20,7 @@ public struct ChiefMemoryInspectorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if let error = model.error {
+            if let error = model.shownError {
                 banner(error, symbol: "exclamationmark.triangle")
             } else if model.status?.editable == false {
                 banner(ChiefMemoryStrings.readOnly, symbol: "lock")
@@ -31,6 +31,7 @@ public struct ChiefMemoryInspectorView: View {
             }
         }
         .task { await model.reload() }
+        .autoRetry(model.readRetry)
     }
 
     /// The id of the delete dialog's Delete button.
@@ -60,7 +61,7 @@ public struct ChiefMemoryInspectorView: View {
                 .frame(maxWidth: 260)
                 .onSubmit { Task { await model.search() } }
             Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .disabled(model.busy)
         }
         .padding(10)

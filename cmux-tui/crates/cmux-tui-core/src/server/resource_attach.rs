@@ -7,10 +7,7 @@ use super::AttachWorkerCommit;
 use super::MarkedClientAttach;
 use super::MessageWriter;
 use super::OutboundStream;
-use super::RESOURCE_STREAMS_PER_CLIENT_CAPACITY;
-use super::RESOURCE_STREAMS_SERVER_CAPACITY;
-use super::RESOURCE_WAITS_PER_CLIENT_CAPACITY;
-use super::RESOURCE_WAITS_SERVER_CAPACITY;
+use super::RESOURCE_WORKER_STACK_BYTES;
 use super::RenderClientState;
 use super::RenderService;
 use super::ResourceStreamInstallError;
@@ -114,19 +111,7 @@ fn resource_stream_install_error(
             "resource stream id is already open on this connection",
             "stream_id_in_use",
             "client",
-            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
-        ),
-        ResourceStreamInstallError::ClientCapacity => (
-            "resource stream capacity exceeded for this connection",
-            "resource_stream_capacity",
-            "client",
-            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
-        ),
-        ResourceStreamInstallError::ServerCapacity => (
-            "resource stream capacity exceeded for this server",
-            "resource_stream_capacity",
-            "server",
-            RESOURCE_STREAMS_SERVER_CAPACITY,
+            1,
         ),
     };
     ResourceError::operation_failed(
@@ -154,18 +139,6 @@ pub(super) fn resource_wait_install_error(
             "request_id_in_use",
             "client",
             1,
-        ),
-        ResourceWaitInstallError::ClientCapacity => (
-            "terminal wait capacity exceeded for this connection",
-            "terminal_wait_capacity",
-            "client",
-            RESOURCE_WAITS_PER_CLIENT_CAPACITY,
-        ),
-        ResourceWaitInstallError::ServerCapacity => (
-            "terminal wait capacity exceeded for this server",
-            "terminal_wait_capacity",
-            "server",
-            RESOURCE_WAITS_SERVER_CAPACITY,
         ),
     };
     ResourceError::operation_failed(
@@ -426,8 +399,10 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-terminal-attach".into())
+        .stack_size(RESOURCE_WORKER_STACK_BYTES)
+        .spawn(move || {
             if worker_committed.recv().is_err() {
                 return;
             }
@@ -654,8 +629,10 @@ pub(super) fn start_browser_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-browser-attach".into())
+        .stack_size(RESOURCE_WORKER_STACK_BYTES)
+        .spawn(move || {
             if worker_committed.recv().is_err() {
                 return;
             }
@@ -838,8 +815,10 @@ pub(super) fn start_sidebar_resource_attach(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-sidebar-attach".into()).spawn(move || {
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-sidebar-attach".into())
+        .stack_size(RESOURCE_WORKER_STACK_BYTES)
+        .spawn(move || {
             let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(
                 &worker_writer,
@@ -977,5 +956,5 @@ pub(super) fn send_resource_response(
             ResourceResponseEnvelope::failure(id, error)
         }
     };
-    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
+    envelope.into_value().is_ok_and(|value| writer.send_control_value(value).is_ok())
 }

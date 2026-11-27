@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
 import { BACKGROUND_PANE } from "./backgroundPane";
+import { RUNNING_TRAY_LIST_LINE } from "../subagents/subagentSelectors";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -234,7 +235,7 @@ export default agentPaneEntry({
         // A headed tray starts folded (cmux#28875): open it, as the person does.
         if (ctx.document.querySelector('.acpmux-running-tray__head[aria-expanded="false"]'))
           await ctx.click({ selector: ".acpmux-running-tray__head" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
       },
     },
     docked: {
@@ -299,6 +300,23 @@ export default agentPaneEntry({
         );
         if (labels.includes("Expand") || labels.includes("Close"))
           throw new Error("its own tab has no Expand or Close");
+        noStrayEdges(ctx);
+      },
+    },
+    split: {
+      note: 'The split the app opens for Background tasks beside the chat (Leo, 2026-11-22: "it gave me the agent pane could not be drawn after i opedn up background tasks. i guess it sent you to that split."): the reveal lands, then lands again as a second open focuses the tab; the panel draws once and the pane never shows its could-not-draw card.',
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
+        if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        if (ctx.document.querySelector(".acpmux-pane-failed")) throw new Error("the split's pane draws");
+        if (ctx.document.querySelectorAll(".acpmux-bg").length !== 1) throw new Error("the split draws one panel");
         noStrayEdges(ctx);
       },
     },

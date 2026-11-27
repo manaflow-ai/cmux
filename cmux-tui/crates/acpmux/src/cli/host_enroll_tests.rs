@@ -51,6 +51,9 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         self.first_contacts.borrow_mut().push(accept_new_host_key);
         self.exec("true", None)
     }
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec(STRICT_CHECK, None)
+    }
     fn push(&self, _local: &Path, remote: &str) -> Result<()> {
         self.pushes.borrow_mut().push(remote.to_owned());
         Ok(())
@@ -71,6 +74,9 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         Ok(child)
     }
 }
+
+/// What [`Fake`] answers for [`Remote::strict_host_key_check`].
+const STRICT_CHECK: &str = "strict-host-key-check";
 
 fn out(stdout: impl Into<String>) -> RemoteOut {
     RemoteOut { ok: true, stdout: stdout.into(), stderr: String::new() }
@@ -213,7 +219,7 @@ fn ssh_stderr_is_classified() {
         ),
         (
             "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
-            SshFailure::HostKeyUntrusted,
+            SshFailure::HostKeyUnknown,
         ),
         ("kex_exchange_identification: read: Connection reset by peer", SshFailure::Other),
     ];
@@ -712,52 +718,28 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
 }
 
 #[test]
-fn daemon_skew_on_another_platform_has_no_host_update_try() {
+fn daemon_skew_on_another_platform_keeps_the_running_daemon() {
     let other_os = if std::env::consts::OS == "linux" { "Darwin" } else { "Linux" };
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 (old)\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
-        std::env::consts::ARCH
-    ));
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(result.reason, Some("peer_version_skew"));
-    assert!(result.data.is_none(), "{result:?}");
-    let fix = result.fix.unwrap();
-    assert!(fix.contains("acpmux machine update box --binary-dir DIR"), "{fix}");
-    assert!(fix.contains("DIR/acpmux-"), "{fix}");
-    assert!(fix.contains("or rebuild acpmux on leo@box.tail for its OS and architecture"), "{fix}");
-
-    // A matching binary is already installed on the remote: restarting its
-    // stale daemon is safe even though this invoking machine is another OS.
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/home/leo/.local/bin/acpmux (deleted)\"}}\0{CONFIG}",
-        std::env::consts::ARCH,
-        crate::hub::build()
-    ));
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(result.reason, Some("peer_version_skew"));
-    assert!(result.data.is_none(), "{result:?}");
-    assert!(result.fix.unwrap().contains("machine doctor box --fix"));
-
-    // A custom `--remote-binary` install: ~/.local/bin/acpmux links to a file
-    // outside the probed folders, and the daemon names that resolved file as
-    // its `exe`. The probe resolves the link, so the restart is still offered.
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nreal\t/home/leo/.local/bin/acpmux\t/opt/acpmux/acpmux\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/opt/acpmux/acpmux (deleted)\"}}\0{CONFIG}",
-        std::env::consts::ARCH,
-        crate::hub::build()
-    ));
-    assert_eq!(p.resolved("/home/leo/.local/bin/acpmux"), "/opt/acpmux/acpmux");
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert!(result.fix.unwrap().contains("machine doctor box --fix"), "a resolved link is current");
+    for installed_build in ["old", crate::hub::build()] {
+        let p = parse_probe(&format!(
+            "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({installed_build})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
+            std::env::consts::ARCH
+        ));
+        let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+            Verdict::Done(result) => result,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(result.state, StepState::Warn);
+        assert!(result.fix.is_none());
+        assert!(result.reason.is_none());
+        assert!(result.data.is_none());
+        // Usability checks still refuse the wrong listener, regardless of build.
+        let result = match judge_daemon("leo@box.tail", "box", &p, Some(47812)).0 {
+            Verdict::Done(result) => result,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(result.state, StepState::Fail);
+    }
 }
 
 /// Runs the scripts in a local `sh` with `HOME` at a temp folder, so the
@@ -811,7 +793,7 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing)");
-    let dir = home.join(".config/cmux/harnesses");
+    let dir = home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
     let file = dir.join("pi.toml");
     let remote_home = home.to_string_lossy();
     assert_eq!(
@@ -1301,7 +1283,7 @@ fn harness_local_copies_every_profile_this_mac_has() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing); zed copied (missing)");
-    assert!(home.join(".config/cmux/harnesses/zed.toml").is_file());
+    assert!(home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses/zed.toml").is_file());
     let none = Local { harness_dir: None, home: None };
     let skipped = harness(&sh, "box", &ids, &none, true);
     assert_eq!(skipped.state, StepState::Skip);
@@ -1344,8 +1326,10 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
         Fake::new(move |script, _| {
             if script == probe_script().as_str() {
                 out(probed.clone())
-            } else if script.starts_with("sudo -n apt-get install -y bubblewrap") {
+            } else if script == super::super::host_sandbox::install_script() {
                 RemoteOut { ok: sudo, stdout: String::new(), stderr: String::new() }
+            } else if script == super::super::host_sandbox::fix_script() {
+                out("sudo apt-get install -y bubblewrap\n")
             } else {
                 panic!("unexpected script: {script}")
             }
@@ -1374,4 +1358,194 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
     let (result, _) = daemon(&fake("broken", true), "box", Some(47811), true);
     assert_eq!(result.state, StepState::Warn, "{result:?}");
     assert!(result.detail.contains("cannot make a sandbox"), "{result:?}");
+}
+
+#[test]
+fn first_contact_revoked_key_recovery_never_suggests_acceptance_or_removal() {
+    for stderr in [
+        "WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.",
+        "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
+    ] {
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, "true");
+            RemoteOut { ok: false, stderr: stderr.into(), ..RemoteOut::default() }
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        assert!(result.detail.contains("revoked"), "{}", result.detail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains("revoked"), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+#[test]
+fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
+    for (stderr, class, advice) in [
+        (
+            "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+            SshFailure::HostKeyConfigInvalid,
+            "Restore a readable, valid revocation file",
+        ),
+        ("Host key verification failed.", SshFailure::HostKeyUntrusted, "host and IP fingerprints"),
+    ] {
+        assert_eq!(SshFailure::of(stderr), class);
+        let fake = Fake::new(|_, _| RemoteOut {
+            ok: false,
+            stderr: stderr.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains(advice), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+/// OpenSSH's default policy under BatchMode says only "Host key verification failed." for a
+/// never-seen host (OpenSSH 9.6, `cmux device add HOST --yes`, 2026-11-16). Enrollment asks
+/// again under strict checking and offers first-contact acceptance only when that names an
+/// unknown key; any other answer keeps the fingerprint advice.
+#[test]
+fn first_contact_bare_verification_failure_asks_strict_ssh_for_unknown_key_evidence() {
+    const BARE: &str = "Host key verification failed.";
+    const UNKNOWN: &str = "No ED25519 host key is known for box.tail and you have requested strict checking.\nHost key verification failed.";
+    // CheckHostIP: the name's key is trusted but the IP's differs.
+    const IP_CONFLICT: &str =
+        "Exiting, you have requested strict checking.\nHost key verification failed.";
+    for (strict, accept, class, asked) in [
+        (UNKNOWN, false, SshFailure::HostKeyUnknown, true),
+        (IP_CONFLICT, false, SshFailure::HostKeyUntrusted, true),
+        (BARE, false, SshFailure::HostKeyUntrusted, true),
+        // With the opt-in, OpenSSH records an unknown key, so a bare failure is something else.
+        (UNKNOWN, true, SshFailure::HostKeyUntrusted, false),
+    ] {
+        let fake = Fake::new(|script, _| RemoteOut {
+            ok: false,
+            stderr: if script == STRICT_CHECK { strict } else { BARE }.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, accept);
+        assert_eq!(result.state, StepState::Fail);
+        let scripts: Vec<String> = fake.calls.borrow().iter().map(|(s, _)| s.clone()).collect();
+        assert_eq!(scripts.iter().any(|s| s == STRICT_CHECK), asked, "{scripts:?}");
+        let fix = result.fix.as_deref().unwrap();
+        assert_eq!(fix, class.fix("leo@box.tail"), "{strict:?} accept={accept}");
+        if class == SshFailure::HostKeyUnknown {
+            assert!(fix.contains("--accept-new-host-key"), "{fix}");
+        } else {
+            assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        }
+    }
+    // A key that is not unknown never reaches the strict check.
+    let fake = Fake::new(|script, _| {
+        assert_ne!(script, STRICT_CHECK);
+        RemoteOut {
+            ok: false,
+            stderr:
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
+            ..RemoteOut::default()
+        }
+    });
+    assert_eq!(reach(&fake, false).state, StepState::Fail);
+}
+
+/// A machine's running peer daemon is usable across builds and platforms.
+/// Enrollment must reach the peer handshake without pushing the caller's binary
+/// or restarting a healthy daemon owned by the remote host.
+#[test]
+fn cross_platform_enroll_keeps_a_running_daemon_of_another_build() {
+    for uname in ["Linux x86_64", "Linux aarch64", "Darwin arm64", "Darwin x86_64"] {
+        if same_platform(uname, std::env::consts::OS, std::env::consts::ARCH) {
+            continue;
+        }
+        for fix in [false, true] {
+            let fake = Fake::new(|script, _| {
+                if script == "true" {
+                    out("")
+                } else if script == probe_script().as_str() {
+                    out(format!(
+                        "uname\t{uname}\nbin\t{LOCAL_BIN}\tacpmux 0.1.0 (remote-build)\nstatus\t{LOCAL_BIN}\t{{\"pid\":7,\"build\":\"remote-build\",\"exe\":\"{LOCAL_BIN}\",\"runsAsCmuxTuiAcp\":false}}\0{CONFIG}"
+                    ))
+                } else if script.starts_with("printf 'bin=") {
+                    out(version("remote-build"))
+                } else {
+                    panic!("unexpected script on {uname}: {script}")
+                }
+            });
+            let (results, port) = machine_steps(
+                &fake,
+                &plan(&[]),
+                &Local { harness_dir: None, home: None },
+                fix,
+                &mut |_| {},
+            );
+            assert_eq!(port, 47811);
+            for result in &results[..3] {
+                assert!(
+                    matches!(result.state, StepState::Ok | StepState::Warn),
+                    "{uname}: {result:?}"
+                );
+            }
+            assert!(gate(Step::Peer, &results).is_none(), "{uname}: {results:?}");
+            assert_read_only(&fake);
+        }
+    }
+}
+
+#[test]
+fn cross_platform_install_bootstraps_a_missing_binary_from_the_checked_channel() {
+    for uname in ["Linux x86_64", "Linux aarch64", "Darwin arm64", "Darwin x86_64"] {
+        if !foreign_platform(uname) {
+            continue;
+        }
+        let target = crate::cli::peer_status::target_from_uname(uname).unwrap();
+        let installed = std::cell::Cell::new(false);
+        let fake = Fake::new(|script, _| {
+            if script == probe_script().as_str() {
+                out(format!("uname\t{uname}\n\0{{}}"))
+            } else if script.starts_with("printf 'bin=") {
+                out(if installed.get() { version("published") } else { "bin=\n".into() })
+            } else if script.contains("/channels/feat-cmux-next.json") {
+                out(json!({
+                    "key": "a".repeat(40), "commit": "b".repeat(40),
+                    "binaries": { format!("cmux-tui-acpmux-{target}"): "c".repeat(64) }
+                })
+                .to_string())
+            } else if script.contains("/tree/") {
+                assert!(script.contains(&format!("/cmux-tui-acpmux-{target}")));
+                installed.set(true);
+                out("")
+            } else {
+                panic!("unexpected script: {script}")
+            }
+        });
+        let checked = install(&fake, "box", DAEMON_BIN, false);
+        assert_eq!(checked.state, StepState::Fail, "doctor alone never installs");
+        assert_read_only(&fake);
+        let result = install(&fake, "box", DAEMON_BIN, true);
+        assert_eq!(result.state, StepState::Fixed, "{result:?}");
+        assert!(installed.get());
+        assert!(fake.pushes.borrow().is_empty(), "never push the caller's binary");
+        assert_eq!(fake.fenced.borrow().len(), 3, "manifest, download and readback hold the lock");
+    }
+}
+
+#[test]
+fn doctor_says_when_the_hub_already_carries_the_machine() {
+    let peers = vec![
+        json!({"name": "ab", "state": "connected", "via": "hub"}),
+        json!({"name": "down", "state": "down", "via": "hub"}),
+        json!({"name": "direct", "state": "connected", "via": "link"}),
+    ];
+    let note = hub_route_note(&peers, "ab").expect("a hub-carried machine gets a note");
+    assert!(note.contains("connected through the hub"), "{note}");
+    assert!(note.contains("does not mean the hub link is down"), "{note}");
+    assert_eq!(hub_route_note(&peers, "down"), None);
+    assert_eq!(hub_route_note(&peers, "direct"), None);
+    assert_eq!(hub_route_note(&peers, "nobody"), None);
 }

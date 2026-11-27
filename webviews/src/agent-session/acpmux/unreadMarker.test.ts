@@ -14,6 +14,9 @@ import {
   sinceDone,
   unreadPending,
   unreadRead,
+  dissipateUnread,
+  noteUnreadNews,
+  unreadShows,
 } from "./conversation/unreadState";
 import { placeOffScreen, placeOffView } from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
@@ -62,6 +65,57 @@ test("hiding the banner keeps the line; Jump and the latest message end it (#400
   expect(unreadPending("s:41", readUnread())).toBe(false);
 });
 
+// Leo, 2026-11-22: "it shouldnt just do this like this when there's nothing. we need to have better
+// focus/unfocus and dissipation."
+test("a line with nothing new under it draws nothing: no line, no banner, no Jump up", () => {
+  noteUnreadMounted("s:41");
+  noteUnreadNews("s:41", false);
+  expect(unreadShows("s:41", readUnread())).toBe(false);
+  expect(bannerShown("s:41", readUnread(), "expanded")).toBe(false);
+  expect(unreadPending("s:41", readUnread())).toBe(false);
+  // News that comes while the line is off screen draws it.
+  noteUnreadSide("s:41", "below");
+  noteUnreadNews("s:41", true);
+  expect(unreadShows("s:41", readUnread())).toBe(true);
+  expect(bannerShown("s:41", readUnread(), "expanded")).toBe(true);
+});
+
+test("news that comes under a quiet line in view arrives in front of the reader: it stays read", () => {
+  noteUnreadMounted("s:41");
+  noteUnreadNews("s:41", false);
+  noteUnreadSide("s:41", "in");
+  noteUnreadNews("s:41", true);
+  expect(unreadShows("s:41", readUnread())).toBe(false);
+  expect(unreadPending("s:41", readUnread())).toBe(false);
+});
+
+test("a return in place reads a line in view at once; a chat picked draws it", () => {
+  noteUnreadMounted("s:41");
+  noteUnreadSide("s:41", "in", true);
+  expect(unreadShows("s:41", readUnread())).toBe(false);
+  resetUnreadForTest();
+  noteUnreadMounted("s:41");
+  noteUnreadSide("s:41", "in");
+  expect(unreadShows("s:41", readUnread())).toBe(true);
+  expect(readUnread()?.placed).toBe(true);
+  // Only the first answer counts: scrolling it away and back in a return in place keeps it.
+  resetUnreadForTest();
+  noteUnreadMounted("s:41");
+  noteUnreadSide("s:41", "below", true);
+  noteUnreadSide("s:41", "in", true);
+  expect(unreadShows("s:41", readUnread())).toBe(true);
+});
+
+test("dissipating reads the line and takes the banner with it", () => {
+  noteUnreadMounted("s:41");
+  noteUnreadSide("s:41", "in");
+  expect(unreadShows("s:41", readUnread())).toBe(true);
+  dissipateUnread("s:41");
+  expect(unreadShows("s:41", readUnread())).toBe(false);
+  expect(unreadRead("s:41", readUnread())).toBe(true);
+  expect(bannerShown("s:41", readUnread(), "expanded")).toBe(false);
+});
+
 test("a place is off screen above or below the view, and under the header", () => {
   expect(placeOffScreen(100, 0, 400)).toBe(false);
   expect(placeOffScreen(500, 0, 400)).toBe(true);
@@ -106,6 +160,7 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.unreadBanner.zone]).toBe("dynamic");
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.jumpUp.zone]).toBe("dynamic");
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.sessionInfo.zone]).toBe("stable");
+  expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.viewCorner.zone]).toBe("stable");
   // The sheets agree: the banner's zone starts on the column's start inset, Jump up stands one
   // control turned: its arrow turns up in place on Jump to latest's disc (jumpControl.ts).
   const unreadCss = readFileSync(join(import.meta.dir, "conversation/unread.css"), "utf8");
@@ -121,8 +176,7 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   expect(conversationCss).not.toMatch(/\.cv-since\s*\{/);
 });
 
-test("the top zone starts under the clear line, the tab row and a pinned pill", () => {
+test("the top zone starts under the clear line and the tab row", () => {
   expect(topZoneOffset({ clearTop: 40 })).toBe(40);
   expect(topZoneOffset({ clearTop: 40, floor: 52 })).toBe(52);
-  expect(topZoneOffset({ clearTop: 40, pinnedBottom: 72 })).toBe(72);
 });

@@ -10,6 +10,14 @@ pub(super) fn terminate_discovered_terminal_host_in(
     terminal_id: &str,
     incarnation: Option<&str>,
 ) {
+    // Debug-only test seam for reproducing a wedged discovered-host cleanup.
+    // Production cleanup has no artificial delay.
+    #[cfg(debug_assertions)]
+    if let Ok(delay) = std::env::var("CMUX_TUI_TEST_DISCOVERED_HOST_CLEANUP_DELAY_MS")
+        && let Ok(delay) = delay.parse::<u64>()
+    {
+        std::thread::sleep(Duration::from_millis(delay.min(10_000)));
+    }
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
     };
@@ -24,6 +32,37 @@ pub(super) fn terminate_discovered_terminal_host_in(
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
+}
+
+/// Reconcile a discovered host after the close signaling worker has released
+/// it. Loading records and waiting for an unresponsive host are both bounded
+/// but can still take seconds, so this whole operation must stay off the
+/// signaling pool.
+#[cfg(any(unix, windows))]
+pub(super) fn schedule_discovered_terminal_host_cleanup(
+    root: std::path::PathBuf,
+    terminal_id: String,
+    incarnation: Option<String>,
+) {
+    let name = format!("terminal-discovered-clean-{}", terminal_id);
+    let fallback_root = root.clone();
+    let fallback_terminal_id = terminal_id.clone();
+    let fallback_incarnation = incarnation.clone();
+    if std::thread::Builder::new()
+        .name(name)
+        .spawn(move || {
+            terminate_discovered_terminal_host_in(&root, &terminal_id, incarnation.as_deref());
+        })
+        .is_err()
+    {
+        // If the process cannot create another worker, preserve the cleanup
+        // rather than dropping the discovered host record on the floor.
+        terminate_discovered_terminal_host_in(
+            &fallback_root,
+            &fallback_terminal_id,
+            fallback_incarnation.as_deref(),
+        );
+    }
 }
 
 #[cfg(any(unix, windows))]
@@ -132,6 +171,47 @@ fn host_that_lives(
     host.filter(|_| liveness == TerminalHostLiveness::Live)
 }
 
+/// The answer for a record and, for that answer, the process of the
+/// record's host for a seat ([`host_that_lives`]). `host` reads the process
+/// BEFORE `answer` asks if the host lives: when the answer is that the host
+/// lives, the host had its process id for the whole time between the two.
+#[cfg(any(unix, windows))]
+fn host_read_before_the_answer(
+    host: impl FnOnce() -> Option<crate::diagnostics::KeptHost>,
+    answer: impl FnOnce() -> TerminalHostLiveness,
+) -> (TerminalHostLiveness, Option<crate::diagnostics::KeptHost>) {
+    let host = host();
+    let liveness = answer();
+    (liveness, host_that_lives(liveness, host))
+}
+
+/// The seat of a kept host, as its adoption owns it ([`Mux::kept_host`]).
+/// The default is no seat.
+///
+/// A client can have its class from the seat. At each end of the seat (the
+/// drop of this value), a client that has its class from it keeps its
+/// terminal only when the seat of its session names the same terminal
+/// (`ClientRegistry::kept_seat_ended`). The owner drops this value with no
+/// lock held.
+#[cfg(any(unix, windows))]
+#[derive(Default)]
+#[must_use = "the seat ends when this value is dropped"]
+pub(crate) struct KeptHostHold {
+    seat: crate::diagnostics::KeptHostSeat,
+    mux: Weak<Mux>,
+}
+
+#[cfg(any(unix, windows))]
+impl Drop for KeptHostHold {
+    fn drop(&mut self) {
+        if self.seat.end()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.control_clients.kept_seat_ended(mux.connection_stats());
+        }
+    }
+}
+
 #[cfg(all(test, any(unix, windows)))]
 mod kept_host_tests;
 
@@ -147,21 +227,26 @@ impl Mux {
     /// seat.
     ///
     /// The host's process is read before the answer and seated only when the
-    /// answer is that the host lives ([`host_that_lives`]). No seat: an
+    /// answer is that the host lives ([`host_read_before_the_answer`]). No seat: an
     /// answer that is not that one, or a start that is not read or is not
     /// before this daemon's. `terminal`: the terminal's public id, when the
     /// pass has it.
-    pub(super) fn kept_host(
-        &self,
+    ///
+    /// A second seat for one host makes the host name no terminal. The
+    /// clients that had their class from the first seat get their class
+    /// again here, as at an end of the seat ([`KeptHostHold`]).
+    pub(crate) fn kept_host(
+        self: &Arc<Self>,
         record_path: &Path,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
         terminal: Option<&TerminalPublicId>,
-    ) -> (TerminalHostLiveness, crate::diagnostics::KeptHostSeat) {
-        let host = crate::diagnostics::KeptHost::read(record.host_pid);
-        let liveness = terminal_host_record_liveness(record_path, record);
-        let host = host_that_lives(liveness, host);
+    ) -> (TerminalHostLiveness, KeptHostHold) {
+        let (liveness, host) = host_read_before_the_answer(
+            || crate::diagnostics::KeptHost::read(record.host_pid),
+            || terminal_host_record_liveness(record_path, record),
+        );
         if host.is_none() {
-            return (liveness, crate::diagnostics::KeptHostSeat::default());
+            return (liveness, KeptHostHold::default());
         }
         let terminal = terminal.cloned().or_else(|| {
             let read = {
@@ -169,10 +254,11 @@ impl Mux {
                     self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
                 registry.terminal_resource_id(&record.terminal_id)
             };
-            // A terminal whose public id is not read has no seat: say why.
+            // When the public id is not read, the host's seat names no terminal:
+            // say why.
             read.unwrap_or_else(|error| {
                 eprintln!(
-                    "cmux-tui: terminal {} has no seat before its adoption: {error:#}",
+                    "cmux-tui: terminal {}: its seat names no terminal before adoption: {error:#}",
                     record.terminal_id
                 );
                 None
@@ -181,7 +267,11 @@ impl Mux {
         let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
         let seating =
             crate::diagnostics::HostSeating::of(self.connection_stats().clone(), terminal);
-        (liveness, seating.seat_kept(host))
+        let seat = seating.seat_kept(host);
+        if seat.ended_a_class() {
+            self.control_clients.kept_seat_ended(self.connection_stats());
+        }
+        (liveness, KeptHostHold { seat, mux: Arc::downgrade(self) })
     }
 }
 

@@ -39,6 +39,7 @@
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
+import { eventsAsToolCallsOn } from "./eventsAsToolCalls.experiment";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
 import {
   bareSender,
@@ -119,6 +120,9 @@ export type IncomingMessage = {
   effort?: string;
   /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
   edited?: true;
+  /// The name people call the sender, its given handle (acpmux `fromDisplayName`,
+  /// prompt_provenance.rs): the line reads it before the session name it was known by.
+  displayName?: string;
   /// What the sender wrote.
   text: string;
   /// When acpmux recorded it (an inbox message's `at`, ms): a group's hover lists by it.
@@ -507,12 +511,14 @@ function promptOf(
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(claimed?.fromHarness) ?? trimmed(msg?.fromHarness);
   const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
   const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const fromDisplayName = trimmed(provenance?.fromDisplayName);
   const edited = provenance?.editedBy ? { edited: true as const } : {};
   const harness = {
     ...edited,
     ...(fromHarness && { harness: fromHarness }),
     ...(fromModel && { model: fromModel }),
     ...(fromEffort && { effort: fromEffort }),
+    ...(fromDisplayName && { displayName: fromDisplayName }),
   };
   // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
   // no thread is bookkeeping.
@@ -523,11 +529,7 @@ function promptOf(
   // acpmux's own prompts that carry words for the agent (hub/inbox.rs `persons_prompt`: the turn
   // cap's notice, an inbox digest) name no sender, yet are never the person's: they draw as
   // acpmux's message (Leo, 2026-11-12, on a prompt acpmux sent in his chat: "i didnt send it myself").
-  if (
-    typeof provenance?.kind === "string" &&
-    ACPMUX_MESSAGE_KINDS.has(provenance.kind) &&
-    provenance.from === undefined
-  )
+  if (typeof provenance?.kind === "string" && acpmuxMessageKind(provenance.kind) && provenance.from === undefined)
     return { kind: "message", message: { name: ACPMUX_SENDER, ...remote, text: text.trim(), raw: text } };
   const fromSession =
     provenance?.kind === "subsession_message" ||
@@ -716,7 +718,7 @@ function promptOf(
   if (
     provenance &&
     typeof provenance.kind === "string" &&
-    !KNOWN_KINDS.has(provenance.kind) &&
+    !knownKind(provenance.kind) &&
     (provenance.from === NAMED_SENDER || (typeof provenance.from === "string" && provenance.from.startsWith("acp:")))
   ) {
     const name = trimmed(provenance.fromName);
@@ -853,6 +855,22 @@ const KNOWN_KINDS = new Set([
 /// `NOTICE_KIND`, hub/inbox_digest.rs `KIND`). Its other own prompts draw nothing: a continuation
 /// (subagents/retryState.ts) and the cache timer's `/compact` (cacheCompaction.ts).
 const ACPMUX_MESSAGE_KINDS = new Set(["turn_cap", "inbox_digest"]);
+/// The kinds the design "Events that are tool calls" adds to the known set, behind
+/// `experiments.eventsAsToolCalls` (eventsAsToolCalls.experiment.ts): the row's Resume of a stopped
+/// subagent (hub/subagent_resume.rs) and an urgent forum rule (hub/forum.rs). Both are acpmux's own
+/// prompts, never an agent's message under a name of its choosing.
+const EVENT_KINDS = new Set(["subagent_resume", "announcement"]);
+/// Of those, the one with words for the agent and no sender of its own: it draws as acpmux's line.
+const EVENT_MESSAGE_KINDS = new Set(["announcement"]);
+
+function knownKind(kind: string): boolean {
+  return KNOWN_KINDS.has(kind) || (EVENT_KINDS.has(kind) && eventsAsToolCallsOn());
+}
+
+function acpmuxMessageKind(kind: string): boolean {
+  return ACPMUX_MESSAGE_KINDS.has(kind) || (EVENT_MESSAGE_KINDS.has(kind) && eventsAsToolCallsOn());
+}
+
 /// The name acpmux's own messages draw under.
 const ACPMUX_SENDER = "acpmux";
 
@@ -1086,8 +1104,9 @@ function historyInbox(text: string): { notice: AgentNotice; body: string } | und
   return { notice: { sender: "inbox", severity: "info", title, links: [] }, body };
 }
 
-/// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
-const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
+/// Claude Code's line before an envelope it delivers, by itself or with the agent busy, in either
+/// wording it uses ("Another Claude session …" or "A peer session …").
+const PREFACE = /^(?:Another Claude session|A peer session) sent a message(?: while you were working)?:\s*/;
 
 /// `<cross-session-message from="…" from-name="…" from-mode="…">body</cross-session-message>`,
 /// closed by the first closing tag.

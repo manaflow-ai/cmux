@@ -47,8 +47,8 @@ extension LayoutModel {
 
     /// Shows the sizing of a split the caller is about to show (Cmd-D, Cmd-Shift-D), in this
     /// turn and with nothing sent: the split and its chain's new sizes reach the window in one
-    /// layout, so every pane of the chain moves on one spring from the key's frame
-    /// (plans/cmux-next/split-spring-animation/DESIGN.md). The sizes stay over the daemon's
+    /// layout, so the frame that shows the split shows every pane of the chain at its new size,
+    /// never the split first and its sizing after the daemon's reply. The sizes stay over the daemon's
     /// snapshots until ``commitSplitSizing(_:)`` or ``cancelSplitSizing(_:)``.
     ///
     /// - Parameter changes: ``splitSizingChanges(splitting:axis:)``, computed before the split.
@@ -59,6 +59,19 @@ extension LayoutModel {
             holdSplitRatio(change.split, ratio: change.ratio, transaction: sizing.transaction)
         }
         return sizing
+    }
+
+    /// ``showSplitSizing(_:)`` of splitting `pane` along `axis` (``splitSizingChanges(splitting:axis:removing:)``), nil when
+    /// nothing moves: what a split the caller is about to show holds until ``settleSplitSizing(_:landed:)``.
+    public func showSplitSizing(splitting pane: PaneID, axis: SplitAxis) -> PendingSplitSizing? {
+        let changes = splitSizingChanges(splitting: pane, axis: axis)
+        return changes.isEmpty ? nil : showSplitSizing(changes)
+    }
+
+    /// Ends `sizing`: ``commitSplitSizing(_:)`` once its split `landed`, else ``cancelSplitSizing(_:)``.
+    public func settleSplitSizing(_ sizing: PendingSplitSizing?, landed: Bool) {
+        guard let sizing else { return }
+        if landed { commitSplitSizing(sizing) } else { cancelSplitSizing(sizing) }
     }
 
     /// The split landed: sends the sizing's ratio intents to the daemon, under the transaction

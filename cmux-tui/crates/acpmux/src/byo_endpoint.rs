@@ -272,7 +272,7 @@ pub fn check_keychain_item(item: &str) -> Result<String, (bool, String)> {
 
 /// The item a keyless endpoint's reply names for this kind (where a key would go).
 pub fn default_item(kind: Kind, id: &str) -> String {
-    crate::cli::harness_secret::reference(id, kind.secret_key())
+    crate::harness_secret_ref::reference(id, kind.secret_key())
 }
 
 /// What the profile is made of; every value already checked.
@@ -440,7 +440,7 @@ pub async fn fetch_models(
     })?;
     let url = models_url(kind, &base);
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(timeout)
         // timeout: connecting to the endpoint's model list (a check of a harness being added); the whole fetch keeps FETCH_TIMEOUT
         .connect_timeout(timeout.min(std::time::Duration::from_secs(5)))
@@ -637,7 +637,7 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
 pub fn is_own_service(service: &str) -> bool {
     let service = service.trim();
     let service = service.strip_prefix("keychain:").unwrap_or(service).trim();
-    service.eq_ignore_ascii_case(crate::cli::harness_secret::SERVICE)
+    service.eq_ignore_ascii_case(crate::harness_secret_ref::SERVICE)
 }
 
 /// Whether `account` is endpoint `id`'s own (`<id>/<KEY>.<generation>`, or `<id>/<KEY>` as an
@@ -670,10 +670,10 @@ pub fn endpoint_keychain_lookup(
         return lookup(service, account);
     }
     match account.filter(|a| is_own_account(a, id)) {
-        Some(account) => lookup(crate::cli::harness_secret::SERVICE, Some(account)),
+        Some(account) => lookup(crate::harness_secret_ref::SERVICE, Some(account)),
         None => Err(format!(
             "an endpoint reads only its own item in {} (by its exact account)",
-            crate::cli::harness_secret::SERVICE
+            crate::harness_secret_ref::SERVICE
         )),
     }
 }

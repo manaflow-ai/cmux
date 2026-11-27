@@ -36,11 +36,11 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            let tab = entry.tab.id.rawValue
+            let tab = window.focus.state.focusModeTab(for: entry.key)
             window.focus.send(.toggleBrowserFocusMode(tab: tab))
             // Entering puts the keyboard in the page (classic cmux parity): from the
             // address bar or find bar, focus mode would wait for a click otherwise.
-            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
+            if let tab = tab ?? window.focus.state.resolved.tab, window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
@@ -97,11 +97,11 @@ enum BrowserHandlers {
             entry.state.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
-        registry.bind("browserPrint", run: { invocation in
-            guard BrowserPagePrint(try context.page(invocation).tab).run() else {
-                throw ActionFailure(message: MiscHandlerStrings.printUnavailable)
-            }
-        })
+        // Print, and Save Page As, Cast, QR code and Translate: the engine's own page panels (cmux_shim_page_command).
+        registry.bindEffect("browserPrint", requires: nil, effect: { BrowserPagePrint(try context.page($0).tab).run() ? .done : .refused(MiscHandlerStrings.printUnavailable) })
+        for (id, command) in BrowserPageCommand.Command.actions {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
+        }
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
             copyScreenshot(context) { try await tab.snapshot() }
@@ -222,7 +222,7 @@ enum BrowserHandlers {
 
     /// `j`, `k`, `gg`, Shift-G in either engine (``BrowserPageScroll``): from a page's unhandled letters or the palette.
     private static func bindScroll(into registry: ActionRegistry, context: AppActionContext) {
-        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { try context.page($0).tab.scroll(scroll); return .done }) }
+        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { context.services.linkHints.scrollKeys.run(scroll, on: try context.page($0).tab); return .done }) }
     }
 
     /// `f` and `F` in a page of either engine (`LinkHintController`).

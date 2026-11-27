@@ -2,76 +2,9 @@
 //! durable before starts; only this race's children are closed. Loser worktrees remain
 //! recoverable through the existing retention system. No repository path is force-deleted.
 use super::*;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Target {
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Candidate {
-    pub id: String,
-    pub target: Target,
-    pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reply: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Race {
-    pub id: String,
-    pub parent: String,
-    pub prompt: String,
-    pub state: String,
-    pub candidates: Vec<Candidate>,
-    pub reviewer: Target,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviewer_session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviewer_turn_id: Option<String>,
-    pub winner_id: Option<String>,
-    pub reason: Option<String>,
-    pub created_at: u64,
-    pub updated_at: u64,
-    /// A persisted origin restriction: resumption must not turn a Web request into a local one.
-    #[serde(default)]
-    pub local: bool,
-    /// Worktree authorization from the owning person, persisted for race recovery.
-    /// This is derived by the server from connection proof, never a request body field.
-    #[serde(default)]
-    pub owner_authorized: bool,
-    /// Cleanup remains retryable after a crash until every owned child is stopped.
-    #[serde(default)]
-    pub cleanup_pending: bool,
-    /// The reviewer session remains in the record for attribution after it is stopped.
-    #[serde(default)]
-    pub reviewer_cleanup_done: bool,
-}
-
-impl Race {
-    fn active(&self) -> bool {
-        matches!(self.state.as_str(), "running" | "reviewing")
-    }
-}
+pub use crate::race_records::{Candidate, Race, Target};
 
 impl Hub {
     pub fn race_get(&self, parent: &Session, id: &str) -> Result<Race, RpcError> {
@@ -354,8 +287,7 @@ impl Hub {
                             RpcError::internal("daemon restarted before this candidate start was recorded; no duplicate was started"))
                         .and_then(|result| result)
                     } else {
-                        self.race_launch(parent, race, &c.id, &c.target, format!(
-                            "{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.", race.prompt)).await
+                        self.race_launch(parent, race, &c.id, &c.target, candidate_prompt(race, &c.target)).await
                     };
                     match result {
                         Ok((child, started)) => {
@@ -625,7 +557,7 @@ impl Hub {
     /// it, or it was deleted) or no longer this parent's has nothing of the race's to stop:
     /// cleanup goes on, so it never fails, and retries at every restart, on a child it cannot reach.
     async fn stop_race_child(self: &Arc<Self>, parent: &Session, id: &str) -> Result<(), RpcError> {
-        let child = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let child = self.session_get(id);
         let Some(child) = child else { return Ok(()) };
         if !child.read_meta(|m| m.subsession.as_ref().is_some_and(|l| l.started_by == parent.id)) {
             return Ok(());
@@ -874,6 +806,16 @@ fn turn_outcome(
         status == "completed" && !closed,
         turn["errorText"].as_str().or_else(|| turn["error"].as_str()).map(crate::secret_scan::mask),
     ))
+}
+
+/// A candidate's prompt: its own plan hint (if any) above the shared task, then the race rules.
+fn candidate_prompt(race: &Race, target: &Target) -> String {
+    let hint = target.hint.as_deref().map(str::trim).filter(|h| !h.is_empty());
+    format!(
+        "{}{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.",
+        hint.map(|h| format!("{h}\n\n")).unwrap_or_default(),
+        race.prompt
+    )
 }
 
 fn review_prompt(race: &Race) -> String {

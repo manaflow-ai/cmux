@@ -52,6 +52,15 @@ pub struct Checkout {
     refs: Repository,
 }
 
+/// Where a checkout's git directories put it ([`Checkout::layout`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Layout {
+    /// The main checkout, when this one is a linked worktree.
+    pub main_checkout: Option<PathBuf>,
+    /// The merge, rebase, cherry-pick or revert that stopped partway here.
+    pub in_progress: Option<&'static str>,
+}
+
 impl Checkout {
     /// The checkout `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -61,6 +70,11 @@ impl Checkout {
     /// The checkout's top level.
     pub fn root(&self) -> &Path {
         &self.refs.root
+    }
+
+    /// The checkout's git folder ([`Repository::git_dir`]).
+    pub fn git_dir(&self) -> &Path {
+        self.refs.git_dir()
     }
 
     /// What HEAD is on, as the branch headers of `git status --porcelain=v2
@@ -77,9 +91,31 @@ impl Checkout {
         self.refs.base_branch()
     }
 
-    /// The main checkout of a linked worktree ([`Repository::main_checkout`]).
-    pub fn main_checkout(&self) -> Option<PathBuf> {
-        self.refs.main_checkout()
+    /// The main checkout of a linked worktree and the operation in progress
+    /// in this checkout ([`crate::in_progress`]), from one `rev-parse` run.
+    pub fn layout(&self) -> Layout {
+        let Some((common, own)) = self.refs.git_folders() else { return Layout::default() };
+        Layout {
+            main_checkout: crate::main_checkout_of(&common, &own),
+            in_progress: crate::in_progress(&own),
+        }
+    }
+
+    /// The GitHub `owner/name` of `remote`'s URL (`remote.<remote>.url`),
+    /// when that URL is on github.com. One `git config` run; `None` for a
+    /// remote name that is not a plain name, a remote with no URL, or a URL
+    /// on another host.
+    pub fn github_repo(&self, remote: &str) -> Option<String> {
+        let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
+        if remote.is_empty() || remote.starts_with(['-', '.']) || !remote.chars().all(plain) {
+            return None;
+        }
+        let key = format!("remote.{remote}.url");
+        let output = self.refs.run(&["config", "--get", &key], MAX_SMALL_OUTPUT_BYTES).ok()?;
+        if output.truncated {
+            return None;
+        }
+        github_slug(String::from_utf8_lossy(&output.stdout).trim())
     }
 
     /// The headers of a HEAD that is on a branch that has a commit; `None`
@@ -142,6 +178,29 @@ impl Checkout {
     }
 }
 
+/// `owner/name` of a github.com remote URL in the forms git takes:
+/// `https://github.com/o/r(.git)`, `ssh://git@github.com/o/r.git`,
+/// `git@github.com:o/r.git`. Any other host, or a path that is not two
+/// plain names, is `None`.
+fn github_slug(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com:22/"))
+        .or_else(|| url.strip_prefix("git@github.com:"))
+        .or_else(|| url.strip_prefix("git://github.com/"))?;
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, name) = rest.split_once('/')?;
+    let plain = |s: &str| {
+        !s.is_empty()
+            && !s.starts_with('.')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    (plain(owner) && plain(name)).then(|| format!("{owner}/{name}"))
+}
+
 /// The headers in one `for-each-ref` line, when it is the line of
 /// `reference`. The pattern also matches the branches below a name
 /// (`refs/heads/a/b` for `refs/heads/a`), which are other branches.
@@ -179,35 +238,5 @@ fn tracking(track: &str) -> (u64, u64) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{BranchHeaders, branch_line, tracking};
-
-    #[test]
-    fn head_tracking_reads_each_form_that_git_prints() {
-        assert_eq!(tracking(""), (0, 0));
-        assert_eq!(tracking("gone"), (0, 0));
-        assert_eq!(tracking("ahead 3"), (3, 0));
-        assert_eq!(tracking("behind 12"), (0, 12));
-        assert_eq!(tracking("ahead 3, behind 12"), (3, 12));
-    }
-
-    #[test]
-    fn head_branch_line_takes_only_the_line_of_the_branch() {
-        let line = "refs/heads/a\0abc\0origin/a\0ahead 1, behind 2";
-        let headers = BranchHeaders {
-            head: Some("abc".to_string()),
-            branch: Some("a".to_string()),
-            upstream: Some("origin/a".to_string()),
-            ahead: 1,
-            behind: 2,
-        };
-        assert_eq!(branch_line(line, "refs/heads/a", "a"), Some(headers));
-        // A branch below the name is another branch.
-        assert_eq!(branch_line("refs/heads/a/b\0abc\0\0", "refs/heads/a", "a"), None);
-        // No upstream.
-        let alone = branch_line("refs/heads/a\0abc\0\0", "refs/heads/a", "a").unwrap();
-        assert_eq!((alone.upstream, alone.ahead, alone.behind), (None, 0, 0));
-        // A line that a cut output left short.
-        assert_eq!(branch_line("refs/heads/a\0abc", "refs/heads/a", "a"), None);
-    }
-}
+#[path = "head_tests.rs"]
+mod tests;

@@ -40,13 +40,16 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("claude", include_str!("../../harnesses/claude.toml")),
     ("codex", include_str!("../../harnesses/codex.toml")),
     ("opencode", include_str!("../../harnesses/opencode.toml")),
+    ("cursor", include_str!("../../harnesses/cursor.toml")),
     ("pi", include_str!("../../harnesses/pi.toml")),
     ("gemini", include_str!("../../harnesses/gemini.toml")),
+    ("antigravity", include_str!("../../harnesses/antigravity.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
     ("hermes", include_str!("../../harnesses/hermes.toml")),
+    ("openclaw", include_str!("../../harnesses/openclaw.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -60,8 +63,10 @@ pub fn example(name: &str) -> Option<&'static str> {
     let id = match name {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
+        "agy" | "antigravity-cli" => "antigravity",
         "muse-code" => "muse",
         "hermes-agent" => "hermes",
+        "cursor-agent" | "cursor-cli" => "cursor",
         "aider-terminal" | "terminal" => "aider",
         other => other,
     };
@@ -207,6 +212,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 timeout: Duration::from_secs(timeout.max(5)),
                 lookup_env: Box::new(|var| std::env::var(var).ok()),
                 lookup_keychain: Box::new(profiles::keychain_lookup),
+                extra_env: BTreeMap::new(),
             };
             let report = doctor(&cfg, &id, &opts).await;
             if json_out {
@@ -564,6 +570,9 @@ pub struct ListRow {
     /// managed, user-file, cmux-json, acpmux-config or discovered.
     pub source: String,
     pub path: Option<String>,
+    /// Its chats call no model (`Config::runs_no_model`): they spend nothing. Always written, so a
+    /// reader tells a daemon that knows the field (the key is there) from one that does not.
+    pub no_model: bool,
 }
 
 pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
@@ -586,6 +595,7 @@ pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
                 kind: kind_name(p.kind).into(),
                 source: source.into(),
                 path: meta.map(|m| m.source_path.clone()),
+                no_model: cfg.runs_no_model(id),
             }
         })
         .collect()
@@ -760,6 +770,9 @@ pub struct DoctorOptions {
     pub timeout: Duration,
     pub lookup_env: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
     pub lookup_keychain: Box<dyn Fn(&str, Option<&str>) -> Result<String, String> + Send + Sync>,
+    /// Env the check's harness gets on top of its profile's, after the references resolve:
+    /// a Chief brain check's own brain home (`chief_builtins::brain_check_env`).
+    pub extra_env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -935,6 +948,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         })
         .collect();
     let resolved = profiles::resolve_env_refs(&mut env, &*opts.lookup_env, &*opts.lookup_keychain);
+    env.extend(opts.extra_env.clone());
     r.masks = env.values().filter(|v| v.len() >= 6).cloned().collect();
     r.masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
     match resolved {
@@ -1078,6 +1092,12 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
+    // As the hub's launch does (`hub/spawn.rs`): Antigravity gets a key saved in ~/.gemini/.env.
+    crate::acp_key_auth::fill_key_from_gemini_dotenv(
+        &mut spawn.env,
+        &crate::config::derive_family(id, profile),
+        |k| std::env::var(k).ok(),
+    );
     let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
         Ok(cmd) => cmd,
         Err(e) => {
@@ -1145,6 +1165,8 @@ async fn acp_steps(
         prompt_limit,
         crate::config::derive_family(id, profile) == "codex",
         id,
+        &spawn.env,
+        &crate::config::derive_family(id, profile),
     )
     .await;
     // Stop the harness and everything it started (its own process group),
@@ -1217,6 +1239,8 @@ async fn handshake(
     prompt_limit: Duration,
     codex: bool,
     harness_id: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    env_family: &str,
 ) -> bool {
     let init = json!({
         "protocolVersion": 1,
@@ -1250,6 +1274,33 @@ async fn handshake(
             &format!("protocolVersion {version}{agent}; cmux speaks ACP protocol 1"),
             None,
         );
+    }
+    // An agent signed in by its key says so before its session, as the hub's start does
+    // (`acp_key_auth.rs`).
+    let family = env_family;
+    if let Some(params) = crate::acp_key_auth::authenticate_params(family, &result, |k| {
+        crate::acp_key_auth::launch_var(env, family, k)
+    }) {
+        match wire.call("authenticate", params, opts.timeout).await {
+            Ok(_) => r.push(
+                "authenticate",
+                StepStatus::Pass,
+                crate::acp_key_auth::GEMINI_API_KEY_METHOD,
+                None,
+            ),
+            Err(e) => {
+                r.push(
+                    "authenticate",
+                    StepStatus::Fail,
+                    &e,
+                    Some(format!(
+                        "check {}, or sign in with `acpmux harness login {harness_id}`",
+                        crate::acp_key_auth::GEMINI_API_KEY_ENV
+                    )),
+                );
+                return false;
+            }
+        }
     }
     let new = json!({"cwd": folder.to_string_lossy(), "mcpServers": []});
     let session = match wire.call("session/new", new, opts.timeout).await {
@@ -1415,66 +1466,5 @@ impl StderrTail {
 }
 
 #[cfg(test)]
-mod stderr_tail_tests {
-    use super::StderrTail;
-
-    #[test]
-    fn a_payload_whose_opener_was_cut_off_stays_hidden() {
-        let mut tail = StderrTail::default();
-        tail.push(b"\x1bP");
-        for _ in 0..20 {
-            tail.push(&[b'A'; 4096]);
-        }
-        tail.push(b"secret\x1b\\error: request timed out\n");
-        assert_eq!(tail.text(), "error: request timed out");
-    }
-
-    #[test]
-    fn a_cut_between_esc_and_its_next_byte_reads_the_sequence_whole() {
-        let mut tail = StderrTail::default();
-        let mut long = vec![b'x'; StderrTail::CAP];
-        long.push(0x1b);
-        tail.push(&long);
-        tail.push(b"]8;;https://x\x07after\nerror: boom\n");
-        let text = tail.text();
-        assert!(text.ends_with("after\nerror: boom"), "{text:?}");
-        assert!(!text.contains("https"), "{text:?}");
-    }
-
-    #[test]
-    fn an_unfinished_line_keeps_the_text_under_the_cap() {
-        let mut tail = StderrTail::default();
-        for _ in 0..40 {
-            tail.push(&[b'x'; 4095]);
-            tail.push(b"\n");
-        }
-        tail.push(&[b'y'; StderrTail::CAP - 100]);
-        let text = tail.text();
-        assert!(text.len() <= StderrTail::CAP, "{}", text.len());
-        assert!(text.ends_with('y'));
-    }
-
-    #[test]
-    fn an_endless_line_that_starts_a_control_stays_bounded() {
-        let mut tail = StderrTail::default();
-        tail.push(b"\x1bP");
-        for _ in 0..40 {
-            tail.push(&[b'A'; 4096]);
-            assert!(tail.pending.len() <= StderrTail::CAP + 4096, "{}", tail.pending.len());
-        }
-        tail.push(b"\x1b\\error: request timed out\n");
-        assert_eq!(tail.text(), "error: request timed out");
-    }
-
-    #[test]
-    fn the_kept_text_stays_under_the_cap() {
-        let mut tail = StderrTail::default();
-        for _ in 0..40 {
-            tail.push(&[b'x'; 4095]);
-            tail.push(b"\n");
-        }
-        tail.push(b"error: boom\n");
-        assert!(tail.text().len() <= StderrTail::CAP);
-        assert!(tail.text().ends_with("error: boom"));
-    }
-}
+#[path = "harness_stderr_tail_tests.rs"]
+mod stderr_tail_tests;

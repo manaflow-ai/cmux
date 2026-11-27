@@ -99,6 +99,10 @@ CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
     "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
     "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-codex-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app updates a machine without it before a Codex start carries a credential (cmux#45774)",
+    "agent-session-prewarm-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a Cloud send's agent only where it is served (cmux#45953)",
+    "agent-session-prewarm-chat-folder-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-prewarm-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a no-folder Cloud start's agent in its own ~/chats/<id> only where it is served",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.
@@ -106,7 +110,6 @@ PEERS = {
     "serve.owner-pid": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
-    "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
 }
 
 GATE, REFUSAL, LISTED = "gate", "refusal", "listed"

@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// One list row: name, schedule and target, the next time, the last result's dot.
 struct AutomationListRow: View {
@@ -18,13 +19,17 @@ struct AutomationListRow: View {
                     Text("\(row.schedule) · \(strings.target(row.target))").font(palette.caption).foregroundStyle(palette.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 4)
+                if row.unread > 0 {
+                    Circle().fill(palette.danger).frame(width: 6, height: 6).padding(.top, 6)
+                        .accessibilityLabel(strings.failed)
+                }
                 AutomationChip(text: badge, palette: palette)
             }
             .padding(.horizontal, 16).padding(.vertical, 7)
             .background(selected ? palette.selection : .clear)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
     }
 
     private var badge: String {

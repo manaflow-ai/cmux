@@ -1,4 +1,6 @@
+import CmuxEgress
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 
 /// The Mac Chief while the Mac is offline or asleep: its cloud copy
@@ -164,7 +166,8 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             do {
                 try await socket.send(.string(try ChiefCloudBackend.Core.text(frame)))
             } catch {
-                throw ConversationBackendError(code: -1, message: error.localizedDescription)
+                // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
+                throw ConversationBackendError(code: -1, message: UserFacingError.message(error, fallback: "Couldn't send. Try again."))
             }
             let outcome: Outcome
             if let known = early.removeValue(forKey: key) {
@@ -215,15 +218,14 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
 
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-            let task = http.session.webSocketTask(with: request)
+            guard let request = try? http.socketRequest(url, token: token) else { return false }
+            let task = CmuxEgress.websocket(http.session, with: request, site: "CmuxMobileChief.ChiefReplicaBackend")
             socket = task
             task.resume()
             defer {
                 task.cancel(with: .goingAway, reason: nil)
                 if socket === task { socket = nil }
+                // retry-prompt-ok: a send in flight when the socket dropped may have landed or not; resending it is the person's call
                 for (_, waiter) in waiting { waiter.resume(returning: .refused(String(localized: "The connection dropped; try again."))) }
                 waiting = [:]
             }

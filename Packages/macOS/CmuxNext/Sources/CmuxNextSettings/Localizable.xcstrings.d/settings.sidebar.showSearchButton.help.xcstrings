@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.showSearchButton.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A search button after the profile button. Off: search from the palette."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プロフィールボタンの隣に検索ボタンを表示します。オフ: パレットから検索します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "زر بحث بعد زر الملف الشخصي. عند الإيقاف: ابحث من لوحة الأوامر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dugme za pretragu nakon dugmeta profila. Isključeno: pretraga iz palete."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En søgeknap efter profilknappen. Fra: søg fra paletten."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Suchtaste nach der Profiltaste. Aus: Suche über die Palette."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un botón de búsqueda junto al botón de perfil. Desactivado: busca desde la paleta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un bouton de recherche après le bouton de profil. Désactivé : recherchez depuis la palette."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un pulsante Cerca dopo il pulsante del profilo. Disattivato: cerca dalla palette."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប៊ូតុងស្វែងរកនៅក្រោយប៊ូតុងប្រវត្តិរូប។ បិទ៖ ស្វែងរកពីផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "프로필 버튼 옆의 검색 버튼입니다. 끄면 팔레트에서 검색합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En søkeknapp etter profilknappen. Av: søk fra paletten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przycisk wyszukiwania za przyciskiem profilu. Wyłączone: szukaj w palecie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um botão de pesquisa após o botão de perfil. Desativado: pesquise pela paleta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кнопка поиска после кнопки профиля. Выкл.: поиск в палитре."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปุ่มค้นหาถัดจากปุ่มโปรไฟล์ ปิด: ค้นหาจากพาเลต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Profil düğmesinin yanında bir arama düğmesi. Kapalı: paletten arayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кнопка пошуку після кнопки профілю. Вимкнено: пошук у палітрі команд."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nút tìm kiếm sau nút hồ sơ. Tắt: tìm kiếm từ bảng lệnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "个人资料按钮后的搜索按钮。关闭：从命令面板搜索。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "個人資料按鈕旁的搜尋按鈕。關閉：從指令面板搜尋。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

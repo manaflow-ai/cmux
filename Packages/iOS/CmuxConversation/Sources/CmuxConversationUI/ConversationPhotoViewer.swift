@@ -223,6 +223,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
 
     @objc private func tapped() {
         chromeHidden.toggle()
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) {
             self.backdrop.backgroundColor = self.chromeHidden ? .black : .systemBackground
             for view in self.chromeViews { view.alpha = self.chromeHidden ? 0 : 1 }
@@ -232,11 +233,11 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
 
     @objc private func doubleTapped(_ tap: UITapGestureRecognizer) {
         if isZoomed {
-            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: !UIView.reducesMotion)
         } else {
             let point = tap.location(in: imageView)
             let size = CGSize(width: scrollView.bounds.width / 2.5, height: scrollView.bounds.height / 2.5)
-            scrollView.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
+            scrollView.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: !UIView.reducesMotion)
         }
     }
 
@@ -274,7 +275,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
                 dismiss(animated: true)
             } else {
                 let start = dragStart
-                UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+                UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
                     if let start { self.imageView.center = start }
                     self.imageView.transform = .identity
                     self.presentationProgress = 1
@@ -337,8 +338,11 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
 
     private var omega: Double { presenting ? ConversationPhotoFlight.openOmega : ConversationPhotoFlight.closeOmega }
 
+    /// Reduce Motion: no flight; the viewer crossfades in or out over the transcript.
+    private static let reducedMotionDuration: TimeInterval = 0.25
+
     func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
-        ConversationPhotoFlight.settleTime(omega: omega)
+        UIView.reducesMotion ? Self.reducedMotionDuration : ConversationPhotoFlight.settleTime(omega: omega)
     }
 
     func animateTransition(using context: any UIViewControllerContextTransitioning) {
@@ -352,6 +356,10 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
         guard let viewer = context.viewController(forKey: key) as? ConversationPhotoViewerController,
               let sourceView = source.view, sourceView.window != nil else {
             context.completeTransition(!context.transitionWasCancelled)
+            return
+        }
+        if UIView.reducesMotion {
+            crossfade(viewer, sourceView: sourceView, context: context)
             return
         }
         let bubbleFrame = sourceView.convert(sourceView.bounds, to: container)
@@ -391,6 +399,27 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
             context.completeTransition(!context.transitionWasCancelled)
         }
         driver.start()
+    }
+
+    /// The Reduce Motion form of the zoom: the photo stays in its bubble and
+    /// the viewer fades in or out over the transcript. A photo dragged out
+    /// of its bubble before closing gets its bubble back as the fade ends.
+    private func crossfade(_ viewer: ConversationPhotoViewerController, sourceView: UIView, context: any UIViewControllerContextTransitioning) {
+        let presenting = presenting
+        if presenting { sourceRestingAlpha = sourceView.alpha }
+        let sourceAlpha = sourceRestingAlpha
+        let faded = context.view(forKey: presenting ? .to : .from) ?? viewer.view
+        if presenting { faded?.alpha = 0 }
+        // motion: allow crossfade, the Reduce Motion form
+        UIView.animate(withDuration: Self.reducedMotionDuration, delay: 0, options: [.curveEaseInOut]) {
+            faded?.alpha = presenting ? 1 : 0
+        } completion: { [weak sourceView] _ in
+            let cancelled = context.transitionWasCancelled
+            if !presenting {
+                if cancelled { faded?.alpha = 1 } else { sourceView?.alpha = sourceAlpha }
+            }
+            context.completeTransition(!cancelled)
+        }
     }
 }
 

@@ -20,6 +20,7 @@ import {
   type PreparedPicture,
 } from "./picture";
 import { PictureCrop } from "./PictureCrop";
+import { Switch } from "../../ui/Switch";
 import {
   CHIEF_HARNESSES,
   CHIEF_TOOLS,
@@ -65,6 +66,7 @@ const same = (a: readonly string[], b: readonly string[]) => [...a].sort().join(
 export function ChiefPage({ service, strings, chief: given, picture, chiefName }: ChiefPageProps) {
   const { t, format } = strings;
   const titleId = useId();
+  const lockId = useId();
   // The record the editor started from; an Undo or Restore replaces it (and the fields).
   const [base, setBase] = useState<HomeChief | undefined>(given);
   const chief = base;
@@ -150,7 +152,7 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
   const runCheck = (harness: string) => {
     if (!harness || harness === (chief?.engine?.harness ?? "")) return setCheck({ state: "idle" });
     setCheck({ state: "checking", harness });
-    service.checkBackend(harness).then(
+    service.checkBackend(harness, chief?.id).then(
       (result) =>
         setCheck((now) =>
           now.state === "checking" && now.harness === harness
@@ -423,19 +425,19 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
               {readOnly ? t("chief.appOnly") : noHarness ? t("chief.harnesses.pick") : ""}
             </span>
           </fieldset>
-          <label className="ce-switch-row">
+          <label className="ce-switch-row" htmlFor={lockId}>
             <span className="ce-switch-text">
               <span className="ce-switch-title">{t("chief.lock.title")}</span>
               <span className="ce-note">{t("chief.lock.note")}</span>
             </span>
-            <input
-              type="checkbox"
+            <Switch
+              id={lockId}
               className="ce-switch"
               data-chief-lock=""
               aria-label={t("chief.lock.title")}
               checked={locked}
               disabled={readOnly}
-              onChange={(event) => setLocked(event.target.checked)}
+              onCheckedChange={setLocked}
             />
           </label>
           {chief && (

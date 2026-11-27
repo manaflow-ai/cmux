@@ -13,7 +13,8 @@ import type { ChiefProfile } from "./prompts.ts"
 import { startMachineAgent, machineAgentEvents, stopMachineAgent } from "./brain-machine-acp.ts"
 import { declared } from "../do-stub.ts"
 
-export type MachineHarness = "claude" | "codex"
+import { machineHarness, type MachineHarness } from "./machine-harness.ts"
+export { machineHarness, type MachineHarness }
 export interface MachineRoute { binding: DefaultChiefMachine; harness: MachineHarness }
 export type MachineState = {
   phase: "dispatching" | "running" | "waiting_auth" | "done" | "failed"
@@ -59,7 +60,6 @@ export const machineSignInURL = (raw: unknown, harness: MachineHarness): string 
   } catch { return null }
 }
 
-export const machineHarness = (harness: string | null): MachineHarness | null => harness === null || harness === "claude" ? "claude" : harness === "codex" ? "codex" : null
 /** Machine agents have the harness's real tools, rather than the hosted brain's Pi tools. */
 export const machinePrompt = (profile: ChiefProfile, binding: DefaultChiefMachine, cwd: string, blocks: Array<string>): string => [
   `You are the Chief, working for your owner on their persistent cmux Cloud machine. Carry out the newest request directly using your harness's available filesystem, terminal and other tools. Earlier messages below are context. Return the result as a message to the person, without adding a conversation header. Do not ask them to create, pair, enable or connect a machine: this machine is already provisioned. Provider sign-in is handled by the product when required.

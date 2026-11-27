@@ -23,11 +23,15 @@ const needsGithub: RepoRecovery = {
   retry,
 };
 const needsGithubNoUrl: RepoRecovery = { code: "repo.needs_github", retry };
+/// No access carries the same add as its retry, with no GitHub wait (cloud_repos engine `add`): access is granted on
+/// GitHub, never by a connect this Mac can wait for.
 const noAccess: RepoRecovery = {
   code: "repo.no_access",
   org: "acme",
   installUrl: "https://github.com/apps/cmux/installations/new",
+  retry: { action: "cloud.repo.add", args: { session: "cloud-demo", repo: "acme/cmux-platform" } },
 };
+const { installUrl: _link, ...noAccessNoLink } = noAccess;
 const ambiguous: RepoRecovery = {
   code: "repo.ambiguous",
   choices: [
@@ -40,11 +44,12 @@ const ambiguous: RepoRecovery = {
 /** A countdown 45 s from the capture, as a wait a quarter of the way through. */
 const soon = () => Date.now() + 45_000;
 const literal = (text: string) => ({ literal: text });
-const checkAgain = { id: "checkAgain" as const, label: { key: "cloudRepository.checkAgain" as const } };
 const reopen = { id: "reopen" as const, label: { key: "cloudRepository.openGithubAgain" as const } };
+// retry-prompt-ok: the failed attach's Try again, kept: it runs cloud.repo.add again.
 const tryAgain = { id: "retry" as const, label: { key: "cloudRepository.tryAgain" as const } };
-const getLink = { id: "getLink" as const, label: { key: "cloudRepository.tryAgain" as const } };
 const connect = { id: "connect" as const, label: { key: "cloudRepository.connect" as const } };
+const installOn = { id: "connect" as const, label: literal("Install on acme") };
+const requestAccess = { id: "requestAccess" as const, label: { key: "cloudRepository.requestAccess" as const } };
 
 export default componentEntry<Props>({
   id: "agent-pane.repo-recovery",
@@ -101,14 +106,22 @@ export default componentEntry<Props>({
       props: { recovery: needsGithubNoUrl },
     },
     "no-link": {
-      note: "Picked: the app had no link either. Try again asks again; Check again catches a GitHub connected some other way.",
+      note: "Picked: the app had no link either. The card asks again on its own while it shows; past the deadline one quiet line says it is still trying, with no button. A link found later brings Connect back.",
       props: { recovery: needsGithubNoUrl, phase: { kind: "noLink" } },
     },
+    // retry-prompt-ok: a rejected alternative, drawn only to show the old buttons this card no longer has.
     "no-link-alt-retry-only": {
-      note: "Rejected: Try again alone. A person who already connected on github.com has no way to say so.",
+      note: "Rejected (before): the failure in error ink with Try again and Check again, a click whose only answer is yes.",
       props: {
         recovery: needsGithubNoUrl,
-        alt: { tone: "error", message: literal("Couldn’t get a GitHub connect link"), actions: [getLink] },
+        alt: {
+          tone: "error",
+          message: literal("Couldn’t get a GitHub connect link"),
+          actions: [
+            { id: "getLink", label: literal("Try again") },
+            { id: "reopen", label: literal("Check again") },
+          ],
+        },
       },
     },
     "no-link-alt-pointer": {
@@ -145,31 +158,27 @@ export default componentEntry<Props>({
       },
     },
     "not-connected": {
-      note: "Picked: the connect didn't take. Says so, in the failure ink, with Check again first and the install page again.",
+      note: "Picked: the connect didn't take yet. The card waits for GitHub again on its own, the same quiet line with no countdown, and the install page one click away.",
       props: { recovery: needsGithub, phase: { kind: "notConnected" } },
     },
-    "not-connected-alt-check-only": {
-      note: "Rejected: Check again alone. A person who closed the install page must find it again.",
-      props: {
-        recovery: needsGithub,
-        alt: { tone: "error", message: { key: "cloudRepository.notConnectedYet" }, actions: [checkAgain] },
-      },
-    },
-    "not-connected-alt-instruction": {
-      note: "Rejected: a sentence of instructions in front of the button; longer to read, same one click.",
+    // retry-prompt-ok: a rejected alternative, drawn only to show the old button this card no longer has.
+    "not-connected-alt-check-again": {
+      note: "Rejected (before): says so in the failure ink with Check again first; a click whose only answer is yes.",
       props: {
         recovery: needsGithub,
         alt: {
           tone: "error",
-          message: literal("GitHub isn’t connected yet. Finish the install on GitHub, then check again."),
-          actions: [checkAgain],
+          message: literal("GitHub isn’t connected yet"),
+          actions: [{ id: "reopen", label: literal("Check again") }, reopen],
         },
       },
     },
     failed: {
+      // retry-prompt-ok: the kept Try again re-runs cloud.repo.add, a change the person chooses.
       note: "Picked: names the repository and offers Try again.",
       props: { recovery: needsGithub, phase: { kind: "failed" } },
     },
+    // retry-prompt-ok: rejected alternatives of the kept failed-attach Try again.
     "failed-alt-old-copy": {
       note: "Rejected: the earlier copy with a button added; 'this repository action' doesn't say which.",
       props: {
@@ -206,10 +215,38 @@ export default componentEntry<Props>({
         alt: { tone: "done", message: literal("Connected"), actions: [] },
       },
     },
-    "no-access": { note: "The organization is named with install and request actions.", props: { recovery: noAccess } },
+    "no-access": {
+      // retry-prompt-ok: Try again waits on access the person grants on GitHub.
+      note: "Picked: the organization named, Install on acme and Request access on GitHub, and Try again, which adds the repository again here once access is granted.",
+      props: { recovery: noAccess },
+    },
+    "no-access-no-link": {
+      // retry-prompt-ok: Try again waits on access the person grants on GitHub.
+      note: "Picked: no install link for the organization. Request access, then Try again here.",
+      props: { recovery: noAccessNoLink },
+    },
+    "no-access-alt-web-only": {
+      note: "Rejected (before): Install and Request access only. Both open GitHub, and coming back there is nothing to click: Add repository must be found again.",
+      props: {
+        recovery: noAccess,
+        alt: {
+          tone: "plain",
+          message: literal("No access to acme repositories"),
+          actions: [installOn, requestAccess],
+        },
+      },
+    },
+    "no-access-alt-wait": {
+      note: "Rejected: Install waits a minute for GitHub, as Connect does. GitHub is connected already, so the wait ends at once and retries before the install is done.",
+      props: {
+        recovery: noAccess,
+        alt: { tone: "quiet", message: { key: "cloudRepository.waitingGithub" }, actions: [reopen], until: soon() },
+      },
+    },
     ambiguous: { note: "Several matching repositories are one tap away.", props: { recovery: ambiguous } },
     outcomes: {
-      note: "Its later lines on the tool row's text column: waiting with its countdown, not connected with Check again, attaching, the connected chip, and failed with Try again.",
+      // retry-prompt-ok: the failed line's kept Try again re-runs cloud.repo.add.
+      note: "Its later lines on the tool row's text column: waiting with its countdown, not connected yet (waiting again on its own, no countdown), attaching, the connected chip, and failed with Try again.",
       height: 320,
       props: { recovery: needsGithub, outcomes: true },
     },

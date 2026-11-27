@@ -16,6 +16,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
 import { PreviewIntent, previewEntries, type IntentTimers } from "../src/pages/changelog/updatedPreview";
@@ -494,14 +495,14 @@ describe("the card", () => {
   // Lawrence 2026-11-07, "this ui is very bad": What's New beside the title cut it to "Updated to ...".
   // The title line is the title alone; open, the header goes on with the full version and What's New.
   test("the title line is the title alone; open, the header shows the full version and What's New, which opens the full page", async () => {
-    const { host, opened } = await render({ previewOpen: true });
+    const { host, opened } = await render({ previewOpen: true, shape: "two-line" });
     const head = host.querySelector(".wn-card-head")!;
     expect(head.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
     expect(head.querySelector(".wn-card-link")).toBeNull();
     expect(host.querySelector(".wn-card-primary")).toBeNull();
     expect(host.querySelector(".wn-card-version")?.textContent).toBe(data.version);
     const link = host.querySelector<HTMLButtonElement>(".wn-preview-whatsnew")!;
-    expect(link.textContent).toBe("What's New ↗");
+    expect(link.textContent).toBe("What's New");
     await act(async () => link.click());
     expect(opened).toEqual(["open"]);
   });
@@ -546,6 +547,7 @@ describe("the card", () => {
           strings={createStrings(table)}
           actions={{ openChangelog: (target) => opened.push(target ?? "open"), dismiss: () => undefined }}
           mode="beside"
+          look="sections"
         />,
       ),
     );
@@ -715,8 +717,9 @@ describe("the card", () => {
       dismiss: () => undefined,
     };
     let host: HTMLElement;
-    ({ host } = await render({ hostPointer: false, drag, onPreviewSize: (h: number) => sizes.push(h) }));
-    ({ host } = await render({ hostPointer: true, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    const shape = "two-line"; // the change line the drag starts on
+    ({ host } = await render({ hostPointer: false, drag, shape, onPreviewSize: (h: number) => sizes.push(h) }));
+    ({ host } = await render({ hostPointer: true, drag, shape, onPreviewSize: (h: number) => sizes.push(h) }));
     const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
     await until(() => state() === "open");
     expect(sizes).toEqual([168]);
@@ -856,10 +859,10 @@ test("the sidebar's surface says the open preview's height for the host's glass 
 // Leo 2026-11-08: "the animation also seems like it's a little bit slow". The preview opens on the
 // card's own curve, a fast start that settles long, the native glass's twin (Motion+AppKit.swift
 // cardCurve and cardDuration), and the room goes back once that motion has run.
-test("the preview opens on the card's curve, 180ms, the native glass's twin", () => {
+test(`the preview opens on the card's curve, ${MOTION_SETTLE_MS}ms, the native glass's twin`, () => {
   const css = readFileSync(new URL("../src/pages/changelog/updateSurfaces.css", import.meta.url), "utf8");
-  expect(css).toContain("--wn-preview-motion: 180ms;");
-  expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
+  expect(css).toContain(`--wn-preview-motion: ${MOTION_SETTLE_MS}ms;`);
+  expect(css).toContain(`--wn-preview-ease: ${MOTION_SETTLE};`);
   expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
   const tsx = readFileSync(new URL("../src/pages/changelog/updatedPreview.ts", import.meta.url), "utf8");
   expect(tsx).toContain("export const PREVIEW_CLOSE_MS = 180;");

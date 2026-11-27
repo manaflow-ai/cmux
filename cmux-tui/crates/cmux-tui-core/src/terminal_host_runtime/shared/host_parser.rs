@@ -150,7 +150,12 @@ pub(crate) fn run_host_parser(
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
+    let mut qos = cmux_interactivity::Follower::new();
     while let Ok(command) = parser_command_receiver.recv() {
+        if matches!(command, ParserCommand::Resize(_)) {
+            cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+        }
+        qos.follow(super::host_start::host_work_class());
         match command {
             ParserCommand::Output { frame, source_cursor, accounted_bytes } => {
                 let bytes = frame.payload.as_slice();
@@ -171,11 +176,20 @@ pub(crate) fn run_host_parser(
                     // A terminal that cannot report cursor activity reports
                     // no cursor change.
                     let cursor_activity = legacy.then(|| term.cursor_activity().ok());
-                    let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, bytes, &mut shell_marks);
+                    // One walk of the chunk reads its OSC metadata and
+                    // rewrites the title ops ghostty-vt skips.
+                    let rewritten = parser_host
+                        .terminal_metadata
+                        .lock()
+                        .recover_poison()
+                        .observe_output_rewriting_titles(shell_marks.titles_mut(), bytes);
+                    let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                        &mut term,
+                        rewritten,
+                        &mut shell_marks,
+                    );
                     {
                         let mut metadata = parser_host.terminal_metadata.lock().recover_poison();
-                        metadata.observe_output(bytes);
                         // Whether a running command took the terminal for
                         // interaction, so an adopting daemon still reads it
                         // `in_use` (cx-6so.59).

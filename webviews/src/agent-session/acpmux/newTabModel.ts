@@ -10,11 +10,14 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
+import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
-import { isStartableProject } from "./newtab/startedProject";
+import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
+import { isStartableProject, isCloudPick } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
+import { replacedSince } from "./sessionIndex";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -84,12 +87,19 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
+  /// The extension that draws in the slot over the composer (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
+  /// newtab/NewTabAppSlot.tsx); unset leaves the slot out. It never replaces the page.
+  app?: string;
+  /// The New Tab clock over the composer (`tabs.newTabClock.*`, newtab/NewTabClock.tsx); unset draws none.
+  clock?: NewTabClockStyle;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The project of the chat the person last picked and started (newtab/startedProject.ts).
   startedProject?: string;
+  /// The folder or GitHub repository the person last started a Cloud chat in (newtab/startedProject.ts).
+  cloudStartedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -99,6 +109,10 @@ export type NewTabHost = {
   /// The page lists only its own connection's chats, not the store every page shares (another
   /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
+  /// The page's chats start on another machine (an inherited SSH or Cloud context: AgentPaneNewTab
+  /// `warmedOnThisMac(false)`), known from the first render, before its client connects: a send naming
+  /// `@computer-use` holds as that machine's, never this Mac's setup (CMUX-682).
+  startsRemote?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
   allChats?: false;
@@ -121,9 +135,19 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
   };
 }
 
+/// The app that draws in this New Tab page's slot (`tabs.newTabApp`): none on history, and none for the visit
+/// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
+/// again, also on a parked spare that keeps its screen because its context did not change.
+export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
+  return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
+}
+
+const withClock = (clock: NewTabClockStyle | undefined) => (clock ? { clock } : {});
+
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
+/// A context that comes as the page's own part is joined with its shared part first (newtab/sharedPart.ts).
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
-  const value = handshake.newTab;
+  const value = wholeNewTab(handshake.newTab);
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
@@ -162,15 +186,23 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
+    // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
+    ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
+    ...withClock(readClockStyle(object.clock)),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }
+      : {}),
+    ...(isCloudPick(typeof object.cloudStartedProject === "string" ? object.cloudStartedProject : undefined)
+      ? { cloudStartedProject: object.cloudStartedProject as string }
       : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
+    ...(object.startsRemote === true ? { startsRemote: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
     ...(start ? { start } : {}),
@@ -201,31 +233,150 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 }
 
 export function recentSessions(
-  sessions: AcpmuxSnapshot["sessions"],
+  sessions: readonly AcpmuxSnapshot["sessions"][number][],
   count = RECENT_COUNT,
   fold = true,
 ): AcpmuxSessionEntry[] {
   // Snapshots already carry normalized entries from the direct client. Keep their identity so a
   // New Tab render does not allocate and normalize every recent chat again. Gallery and older
   // callers may still provide raw summaries, so retain the normalization fallback for those.
-  const all = sessions
-    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+  // The page shows `count` chats of every chat the daemon lists (closed ones too: 10K at Leo's
+  // scale), and every New Tab page (a tab's, the prewarmed spare) reads this again on each change
+  // of any chat. So it keeps the best `count` in one pass instead of sorting them all: a pass is
+  // the list's length with a cheap key, a sort was that times log n calls to `sessionMark` (Leo
+  // 2026-11-18, "typing in the composer still slow 😞 there must be a lot of open stuff?";
+  // bench/session-scale-typing.bench.ts).
+  const all: Ranked[] = [];
+  for (const session of sessions) {
+    const entry = normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>);
     // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
-    .filter((entry) => listed(entry) && !entry.unsent);
-  const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
-  // cannot make the rows trade places.
-  const ordered = all.sort(
-    (a, b) =>
-      urgency(a) - urgency(b) ||
-      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
-      a.sessionId.localeCompare(b.sessionId),
-  );
-  if (!fold) return ordered.slice(0, count);
+    if (!listed(entry) || entry.unsent) continue;
+    all.push({ entry, urgency: sessionMark(entry, false) === "input" ? 0 : 1, at: activityTime(entry) ?? 0 });
+  }
+  if (!fold) return best(all, count, () => true);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
-  const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);
+  const shown = best(all, count, (entry) => !entry.spawnedBy);
   const parents = new Set(shown.map((entry) => entry.sessionId));
-  return ordered.filter((entry) => !folded(entry, parents)).slice(0, count);
+  return best(all, count, (entry) => !folded(entry, parents));
+}
+
+type Ranked = { entry: AcpmuxSessionEntry; urgency: number; at: number };
+
+/// Chats asking for input first, then the newest. Chats reported in the same millisecond tie on
+/// their durable ids, so a snapshot's arrival order cannot make the rows trade places.
+const before = (a: Ranked, b: Ranked) =>
+  a.urgency - b.urgency || b.at - a.at || a.entry.sessionId.localeCompare(b.entry.sessionId);
+
+/// The first `count` of `all` that `keep` keeps, in `before` order: what sorting `all` and taking
+/// the first `count` kept ones gives, in a pass that holds only `count` at a time.
+function best(all: readonly Ranked[], count: number, keep: (entry: AcpmuxSessionEntry) => boolean) {
+  const top: Ranked[] = [];
+  if (count <= 0) return [];
+  for (const ranked of all) {
+    if (top.length === count && before(ranked, top[count - 1]!) >= 0) continue;
+    if (!keep(ranked.entry)) continue;
+    let at = top.length === count ? count - 1 : top.length;
+    top[at] = ranked;
+    while (at > 0 && before(top[at]!, top[at - 1]!) < 0) {
+      [top[at - 1], top[at]] = [top[at]!, top[at - 1]!];
+      at -= 1;
+    }
+  }
+  return top.map((ranked) => ranked.entry);
+}
+
+/// A chat the recent rows may list: listed, and with something sent in it.
+const recentEligible = (entry: AcpmuxSessionEntry) => listed(entry) && !entry.unsent;
+/// The recent rows' order (``recentSessions``): a chat waiting on the person first, then the newest.
+const recentRank = (a: AcpmuxSessionEntry, b: AcpmuxSessionEntry) =>
+  (sessionMark(a, false) === "input" ? 0 : 1) - (sessionMark(b, false) === "input" ? 0 : 1) ||
+  (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
+  a.sessionId.localeCompare(b.sessionId);
+const normalized = (session: AcpmuxSnapshot["sessions"][number]) =>
+  normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>);
+
+/// ``recentSessions`` of a chat list, kept at the cost of the chats that changed: it holds the first
+/// `room` chats of the recent order, which the rows are read from, and a list made in place from the
+/// last one (sessionIndex.ts `noteReplaced`) only moves the changed chats in or within it. A working
+/// chat's event (its activity moving forward) is O(room), never a sort of every chat. A chat that
+/// leaves the held ones, falls back in the order, or a list of another length, sorts again; so does
+/// a held part too folded to fill the rows.
+export class RecentChats {
+  private last: readonly AcpmuxSnapshot["sessions"][number][] | undefined;
+  private top: AcpmuxSessionEntry[] = [];
+  /// The held chats are every chat the rows may list.
+  private complete = true;
+  private shown: AcpmuxSessionEntry[] = [];
+
+  constructor(
+    private readonly count = RECENT_COUNT,
+    private readonly room = 64,
+  ) {}
+
+  of(sessions: readonly AcpmuxSnapshot["sessions"][number][]): AcpmuxSessionEntry[] {
+    if (sessions === this.last) return this.shown;
+    const previous = this.last;
+    const replaced = previous && previous.length === sessions.length ? replacedSince(previous, sessions) : undefined;
+    this.last = sessions;
+    const patched = replaced ? this.patch(previous!, sessions, replaced) : false;
+    if (patched === "same") return this.shown;
+    if (!patched) {
+      const all = sessions.map(normalized).filter(recentEligible).sort(recentRank);
+      this.complete = all.length <= this.room;
+      this.top = all.slice(0, this.room);
+    }
+    const shown = recentSessions(this.top, this.count);
+    // The rows are the held chats' only while the parents they fold under (the first `count` that
+    // are no child) and the rows themselves are all held: else they read every chat.
+    const enough =
+      this.complete ||
+      (shown.length >= this.count && this.top.filter((entry) => !entry.spawnedBy).length >= this.count);
+    this.shown = enough ? shown : recentSessions(sessions, this.count);
+    return this.shown;
+  }
+
+  /// Applies the chats replaced at `positions` to the held ones: "same" when none of them is held or
+  /// comes in, false when one needs a whole sort.
+  private patch(
+    previous: readonly AcpmuxSnapshot["sessions"][number][],
+    sessions: readonly AcpmuxSnapshot["sessions"][number][],
+    positions: readonly number[],
+  ): boolean | "same" {
+    let changed = false;
+    for (const position of positions) {
+      const before = previous[position];
+      const after = sessions[position];
+      if (!before || !after) return false;
+      const was = normalized(before);
+      const now = normalized(after);
+      if (was.sessionId !== now.sessionId) return false;
+      const held = this.top.findIndex((entry) => entry.sessionId === now.sessionId);
+      if (held >= 0) {
+        if (!recentEligible(now)) {
+          if (!this.complete) return false;
+          this.top.splice(held, 1);
+        } else {
+          // Falling back past the held ones' last needs the chats after them.
+          if (!this.complete && recentRank(now, this.top[held]!) > 0) return false;
+          this.top[held] = now;
+          this.top.sort(recentRank);
+        }
+        changed = true;
+        continue;
+      }
+      if (!recentEligible(now)) continue;
+      const last = this.top.at(-1);
+      if (!this.complete && last && recentRank(now, last) > 0) continue;
+      this.top.push(now);
+      this.top.sort(recentRank);
+      if (this.top.length > this.room) {
+        this.top.pop();
+        this.complete = false;
+      }
+      changed = true;
+    }
+    return changed ? true : "same";
+  }
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
@@ -243,4 +394,22 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
     },
     t,
   );
+}
+
+const AGE_MINUTE = 60_000;
+const AGE_DATE_AFTER_MINUTES = 7 * 24 * 60;
+
+/// The first shared wall-clock minute where `ageLabel(updatedAt, …)` says something else (clock.ts
+/// useLabelClock): a minute that keeps its "3h" wakes no label. Past a week the date never changes.
+export function nextAgeLabel(updatedAt: number, now: number): number {
+  if (!Number.isFinite(updatedAt) || !updatedAt) return Infinity;
+  const elapsed = Math.max(0, now - updatedAt);
+  if (Math.floor(elapsed / AGE_MINUTE) >= AGE_DATE_AFTER_MINUTES) return Infinity;
+  // ageLabel's rounded minutes, hours and days; `round(x / size) >= n` once x reaches (n - 0.5) * size.
+  const minutes = Math.round(elapsed / AGE_MINUTE);
+  const hours = Math.round(minutes / 60);
+  const nextMinutes =
+    minutes < 60 ? minutes + 1 : hours < 24 ? 60 * hours + 30 : 60 * (24 * Math.round(hours / 24) + 12) - 30;
+  const change = Math.min((nextMinutes - 0.5) * AGE_MINUTE, AGE_DATE_AFTER_MINUTES * AGE_MINUTE);
+  return Math.max(now + AGE_MINUTE, Math.ceil((updatedAt + change) / AGE_MINUTE) * AGE_MINUTE);
 }

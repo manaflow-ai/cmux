@@ -1,103 +1,63 @@
-//! The local pins of a Cloud first send. One workspace per machine: a new
-//! workspace gets its own machine, from the platform or the fallback create
-//! path (`claim`), and never an arbitrary fleet VM or teammate's machine
-//! (Leo, 2026-11-06: "one workspace per machine ... arbitrarily many until
-//! you hit the cap"). A retry stays on the machine its first send took,
-//! preserving its tab key.
+//! Which Cloud machine a Cloud send runs on. A retry of the same send stays on
+//! the machine its first try took, preserving its tab key. A new send reuses
+//! the person's own machine ([`reuse`]): the user, 2026-11-24, on a machine
+//! list of cloud-chats … cloud-chats-7: "i should be making a new machine every
+//! time i press enter on the chat?" No: a new machine is made only when the
+//! person has none to reuse, or asks for one (New Cloud machine…, `--on
+//! vm:new`), which go their own way, not through this pick.
 
 use std::collections::BTreeSet;
 
 use super::ledger::{Ledger, Send};
 
-/// One Cloud machine as the App lists it.
+/// One Cloud machine as the App lists it (`start_chat_plan_entry`): a pin to
+/// one is kept while it is listed, a new send reuses the person's own
+/// ([`reuse`]), and their titles keep a new machine's name unique.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub(crate) struct Candidate {
     pub(crate) id: String,
     #[serde(default)]
     pub(crate) title: String,
+    /// The machine's disk in MB as the App's list knows it (`disk_mb`); None for a list that names none.
+    #[serde(default)]
+    pub(crate) disk_mb: Option<i64>,
     #[serde(default)]
     pub(crate) slug: Option<String>,
-    /// The person who created it, when the server says.
+    /// The person who made it, when the server says.
     #[serde(default)]
     pub(crate) created_by: Option<String>,
-    /// The server's status: `provisioning`, `running`, `paused`, `failed`, ...
+    /// The shown status: `running`, `paused`, `starting`, `failed`, ...
     #[serde(default)]
     pub(crate) status: String,
-    /// Whether this app's link to its daemon is up.
+    /// Whether this App's link to its daemon is up.
     #[serde(default)]
     pub(crate) connected: bool,
-    /// The server's tags for it, when it names any (`fleet`, `infra`, ...).
-    #[serde(default)]
-    pub(crate) tags: Vec<String>,
 }
 
 impl Candidate {
-    /// Its daemon can be reached, or soon will be (`CloudMachine.Status.isLive`).
-    fn is_live(&self) -> bool {
-        matches!(self.status.as_str(), "running" | "provisioning" | "starting")
+    /// Takes work now: connected, or running or on its way up.
+    fn is_open(&self) -> bool {
+        self.connected || matches!(self.status.as_str(), "running" | "provisioning" | "starting")
     }
 
-    /// The server failed it or is removing it, even while a stale link to it
-    /// still reads as connected.
-    fn is_gone(&self) -> bool {
-        matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed")
-    }
-
-    /// Can take work now or after a resume: connected, live (resuming
-    /// included), or paused or pausing (by a person or the idle timer), and
-    /// not gone.
+    /// Takes work now or after a resume: open, or paused or pausing; never one failed or being
+    /// removed, even while a stale link still reads as connected.
     fn is_usable(&self) -> bool {
-        !self.is_gone()
-            && (self.connected
-                || self.is_live()
-                || matches!(self.status.as_str(), "paused" | "pausing"))
+        !matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed" | "stopped")
+            && (self.is_open() || matches!(self.status.as_str(), "paused" | "pausing"))
     }
 
-    fn names(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.title.as_str()).chain(self.slug.as_deref())
+    /// A machine fleet tooling made (lane pool, peers, probes), by name: never a chat's.
+    fn is_fleet(&self) -> bool {
+        std::iter::once(self.title.as_str()).chain(self.slug.as_deref()).any(|name| {
+            let name = name.trim().to_lowercase();
+            ["fs-", "sr2-", "lane-vm-"].iter().any(|prefix| name.starts_with(prefix))
+        })
     }
 }
 
 /// The name a machine made for chats gets.
 pub(crate) const CHATS_NAME: &str = "cloud-chats";
-
-/// A lane-pool VM's name: `fs-lane-N` or `lane-vm-N` (leo-workspace machines/lane-vms.md).
-pub(crate) fn is_lane_pool(name: &str) -> bool {
-    let name = name.to_lowercase();
-    ["fs-lane-", "lane-vm-"].iter().any(|prefix| {
-        name.strip_prefix(prefix)
-            .is_some_and(|number| !number.is_empty() && number.chars().all(char::is_numeric))
-    })
-}
-
-/// Name prefixes of the machines fleet tooling makes (lanes, peers, probes):
-/// `fs-lane-N`, `fs-peer-N`, `fs-firstsend-...`, `sr2-tunnel-probe`, `lane-vm-N`.
-/// Until every such machine carries a fleet tag, its name marks it.
-const FLEET_PREFIXES: [&str; 3] = ["fs-", "sr2-", "lane-vm-"];
-
-/// Tags that mark a machine as fleet or infrastructure.
-const FLEET_TAGS: [&str; 2] = ["fleet", "infra"];
-
-/// A fleet or infrastructure machine: tagged `fleet` or `infra`, or named
-/// (title or slug) for the lane pool or under a fleet prefix. A chat never
-/// lands on one by itself: a fleet VM made under the person's account (Leo's
-/// `sr2-tunnel-probe`) runs fleet sign-ins, not the person's own (#29959).
-pub(crate) fn is_fleet(machine: &Candidate) -> bool {
-    machine.tags.iter().any(|tag| FLEET_TAGS.contains(&tag.trim().to_lowercase().as_str()))
-        || machine.names().any(|name| {
-            let name = name.trim().to_lowercase();
-            is_lane_pool(&name) || FLEET_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
-        })
-}
-
-/// This person's: they created it, or, when the server names no creator, an
-/// earlier send of this account ran there (`used`).
-fn is_mine(machine: &Candidate, user: &str, used: &BTreeSet<String>) -> bool {
-    match &machine.created_by {
-        Some(creator) => creator == user,
-        None => used.contains(&machine.id),
-    }
-}
 
 /// The name a new machine for chats gets: [`CHATS_NAME`], else
 /// `cloud-chats-N` from 2, unique among `taken` (trimmed, in any case).
@@ -121,21 +81,14 @@ pub(crate) enum Destination {
 
 /// Where `send` goes: the machine its first try took while that machine
 /// exists (listed, or `stored`: in the App's store but not yet in its list,
-/// one made since; before the App's list is `loaded`, it is kept). Then, for
-/// a send from the Mac workspace `workspace`, the machine that workspace
-/// already has ([`workspace_machine`]). Otherwise a new machine: a workspace
-/// with no machine, or a send from no workspace, never reuses an existing
-/// one locally. The caller asks the platform to resolve the project before creating.
-/// Drops a pin to a machine that is gone, which holds no tab of this send.
-#[allow(clippy::too_many_arguments)]
+/// one made since; before the App's list is `loaded`, it is kept). Otherwise
+/// `New`, which the caller turns into the person's machine to reuse ([`reuse`])
+/// before it makes one. Drops a pin to a machine that is gone, which holds no tab of this send.
 pub(crate) fn destination(
     send: &Send,
-    account: &str,
-    workspace: Option<&str>,
     pins: &mut Ledger,
     candidates: &[Candidate],
     stored: &[String],
-    user: Option<&str>,
     loaded: bool,
 ) -> Destination {
     if let Some(pinned) = pins.machine(send) {
@@ -147,13 +100,51 @@ pub(crate) fn destination(
         }
         pins.forget(send);
     }
-    if let Some(workspace) = workspace
-        && let Some(own) =
-            workspace_machine(workspace, account, pins, candidates, stored, user, loaded)
-    {
-        return Destination::Machine(own);
-    }
     Destination::New
+}
+
+/// The machine a new send reuses, by id; None: make one ([`CHATS_NAME`]). Only the person's
+/// own (`user` made it, or, when the server names no maker, an earlier send of this account
+/// ran on it), never a fleet VM, and only one that takes work now or after a resume. Among
+/// those, an open one before a paused one (the start resumes it); then the send's Mac
+/// workspace's own machine; then the one this account's sends ran on most recently; then a
+/// machine named for chats; then the App's order. Two chats in a row share one machine.
+pub(crate) fn reuse(
+    pins: &Ledger,
+    candidates: &[Candidate],
+    account: &str,
+    workspace: Option<&str>,
+    user: Option<&str>,
+) -> Option<String> {
+    let recent = pins.recent_machines(account);
+    let own = workspace.and_then(|workspace| pins.workspace_machine(workspace, account));
+    let mine = |machine: &Candidate| match (machine.created_by.as_deref(), user) {
+        (Some(maker), Some(user)) => maker == user,
+        (Some(_), None) => false,
+        (None, _) => recent.contains(&machine.id),
+    };
+    let named_for_chats = |machine: &Candidate| {
+        let title = machine.title.trim().to_lowercase();
+        title == CHATS_NAME
+            || title
+                .strip_prefix(CHATS_NAME)
+                .and_then(|rest| rest.strip_prefix('-'))
+                .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, machine)| machine.is_usable() && !machine.is_fleet() && mine(machine))
+        .min_by_key(|(order, machine)| {
+            (
+                !machine.is_open(),
+                own.as_deref() != Some(machine.id.as_str()),
+                recent.iter().position(|id| *id == machine.id).unwrap_or(usize::MAX),
+                !named_for_chats(machine),
+                *order,
+            )
+        })
+        .map(|(_, machine)| machine.id.clone())
 }
 
 /// Makes `machine` the workspace `workspace`'s own in `account` when the
@@ -164,8 +155,9 @@ pub(crate) fn destination(
 /// The first machine a workspace gets stays its own: a retry of an older send
 /// never takes the workspace back, and when two first sends of one workspace
 /// race (both planned `New` before either pinned), the first pin wins and the
-/// later machine keeps only its own send's chat. A machine that is gone was
-/// already dropped by [`destination`], so the workspace's next one binds.
+/// later machine keeps only its own send's chat. The binding only records
+/// which machine a workspace's first send made (a repick moves it, see
+/// `pin`); [`destination`] never hands it to a later send.
 pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: &str) -> bool {
     if let Some(own) = pins.workspace_machine(workspace, account) {
         return own == machine;
@@ -175,34 +167,4 @@ pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: 
     }
     pins.bind(workspace, account, machine);
     true
-}
-
-/// The machine the workspace `workspace` has, while it is listed, this
-/// person's and usable (one made since, `stored`, or before the App's list is
-/// `loaded`, it is kept). Drops the workspace's machine when it is gone, a
-/// teammate's, a fleet VM or failed, so its next send makes a new one.
-fn workspace_machine(
-    workspace: &str,
-    account: &str,
-    pins: &mut Ledger,
-    candidates: &[Candidate],
-    stored: &[String],
-    user: Option<&str>,
-    loaded: bool,
-) -> Option<String> {
-    let own = pins.workspace_machine(workspace, account)?;
-    let keep = match candidates.iter().find(|machine| machine.id == own) {
-        Some(machine) => {
-            let used = pins.machines_of(account);
-            user.is_some_and(|user| is_mine(machine, user, &used))
-                && machine.is_usable()
-                && !is_fleet(machine)
-        }
-        None => !loaded || stored.contains(&own),
-    };
-    if keep {
-        return Some(own);
-    }
-    pins.unbind(workspace, account);
-    None
 }

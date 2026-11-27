@@ -31,13 +31,35 @@ fn long_tool_script() -> Script {
     })
 }
 
-/// A turn is running for `text`, held at the fake agent.
+/// A turn is running for `text`, held at the fake agent, and the brain knows
+/// its session. The turn thread reports the session (`Input::TurnProgress`)
+/// on the brain's channel, which can still be unread when the prompt reaches
+/// the fake agent; a message said before the brain steps it waits in the
+/// queue (`try_steer` needs the session) until something steps the brain,
+/// and `wait_steers` alone never does: it timed out after 30 s.
 fn running(h: &mut Harness, text: &str) {
     h.agents.hold(true);
     h.connect();
     h.say("user_local", text);
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.as_ref())
+        .is_none()
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the turn's session never reached the brain"
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
     }
 }
 

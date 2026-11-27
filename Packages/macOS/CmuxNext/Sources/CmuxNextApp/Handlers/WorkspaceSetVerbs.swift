@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
 

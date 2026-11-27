@@ -4,21 +4,18 @@ import Foundation
 /// Strings of the Screenshots pane (Resources/Localizable.xcstrings).
 nonisolated struct ScreenshotsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var title: String { t("screenshots.title", "Screenshots") }
     static var allSources: String { t("screenshots.sources.all", "All Sources") }
     static var filter: String { t("screenshots.filter", "Filter") }
-    static var empty: String { t("screenshots.empty", "No screenshots yet. New ones show here as soon as they are saved.") }
+    static var empty: String { t("screenshots.empty", "No screenshots yet.") }
     static var noMatches: String { t("screenshots.empty.filtered", "No matches") }
     static var systemSource: String { t("screenshots.source.system", "macOS Screenshots") }
     static var previewSource: String { t("screenshots.source.preview", "macOS Screenshot Previews") }
     static var dropFailed: String { t("screenshots.drop.failed", "Couldn’t save the dropped items") }
     static var promptTitle: String { t("screenshots.prompt.title", "Show your screenshots?") }
-    static var promptBody: String {
-        t("screenshots.prompt.body", "Your screenshots are saved on your Desktop or in another folder that macOS protects. cmux reads them only after you click.")
-    }
     static var promptButton: String { t("screenshots.prompt.button", "Show Screenshots") }
     static var existingNeedsClick: String {
         t("screenshots.open.existing", "Screenshots is already open. It shows your screenshots only after you click Show Screenshots in it.")
@@ -78,10 +75,12 @@ nonisolated struct ScreenshotsStrings {
         }
     }
 
+    // retry-prompt-ok: the person frees disk space; a capture writes a file
     static var reasonNoSpace: String { t("screenshots.error.noSpace", "The disk is full. Free some space, then try again.") }
     static var reasonPermission: String { t("screenshots.error.permission", "cmux doesn’t have permission to change that folder.") }
     static var reasonReadOnly: String { t("screenshots.error.readOnly", "That folder is on a read-only disk.") }
     static var reasonMissing: String { t("screenshots.error.missing", "The file isn’t there anymore.") }
+    // retry-prompt-ok: re-running a capture the person started writes a new file
     static var reasonGeneric: String { t("screenshots.error.generic", "Something went wrong. Try again.") }
 
     static func history(of tool: String) -> String {

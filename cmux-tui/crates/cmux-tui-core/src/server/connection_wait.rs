@@ -7,11 +7,12 @@
 //! thread and moves on; the worker answers under the request's id when the
 //! wait ends, with the same reply as before.
 //!
-//! Workers are bounded by the v2 `terminal.wait` budget
-//! (`resource_wait_admission`: 8 per connection, 64 per daemon, shared with
-//! `terminal.wait`). A wait over that budget is refused at once, never queued
-//! on the dispatcher. The wait is handed over in request order, so input sent
-//! before it reaches the terminal first; later requests no longer wait for its
+//! No count bounds the workers: each is one thread, a `wait-for`'s with a
+//! `RESOURCE_WORKER_STACK_BYTES` (256 KiB) stack, as a v2 `terminal.wait`'s
+//! (device setup keeps the default stack: it runs the host's setup runner),
+//! counted in `resource_wait_admission` for the drain. Only the long
+//! connections' bound (`long_connection`) refuses one. The wait is handed
+//! over in request order, so input sent before it reaches the terminal first; later requests no longer wait for its
 //! end and may run while it makes its first check, and their replies may come
 //! before its own (clients match replies by id). A one-shot check
 //! (`timeout_ms` 0) does not wait and stays on the dispatcher. Closing the connection cancels the wait (the scheduler's
@@ -29,6 +30,7 @@ impl Command {
     /// on the dispatcher, exactly in request order, and takes no permit.
     pub(super) fn waits_off_dispatch(&self) -> bool {
         matches!(self, Self::WaitFor { timeout_ms, .. } if *timeout_ms > 0)
+            || matches!(self, Self::DeviceSetup { .. })
     }
 }
 
@@ -61,27 +63,11 @@ impl ConnectionSurfaceScheduler {
             drop(pending);
             return send_request_error(writer, id, &full.to_string());
         }
-        let permit = match mux.control_clients.resource_wait_admission.try_reserve(client) {
-            Ok(permit) => permit,
-            Err(error) => {
-                let admission = &mux.control_clients.resource_wait_admission;
-                let message = match error {
-                    ResourceWorkerAdmissionError::ClientCapacity => format!(
-                        "too many wait-for requests are already waiting on this connection \
-                         (limit {}); request was not executed",
-                        admission.per_client_capacity
-                    ),
-                    ResourceWorkerAdmissionError::ServerCapacity => format!(
-                        "too many wait-for requests are already waiting on this daemon \
-                         (limit {}); request was not executed",
-                        admission.server_capacity
-                    ),
-                };
-                let id = pending.request.id.clone();
-                drop(pending);
-                return send_request_error(writer, id, &message);
-            }
-        };
+        let permit = mux.control_clients.resource_wait_admission.reserve(client);
+        let mut builder = std::thread::Builder::new().name("mux-control-wait".into());
+        if matches!(pending.request.cmd, Command::WaitFor { .. }) {
+            builder = builder.stack_size(RESOURCE_WORKER_STACK_BYTES);
+        }
         self.state.lock().recover_poison().active_waits += 1;
         let active = ActiveWaitGuard(self.clone());
         // The request is handed over exactly once: to the worker, or back to
@@ -91,7 +77,7 @@ impl ConnectionSurfaceScheduler {
         let worker_scheduler = self.clone();
         let worker_mux = mux.clone();
         let worker_writer = writer.clone();
-        let spawn = std::thread::Builder::new().name("mux-control-wait".into()).spawn(move || {
+        let spawn = builder.spawn(move || {
             // Return the permit before the drain counts this wait as done.
             let _active = active;
             let _permit = permit;

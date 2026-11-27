@@ -1,0 +1,23 @@
+{
+  // The chat and the Markdown viewer, no theme file: settings for type and width, and two
+  // stylesheets of public tokens. agent-pane/theme.css and markdown/theme.css mix every color
+  // from the theme you wear, so this look goes over any theme.
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/starter-chat-style",
+  "name": "Starter Chat Style",
+  "tagline": "A reading column for the agent chat and the Markdown viewer, over any theme.",
+  "description": "Settings for the chat's type (15 px, a 1.6 line height, a 720 px column) and the Markdown viewer's, plus agent-pane/theme.css (cmux.agentPane.style/1 tokens: a soft prompt block, quiet cards) and markdown/theme.css (--cmux-md-* tokens: rounded code, headings with no rule).",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.code.scale": 0.92,
+    "agentPane.display.width": 720,
+    "agentPane.display.minimap": "off",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.6,
+    "markdown.layout.width": 88
+  }
+}

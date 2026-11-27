@@ -1,0 +1,92 @@
+/* The Claude desktop app's Code tab chat, dark. Every value comes from one build of the app, the one
+   in the 2x pipeline captures (home-empty-composer-import-banner, transcript-tool-call-row-user-bubble),
+   in points:
+   - page #191919, prose ink #efefef, muted lines (activity, effort) #9c9c9c
+   - links #a4a4a4 underlined, inline code on #2a2a2a
+   - your prompt: a right-aligned #252525 pill, no edge
+   - the composer: #303030 with a 1 pt #404040 edge, 12 pt corners on a 44 pt box, placeholder #878787,
+     opaque on an opaque window
+   - the transcript tucked in: its rows start where the composer's + sits, not on the composer's edge
+   Paint, plus that one tuck: no size, padding or line height changes here, so nothing in the
+   transcript or the composer moves when this applies, reloads or comes off. */
+:root {
+  --cv-text: #efefef;
+  --cv-text-muted: #9c9c9c;
+  --cv-activity-text: #9c9c9c;
+  --cv-bubble: #252525;
+  /* Links are the muted ink, underlined; inline code sits on #2a2a2a. */
+  --cv-link: #a4a4a4;
+  --cv-code-bg: #2a2a2a;
+}
+/* The composer's paint, for the chat's composer and the New Tab's alike: `:root .acpmux-shell`
+   outranks the pane's own `.acpmux-shell` tokens. The box's fill is --acpmux-composer-solid (the
+   composer material), so that is the token that carries #303030. Increase Contrast keeps its
+   full-ink edge (desktop.css sets it !important). */
+:root,
+:root .acpmux-shell,
+:root .ui-positioner:has(> .nt-popover) {
+  --acpmux-composer-solid: #303030;
+  --acpmux-composer-bg: #303030;
+  --acpmux-composer-edge: #404040;
+  --acpmux-composer-hover: #353535;
+  --acpmux-composer-placeholder: #878787;
+  --acpmux-composer-dim: #9c9c9c;
+}
+/* The app's composer is opaque, so on an opaque window the card, its strip and the New Tab box take
+   the solid fill instead of the pane's 70% glass. Over art or a see-through window the glass stays. */
+:root:not([data-cmux-see-through]) .acpmux-shell {
+  --acpmux-stack-tint: var(--acpmux-composer-solid);
+}
+:root:not([data-cmux-see-through]) :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass {
+  --glass-tint: var(--acpmux-composer-solid);
+}
+/* 12 pt corners. The question stack over the composer (the folder trust bar) takes the same token, as
+   the pane keeps them matched (composerLocation.css). The New Tab box keeps its corner a share of its
+   height, as the pane does: 12 on the app's 44 pt box. */
+:root .acpmux-composer-box,
+:root .acpmux-asks-stack {
+  --acpmux-composer-radius: 12px;
+}
+:root,
+:root .nt-composer,
+:root .nt-popover {
+  --nt-box-round: calc(12 / 44);
+}
+/* A 1 pt edge where the pane draws a hairline. It follows `appearance.borders`: borders none still
+   clears it (the pane's own rule), a focused box still lifts it a step, the shell mode keeps its
+   accent ring, and Increase Contrast keeps its focus ring. */
+:root:not([data-borders="none"]) .acpmux-composer:not([data-shell]) .acpmux-composer-box,
+:root:not([data-borders="none"]) .nt-composer-surface {
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}
+:root:not([data-borders="none"]):not([data-page-inactive]) .acpmux-composer:not([data-shell]) .acpmux-composer-box:has(:focus-visible),
+:root:not([data-borders="none"]):not([data-page-inactive]) .nt-composer-surface.nt-box:has(:focus-visible) {
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge-focus);
+}
+@media (prefers-contrast: more) {
+  :root:not([data-borders="none"]):not([data-page-inactive]) .acpmux-composer:not([data-shell]) .acpmux-composer-box:has(:focus-visible),
+  :root:not([data-borders="none"]):not([data-page-inactive]) .nt-composer-surface.nt-box:is(:focus-visible, :has(:focus-visible)) {
+    --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}
+/* The transcript tucked in to the composer's inner content, as Claude Code draws it (Leo, 2026-11-22:
+   "is it annoying that our thinking is so far left compared to the composer? should we tuck it in a
+   bit more like claude code? ... we'd better at least do this for our claude code customization
+   repo"). Thinking, tool and message rows start on the + glyph's column: a row's 16 icon box centers
+   on the composer's leading glyph center (--grid-composer-lead-center), its prose on that box's left
+   edge. Under 298 px of column the composer card reaches 8 px past it, and the rows follow its +. The
+   column's right edge stays. */
+:root .acpmux-row {
+  --claude-code-lead: calc(var(--grid-composer-lead-center) - var(--grid-transcript-icon-box) / 2);
+  --claude-code-narrow: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    8px
+  );
+  left: calc(var(--cv-inset) + var(--claude-code-lead) - var(--claude-code-narrow));
+}
+/* While a drag flows the rows in the thread's padding (the column), the tuck is their margin. */
+:root .acpmux-thread--flow > .acpmux-row {
+  left: auto;
+  margin-left: calc(var(--claude-code-lead) - clamp(0px, calc((297.5px - 100%) * 1000), 8px));
+}

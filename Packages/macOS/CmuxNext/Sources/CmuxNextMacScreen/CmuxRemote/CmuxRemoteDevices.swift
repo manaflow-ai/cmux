@@ -32,17 +32,60 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     private func channel() async throws -> RemoteDeviceChannel {
         if let live = control.withLock({ $0 }), live.isOpen { return live }
         let fresh = RemoteDeviceChannel(socket: try await open())
-        if let source = consentNow.load() {
-            let consent = await source()
-            _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+        do {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
+            if let source = consentNow.load() {
+                let consent = await source()
+                _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+            }
+        } catch {
+            fresh.close()
+            throw error
         }
-        control.withLock { $0 = fresh }
-        return fresh
+        // Two simultaneous signing requests may open channels together. Keep one; an orphan
+        // channel would keep worker hosting disabled even after the app's real channel closes.
+        let selected = control.withLock { current in
+            if let live = current, live.isOpen { return live }
+            current = fresh
+            return fresh
+        }
+        if selected !== fresh { fresh.close() }
+        return selected
     }
 
     /// This device's identity from the worker (its keys stay in the worker's Secure Enclave).
     func identity(renew: Bool = false) async throws -> DeviceIdentity {
         let answer = try await channel().call(renew ? "device.renew" : "device.identity")
+        return try makeIdentity(answer)
+    }
+
+    /// The renewal closure supplied to ``DeviceHub`` is synchronous and is
+    /// invoked off the main actor. Use the same bounded request channel as
+    /// signing to fetch a fresh worker identity when the hub rejected this
+    /// device as removed or key-mismatched.
+    func blockingIdentity(renew: Bool = false) throws -> DeviceIdentity {
+        try makeIdentity(try blockingCall(renew ? "device.renew" : "device.identity", [:]))
+    }
+
+    /// ``blockingIdentity(renew:)`` and the hub user the device signed in as (`user_id`: the acpmux
+    /// daemon's share host sends it while its machine sign-in holds; nil otherwise).
+    func blockingIdentityAndUser() throws -> (identity: DeviceIdentity, userID: String?) {
+        let answer = try blockingCall("device.identity", [:])
+        return (try makeIdentity(answer), (answer["user_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    /// The app's hub as this channel's device: `identity` (from ``identity(renew:)``) signs through
+    /// the channel, and the channel's pushes are the hub's socket. Used for the cmux Remote worker
+    /// and the acpmux daemon's share host (ShareHostDevice.swift) alike.
+    @MainActor func makeHub(url: URL, identity: DeviceIdentity, bundleID: String, loginKeychain: LoginKeychain,
+                            buildSpace: DeviceHubBuildSpace, tokens: @escaping @Sendable () async throws -> String) -> DeviceHub {
+        let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens), buildSpace: buildSpace)
+        return DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: self)),
+                         secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName,
+                         renewIdentity: { [self] in try blockingIdentity(renew: true) })
+    }
+
+    private func makeIdentity(_ answer: [String: Any]) throws -> DeviceIdentity {
         guard let id = (answer["id"] as? String).flatMap(UUID.init(uuidString:)),
               let signing = (answer["signing_key"] as? String).flatMap({ Data(base64Encoded: $0) }),
               let agreement = (answer["agreement_key"] as? String).flatMap({ Data(base64Encoded: $0) }) else {
@@ -53,8 +96,13 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         return DeviceIdentity(deviceID: id, keys: keys)
     }
 
-    func anchored(userID: String, hubURL: URL) async {
-        _ = try? await channel().call("hub.anchored", ["user_id": userID, "hub_url": hubURL.absoluteString])
+    /// `buildSpace`: the dev build's `dev:<slug>` the device was anchored in, nil for the default space. Nil today:
+    /// DeviceHubService uses the worker's device only in the default space, since the pinned cmux Remote (dev) predates
+    /// build spaces and ignores the value.
+    func anchored(userID: String, hubURL: URL, buildSpace: String? = nil) async {
+        var params: [String: Any] = ["user_id": userID, "hub_url": hubURL.absoluteString]
+        if let buildSpace { params["build_space"] = buildSpace }
+        _ = try? await channel().call("hub.anchored", params)
     }
 
     func signedOut() async {
@@ -85,11 +133,44 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         return try live.blockingCall(method, params)
     }
 
+    /// Each time the acpmux daemon's share host comes online as its device (`device.watch`): the device id and the hub
+    /// user it signed in as, the first at once when it is online already. Ends with the channel (the daemon stopped, or
+    /// one without the method), or when the stream is dropped.
+    func onlineEvents() -> AsyncStream<ShareHostOnline> {
+        // Only the newest matters: the device the daemon is online as now.
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            // task-owner: one watch channel; the stream's end cancels it and closes the channel.
+            let task = Task.detached(priority: .utility) { [open] in
+                defer { continuation.finish() }
+                guard let socket = try? await open() else { return }
+                let watch = RemoteDeviceChannel(socket: socket)
+                defer { watch.close() }
+                guard (try? await watch.call("device.watch")) != nil else { return }
+                await withTaskCancellationHandler {
+                    while let line = await watch.nextPush() {
+                        if let online = ShareHostOnline(line: line) { continuation.yield(online) }
+                    }
+                } onCancel: { watch.close() }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// The hub's pushes from the worker's socket, as a socket this app's hub reads.
     func subscribe() async throws -> any DeviceHubSocketConnection {
         let fresh = RemoteDeviceChannel(socket: try await open())
-        _ = try await fresh.call("hub.subscribe")
-        subscription.withLock { $0 = fresh }
+        do {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
+            _ = try await fresh.call("hub.subscribe")
+        } catch {
+            fresh.close()
+            throw error
+        }
+        let previous = subscription.withLock { current in
+            defer { current = fresh }
+            return current
+        }
+        previous?.close()
         return RemotePushConnection(channel: fresh)
     }
 }
@@ -119,5 +200,23 @@ nonisolated struct RemoteDeviceKeys: DeviceKeyMaterial {
             throw DeviceHubError.identity("cmux Remote did not open the relay secret")
         }
         return plain
+    }
+}
+
+/// The acpmux daemon's `{"event":"online","id":..,"user_id":..}`: it is online as device `id`, signed in as `userID`.
+nonisolated struct ShareHostOnline: Equatable, Sendable {
+    let id: String
+    let userID: String
+
+    init(id: String, userID: String) {
+        self.id = id.lowercased()
+        self.userID = userID
+    }
+
+    init?(line: String) {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              object["event"] as? String == "online", let id = object["id"] as? String, !id.isEmpty,
+              let user = object["user_id"] as? String, !user.isEmpty else { return nil }
+        self.init(id: id, userID: user)
     }
 }

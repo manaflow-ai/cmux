@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -188,7 +189,9 @@ def run_phase(phase, teardown):
         ["/usr/bin/log", "stream", "--info", "--style", "compact", "--predicate",
          'subsystem == "com.apple.TCC" OR (process == "usernoted" AND eventMessage CONTAINS[c] "authoriz")'],
         stdout=open(log_path, "w"), stderr=subprocess.STDOUT)
-    time.sleep(2)  # log stream attaches before the launch it must see
+    # log stream attaches before the launch it must see: it writes its "Filtering the log data" header once it runs.
+    attached = wait_until(lambda: stream.poll() is not None or os.path.getsize(log_path) > 0, 15)
+    check(bool(attached) and stream.poll() is None, f"{phase}: log stream attached ({log_path})")
     try:
         launch()
         up = wait_until(lambda: "error" not in (rpc("debug.focus") or {"error": 1}), 90)
@@ -226,11 +229,36 @@ def run_phase(phase, teardown):
 
 def open_terminal_in_folder():
     # The front pane may be Home's chat, which does not split: a new workspace's terminal does.
+    before = focused_workspace()
     rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
-    time.sleep(2)  # the new workspace's terminal pane mounts
+    # The new workspace's terminal pane mounts: the new workspace has focus and its focused pane is a terminal.
+    mounted = wait_until(lambda: focused_workspace() not in (None, before) and focused_terminal_text() is not None, 20)
+    check(mounted is not None, "the new workspace's terminal pane mounts")
     reply = rpc("action.run", {"action": "splitRight", "args": {"cwd": FOLDER}, "focus": True})
     print("terminal in", FOLDER, json.dumps(reply)[:300], flush=True)
-    time.sleep(3)  # the shell starts in the folder (the person's own action: a prompt here is fine)
+    # The shell starts in the folder (the person's own action: a prompt here is fine): the folder is a tab's cwd in
+    # the snapshot, and the focused terminal drew its prompt (mirror text not empty, then still).
+    rooted = wait_until(lambda: FOLDER in json.dumps(rpc("snapshot.get")), 20)
+    check(rooted is not None, f"{FOLDER} is a terminal tab's folder")
+    def prompt():
+        text = focused_terminal_text()
+        if not text:
+            raise ValueError("the shell has drawn nothing yet")
+        return text
+    if wait_stable(prompt, "the shell in the folder", timeout=20, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: the terminal in {FOLDER} drew no prompt in 20 s", flush=True)
+
+
+def focused_workspace():
+    snap = rpc("snapshot.get") or {}
+    return ((snap.get("topology") or snap).get("focus") or {}).get("workspace") if "error" not in snap else None
+
+
+def focused_terminal_text():
+    """The focused terminal pane's mirror text (debug.surfaces), or None when no terminal pane has focus."""
+    panes = [p for w in ((rpc("debug.surfaces", {"text": True}) or {}).get("windows") or []) for p in w.get("panes", [])]
+    pane = next((p for p in panes if p.get("focused") and p.get("kind") == "terminal"), None)
+    return None if pane is None else (pane.get("text") or "").strip()
 
 
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")

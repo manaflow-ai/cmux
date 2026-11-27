@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Observation
 
 /// Invite People (design chat-multiplayer.md 2, "Invite people"): one chat's invited accounts, an
-/// email or @handle field, a Can talk / Can view picker and Invite; each invitee's row has its role
+/// email or @handle field, a Can send / Can view picker and Invite; each invitee's row has its role
 /// and a quiet destructive Remove. A centered dialog over the window, like Share cmux, opened by
 /// Invite People… (the tab menu, the palette). AppKit (plans/cmux-next/no-swiftui-DESIGN.md).
 ///
@@ -60,7 +60,9 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
             content.topAnchor.constraint(equalTo: holder.topAnchor),
             content.bottomAnchor.constraint(equalTo: holder.bottomAnchor)
         ])
-        let surface = Glass.makeSurface(.sheet, content: holder)
+        // Concentric with its buttons, `Metrics.space5` in (Lawrence 2026-11-15: "all dialogs needs concentric padding
+        // with buttons inside").
+        let surface = Glass.makeSurface(.sheet, content: holder, cornerRadius: Metrics.buttonContainer(padding: Metrics.space5).outerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
         surface.autoresizingMask = [.width, .height]
@@ -111,6 +113,8 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     /// the status line and the rows (rebuilt only when they or a running Remove changed).
     func update() {
         if field.stringValue != model.account { field.stringValue = model.account }
+        rolePopup.itemArray.first { $0.representedObject as? String == "drive" }?.isHidden =
+            model.account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if let item = rolePopup.itemArray.first(where: { $0.representedObject as? String == model.role }), rolePopup.selectedItem !== item {
             rolePopup.select(item)
         }
@@ -140,6 +144,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let sheet = self.model
         for row in rows {
             let view = AgentShareInviteRowView(account: row.account, detail: sheet.rowDetail(row), removeTitle: sheet.removeTitle,
+                                               removeLabel: sheet.removeAccessibilityLabel(row.account),
                                                isRemoving: removing.contains(row.account)) {
                 // task-owner: one Remove; the model ignores a second press for the same account meanwhile
                 Task { await sheet.remove(row.account) }
@@ -217,7 +222,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         field.setAccessibilityLabel(model.accountPlaceholder)
         let box = ThemedFieldBox(field: field, height: 24 * Typography.userScale)
         box.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        for role in ["talk", "view"] {
+        for role in ["talk", "view", "drive"] {
             rolePopup.addItem(withTitle: model.roleTitle(role))
             rolePopup.lastItem?.representedObject = role
         }
@@ -284,7 +289,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let document = Document()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(rowStack)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true

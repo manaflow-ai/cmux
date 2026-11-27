@@ -29,6 +29,12 @@ import Testing
         func close() async {}
         func typing(_ on: Bool) async throws { calls.withLock { $0.append("typing \(on)") } }
         func view(_ visible: Bool) async throws { calls.withLock { $0.append("view \(visible)") } }
+        func view(_ visible: Bool, attending: Bool?, seenSeq: UInt64?) async throws {
+            guard attending != nil || seenSeq != nil else { return try await view(visible) }
+            let attendingText = attending.map { String($0) } ?? "nil"
+            let seenSeqText = seenSeq.map { String($0) } ?? "nil"
+            calls.withLock { $0.append("view \(visible) attending \(attendingText) seenSeq \(seenSeqText)") }
+        }
 
         func push(_ event: AgentSessionRemoteEvent) { handler.withLock { $0 }?(event) }
     }
@@ -60,14 +66,15 @@ import Testing
             #"{"jsonrpc":"2.0","id":4,"method":"_acpmux/typing","params":{"sessionId":"acp_other","on":true}}"#,
             #"{"jsonrpc":"2.0","id":5,"method":"_acpmux/typing","params":{"sessionId":"sub"}}"#,
             #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/view","params":{"sessionId":"acp_other","visible":true}}"#,
+            #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/view","params":{"sessionId":"acp_1","visible":true,"attending":false,"seenSeq":41}}"#,
         ] {
             wire.send(frame) { _ in }
         }
-        try await Self.waitUntil { (2...6).allSatisfy { frames.reply($0) != nil } }
+        try await Self.waitUntil { (2...7).allSatisfy { frames.reply($0) != nil } }
         #expect(frames.reply(2)?["result"] != nil)
         #expect(frames.reply(3)?["result"] != nil)
         for id in 4...6 { #expect(Self.code(frames, id) == RemoteAcpmuxWire.unsupported) }
-        #expect(client.calls.withLock { $0 } == ["attach", "typing true", "view false"])
+        #expect(client.calls.withLock { $0 } == ["attach", "typing true", "view false", "view true attending false seenSeq 41"])
 
         client.push(.presence(Data(#"{"sessionId":"acp_other","participants":[]}"#.utf8)))
         client.push(.presence(Data(#"{"sessionId":"acp_1","participants":[{"id":"owner","name":"Owner","devices":2,"viewing":true,"typing":true}]}"#.utf8)))

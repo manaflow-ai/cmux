@@ -1,0 +1,5 @@
+ACPMUX-WATCH-BYTES {"bytes_per_read":38150,"chats":20,"elapsed_ms":20,"reads":60,"rows_told":1200,"watcher_bytes":2289000}
+thread 'hub::list_guard::stream_tell_tests::a_streaming_chats_row_is_told_once_per_window_however_often_the_list_is_read' (182179) panicked at crates/acpmux/src/hub/stream_tell_tests.rs:107:9:
+test hub::list_guard::stream_tell_tests::a_streaming_chats_row_is_told_once_per_window_however_often_the_list_is_read ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6313 filtered out; finished in 0.17s
+lane-gh ci: FAILURE https://github.com/manaflow-ai/cmux/actions/runs/44731082189 receipt={"bundle_commit": "ec9bcea0c4b33e7a3a5fce8a7036b4ded21b9d5e", "command_seconds": 236.257, "command_sha256": "15d1337354b3c94774f58b7b0c938ee4831026d91b1daacf0b563dece0b2e3ba", "command_started_at": 1795175924.0032475, "cpu_count": 32, "exit_code": 101, "fleet_host": "cmux-linux-pool-1120-104323-05be3f9b", "fle

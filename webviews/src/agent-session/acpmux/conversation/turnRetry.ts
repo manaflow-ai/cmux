@@ -28,9 +28,10 @@ export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | 
       return undefined;
     } catch (error) {
       const note = refusalNote(error);
-      if (note !== "unknown-method" && note !== "ask") return note;
+      if (note !== "unsupported") return note;
     }
   }
+  // retry-prompt-ok: a resend the person clicked that did not go; another is a paid model request.
   if (!deps.resend) return "retry.failed";
   try {
     await deps.resend();
@@ -98,6 +99,7 @@ export type FailedPromptRetryDeps<Client, Draft> = Omit<OwnedResendDeps<Client, 
 
 /// Failed attachment-only prompts have a defined empty text; only an absent prompt lacks a fallback.
 export function retryFailedPrompt<Client, Draft>(deps: FailedPromptRetryDeps<Client, Draft>) {
+  // retry-prompt-ok: a resend the person clicked that did not go; another is a paid model request.
   if (!deps.owns() || deps.currentClient() !== deps.client) return Promise.resolve("retry.failed" as const);
   const { rowId, prompt } = deps;
   return retryFailedTurn({

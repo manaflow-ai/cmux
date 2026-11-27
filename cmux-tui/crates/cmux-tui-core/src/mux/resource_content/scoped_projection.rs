@@ -49,6 +49,12 @@ pub(super) struct LiveTreeInput<'a> {
     /// A scoped walk that also states each terminal of the catalog that has no view (the full
     /// walk states them always): the last step of the restatement after a start.
     pub(super) unplaced_terminals: bool,
+    /// The caller knows the live workspace list is the stored list, in the stored order (a created
+    /// view: its store holds a live row for each live workspace and none after). The walk then states
+    /// no `SetWorkspaceOrder`: it names every workspace, and the commit would read, compare and
+    /// validate every stored workspace row to find that nothing moved, so a split at 4,000 workspaces
+    /// cost more than at 8. Only a scoped walk may set it.
+    pub(super) order_unchanged: bool,
 }
 
 /// The workspace rows (the row and the public value of a workspace, with its position) that a
@@ -127,7 +133,7 @@ pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
 
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
-fn crosscheck_enabled() -> bool {
+pub(crate) fn crosscheck_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     #[cfg(test)]
     if CROSSCHECK_OFF.with(std::cell::Cell::get) {
@@ -310,7 +316,7 @@ impl Mux {
     ) -> anyhow::Result<Option<ResourceEffectProjection>> {
         let rows = WorkspaceRows::Added(state.workspaces.len());
         let result = Value::Object(Default::default());
-        match self.scoped_rows_walk(registry, state, workspaces, rows, result, false) {
+        match self.scoped_rows_walk(registry, state, workspaces, rows, result, false, false) {
             Ok(projection) => Ok(Some(projection)),
             Err(error) if error.is::<ScopeEscaped>() => Ok(None),
             Err(error) => Err(error),
@@ -340,7 +346,7 @@ impl Mux {
         let rows = WorkspaceRows::Added(state.workspaces.len());
         let result = Value::Object(Default::default());
         let scope = std::slice::from_ref(workspace);
-        match self.scoped_rows_walk(registry, state, scope, rows, result, true) {
+        match self.scoped_rows_walk(registry, state, scope, rows, result, true, false) {
             Ok(projection) => Ok(Some(projection)),
             Err(error) if error.is::<ScopeEscaped>() => Ok(None),
             Err(error) => Err(error),
@@ -365,7 +371,7 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let walked =
-            self.scoped_rows_walk(registry, state, workspaces, rows, result.clone(), false);
+            self.scoped_rows_walk(registry, state, workspaces, rows, result.clone(), false, true);
         let projection = match walked {
             Ok(projection) => projection,
             Err(error) if error.is::<ScopeEscaped>() => {
@@ -401,6 +407,7 @@ impl Mux {
     /// The scoped read and walk of [`Self::resource_effect_projection_scoped_rows_locked`], with
     /// no fall back and no cross-check: a walk that met a resource that crossed its scope is
     /// the error [`ScopeEscaped`].
+    #[allow(clippy::too_many_arguments)]
     fn scoped_rows_walk(
         &self,
         registry: &WorkspaceRegistry,
@@ -409,6 +416,7 @@ impl Mux {
         rows: WorkspaceRows,
         result: Value,
         unplaced_terminals: bool,
+        may_keep_order: bool,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let started = Instant::now();
         let mut scope = workspaces.iter().cloned().collect::<HashSet<_>>();
@@ -463,6 +471,11 @@ impl Mux {
             active_terminal_hosts: active_terminal_hosts.as_ref(),
             rows,
             unplaced_terminals,
+            // `Added(first)` with `first` at the live count is a created view's list that added no workspace
+            // (`created_view_rows` checked the store holds exactly the live list). A walk of a close batch
+            // (`From`) moved workspaces, so it states the order.
+            order_unchanged: may_keep_order
+                && matches!(rows, WorkspaceRows::Added(first) if first >= state.workspaces.len()),
         };
         let mut projection = self.project_live_tree(&input, state, result)?;
         projection.restated = restated;
@@ -633,33 +646,77 @@ fn workspace_differs(
     after: &State,
     new: &crate::model::Workspace,
 ) -> bool {
-    if old.name != new.name
-        || old.name_source != new.name_source
-        || old.name_revision != new.name_revision
-        || old.key != new.key
-        || old.active_screen != new.active_screen
-        || old.screens.len() != new.screens.len()
+    use crate::model::Workspace;
+    // Each field by its name and no `..`: a field that a later change adds to `Workspace` does
+    // not compile here until this compare names it. The caller compares `id` and `public_id`.
+    let Workspace {
+        id: _,
+        public_id: old_id,
+        key: old_key,
+        name: old_name,
+        name_source: old_source,
+        name_revision: old_revision,
+        screens: old_screens,
+        active_screen: old_active,
+    } = old;
+    let Workspace {
+        id: _,
+        public_id: new_id,
+        key: new_key,
+        name: new_name,
+        name_source: new_source,
+        name_revision: new_revision,
+        screens: new_screens,
+        active_screen: new_active,
+    } = new;
+    if old_name != new_name
+        || old_source != new_source
+        || old_revision != new_revision
+        || old_key != new_key
+        || old_active != new_active
+        || old_screens.len() != new_screens.len()
     {
         return true;
     }
-    old.screens.iter().zip(&new.screens).enumerate().any(|(position, (old_screen, new_screen))| {
+    old_screens.iter().zip(new_screens).enumerate().any(|(position, (old_screen, new_screen))| {
         // A row that cannot be built (an index that lags, a split with no public id yet)
         // counts as a difference: the walk then states the workspace.
-        let old_row = registry_screen_from_live(before, &old.public_id, position, old_screen);
-        let new_row = registry_screen_from_live(after, &new.public_id, position, new_screen);
+        let old_row = registry_screen_from_live(before, old_id, position, old_screen);
+        let new_row = registry_screen_from_live(after, new_id, position, new_screen);
         let (Ok(old_row), Ok(new_row)) = (old_row, new_row) else { return true };
         old_row != new_row
             || new_screen.root.pane_ids_vec().iter().any(|pane| {
                 match (before.panes.get(pane), after.panes.get(pane)) {
-                    (Some(old), Some(new)) => {
-                        old.name != new.name
-                            || old.tabs != new.tabs
-                            || old.active_tab != new.active_tab
-                    }
+                    (Some(old), Some(new)) => pane_differs(old, new),
                     _ => true,
                 }
             })
     })
+}
+
+/// Whether a pane's name, tabs or active tab differ. Each field by its name and no `..`, as in
+/// [`workspace_differs`]; the two focus counters are not compared (as before).
+fn pane_differs(old: &crate::model::Pane, new: &crate::model::Pane) -> bool {
+    use crate::model::Pane;
+    let Pane {
+        id: _,
+        public_id: _,
+        name: old_name,
+        tabs: old_tabs,
+        active_tab: old_active,
+        active_at: _,
+        focused_at: _,
+    } = old;
+    let Pane {
+        id: _,
+        public_id: _,
+        name: new_name,
+        tabs: new_tabs,
+        active_tab: new_active,
+        active_at: _,
+        focused_at: _,
+    } = new;
+    old_name != new_name || old_tabs != new_tabs || old_active != new_active
 }
 
 /// The workspace rows that the projection of a created view states outside its scope: the

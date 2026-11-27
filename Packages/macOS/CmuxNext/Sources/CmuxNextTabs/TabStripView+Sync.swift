@@ -14,12 +14,10 @@ extension TabStripView {
     /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
     /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
     /// background workspaces costs it no work until it shows, then one sync to the final state
-    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted"). A strip whose pane leaves after a close
+    /// keeps the tabs it shows until the pane goes (``TabStripSyncHold``).
     public func syncFromModel() {
-        if window != nil, !isShownInWindow {
-            modelChangedWhileHidden = true
-            return
-        }
+        if syncHold.holds(self, atRest: isAtRest(closing: true)) { return }
         layOutPaneIfOneTabChanged()
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput {
@@ -171,7 +169,7 @@ extension TabStripView {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
                 // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
+                cells[item.id]?.frame = TabStripMove.shownFrame(shown.layer)
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -204,13 +202,15 @@ extension TabStripView {
         }
         newTabMenuButton.isHidden = !model.showsNewTabButton || !showsTypeChooser
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
-                 token: cellsAnimate && closing && !adding ? .tabClose : nil)
-
         let selected = model.selectedID
-        if let selected, selected != lastSelectedID || added.contains(selected) {
-            reveal(selected, animated: animated)
-        }
+        let revealsSelection = selected.map(added.contains) ?? false
+        // Fold an insert's reveal into the same strip move as its width and neighbour
+        // reflow. Starting a second spring immediately after relayout retargets the
+        // scroll independently and makes crowded strips jitter at the new tab's edge.
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
+                 token: cellsAnimate && closing && !adding ? .tabClose : nil,
+                 keepsSelectedInView: revealsSelection)
+        if let selected, selected != lastSelectedID, !revealsSelection { reveal(selected, animated: animated) }
         lastSelectedID = selected
         refreshHoverCard()
         hasSynced = true

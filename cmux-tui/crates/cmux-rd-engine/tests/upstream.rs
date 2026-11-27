@@ -14,6 +14,7 @@ fn frames(p: &mut Packetizer, frame: u32, len: usize, parity: usize) -> Vec<Vec<
     let body = FrameBody {
         t_capture_us: u64::from(frame),
         ref_frame: REF_NONE,
+        ltr_token: None,
         access_unit: vec![frame as u8; len],
     };
     p.packetize(frame, 0, &body, parity).expect("packetize").datagrams
@@ -65,6 +66,34 @@ fn unregistered_upstream_streams_are_ignored() {
 }
 
 #[test]
+fn upstream_missing_shards_wake_after_the_reorder_grace() {
+    let mut host = MediaEngine::new(EngineConfig::default(), 0);
+    host.add_upstream(MIC).expect("upstream stream");
+    let mut p = Packetizer::new(MIC, MAX_DATAGRAM_VPC);
+    p.set_upstream(true);
+    for d in frames(&mut p, 1, 500, 0) {
+        host.on_datagram(&d, false, 0);
+    }
+    assert!(host.upstream_feedback(0).is_some());
+    let second = frames(&mut p, 2, 4_000, 0);
+    for d in second.iter().skip(1) {
+        host.on_datagram(d, false, 25_000);
+    }
+    assert_eq!(host.next_deadline_us(), Some(30_000));
+    assert!(host.upstream_feedback(29_999).is_none());
+    let nack = host.upstream_feedback(30_000).expect("repair request after reorder grace");
+    let (_, payload) = DatagramHeader::decode(&nack).expect("header");
+    let feedback = Feedback::decode(payload).expect("feedback");
+    assert_eq!(feedback.nacks.len(), 1);
+    assert_eq!(feedback.nacks[0].indexes, vec![0]);
+    assert!(host.upstream_feedback(30_000).is_none());
+    assert_eq!(host.next_deadline_us(), Some(80_000));
+    let repaired = host.on_datagram(&second[0], false, 80_000).upstream;
+    assert_eq!(repaired.len(), 1);
+    assert_eq!(repaired[0].1.frame, 2);
+}
+
+#[test]
 fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
     use cmux_rd_core::cc::{CcConfig, PathKind};
     use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
@@ -101,15 +130,16 @@ fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
 
 #[test]
 fn an_upstream_cannot_reuse_a_display_stream_id() {
-    use cmux_rd_engine::{MAX_UPSTREAMS, StreamError};
+    use cmux_rd_engine::StreamError;
     let mut e = MediaEngine::new(EngineConfig::default(), 0);
     // Stream 0 is the main display: the viewer routes feedback by id.
     assert_eq!(e.add_upstream(0), Err(StreamError::Exists(0)));
     assert_eq!(StreamError::Exists(0).reason(), "in_use");
-    for s in 0..MAX_UPSTREAMS as u16 {
+    // Any number of upstreams, past the old cap of 4.
+    for s in 0..20u16 {
         e.add_upstream(MIC + s).expect("upstream");
     }
-    assert_eq!(e.add_upstream(MIC + 10), Err(StreamError::TooMany));
+    assert_eq!(e.add_upstream(MIC + 3), Err(StreamError::Exists(MIC + 3)));
     assert_eq!(StreamError::TooMany.reason(), "too_many");
     // A display or tile stream cannot take an upstream's id either.
     assert_eq!(e.add_stream(MIC, 64, 64), Err(StreamError::Exists(MIC)));

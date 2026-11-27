@@ -107,6 +107,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  * the home owner serves, rows keep the order drawn at launch.
  *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
  * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* The sidebar's nav block, operation "sidebar_nav" of cmux_layout_reducer_json
+ * (cmux-layout-reducer sidebar_nav.rs): the sidebar.nav setting as written.
+ *   {nav} -> {rows:[{action, title?, symbol?}], problems:[{path, why}]}
+ * action is a canonical catalog id; an unknown, debug-only or destructive action, a
+ * duplicate or a row past 12 is a problem. Called once per settings change. */
 /* A workspace row's own layout, operation "sidebar_row_layout" of
  * cmux_layout_reducer_json (cmux-layout-reducer sidebar_row_layout.rs): the
  * sidebar.workspaceRow.lines / linesByKind / linesByAgent settings as written.
@@ -937,7 +942,8 @@ uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no f
  * nothing once the handle's buffers have grown.
  *
  * Return codes: begin and remove return 1 when they answer and 0 when they do
- * not, with nothing written. 1 and 0 are answers, not
+ * not, with nothing written; landing_moves returns 1 (a landing now would move
+ * a closing side more than snap; the state is not changed) or 0. 1 and 0 are answers, not
  * CMUX_LAYOUT_REDUCER_OK (also 0): check for 1. settle and rects return
  * CMUX_LAYOUT_REDUCER_OK and write a list that borrows the handle's buffer,
  * valid until the next call on the same handle. Any call returns ERR_NULL,
@@ -1035,6 +1041,7 @@ void cmux_closing_panes_free(CmuxClosingPanes *closing);
 int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
 int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
 int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_landing_moves(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, double rest_strip, double snap);
 int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
 int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
 int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
@@ -1170,7 +1177,8 @@ typedef struct CmuxSidebarFaceRow {
     uint8_t notice;
     uint8_t progress;
     uint8_t progress_error;
-    uint8_t reserved[2];
+    uint8_t agent_in_terminal; /* 1: the agent tab's agent runs in a terminal, not a chat */
+    uint8_t reserved[1];
     uint32_t listed_start;     /* index into reply->listed: one per tab of the workspace */
     uint32_t kept_entry_start; /* index into reply->kept_entries: the status block's entries */
     uint32_t kept_entry_count;
@@ -1348,5 +1356,84 @@ int32_t cmux_sidebar_project_rows(uint32_t count, const CmuxSidebarActive *activ
 /* rows: the sidebar's active rows in drawn order; limit 0 is three */
 int32_t cmux_sidebar_needs_you(const CmuxSidebarActive *rows, size_t rows_len, uint8_t include_working, uint32_t limit,
                                uint32_t *out, size_t out_capacity, size_t *out_len, uint32_t *more);
+
+/* The app's calls into its own Keychain items, each bounded by Rust's deadline (cmux-cloud-config
+ * keychain::DEADLINE). request is JSON {service, account}: the generic password the call reads or writes.
+ * work(context) runs on a thread of Rust's and makes the Security call, keeping its result in context;
+ * done(context, answered, refusal, refusal_len) runs once, on another thread: answered 1 when work returned
+ * within the deadline, else 0 with refusal (refusal_len bytes of JSON {code, message, retryable, details},
+ * naming the item; valid during the call only). release(context) runs once both returned; a call that never
+ * returns never reaches it. Returns CMUX_LAYOUT_REDUCER_OK at once, never waiting on the call; any other code
+ * means no callback ran and the caller still owns context. context and the callbacks must be usable from any
+ * thread. */
+typedef void (*CmuxKeychainWork)(void *context);
+typedef void (*CmuxKeychainDone)(void *context, uint8_t answered, const uint8_t *refusal, size_t refusal_len);
+typedef void (*CmuxKeychainRelease)(void *context);
+int32_t cmux_keychain_bounded(const uint8_t *request, size_t request_len, void *context, CmuxKeychainWork work,
+                              CmuxKeychainDone done, CmuxKeychainRelease release);
+
+/* Pane drop zones (cmux-layout-reducer pane_drop_zones): where a dragged tab drops on a screen and what its
+ * preview fills. cmux_pane_drop_screen_new takes JSON {width, height, panes: [{rect: {x, y, width, height},
+ * fixed, header, footer}], gaps: [rect], docks: [{edge, frame, cover}], uncovered, stripMinX, style:
+ * {edgeFraction, edgeMinimum, edgeMaximum, hysteresis, dockBand, dockTopBand, panePadding, stripGap}}
+ * (flipped coordinates; panes in tie-break order) and returns null when it does not parse; free it with
+ * cmux_pane_drop_screen_free. Each move then crosses numbers only. A target's kind is a
+ * CMUX_PANE_DROP_KIND_*: a pane (index in panes, zone a CMUX_PANE_DROP_ZONE_*), a new column (index in
+ * gaps) or a new dock (zone a CMUX_TAB_DROP_EDGE_*); a previous pane of another screen is sent with an index
+ * past the panes. previous is nullable. Each query returns 1 and writes out, 0 for no answer, or
+ * CMUX_LAYOUT_REDUCER_ERR_NULL / ERR_PANIC with nothing written. */
+enum {
+    CMUX_PANE_DROP_KIND_NONE = 0,
+    CMUX_PANE_DROP_KIND_PANE = 1,
+    CMUX_PANE_DROP_KIND_COLUMN = 2,
+    CMUX_PANE_DROP_KIND_DOCK = 3,
+};
+
+typedef struct CmuxPaneDropTarget {
+    uint32_t index;
+    uint8_t kind;
+    uint8_t zone;
+    uint8_t reserved[2];
+} CmuxPaneDropTarget;
+
+typedef struct CmuxPaneDropRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxPaneDropRect;
+
+/* body (a pane's, below its tab bar) counts only when has_body is 1 */
+typedef struct CmuxPaneDropRects {
+    CmuxPaneDropRect highlight;
+    CmuxPaneDropRect region;
+    CmuxPaneDropRect body;
+    uint8_t has_body;
+    uint8_t reserved[7];
+} CmuxPaneDropRects;
+
+typedef struct CmuxPaneDropScreen CmuxPaneDropScreen;
+
+CmuxPaneDropScreen *cmux_pane_drop_screen_new(const uint8_t *request, size_t request_len);
+void cmux_pane_drop_screen_free(CmuxPaneDropScreen *screen);
+/* view point (x, y) with the strip scrolled to offset */
+int32_t cmux_pane_drop_target(const CmuxPaneDropScreen *screen, double x, double y, double offset,
+                              const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* content point (x, y): strip coordinates, no dock covers */
+int32_t cmux_pane_drop_target_in_content(const CmuxPaneDropScreen *screen, double x, double y,
+                                         const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the edge band opening a new dock, below a top_inset tab bar and above a bottom_inset one */
+int32_t cmux_pane_drop_dock(const CmuxPaneDropScreen *screen, double x, double y, double top_inset,
+                            double bottom_inset, const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the preview's rects in view space with the strip at offset */
+int32_t cmux_pane_drop_rects(const CmuxPaneDropScreen *screen, const CmuxPaneDropTarget *target, double offset,
+                             CmuxPaneDropRects *out);
+/* the zone of pane cell rect under (x, y) by the screen's style, below a header tab bar and above a footer one;
+ * previous is a CMUX_PANE_DROP_ZONE_* or any other value for none; out gets a CMUX_PANE_DROP_ZONE_* */
+int32_t cmux_pane_drop_zone(const CmuxPaneDropScreen *screen, double x, double y, CmuxPaneDropRect rect, double header,
+                            double footer, uint8_t previous, uint8_t *out);
+/* classic cmux's pane drop overlay inside body, inset padding */
+int32_t cmux_pane_drop_classic_highlight(CmuxPaneDropRect body, uint8_t zone, double padding,
+                                         CmuxPaneDropRect *out);
 
 #endif

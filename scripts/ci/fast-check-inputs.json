@@ -1,0 +1,143 @@
+{
+  "//": [
+    "The fast per-PR checks that skip a pull request whose diff touches none of their inputs (scripts/ci/fast_check_route.py).",
+    "Each workflow below has a fast-check-route job (ubuntu-latest) and each listed job's if: reads its output; a skipped",
+    "job reports skipped, which a required check reads as passed. The feat-cmux-next push runs every one of them (or its",
+    "push_cover workflows do), so a miss is a fix-forward on base. `fast_check_route.py check` holds every input to a",
+    "tracked path and every path the job's steps and scripts read to an input."
+  ],
+  "workflows": {
+    ".github/workflows/cmux-next-fast-gates.yml": {
+      "fast-gates": {
+        "why": "web lint, crash ratchet, prepush gate, crash-class rules, the webviews checks and entry logs: each judges only what the change adds in these trees",
+        "route_job": "resolve",
+        "inputs": [
+          "Packages/",
+          "cmux-tui/",
+          "webviews/",
+          "Resources/markdown-viewer/",
+          "web/",
+          "config/vite-plus/",
+          "cmux-next-ios/",
+          "schemas/",
+          "scripts/cmux-next/",
+          ".github/",
+          "release-notes/next/",
+          "first-party-apps/",
+          "Native/OptChat/",
+          "plans/cmux-next/",
+          "cmux.xcodeproj/project.pbxproj",
+          "scripts/whats-new/",
+          "scripts/swift_source_mask.py",
+          "scripts/git-hooks/pre-push",
+          "tests/workflow_jobs.py",
+          "docs/mdm/",
+          "docs/ci/cmux-next-workflow-notes.md",
+          "docs/ci/nightly-workflow-notes.md",
+          "**/*.xcstrings",
+          "scripts/web_lint_prepush.py",
+          "scripts/ci/cmux_next_fast_gates.py",
+          "scripts/ci/crash_ratchet_compare.py",
+          "scripts/ci/crash_class_fast_gate.py",
+          "scripts/ci/crash-class-gate.sh",
+          "scripts/ci/pr_owned_findings.py",
+          "scripts/ci/fast_gate_webviews_checks.py",
+          "scripts/ci/entry_logs.py",
+          "scripts/ci/egress_new_sites.py",
+          "tests/test_egress_gate.py",
+          "tests/test_outbound_hosts.py",
+          "tests/test_classic_cloud_routes.py",
+          "backend/apps/api/"
+        ],
+        "push_cover": [
+          ".github/workflows/cmux-next-web-lint.yml",
+          ".github/workflows/cmux-next-guards.yml",
+          ".github/workflows/cmux-next-crash-class.yml",
+          ".github/workflows/cmux-next.yml",
+          ".github/workflows/cmux-next-web.yml"
+        ],
+        "not_inputs": {
+          "scripts/install-git-hooks.sh": "web_lint_prepush.py names it in its advice; the gate never runs it",
+          "scripts/web-lint.sh": "web_lint_prepush.py FIX_COMMAND: the fix it prints, not run by the gate",
+          "tests/": "web_lint_prepush.py SOURCE_DIRS: a web package's own tests/ folder, inside the package (an input)",
+          "design/surface-materials.md": "prepush-gate.py names it in a check title; the check reads schemas/surface-materials/",
+          "docs/app-store-platonic-ideal.md": "prepush-gate.py names it in a check title",
+          "scripts/ci/": "crash-class-gate.sh's --rules regex names scripts/ci/(crash-class-gate.sh|pr_owned_findings.py), both already inputs"
+        }
+      }
+    },
+    ".github/workflows/cmux-next-guards.yml": {
+      "ci-guard-group": {
+        "why": "the ci guard group and the groups a change routes (detect_linux_guard_changes.classify_feat): the guard tests read .github/, tests/ and scripts/; a product path runs it only when a group owns it",
+        "router": "guard_groups",
+        "inputs": [
+          ".github/",
+          "tests/",
+          "scripts/ci/"
+        ],
+        "not_inputs": {}
+      },
+      "own-change-checks": {
+        "why": "the size cap, crash ratchet, spawn-owner ratchet and localization debt ratchet read their source trees; the generated files guard reads every added file's header and every generated output",
+        "added_files": true,
+        "generated": true,
+        "inputs": [
+          "Packages/",
+          "cmux-tui/crates/",
+          "scripts/cmux-next/",
+          "**/*.xcstrings",
+          "scripts/localization_catalog.py",
+          "scripts/localization-debt-baseline.json",
+          "scripts/localization-allowed-omissions.json",
+          "scripts/localization-plurals.json",
+          "scripts/ci/crash-ratchet-against-base.sh",
+          "scripts/ci/crash_ratchet_compare.py",
+          "scripts/ci/generated_files_guard.py",
+          "scripts/ci/generated-files.json",
+          "scripts/ci/generated-files-baseline.txt",
+          "tests/test_generated_files_guard.py",
+          "tests/test_generated_merge.py",
+          "tests/git_fixture_env.py",
+          "scripts/ci/ci_process_tree.py",
+          "scripts/merge-insertions.py",
+          ".gitattributes"
+        ],
+        "not_inputs": {
+          "plans/cmux-next/code-quality.md": "check-app-size.sh names it in its message",
+          "scripts/": "localization_catalog.py joins ROOT / \"scripts\" with its declared data files",
+          "backend/packages/protocol/": "generated_outputs.py: a regex of a generator's inputs (generated: true covers its paths)",
+          "cmux-tui/bindings/go-pane/examples/hello/hellopane/": "generated_merge.py REGENERATE: a command's --out, run by regenerate, never by the audit the job runs",
+          "cmux-tui/bindings/go-pane/internal/richpane/": "generated_merge.py REGENERATE: a command's --out, not read by the audit",
+          "cmux-tui/bindings/go-pane/testdata/pane-protocol.rich.json": "generated_merge.py REGENERATE: a command's --ir, not read by the audit",
+          "scripts/generate-claude-launch-environment-policy.py": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "web/scripts/export-next-docs.ts": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
+        }
+      }
+    },
+    ".github/workflows/cmux-next-react-doctor.yml": {
+      "react-doctor": {
+        "why": "React Doctor scans only the React projects a change touches (react_doctor_gate.PROJECTS) and rescans all for a gate input (GATE_INPUTS)",
+        "inputs": [
+          "webviews/",
+          "agent-chat/",
+          "backend/",
+          "web/",
+          "cmux-tui/frontends/web/",
+          "scripts/ci/react_doctor_gate.py",
+          "scripts/ci/react-doctor-baseline.json",
+          "scripts/react-doctor/",
+          "scripts/ci/bun-install.sh",
+          "tests/test_react_doctor_gate.py",
+          "scripts/ci/receipt_input_key.py",
+          "scripts/ci/receipt_signed.py",
+          "scripts/ci/check-paths.txt"
+        ],
+        "not_inputs": {
+          "scripts/ci/": "the step puts scripts/ci on sys.path to import react_doctor_gate (an input)"
+        }
+      }
+    }
+  }
+}

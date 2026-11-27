@@ -147,6 +147,8 @@ impl Mux {
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
+        use crate::restore_progress::{RestorePhase, enter};
+        enter(RestorePhase::Snapshot);
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
         // Warm the pages the adoption's terminal ends write while the restore
@@ -183,6 +185,7 @@ impl Mux {
             rebuild: agent_roster_rebuild,
             unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
+        enter(RestorePhase::MuxBuild);
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
@@ -203,6 +206,9 @@ impl Mux {
         );
         Self::rebuild_split_screen_index(&mut state);
         timings.lap("restore.snapshot");
+        // The parts of `mux.build` that the start log names on their own; the
+        // entry `mux.build` is the rest of the step (startup_timings).
+        let mut parts = crate::startup_timings::StartupTimings::start();
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
@@ -212,12 +218,16 @@ impl Mux {
         // admission budget reserves with atomics.
         let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
         let lane_on = input_lane.on();
+        // Opened before the struct build so that the open has its own entry.
+        let opening = Instant::now();
+        let committed_snapshots = crate::resource_api::CommittedSnapshots::open(
+            registry.session_journal_database_path().as_deref(),
+        );
+        parts.record("mux.build.committed_snapshots_open", opening.elapsed());
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
-            committed_snapshots: crate::resource_api::CommittedSnapshots::open(
-                registry.session_journal_database_path().as_deref(),
-            ),
+            committed_snapshots,
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
@@ -352,6 +362,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
+            journal_plugin_demand: Default::default(),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
@@ -366,10 +377,12 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
+            terminal_warm_compact: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
             project_chats: Default::default(),
+            chat_index: Default::default(),
             project_watch: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
@@ -379,13 +392,15 @@ impl Mux {
             terminal_publisher: Default::default(),
             terminal_live: Default::default(),
             terminal_tail_pins: Default::default(),
+            terminal_port_watch: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
             notification_posts: Mutex::new(HashMap::new()),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
-            git_heads: Mutex::new(HashMap::new()),
+            git_heads: Arc::default(),
+            tree_revision: tree_revision::TreeRevision::new(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -427,6 +442,7 @@ impl Mux {
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
+            late_holder_terminals: Mutex::new(HashSet::new()),
             startup_timings: Default::default(),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
@@ -452,6 +468,7 @@ impl Mux {
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
             tree_reply_flight: Default::default(),
+            workspace_delta: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -460,6 +477,7 @@ impl Mux {
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             pty_reclaim_forced: AtomicBool::new(false),
+            idle_freeing: Default::default(),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(
@@ -467,6 +485,7 @@ impl Mux {
             ),
             terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
+            launch_snapshot_flush: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
@@ -511,7 +530,9 @@ impl Mux {
         if agent_roster_rebuild {
             mux.start_agent_roster_rebuild();
         }
+        let history = Instant::now();
         mux.start_command_history_for_persistent_registry();
+        parts.record("mux.build.command_history", history.elapsed());
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -519,12 +540,20 @@ impl Mux {
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_restart_handler(Some(Arc::new(move |restart| {
+            if let Some(mux) = weak_mux.upgrade() {
+                mux.record_journal_plugin_restart(restart);
+            }
+        })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
-        mux.output_store.start(&mux)?;
-        timings.lap("mux.build");
+        mux.output_store.start(&mux, &mut parts)?;
+        timings.absorb(parts, "mux.build");
+        enter(RestorePhase::Browsers);
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         timings.lap("restore.browsers");
+        enter(RestorePhase::HostAdoption);
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -533,6 +562,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         timings.lap("terminal.adopt_hosts");
+        enter(RestorePhase::Reconcile);
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -565,6 +595,7 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         timings.lap("restore.reconcile");
+        enter(RestorePhase::Finish);
         mux.close_ephemeral_workspaces()?;
         timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran

@@ -14,6 +14,7 @@ struct WorkerLaunch: Sendable {
     /// The persistent per-app-build directory and scope (the Screen Sharing worker's device lives there).
     var stateDirectory: String
     var scope: String
+    let lifetime: RemoteChildLifetime
 
     func arguments(_ kind: RemoteWorkerKind, layout: RemoteHostLayout) -> [String] {
         ["worker", kind.rawValue, "--layout-dir", layout.directory, "--state-dir", stateDirectory, "--scope", scope]
@@ -155,7 +156,7 @@ final class ScreenWorkerSupervisor: Sendable {
     private func start() {
         let child: ChildProcess
         do {
-            child = try ChildProcess.spawn(executable: launch.executable,
+            child = try launch.lifetime.spawn(executable: launch.executable,
                                            arguments: launch.arguments(.screenSharing, layout: layout),
                                            environment: launch.environment, logPath: launch.logPath)
         } catch {
@@ -180,7 +181,9 @@ final class ScreenWorkerSupervisor: Sendable {
         }
         reader.name = "remote-screen-worker-read"
         reader.start()
-        ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
+        launch.lifetime.watch(child) { [self] status in
+            // Remove this generation before exited() can spawn its replacement (and reuse its PID).
+            if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()
@@ -277,78 +280,4 @@ final class ScreenWorkerSupervisor: Sendable {
 struct WorkerReply: @unchecked Sendable { // crash-allow: the dictionary is built by one thread and only read by the one waiter after
     let value: [String: Any]
     init(_ value: [String: Any]) { self.value = value }
-}
-
-/// Computer Use workers: one per open app channel. The channel is the
-/// worker's control pipe (docs/computer-use.md, helper v2): the host splices
-/// the app's connection to the worker's stdin and stdout, so the worker exits
-/// when the app's channel ends, as the helper did at the app's stdin EOF.
-final class ComputerUseWorkers: Sendable {
-    let launch: WorkerLaunch
-    let layout: RemoteHostLayout
-    let onChange: @Sendable () -> Void
-    private let state = OSAllocatedUnfairLock(initialState: [pid_t: Date]())
-
-    init(launch: WorkerLaunch, layout: RemoteHostLayout, onChange: @escaping @Sendable () -> Void) {
-        self.launch = launch
-        self.layout = layout
-        self.onChange = onChange
-    }
-
-    /// The running workers' pids and start times.
-    var running: [pid_t: Date] { state.withLock { $0 } }
-
-    /// Starts a worker for `channel` and splices them; the channel first gets
-    /// `{"ok":true,"result":{"pid":N}}` (or a failure and is closed).
-    func open(for channel: LineChannel, id: Any?, environment extra: [String: String]) {
-        let child: ChildProcess
-        do {
-            child = try ChildProcess.spawn(executable: launch.executable,
-                                           arguments: launch.arguments(.computerUse, layout: layout),
-                                           environment: launch.environment.merging(extra) { $1 }, logPath: launch.logPath)
-        } catch {
-            channel.write(RemoteWire.failure(id: id, code: "worker_unavailable", message: "the Computer Use worker did not start: \(error)"))
-            channel.close()
-            return
-        }
-        state.withLock { $0[child.pid] = Date() }
-        onChange()
-        logger.notice("Computer Use worker started pid=\(child.pid, privacy: .public)")
-        channel.write(RemoteWire.answer(id: id, result: ["pid": Int(child.pid)]))
-        let early = channel.takeBuffered()
-        if !early.isEmpty { _ = LineChannel.writeAll(child.stdin, early) }
-        // Three things end, in any order: the app->worker pump, the worker->app pump and the
-        // worker's exit. The last one closes what is left, so no descriptor is freed while a
-        // pump still reads or writes its number.
-        let ends = OSAllocatedUnfairLock(initialState: 0)
-        let finish: @Sendable () -> Void = {
-            guard ends.withLock({ count -> Bool in count += 1; return count == 3 }) else { return }
-            close(child.stdout)
-            channel.close()
-        }
-        // The app's lines to the worker; the app's EOF ends the worker's stdin, which stops it.
-        BytePump.forward(from: channel.readDescriptor, to: child.stdin, name: "remote-cu-to-worker") {
-            // This pump is stdin's only writer: closing it here is the worker's EOF (it stops).
-            close(child.stdin)
-            finish()
-        }
-        // The worker's lines to the app; its exit ends the app's channel.
-        BytePump.forward(from: child.stdout, to: channel.writeDescriptor, name: "remote-cu-from-worker") {
-            _ = shutdown(channel.writeDescriptor, SHUT_WR)
-            finish()
-        }
-        ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
-            logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
-            state.withLock { _ = $0.removeValue(forKey: child.pid) }
-            // The app side's read ends too, so its pump finishes.
-            _ = shutdown(channel.readDescriptor, SHUT_RDWR)
-            onChange()
-            finish()
-        }
-    }
-
-    /// Ends every worker (their channels see EOF; the app starts them again).
-    func stopAll() {
-        for pid in running.keys { kill(pid, SIGTERM) }
-    }
 }

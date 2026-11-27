@@ -22,8 +22,8 @@ use super::*;
 
 use crate::harness_health::Auth;
 use crate::protocol::auth::{
-    SessionAuthLogin, SessionAuthLoginKind as LoginKind, SessionAuthResult,
-    SessionAuthSource as Source, SessionAuthState as State, SessionAuthTarget,
+    SessionAuthCredential as Credential, SessionAuthLogin, SessionAuthLoginKind as LoginKind,
+    SessionAuthResult, SessionAuthSource as Source, SessionAuthState as State, SessionAuthTarget,
 };
 use crate::{route_account, routes};
 use std::collections::BTreeMap;
@@ -39,6 +39,34 @@ pub(crate) struct TurnEvidence {
     pub state: State,
     pub at: u64,
     pub detail: String,
+    /// Whose credential refused the turn, by its error ([`credential_of`]); none for a turn
+    /// that completed.
+    pub credential: Option<Credential>,
+}
+
+/// Whose credential a sign-in failure's text is about: a provider's API key when it names one
+/// and sends no one to a login (`recovery::says_api_key`), else the agent's own login.
+pub(crate) fn credential_of(text: &str) -> Credential {
+    if crate::recovery::says_api_key(text) { Credential::ApiKey } else { Credential::Login }
+}
+
+/// The provider a chat's model names (`opencode-go` in `opencode-go/deepseek-v4.1-flash`), else
+/// the one its agent's family takes its key from.
+pub(crate) fn provider_of(model: Option<&str>, family: &str) -> Option<String> {
+    if let Some((provider, _)) = model.and_then(|m| m.split_once('/'))
+        && !provider.is_empty()
+    {
+        return Some(provider.to_owned());
+    }
+    let implied = match family {
+        "claude" => "anthropic",
+        "codex" => "openai",
+        "gemini" | "antigravity" => "google",
+        "grok" => "xai",
+        "deepseek" => "deepseek",
+        _ => return None,
+    };
+    Some(implied.to_owned())
 }
 
 /// What a chat's `lastTurn` says of its sign-in: `ready` when it completed, `signedOut` or
@@ -60,11 +88,11 @@ pub(crate) fn turn_evidence(last: &Value) -> Option<TurnEvidence> {
         }
         _ => return None,
     };
-    let detail = match state {
-        State::Ready => "its last turn completed".to_owned(),
-        _ => format!("its last turn failed: {text}"),
+    let (detail, credential) = match state {
+        State::Ready => ("its last turn completed".to_owned(), None),
+        _ => (format!("its last turn failed: {text}"), Some(credential_of(text))),
     };
-    Some(TurnEvidence { state, at, detail })
+    Some(TurnEvidence { state, at, detail, credential })
 }
 
 fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
@@ -77,6 +105,7 @@ fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
             state: State::Unknown,
             at: change.at,
             detail: "credentials changed; the next turn will check the new sign-in".into(),
+            credential: None,
         });
     }
     last.and_then(turn_evidence)
@@ -130,11 +159,18 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
 }
 
 /// An `agent_login` agent whose account is its store alone (no route account home): Gemini
-/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`) and Cursor (`$XDG_CONFIG_HOME/cursor`). A
-/// sign-in there supersedes the account's old failures, as for Claude and Codex.
+/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`), Cursor (`$XDG_CONFIG_HOME/cursor`) and
+/// OpenCode (`$XDG_DATA_HOME/opencode`). A sign-in there supersedes the account's old failures,
+/// as for Claude and Codex.
 fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
     use crate::agent_login::Agent;
-    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor))
+    Agent::parse(login_family(family))
+        .filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode))
+}
+
+/// Antigravity's API key is saved in Gemini's store and loaded at spawn.
+fn login_family(family: &str) -> &str {
+    if family == "antigravity" { "gemini" } else { family }
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
@@ -159,6 +195,11 @@ pub(crate) struct Facts {
     pub check: Option<(u64, Result<(Auth, String), String>)>,
     /// The harness's login command, for `login`.
     pub login: Option<String>,
+    /// The kind of the route the chat is bound to: a refusal on the cmux model router is the
+    /// person's cmux account, one on an API-key route that key.
+    pub route_kind: Option<routes::RouteKind>,
+    /// The provider the chat's model is served by ([`provider_of`]), named with an API key.
+    pub provider: Option<String>,
 }
 
 impl Facts {
@@ -179,8 +220,25 @@ impl Facts {
     /// The answer: the first evidence that says something, else `unknown`; its `detail` one
     /// sentence ([`one_sentence`]).
     pub(crate) fn decide(self) -> SessionAuthResult {
+        let route_kind = self.route_kind;
+        let provider = self.provider.clone();
         let mut out = self.answer();
         out.detail = one_sentence(&out.detail);
+        if matches!(out.state, State::SignedOut | State::Expired | State::RouteAuthNeeded) {
+            // The route's kind names the party before the error's words do: a 401 on the cmux
+            // model router is the cmux account whatever the agent printed.
+            out.credential = match route_kind {
+                Some(routes::RouteKind::CmuxRouter) => Some(Credential::Cmux),
+                Some(routes::RouteKind::DirectApiKey) => Some(Credential::ApiKey),
+                _ if out.state == State::RouteAuthNeeded => None,
+                _ => out.credential.or(Some(Credential::Login)),
+            };
+        } else {
+            out.credential = None;
+        }
+        if out.credential == Some(Credential::ApiKey) {
+            out.provider = provider;
+        }
         out
     }
 
@@ -196,6 +254,8 @@ impl Facts {
             route_id: route.clone(),
             login: None,
             from_session_id: None,
+            credential: None,
+            provider: None,
         };
         let terminal = |command: &Option<String>| SessionAuthLogin {
             kind: LoginKind::Terminal,
@@ -233,6 +293,7 @@ impl Facts {
             out.evidence_at = (turn.state != State::Unknown).then_some(turn.at);
             out.detail = turn.detail;
             out.from_session_id = (turn.state != State::Unknown).then_some(from);
+            out.credential = turn.credential;
             if matches!(turn.state, State::SignedOut | State::Expired) {
                 out.login = Some(terminal(&self.login));
             }
@@ -250,6 +311,7 @@ impl Facts {
                 };
                 out.source = Source::AuthCheck;
                 out.evidence_at = Some(at);
+                out.credential = Some(credential_of(&detail));
                 out.detail = detail;
                 if matches!(out.state, State::SignedOut | State::Expired) {
                     out.login = Some(terminal(&self.login));
@@ -307,7 +369,8 @@ impl Hub {
         let mut profile = cfg.harnesses.get(&meta.harness).cloned().ok_or_else(|| {
             RpcError::invalid_params("the chat's harness is no longer configured")
         })?;
-        if crate::config::derive_family(&meta.harness, &profile) != family {
+        let harness_family = crate::config::derive_family(&meta.harness, &profile);
+        if login_family(&harness_family) != family {
             return Err(RpcError::invalid_params(
                 "the login agent does not match the chat's harness",
             ));
@@ -316,7 +379,7 @@ impl Hub {
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
         let bindings = routes::bindings(&state);
-        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
+        let route = route_of(&bindings, dir.as_deref(), &meta, &harness_family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
         {
@@ -458,6 +521,7 @@ impl Hub {
                     .or_else(|| crate::harness_health::builtin_login(&family).map(str::to_owned)),
                 var.zip(home.as_deref()),
             ),
+            route_kind: route.as_ref().map(|(r, _)| r.file.kind),
             ..Facts::default()
         };
         // Only a probe of the endpoint this harness uses says anything of it.
@@ -536,10 +600,20 @@ impl Hub {
                         detail:
                             "the credential file changed; the next turn will check the new sign-in"
                                 .into(),
+                        credential: None,
                     };
                 }
             }
         }
+        // The provider of the model the evidence ran: the failed chat's, else this one's.
+        let evidence_meta = facts
+            .turn
+            .as_ref()
+            .and_then(|(id, _)| self.resolve(id).ok())
+            .map(|s| s.meta())
+            .or_else(|| meta.clone());
+        let model = evidence_meta.as_ref().and_then(super::current_model);
+        facts.provider = provider_of(model.as_deref(), &family);
         // A provider route does not use the CLI's own subscription login. Its probe/turn
         // evidence answers for it; a local file token expiring cannot block that route.
         if !facts.settled()
@@ -736,235 +810,5 @@ fn target_home(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn turn(status: &str, kind: Option<&str>, text: &str, at: u64) -> Value {
-        json!({"status": status, "errorKind": kind, "errorText": text, "endedAt": at})
-    }
-
-    fn facts(probe: Option<&str>, last: Option<Value>, check: Option<Result<Auth, &str>>) -> Facts {
-        Facts {
-            harness: "claude".into(),
-            route_id: probe.map(|_| "proxy".into()),
-            probe: probe.map(|s| (5, json!({"status": s, "message": format!("HTTP: {s}")}))),
-            turn: last.as_ref().and_then(turn_evidence).map(|t| ("chat-1".into(), t)),
-            check: check.map(|c| (9, c.map(|a| (a, "`check` ran".into())).map_err(str::to_owned))),
-            login: Some("claude auth login".into()),
-        }
-    }
-
-    /// Each state from the evidence that gives it, with its source and when it was seen.
-    #[test]
-    fn each_state_comes_from_its_evidence() {
-        let signed_out = turn("failed", Some("auth.signed_out"), "Not logged in", 7);
-        let expired = turn("failed", Some("auth.expired"), "OAuth token has expired", 7);
-        for (f, state, source, at) in [
-            (
-                facts(None, Some(turn("completed", None, "", 7)), None),
-                State::Ready,
-                Source::Turn,
-                Some(7),
-            ),
-            (facts(None, Some(signed_out), None), State::SignedOut, Source::Turn, Some(7)),
-            (facts(None, Some(expired), None), State::Expired, Source::Turn, Some(7)),
-            (
-                facts(Some("auth_needed"), None, None),
-                State::RouteAuthNeeded,
-                Source::RouteProbe,
-                Some(5),
-            ),
-            (
-                facts(Some("unreachable"), None, None),
-                State::RouteUnreachable,
-                Source::RouteProbe,
-                Some(5),
-            ),
-            (
-                facts(None, None, Some(Ok(Auth::Expired))),
-                State::Expired,
-                Source::AuthCheck,
-                Some(9),
-            ),
-            (facts(None, None, Some(Ok(Auth::SignedIn))), State::Ready, Source::AuthCheck, Some(9)),
-            (
-                facts(None, None, Some(Ok(Auth::SignedOut))),
-                State::SignedOut,
-                Source::AuthCheck,
-                Some(9),
-            ),
-            (facts(None, None, None), State::Unknown, Source::None, None),
-            (
-                facts(None, None, Some(Ok(Auth::Unknown))),
-                State::Unknown,
-                Source::AuthCheck,
-                Some(9),
-            ),
-        ] {
-            let out = f.decide();
-            assert_eq!((out.state, out.source, out.evidence_at), (state, source, at), "{out:?}");
-            let blocks =
-                matches!(state, State::SignedOut | State::Expired | State::RouteAuthNeeded);
-            assert_eq!(out.login.is_some(), blocks, "{out:?}");
-        }
-    }
-
-    #[test]
-    fn a_new_refusal_supersedes_an_old_success_but_presence_does_not_clear_a_failure() {
-        for auth in [Auth::Expired, Auth::SignedOut] {
-            let f = facts(None, Some(turn("completed", None, "", 7)), Some(Ok(auth)));
-            assert!(!f.settled(), "an old success permits an explicit fresh check");
-            let out = f.decide();
-            assert_eq!(out.source, Source::AuthCheck);
-            assert!(matches!(out.state, State::Expired | State::SignedOut));
-        }
-        for check in [Ok(Auth::SignedIn), Ok(Auth::Unknown), Err("network error")] {
-            let out =
-                facts(None, Some(turn("failed", Some("auth.expired"), "expired", 7)), Some(check))
-                    .decide();
-            assert_eq!((out.state, out.source), (State::Expired, Source::Turn));
-        }
-        let out =
-            facts(None, Some(turn("completed", None, "", 7)), Some(Err("network error"))).decide();
-        assert_eq!((out.state, out.source), (State::Ready, Source::Turn));
-    }
-
-    #[test]
-    fn credential_change_survives_metadata_reload_without_changing_turn_history() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-        }))
-        .unwrap();
-        assert!(meta.auth_change.is_none(), "older metadata remains readable");
-        let history = turn("failed", Some("auth.expired"), "expired", 7);
-        meta.last_turn = Some(history.clone());
-        mark_credentials_changed(&mut meta, 9);
-        let encoded = serde_json::to_value(&meta).unwrap();
-        let mut restored: SessionMeta = serde_json::from_value(encoded).unwrap();
-        assert_eq!(restored.last_turn, Some(history));
-        assert_eq!(session_evidence(&restored).unwrap().state, State::Unknown);
-        restored.last_turn = Some(turn("failed", Some("auth.expired"), "still expired", 10));
-        assert_eq!(session_evidence(&restored).unwrap().state, State::Expired);
-    }
-
-    /// No evidence, a check that could not answer, a connection error or a cancel: unknown,
-    /// never signed out.
-    #[test]
-    fn no_evidence_and_transport_errors_are_unknown() {
-        for last in [
-            turn("failed", None, "API Error: Connection error.", 7),
-            turn("failed", Some("agent.exited"), "agent process closed", 7),
-            turn("cancelled", None, "", 7),
-        ] {
-            assert_eq!(turn_evidence(&last), None, "{last}");
-            assert_eq!(facts(None, Some(last), None).decide().state, State::Unknown);
-        }
-        let out =
-            facts(None, None, Some(Err("Claude Code may keep its login in its keychain"))).decide();
-        assert_eq!((out.state, out.source, out.evidence_at), (State::Unknown, Source::None, None));
-        assert!(out.detail.contains("keychain"), "{out:?}");
-        // A turn recorded before the auth kinds is read by its text.
-        let old = turn("failed", None, "Not logged in · Please run /login", 7);
-        assert_eq!(turn_evidence(&old).map(|t| t.state), Some(State::SignedOut));
-    }
-
-    /// An agent's error of many lines and sentences is one sentence in `detail`.
-    #[test]
-    fn a_detail_is_one_sentence() {
-        let text = "API Error: 401 OAuth token has expired. Please run /login\n\nat step 2";
-        let out = facts(None, Some(turn("failed", Some("auth.expired"), text, 7)), None).decide();
-        assert_eq!(out.detail, "its last turn failed: API Error: 401 OAuth token has expired.");
-        assert_eq!(
-            one_sentence("not logged in\nrun claude auth login"),
-            "not logged in run claude auth login"
-        );
-        assert_eq!(one_sentence("see e.g. the docs"), "see e.g. the docs");
-        assert_eq!(one_sentence("not logged in. run /login"), "not logged in.");
-        assert_eq!(
-            one_sentence("Claude said: \"OAuth token expired.\" Please run /login"),
-            "Claude said: \"OAuth token expired.\""
-        );
-        assert_eq!(one_sentence("Error! try again"), "Error!");
-        assert_eq!(one_sentence("use v2.1 i.e. the new one"), "use v2.1 i.e. the new one");
-        let long = one_sentence(&"word ".repeat(100));
-        assert!(long.chars().count() <= DETAIL_CHARS && long.ends_with('…'), "{long}");
-    }
-
-    /// A rate-limited or unknown probe says nothing of the sign-in: the turn answers.
-    #[test]
-    fn a_rate_limited_probe_falls_through() {
-        for status in ["rate_limited", "unknown", "ok"] {
-            let out = facts(Some(status), Some(turn("completed", None, "", 7)), None).decide();
-            assert_eq!((out.state, out.source), (State::Ready, Source::Turn), "{status}");
-            assert_eq!(out.route_id.as_deref(), Some("proxy"));
-            let out = facts(Some(status), None, None).decide();
-            assert_eq!(out.state, State::Unknown, "{status}");
-        }
-    }
-
-    /// A target's account home is the one its spawn would use: a home the profile pins beats
-    /// a family or global route's, not one picked for the chat or the profile.
-    #[test]
-    fn a_target_keeps_the_home_its_profile_pins() {
-        let route = |home: &str| routes::Route {
-            id: "r".into(),
-            file: serde_json::from_value(
-                json!({"kind": "direct-subscription", "account_home": home}),
-            )
-            .unwrap(),
-            path: PathBuf::new(),
-        };
-        let at = |home: &str| BTreeMap::from([("CODEX_HOME".to_owned(), home.to_owned())]);
-        let pinned = at("/accounts/A");
-        let plain = BTreeMap::new();
-        let b = route("/accounts/B");
-        let home = |env: &BTreeMap<_, _>, scope| target_home(env, "codex", Some((&b, scope)), None);
-        assert_eq!(home(&pinned, "global"), Some(PathBuf::from("/accounts/A")));
-        assert_eq!(home(&pinned, "family"), Some(PathBuf::from("/accounts/A")));
-        assert_eq!(home(&pinned, "chat"), Some(PathBuf::from("/accounts/B")));
-        assert_eq!(home(&plain, "global"), Some(PathBuf::from("/accounts/B")));
-        assert_eq!(target_home(&pinned, "codex", None, None), Some(PathBuf::from("/accounts/A")));
-        let templated = BTreeMap::from([("CODEX_HOME".into(), "${cwd}/.codex".into())]);
-        assert_eq!(target_home(&templated, "codex", None, None), None);
-        assert_eq!(
-            target_home(&templated, "codex", None, Some(Path::new("/project"))),
-            Some(PathBuf::from("/project/.codex"))
-        );
-        // A home the defaults pin holds as the profile's does, and the profile's wins over it.
-        let defaulted = with_defaults(&at("/accounts/A"), BTreeMap::new());
-        assert_eq!(home(&defaulted, "global"), Some(PathBuf::from("/accounts/A")));
-        let both = with_defaults(&at("/accounts/A"), at("/accounts/C"));
-        assert_eq!(home(&both, "global"), Some(PathBuf::from("/accounts/C")));
-    }
-
-    /// A route a spawn refuses (gone, or named for the chat but not serving the harness) is an
-    /// error; a family or global one that does not serve it is none.
-    #[test]
-    fn a_route_is_taken_as_a_spawn_takes_it() {
-        let chosen = |id: &str, scope: &'static str| Some((id.to_owned(), scope));
-        assert!(spawn_route_for(None, chosen("gone", "family"), "claude").is_err());
-        assert!(spawn_route_for(None, chosen("cmux", "chat"), "codex").is_err());
-        assert!(spawn_route_for(None, chosen("cmux", "profile"), "codex").is_err());
-        assert!(matches!(spawn_route_for(None, chosen("cmux", "global"), "codex"), Ok(None)));
-        let served = spawn_route_for(None, chosen("cmux", "global"), "claude").unwrap();
-        assert_eq!(served.map(|(r, scope)| (r.id, scope)), Some(("cmux".into(), "global")));
-        assert!(matches!(spawn_route_for(None, None, "claude"), Ok(None)));
-    }
-
-    #[test]
-    fn a_chat_in_its_own_account_home_signs_in_there() {
-        let home = Path::new("/Users/me/claude two");
-        assert_eq!(
-            route_account::login_command(
-                Some("claude auth login".into()),
-                Some(("CLAUDE_CONFIG_DIR", home))
-            ),
-            Some("CLAUDE_CONFIG_DIR='/Users/me/claude two' claude auth login".into())
-        );
-        assert_eq!(
-            route_account::login_command(Some("codex login".into()), None),
-            Some("codex login".into())
-        );
-    }
-}
+#[path = "session_auth_tests.rs"]
+mod tests;

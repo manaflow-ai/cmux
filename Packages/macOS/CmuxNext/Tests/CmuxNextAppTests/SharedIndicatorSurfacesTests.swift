@@ -55,6 +55,7 @@ struct SharedIndicatorSurfacesTests {
         let card = WorkspaceHoverCardView()
         card.configure(.make(SidebarMapping.shared.row(workspace, machine: .local), machine: nil, now: Date()))
         card.detailsToggle.performClick(nil)
+        card.runPendingDetailsPresses()
         #expect(shown(card) == (busy ? .working(progress: nil) : nil))
     }
 

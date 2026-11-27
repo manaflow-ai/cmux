@@ -3,22 +3,25 @@
 // ```` ``` ````, "cmux NEXT app-owned webview selection" and the report's lines, then the fence. The
 // bubble draws each such block as the composer's chip, which opens the report in place; the text
 // around it reads as before. The recorded text is unchanged: Copy and Edit keep it whole.
+import { BROWSER_PICK_HEADER } from "../composer/browserPickModel";
 import { UI_PICK_HEADER } from "../composer/uiPickModel";
 
 export type SentPromptSegment = { kind: "text"; text: string } | { kind: "pick"; name: string; text: string };
 
+/// The first lines of the picks a bubble draws as chips: an inspector pick's report and a browser
+/// pick's card (composer/browserPickModel.ts), which goes the same way.
+const HEADERS = [UI_PICK_HEADER, BROWSER_PICK_HEADER];
+const HEADER = `(?:${HEADERS.map((header) => header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`;
+
 /// A pick's block: its name's line, a fence of three or more backticks (with any info string), the
 /// report from its header line, and the same fence on a line of its own.
-const BLOCK = new RegExp(
-  `(^|\\n)([^\\n]+)\\n(\`{3,})[^\\n\`]*\\n(${UI_PICK_HEADER}(?:\\n[\\s\\S]*?)?)\\n\\3(?=\\n|$)`,
-  "g",
-);
+const BLOCK = new RegExp(`(^|\\n)([^\\n]+)\\n(\`{3,})[^\\n\`]*\\n(${HEADER}(?:\\n[\\s\\S]*?)?)\\n\\3(?=\\n|$)`, "g");
 
 /// The prompt's text split around its picks, or undefined when it holds none (the common case: one
 /// substring test). The text between two blocks keeps its words; the line breaks that only set a
 /// block apart go, the chip being a block of its own.
 export function sentUIPickSegments(text: string): SentPromptSegment[] | undefined {
-  if (!text.includes(UI_PICK_HEADER)) return undefined;
+  if (!HEADERS.some((header) => text.includes(header))) return undefined;
   const segments: SentPromptSegment[] = [];
   let at = 0;
   for (const match of text.matchAll(BLOCK)) {

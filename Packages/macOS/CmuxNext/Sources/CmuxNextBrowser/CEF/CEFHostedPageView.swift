@@ -120,7 +120,33 @@ final class CEFHostedPageView: NSView {
     /// Input goes to the page window above; this view never takes the mouse.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func isAccessibilityElement() -> Bool { false }
+    /// The page's accessibility tree lives in Chromium's page window, an input-only embedded window that is no AXWindow
+    /// of the app: an AX client (CuaDriver, VoiceOver) found no window for it (`ax_window_unresolved`) and the cmux
+    /// window that shows the page held none of it (the Customize composer's "Prompt" box read nowhere). This view stands
+    /// where the page shows, so it lends the page window's content as its children: the page reads under the cmux
+    /// window, as a WKWebView page does. Nothing while no page window sits here.
+    override func isAccessibilityElement() -> Bool { pageWindowForAccessibility() != nil }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard let content = pageWindowForAccessibility()?.contentView else { return [] }
+        return NSAccessibility.unignoredChildren(from: [content])
+    }
+
+    /// The embedded page window (``ChromiumPageWindowVisibility/isEmbeddedPage(_:)``) at this view's screen rect: a
+    /// child of this view's window, or, while hosting is detached (fork API 30) and the page window left its parent,
+    /// any window of the app.
+    func pageWindowForAccessibility(isEmbedded: (NSWindow) -> Bool = ChromiumPageWindowVisibility.isEmbeddedPage,
+                                    appWindows: () -> [NSWindow] = { NSApp?.windows ?? [] }) -> NSWindow? {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
+        let rect = window.convertToScreen(convert(bounds, to: nil))
+        func placed(_ page: NSWindow) -> Bool {
+            page !== window && isEmbedded(page) && CEFTab.frame(page.frame, isPlacedAt: rect)
+        }
+        if let child = window.childWindows?.first(where: placed) { return child }
+        return appWindows().first(where: placed)
+    }
 
     /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
     /// window, so a view released with its host (DevTools closed, a pane
@@ -208,3 +234,11 @@ final class CEFHostedPageView: NSView {
     var contextId: UInt32 { get }
     var layer: CALayer? { get }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CEFHostedPageView {
+    /// The hosted context's root layer size, the page window's size as the fork laid it out; nil when the context is
+    /// not in this process or none is hosted. Read by `debug.motion`'s `page` sampler (CEFHostView+MotionSample).
+    var debugHostedRootSize: CGSize? { contextRoot?.bounds.size }
+}
+#endif

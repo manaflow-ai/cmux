@@ -35,10 +35,16 @@ final class TerminalSurfaceView: UIView {
     /// before it returns (D6), so a write delivered while this is set is
     /// theirs; any other write is Ghostty's own, which prediction never sees.
     var isEncodingUserInput = false
-    /// Set for the whole of `perform` (key releases and preedit too): a
-    /// write delivered while this is clear is Ghostty's reply to a terminal
-    /// query (a cursor, device, focus or mouse report), not a key.
+    /// Set for the whole of `perform` (key releases and preedit too) and for
+    /// a scroll's wheel or a tap's click: the person's gesture, but not
+    /// necessarily a key. Only ``isEncodingUserInput`` marks a key; a
+    /// write delivered while that is clear goes as a reply, never as keys
+    /// that were "not sent".
     var isPerformingInput = false
+    /// Input went out that the keyboard did not type itself (the key bar, a paste, the
+    /// composer, a hardware key command): the keyboard's context no longer matches the
+    /// prompt, so its next insert re-announces the document (`insertText`).
+    var keyboardContextStale = true
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -76,6 +82,19 @@ final class TerminalSurfaceView: UIView {
     private(set) var hostTheme: CmuxMobileTerminalTheme?
     /// The theme given to Ghostty last (the surface may not exist when ``hostTheme`` changes).
     private var surfaceTheme: CmuxMobileTerminalTheme?
+    /// Whether ``surfaceTheme`` went to Ghostty see-through.
+    private var surfaceSeeThrough = false
+    /// Whether the page under the terminal shows its Mac's wallpaper (``CmuxMobileMacTheme/wallpaper``):
+    /// the default background is then transparent, so the picture and its tint show behind the
+    /// cells, as on the Mac. The page paints the ground (`TerminalGroundView`); the cells keep their colors.
+    var seeThrough = false {
+        didSet {
+            guard seeThrough != oldValue else { return }
+            isOpaque = !seeThrough
+            if let hostTheme { backgroundColor = seeThrough ? .clear : hostTheme.backgroundColor }
+            applyHostTheme()
+        }
+    }
     /// The shown theme changed: the page around the surface repaints with it.
     var onHostTheme: ((CmuxMobileTerminalTheme) -> Void)?
     private var themeObserver: (any NSObjectProtocol)?
@@ -166,8 +185,8 @@ final class TerminalSurfaceView: UIView {
         observeHostThemes()
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
+        // Also its focus: focused while seen (`updateOcclusion`).
         updateOcclusion()
-        ghostty_surface_set_focus(surface, true)
         syncSize()
         let queued = pendingOutput
         pendingOutput.removeAll()
@@ -184,6 +203,12 @@ final class TerminalSurfaceView: UIView {
     private var appStateObservers: [any NSObjectProtocol] = []
     /// The last value given to `ghostty_surface_set_occlusion` (true = draws).
     private(set) var drawsFrames: Bool?
+    /// The surface can be seen: in a window, with the app in the foreground.
+    /// Kept before the Ghostty surface exists too.
+    private(set) var isShown = false
+    /// `isShown` changed. The screen paces a hidden page's output by it
+    /// (`TerminalViewController.feedsHidden`).
+    var onShownChange: ((Bool) -> Void)?
 
     /// Ghostty draws only while this surface can be seen: in a window, with
     /// the app in the foreground (the Mac app's `WindowDrawPolicy` pauses
@@ -192,12 +217,29 @@ final class TerminalSurfaceView: UIView {
     /// shown again, Ghostty draws its current content. A warm tab behind
     /// another and every terminal in the background drew a frame per output
     /// batch before (renderer audit 2026-10-26).
+    ///
+    /// Its focus follows: a surface nobody can see is not focused, so a
+    /// program that asked for focus reports (DECSET 1004) hears that the
+    /// phone's page left, and Ghostty's renderer stops its cursor blink
+    /// timer. It was set focused once at creation and never cleared.
     private func updateOcclusion() {
-        guard let surface else { return }
         let visible = window != nil && !appInBackground
-        guard visible != drawsFrames else { return }
+        if visible != isShown {
+            isShown = visible
+            onShownChange?(visible)
+        }
+        guard let surface, visible != drawsFrames else { return }
         drawsFrames = visible
         ghostty_surface_set_occlusion(surface, visible)
+        ghostty_surface_set_focus(surface, visible)
+        // Seen again: a frame of what was parsed while hidden (no batch asks
+        // for one then, `setNeedsTerminalDraw`).
+        if visible {
+            ghostty_surface_refresh(surface)
+            #if DEBUG
+            ResumeMarks.shared?.note("surface_shown")
+            #endif
+        }
     }
 
     private func observeAppState() {
@@ -231,7 +273,8 @@ final class TerminalSurfaceView: UIView {
         ) { [weak self] note in
             let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
             MainActor.assumeIsolated {
-                guard let self, macID == self.themeMacID || self.themeMacID == nil else { return }
+                // No Mac id: Match Mac theme flipped, so every terminal recolors.
+                guard let self, macID == nil || macID == self.themeMacID || self.themeMacID == nil else { return }
                 self.applyHostTheme()
             }
         }
@@ -244,13 +287,14 @@ final class TerminalSurfaceView: UIView {
         guard let theme = CmuxMobileTerminalThemes.shared.theme(for: themeMacID) else { return }
         if theme != hostTheme {
             hostTheme = theme
-            backgroundColor = theme.backgroundColor
+            backgroundColor = seeThrough ? .clear : theme.backgroundColor
             prediction?.setColors(background: theme.backgroundColor, foreground: theme.foregroundColor)
             onHostTheme?(theme)
         }
-        guard theme != surfaceTheme, let surface, let app,
-              let config = app.themedConfig(theme, fontSize: Double(fontSize)) else { return }
+        guard theme != surfaceTheme || seeThrough != surfaceSeeThrough, let surface, let app,
+              let config = app.themedConfig(theme, fontSize: Double(fontSize), seeThrough: seeThrough) else { return }
         surfaceTheme = theme
+        surfaceSeeThrough = seeThrough
         let ref = SurfaceRef(surface)
         let themed = ConfigRef(config)
         outputQueue.async {
@@ -569,9 +613,14 @@ final class TerminalSurfaceView: UIView {
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
     }
 
-    /// Asks the renderer for a frame.
+    /// Frames asked of the renderer through `setNeedsTerminalDraw`. For tests and benches.
+    private(set) var drawRequests = 0
+
+    /// Asks the renderer for a frame. None while the surface cannot be seen:
+    /// it draws nothing then, and shown again it asks for one (`updateOcclusion`).
     func setNeedsTerminalDraw() {
-        guard let surface else { return }
+        guard let surface, drawsFrames != false else { return }
+        drawRequests += 1
         ghostty_surface_refresh(surface)
     }
 
@@ -728,7 +777,13 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                #if DEBUG
+                TerminalModel.debugPresentsTotal += 1
+                #endif
                 self.presentPending = true
+                #if DEBUG
+                ResumeMarks.shared?.note("terminal_contents")
+                #endif
                 self.observeCommits()
             }
         }

@@ -16,6 +16,7 @@ import type { NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { FORK_ICON } from "../icons/forkIcon";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 type HeaderToolsProps = {
   /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
@@ -338,6 +339,13 @@ const worktreeApplied: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-header-worktree" });
   await ctx.click({ role: "button", name: "Apply to main checkout" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-apply output"));
+};
+
+// The pill's popover in a worktree mid-rebase: Apply is shown off.
+const worktreeApplyOff: Play = async (ctx) => {
+  await worktreePill(ctx);
+  await ctx.click({ selector: ".acpmux-header-worktree" });
+  await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".acpmux-worktree-apply button")?.disabled);
 };
 
 // The pill's popover after Remove (cx-lyqio.5): the worktree holds work found nowhere else, so it
@@ -680,7 +688,7 @@ const motionVariants = {
     props: motionBase("animated-cue"),
   },
   "motion-cue-plate-60ms": {
-    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    note: `Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (${MOTION_MS.large} ms).`,
     props: motionBase("animated-cue"),
     play: motionLit(["splitRight"], 60),
   },
@@ -695,6 +703,7 @@ const motionVariants = {
     play: motionArrive(50),
   },
   "motion-spring-arrive-120ms": {
+    // motion-allow: a still's time into the motion, not a duration
     note: "Header motion: spring. 120 ms in: Changes is almost at full size (never past it), its neighbours nearly there.",
     props: { ...motionBase("animated-spring"), hasChanges: false },
     play: motionArrive(120),
@@ -1099,6 +1108,24 @@ export default componentEntry<HeaderToolsProps>({
         }),
       },
       play: worktreeApplied,
+    },
+    "worktree-apply-mid-rebase": {
+      note: "A rebase stopped partway in the worktree: Apply is off, with no message to finish it elsewhere.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        onApplyWorktree: async () => ({ value: { main_root: "/Users/me/Projects/cmux", files: [] } }),
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+          in_progress: "rebase",
+        }),
+      },
+      play: worktreeApplyOff,
     },
     "worktree-remove": {
       note: "Remove keeps a worktree with uncommitted work and says so inline; only Remove anyway discards it (cx-lyqio.5).",

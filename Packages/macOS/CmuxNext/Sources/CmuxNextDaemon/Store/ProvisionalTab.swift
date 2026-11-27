@@ -42,11 +42,17 @@ public struct ProvisionalTab: Sendable, Hashable {
     }
 
     /// The stand-in of a new browser tab on `url` in a split (`new-frontend-browser-tab {split}`,
-    /// `frontend-browser-tab-split-v1`): the strip names it at once, and it has no page (not
-    /// frontend-owned), so no page loads under the provisional id; the daemon's tab in the daemon's
-    /// pane replaces it and makes the one page.
-    public func browser(_ url: String) -> TabSnapshot {
-        TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: url, url: url)
+    /// `frontend-browser-tab-split-v1`): the strip names it at once. With an `engine` (this Mac's
+    /// daemon) it is app-rendered, as a new tab's stand-in (``browser(url:engine:profile:)``): its page
+    /// starts in the click's turn and moves to the daemon's tab when that tab first asks for one
+    /// (`DaemonCreations.standIn(replacedBy:)`), so the split never draws empty and one page loads
+    /// (Leo 2026-11-03: "we should be able to optimistically just have a "thing" open"). Without one
+    /// it has no page; the daemon's tab makes it.
+    public func browser(_ url: String, engine: String? = nil, profile: String? = nil) -> TabSnapshot {
+        var snapshot = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: url, url: url,
+                                   browserRenderer: engine == nil ? nil : "frontend", browserEngine: engine)
+        snapshot.browserProfileID = engine == nil ? nil : profile
+        return snapshot
     }
 
     /// The stand-in of a new terminal tab (`new-tab`, Ctrl-`) whose terminal host id the client
@@ -76,7 +82,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event
     /// can come before the reply): the provisional tab gives way to it in this apply, and the
-    /// store reports both ids (`DaemonStore.onTabCreated`, `onPageTabCreated` for a page tab).
+    /// store reports both ids when this apply ends (``OverlayReports``, in the same turn).
     @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
         if case .paneAdded(let delta) = event { return echoedSplit(delta, transaction: transaction, in: store) }
         guard case .tabAdded(let delta) = event,
@@ -87,7 +93,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
-        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: provisional.conversation?.page != nil, tab: tab)
     }
 
     /// The provisional tab a create intent shows: a created tab's, or a new workspace's first tab.
@@ -101,7 +107,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's pane of a conversation tab's split (`conversation-tab-split-v1`) arrived
     /// carrying the split intent's transaction: its one tab is the provisional tab's, reported
-    /// in this apply as for a create (so view state moves before the pane shows).
+    /// when this apply ends as for a create (the same turn, so view state moves before the pane shows).
     @MainActor private static func echoedSplit(_ delta: PaneDelta, transaction: ClientTransactionID, in store: DaemonStore) {
         guard let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               case .splitPane(_, _, _, let provisional) = entry.kind, let wanted = provisional.tab,
@@ -109,7 +115,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         store.intentLog.noteCreated(transaction, surface: tab.surface)
         guard !entry.closeWhenCreated else { return }
         let id = wanted.tabResourceID?.rawValue ?? ""
-        if wanted.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: wanted.conversation?.page != nil, tab: tab)
     }
 
     /// The daemon's raw `tab-added` of a conversation tab, with no transaction: the daemon sends it

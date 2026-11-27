@@ -10,30 +10,12 @@ use cmux_json::JsonSet as _;
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
 
-/// The env var that carries a session's caller token to its harness (and
-/// so to the acpmux CLI its agent runs).
-pub const CALLER_TOKEN_ENV: &str = "ACPMUX_SESSION_TOKEN";
-/// The env var that names the socket of the daemon that issued the caller
-/// token: the CLI sends the token to that socket only (`client.rs`).
-pub const CALLER_SOCKET_ENV: &str = "ACPMUX_SESSION_TOKEN_SOCKET";
-/// The env vars `caller_env` sets: acpmux's alone, never a profile's,
-/// preset's or request's (`agent/command.rs` drops them from those).
-pub const CALLER_ENV_KEYS: [&str; 2] = [CALLER_TOKEN_ENV, CALLER_SOCKET_ENV];
-/// `_meta.acpmux` field of a first `initialize`: `{sessionId, token}`.
-pub const CALLER_FIELD: &str = "callerSession";
+pub use crate::meta_fields::CALLER_FIELD;
+pub use crate::person_tokens::{
+    CALLER_ENV_KEYS, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, caller_env, caller_token,
+};
 /// `_meta.acpmux` field of `session/new`: the mode the session starts in.
 pub const START_MODE_FIELD: &str = "mode";
-
-/// This daemon run's caller secret: 32 random bytes, in memory only.
-fn caller_secret() -> &'static [u8; 32] {
-    static SECRET: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
-    SECRET.get_or_init(|| {
-        let mut bytes = [0u8; 32];
-        // No randomness means no safe token: the daemon cannot serve.
-        getrandom::fill(&mut bytes).expect("the OS random generator for the caller secret"); // crash-allow: no randomness, no safe token
-        bytes
-    })
-}
 
 /// Caller tokens of an earlier daemon run, by session: the one each host
 /// this run adopted started its harness with (`Hub::adopt_caller_token`).
@@ -49,26 +31,6 @@ fn adopted_callers() -> &'static std::sync::Mutex<HashMap<String, String>> {
     static ADOPTED: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
         std::sync::OnceLock::new();
     ADOPTED.get_or_init(Default::default)
-}
-
-/// The caller token of session `session_id` on this daemon run (`hub/person.rs`
-/// (a)): lowercase hex HMAC-SHA256(run secret,
-/// "acpmux-caller-session-v1" 0 session id).
-pub fn caller_token(session_id: &str) -> String {
-    let mut message = b"acpmux-caller-session-v1".to_vec();
-    message.push(0);
-    message.extend_from_slice(session_id.as_bytes());
-    cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
-        caller_secret(),
-        &message,
-    ))
-}
-
-/// The env a harness of session `session_id` gets for (a): its caller token
-/// and this daemon's socket, the one place the token is sent.
-pub fn caller_env(session_id: &str) -> [(&'static str, String); 2] {
-    let socket = crate::config::socket_path().to_string_lossy().into_owned();
-    [(CALLER_TOKEN_ENV, caller_token(session_id)), (CALLER_SOCKET_ENV, socket)]
 }
 
 /// Whether `token` is the caller token of `session_id` (constant time).
@@ -316,12 +278,15 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
+        let adopted =
+            crate::adopt::AdoptRequest::from_meta(meta).ok().flatten().and_then(|a| a.harness);
+        let harness = pick("harness").or(adopted);
+        // As the handler does next (`rediscover.rs`): a harness installed since the catalog
+        // loaded is checked here too, never skipped as not startable and then started.
+        self.rediscover_head(harness.as_deref(), pick("preset").as_deref()).await;
         let (family, target, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
-            let adopted =
-                crate::adopt::AdoptRequest::from_meta(meta).ok().flatten().and_then(|a| a.harness);
-            let harness = pick("harness").or(adopted);
             let cwd = params.get("cwd").and_then(Value::as_str).map(std::path::Path::new);
             match self.resolve_new(
                 &cfg,
@@ -430,8 +395,11 @@ impl Hub {
     /// profile is full access with `sessions.allowFullAccess` on, the mode is
     /// the full-access one the harness offers, no folder profile and no profile
     /// that pins its mode; `Hub::plain_session_is` again on the started
-    /// session). A proven caller session must itself run full access: a chat
-    /// it starts is never wider than it (`hub/start_mode.rs`, "Inherit").
+    /// session). Also Claude Code's own Auto, which a running chat may move to
+    /// without the person under the same start level or the harness's own
+    /// (`Hub::plain_own_start_is`). A proven caller session must itself run
+    /// full access: a chat it starts is never wider than it
+    /// (`hub/start_mode.rs`, "Inherit").
     async fn names_start_level(
         &self,
         caller: Option<&str>,
@@ -441,11 +409,17 @@ impl Hub {
         if start.adopts || start.preset.is_some() {
             return false;
         }
+        // The full-access mode a start naming none gets here, or Claude Code's own Auto under a
+        // start level that covers it (`plain_own_start_is`).
         let plain = match target {
             LevelTarget::Request { agent, profile, folder } => {
                 self.plain_start_is(agent, profile, folder, &start.mode).await
+                    || self.plain_own_start_is(agent, profile, folder, &start.mode).await
             }
-            LevelTarget::Session(meta) => self.plain_session_is(meta, &start.mode).await,
+            LevelTarget::Session(meta) => {
+                self.plain_session_is(meta, &start.mode).await
+                    || self.plain_own_session_is(meta, &start.mode).await
+            }
         };
         if !plain {
             return false;

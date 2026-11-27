@@ -4,6 +4,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use cmux_cloud_disk::{self as disk, DiskReport, DiskState, DiskView, SegmentKind};
+
 use crate::Fields;
 use crate::args::{BootstrapKind, NewMachine, create_size};
 use crate::time;
@@ -62,7 +64,14 @@ pub struct Machine {
     pub idle_pause_minutes: Option<i64>,
     pub ipv4: Option<String>,
     pub ipv6: Option<String>,
+    /// When the server made it, unix seconds (its record's `created_at`).
+    pub created_at: Option<f64>,
 }
+
+/// How long before the request a returned machine may have been made and still be the
+/// request's own: the server's and this Mac's clocks and the create's own trip differ by
+/// seconds. A machine made minutes before was not booted for this request.
+pub const REUSE_SLACK_SECONDS: f64 = 60.0;
 
 /// A created machine's answer: its id, title, status, target and, once open, its workspace.
 pub fn created_machine(machine: &Machine, workspace_id: Option<&str>) -> Fields {
@@ -74,6 +83,18 @@ pub fn created_machine(machine: &Machine, workspace_id: Option<&str>) -> Fields 
         fields.insert("workspace_id".into(), json!(workspace));
     }
     fields
+}
+
+/// The machine's `created_at` and, when the request's time is known, `reused`: whether the
+/// server answered a machine it made before this request (a warm spare it handed out, a same-key
+/// replay) instead of one it booted for it. A `cmux vm new` that got an older machine says so
+/// (2026-11-25: a `vm new --json` answered a VM made 7 minutes earlier as if it were new).
+pub fn note_reuse(fields: &mut Fields, machine: &Machine, asked_at: Option<f64>) {
+    let Some(created) = machine.created_at.filter(|seconds| seconds.is_finite()) else { return };
+    fields.insert("created_at".into(), json!(time::iso8601(created)));
+    if let Some(asked) = asked_at.filter(|seconds| seconds.is_finite()) {
+        fields.insert("reused".into(), json!(created < asked - REUSE_SLACK_SECONDS));
+    }
 }
 
 /// The request's facts next to the machine's. `persistent` is what the server stored, not what
@@ -178,6 +199,8 @@ pub struct Created {
     pub bootstrap: Option<Outcome>,
     /// The machine config's start (answered only when the request asked for one).
     pub machine_config: Option<Outcome>,
+    /// When the request was made, unix seconds: whether the machine is `reused` ([`note_reuse`]).
+    pub asked_at: Option<f64>,
 }
 
 /// The answer of a `cloud new-machine` with options: the machine's facts, the request's,
@@ -185,6 +208,7 @@ pub struct Created {
 /// `enrollment`.
 pub fn created(request: &NewMachine, made: &Created) -> Fields {
     let mut fields = created_machine(&made.machine, made.workspace_id.as_deref());
+    note_reuse(&mut fields, &made.machine, made.asked_at);
     fields.extend(new_machine(request, Some(&made.machine)));
     let mut bootstrap = object(json!({"status": "none"}));
     if let (Some(kind), Some(outcome)) = (&made.script_kind, &made.bootstrap) {
@@ -247,6 +271,19 @@ pub struct Status {
     pub memory_total_mb: Option<f64>,
     pub disk_used_mb: Option<f64>,
     pub disk_total_mb: Option<f64>,
+    /// The guest's free and its split of the used (RFD 0068 disk bar), MiB;
+    /// an older guest reports none.
+    pub disk_free_mb: Option<f64>,
+    pub disk_system_mb: Option<f64>,
+    pub disk_project_mb: Option<f64>,
+    pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (its `disk_health`, cmux-cloud-machine `Machine.disk`);
+    /// read before the MiB facts above.
+    pub disk: Option<DiskReport>,
+    /// Each chat's bytes on the disk, largest first (`Machine.disk_chats`).
+    pub disk_chats: Vec<disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (`Machine.disk_evicted`).
+    pub disk_evicted: Option<disk::DiskEviction>,
     pub ipv4: Option<String>,
     pub desktop: bool,
     pub cost: Option<Cost>,
@@ -346,6 +383,11 @@ pub fn status_fields(status: &Status) -> Fields {
     put("memory_total_mb", status.memory_total_mb.map(Value::from));
     put("disk_used_mb", status.disk_used_mb.map(Value::from));
     put("disk_total_mb", status.disk_total_mb.map(Value::from));
+    put("disk", status.disk().and_then(|view| serde_json::to_value(view).ok()));
+    if !status.disk_chats.is_empty() {
+        put("disk_chats", serde_json::to_value(&status.disk_chats).ok());
+    }
+    put("disk_evicted", status.disk_evicted.as_ref().and_then(|e| serde_json::to_value(e).ok()));
     put("address", status.ipv4.clone().map(Value::from));
     fields.insert("desktop".into(), json!(status.desktop));
     if let Some(cost) = &status.cost {
@@ -380,9 +422,10 @@ pub fn describe(status: &Status) -> String {
     if let (Some(used), Some(total)) = (status.memory_used_mb, status.memory_total_mb) {
         lines.push(format!("memory: {used:.0} / {total:.0} MB"));
     }
-    if let (Some(used), Some(total)) = (status.disk_used_mb, status.disk_total_mb) {
-        lines.push(format!("disk: {used:.0} / {total:.0} MB"));
+    if let Some(disk) = status.disk() {
+        lines.extend(disk_lines(&disk));
     }
+    lines.extend(disk_chat_lines(&status.disk_chats, status.disk_evicted.as_ref()));
     if let Some(address) = &status.ipv4 {
         lines.push(format!("address: {address}"));
     }
@@ -406,6 +449,83 @@ pub fn describe(status: &Status) -> String {
     lines.join("\n")
 }
 
+impl Status {
+    /// The disk bar: used over the disk's size, split when the guest splits it.
+    pub fn disk(&self) -> Option<DiskView> {
+        let report = record_or_stats(self.disk, || {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
+        disk::view(None, &report)
+    }
+}
+
+/// The record's disk report when it carries sizes (a total or a used), else the
+/// per-call stats: one sample's numbers, never a mix of two, and a partial record
+/// (a split alone) never hides the stats.
+fn record_or_stats(record: Option<DiskReport>, stats: impl FnOnce() -> DiskReport) -> DiskReport {
+    record.filter(|r| r.total_bytes.is_some() || r.used_bytes.is_some()).unwrap_or_else(stats)
+}
+
+/// The disk bar as `machine-status` prints it: "disk: 13.2 / 20 GB", then the
+/// split when the guest reports one, and "almost full" under 4 GiB or 15% free.
+pub fn disk_lines(disk: &DiskView) -> Vec<String> {
+    let mut first = format!("disk: {}", disk.label);
+    if disk.state == DiskState::AlmostFull {
+        first.push_str(", almost full");
+    }
+    let mut lines = vec![first];
+    let split: Vec<String> = disk
+        .segments
+        .iter()
+        .filter(|s| s.kind != SegmentKind::Used)
+        .map(|s| {
+            let name = match s.kind {
+                SegmentKind::System => "system",
+                SegmentKind::Project => "project",
+                SegmentKind::Caches => "caches",
+                SegmentKind::Used => "used",
+                SegmentKind::Free => "free",
+            };
+            format!("{name} {}", disk::number(s.gb))
+        })
+        .collect();
+    if split.len() > 1 {
+        lines.push(format!("disk split: {} GB", split.join(", ")));
+    }
+    lines
+}
+
+/// How many chats `machine-status` names on its disk line, largest first.
+pub const DISK_CHATS_SHOWN: usize = 3;
+
+/// The chats filling the disk ("disk chats: c-1 4.2, c-2 1.1 GB, 12 more") and the guest's last
+/// eviction ("disk cleared: 3.1 GB of caches and idle build output at 1700000000000").
+pub fn disk_chat_lines(
+    chats: &[disk::ChatDisk],
+    evicted: Option<&disk::DiskEviction>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !chats.is_empty() {
+        let named: Vec<String> = chats
+            .iter()
+            .take(DISK_CHATS_SHOWN)
+            .map(|c| format!("{} {}", c.id, disk::number(disk::gb(c.bytes))))
+            .collect();
+        let more = chats.len().saturating_sub(DISK_CHATS_SHOWN);
+        let more = if more > 0 { format!(", {more} more") } else { String::new() };
+        lines.push(format!("disk chats: {} GB{more}", named.join(", ")));
+    }
+    if let Some(e) = evicted {
+        lines.push(format!(
+            "disk cleared: {} GB of caches and idle build output at {}",
+            disk::number(disk::gb(e.freed_bytes)),
+            e.at
+        ));
+    }
+    lines
+}
+
 /// One machine of `cloud list-machines`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -416,7 +536,40 @@ pub struct Listed {
     pub created_by: Option<String>,
     /// Unix seconds.
     pub created_at: Option<f64>,
+    /// The machine's last API activity (its idle-pause record's `lastApiActivityAt`), epoch ms.
+    pub last_api_activity_at: Option<f64>,
+    /// When it last started running, unix seconds; none while paused.
+    pub running_since: Option<f64>,
     pub failure: Option<Failure>,
+    /// The machine's disk size (its record's `size.disk_mb`) and the guest's
+    /// last report of it, MiB: the row's `disk` bar. All optional: a row
+    /// without them has no `disk`, one with the size alone the size alone.
+    pub disk_allocated_mb: Option<f64>,
+    pub disk_total_mb: Option<f64>,
+    pub disk_used_mb: Option<f64>,
+    pub disk_free_mb: Option<f64>,
+    pub disk_system_mb: Option<f64>,
+    pub disk_project_mb: Option<f64>,
+    pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (`Machine.disk`); read before the MiB facts above.
+    pub disk: Option<DiskReport>,
+}
+
+impl Listed {
+    /// When the machine was last used, unix seconds: its last API activity, else when it last
+    /// started running (the order cmux-cloud-machine's `cap` gives a person's busy machines).
+    fn last_active_at(&self) -> Option<f64> {
+        self.last_api_activity_at.map(|ms| ms / 1000.0).or(self.running_since)
+    }
+
+    /// The row's disk bar ([`disk::view`]), none when nothing says how big the disk is.
+    pub fn disk(&self) -> Option<DiskView> {
+        let report = record_or_stats(self.disk, || {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
+        disk::view(disk::mib(self.disk_allocated_mb), &report)
+    }
 }
 
 /// One create still on its way: its id, the name it asked for, and its failure if it failed.
@@ -436,6 +589,8 @@ pub struct MachineList {
     pub loaded: bool,
     pub team: bool,
     pub signed_in: bool,
+    /// The signed-in person's platform user id (`user_…`), the id a machine's `created_by` names.
+    pub user: Option<String>,
     pub machines: Vec<Listed>,
     pub creating: Vec<Creating>,
 }
@@ -449,12 +604,17 @@ pub fn machine_list(list: &MachineList) -> Fields {
         list.machines
             .iter()
             .map(|m| {
-                json!({
+                let mut row = json!({
                     "machine_id": m.machine_id, "target": format!("machine:{}", m.machine_id), "title": m.title,
                     "status": m.status, "owner": owner, "created_by": m.created_by,
                     "created_at": m.created_at.map(time::iso8601),
+                    "last_active_at": m.last_active_at().map(time::iso8601),
                     "error": m.failure.as_ref().map(|f| json!({"code": f.code, "message": f.message})),
-                })
+                });
+                if let Some(disk) = m.disk().and_then(|view| serde_json::to_value(view).ok()) {
+                    row["disk"] = disk;
+                }
+                row
             })
             .collect()
     } else {
@@ -475,7 +635,7 @@ pub fn machine_list(list: &MachineList) -> Fields {
         .collect();
     object(json!({
         "loaded": list.loaded, "count": machines.len(), "machines": machines, "creating": creating,
-        "account": {"signed_in": list.signed_in},
+        "account": {"signed_in": list.signed_in, "user": list.user},
     }))
 }
 

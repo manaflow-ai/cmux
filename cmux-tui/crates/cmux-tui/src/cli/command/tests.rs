@@ -186,6 +186,30 @@ fn protocol(values: &[&str]) -> RequestPlan {
 }
 
 #[test]
+fn settings_project_flag_names_the_project_folder() {
+    let get = protocol(&["settings", "get", "agents.promptCache", "--project", "/p/app"]);
+    assert_eq!(operation(&get), "settings.get");
+    assert_eq!(get.params["project"], "/p/app");
+    assert_eq!(get.params["key"], "agents.promptCache");
+    let set = protocol(&["settings", "set", "agents.promptCache", "5m", "--project", "/p/app"]);
+    assert_eq!(operation(&set), "settings.set");
+    assert_eq!(
+        (set.params["project"].clone(), set.params["value"].clone()),
+        (json!("/p/app"), json!("5m"))
+    );
+    let reset = protocol(&["settings", "unset", "agents.promptCache", "--project", "rel"]);
+    let folder = reset.params["project"].as_str().unwrap().to_owned();
+    assert!(std::path::Path::new(&folder).is_absolute() && folder.ends_with("rel"), "{folder}");
+    assert!(
+        parse(
+            &strings(&["settings", "edit", "[]", "--project", "/p"]),
+            super::super::Surface::CmuxTui
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn settings_crud_routes_to_daemon_operations() {
     let get = protocol(&["settings", "get", "appearance.theme"]);
     assert_eq!(operation(&get), "settings.get");
@@ -236,6 +260,54 @@ fn settings_crud_reads_a_key_alias_as_its_key() {
     );
     for verb in ["get", "reset", "unset"] {
         assert_eq!(protocol(&["settings", verb, "on"]).params["key"], "chat.on", "{verb}");
+    }
+}
+
+/// `cmux settings history|undo|restore REV|reset --group G` reach the daemon's
+/// settings owner (the recovery ops), whoever made the change they take back.
+#[cfg(unix)]
+#[test]
+fn settings_recovery_verbs_reach_the_daemon_owner() {
+    let route = super::super::daemon_settings_scope;
+    for args in [
+        &["settings", "history"][..],
+        &["settings", "undo"][..],
+        &["settings", "restore", "12"][..],
+        &["config", "reset", "--group", "appearance.sidebar"][..],
+    ] {
+        assert!(route(&strings(args)), "{args:?}");
+    }
+    let routing = serde_json::json!({"machine": "current", "session": "current"});
+
+    let history = protocol(&["settings", "history"]);
+    assert_eq!(operation(&history), "settings.history");
+    assert_eq!(history.params, routing);
+
+    let undo = protocol(&["settings", "undo"]);
+    assert_eq!(operation(&undo), "settings.undo");
+    assert_eq!(undo.params, routing);
+
+    let restore = protocol(&["settings", "restore", "12"]);
+    assert_eq!(operation(&restore), "settings.restore");
+    assert_eq!(
+        restore.params,
+        serde_json::json!({"revision": "12", "machine": "current", "session": "current"})
+    );
+
+    let group = protocol(&["settings", "reset", "--group", "appearance.sidebar"]);
+    assert_eq!(operation(&group), "settings.reset_group");
+    assert_eq!(
+        group.params,
+        serde_json::json!({"group": "appearance.sidebar", "machine": "current", "session": "current"})
+    );
+
+    for bad in [
+        &["settings", "restore", "twelve"][..],
+        &["settings", "restore"][..],
+        &["settings", "undo", "extra"][..],
+        &["settings", "reset", "a.b", "--group", "appearance"][..],
+    ] {
+        assert!(parse(&strings(bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
     }
 }
 

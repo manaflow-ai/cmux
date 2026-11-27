@@ -16,7 +16,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"appearance":{"theme":"Nord"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (settings, url)
@@ -95,6 +95,46 @@ import Testing
         withExtendedLifetime(terminal) {}
     }
 
+    /// The Highlight color picker previews while you choose (Leo, 2026-11-04, on theming: "we have to
+    /// make sure it actually propagates and that it propagates properly"): the Ghostty edits carry the
+    /// previewed color before it is saved, and ending the preview takes it back off.
+    @Test func previewingTheHighlightColorShowsItBeforeItIsSaved() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        terminal.reload = {}
+        terminal.follow(settings)
+        #expect(GhosttyRuntime.themeEdits.highlight == nil)
+
+        #expect(settings.preview(try descriptor("appearance.highlightColor"), .string("#ff8800")))
+        await settle { GhosttyRuntime.themeEdits.highlight == "#ff8800" }
+        #expect(GhosttyRuntime.themeEdits.highlight == "#ff8800")
+        #expect(settings.snapshot.highlightColor == nil)
+
+        settings.endPreview()
+        await settle { GhosttyRuntime.themeEdits.highlight == nil }
+        #expect(GhosttyRuntime.themeEdits.highlight == nil)
+        withExtendedLifetime(terminal) {}
+    }
+
+    @Test func groupedWindowBackgroundPreviewsKeepEarlierMaterialEdits() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let material = try descriptor("appearance.backgroundBlur")
+        let opacity = try descriptor("appearance.backgroundOpacity")
+        #expect(settings.snapshot.root.value(at: material.path) == nil)
+        #expect(settings.preview([(material, .string("frosted")), (opacity, .number(0.5))]))
+        #expect(settings.applied.root.value(at: material.path) == .string("frosted"))
+        #expect(settings.applied.root.value(at: opacity.path) == .number(0.5))
+        settings.endPreview()
+        #expect(settings.applied.root.value(at: material.path) == nil)
+        // Resetting Material after an Opacity preview also resets that earlier opacity.
+        #expect(settings.preview([(opacity, .number(0.5)), (material, nil)]))
+        #expect(settings.applied.root.value(at: material.path) == nil)
+        #expect(settings.applied.root.value(at: opacity.path) == nil)
+        settings.endPreview()
+    }
+
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -104,5 +144,28 @@ import Testing
         #expect(settings.snapshot.chromeTheme == nil)
         settings.endPreview()
         #expect(settings.applied.chromeTheme == nil)
+    }
+
+    /// Leo, 2026-11-04: "theme previews, like for not just the terminal, but the app itself". With an
+    /// App Theme saved, a whole-app preview shows the terminal theme on the terminals and the chrome
+    /// together (the App Theme previews as "match the terminal"), and ending it restores both.
+    @Test func aWholeAppPreviewShowsTheTerminalThemeOnTheChromeTooAndEndingRestoresBoth() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await settings.setSetting(try descriptor("appearance.appTheme"), to: .string("Rose Pine"), by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        #expect(settings.preview([(try descriptor("appearance.theme"), .string("Gruvbox Dark")),
+                                  (try descriptor("appearance.appTheme"), nil)]))
+        #expect(settings.applied.appTheme == "Gruvbox Dark")
+        #expect(settings.applied.chromeTheme == nil)
+        #expect(settings.snapshot.appTheme == "Nord" && settings.snapshot.chromeTheme == "Rose Pine")
+        settings.endPreview()
+        #expect(settings.applied.appTheme == "Nord")
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        // One refused value refuses the whole preview, and nothing shows.
+        #expect(!settings.preview([(try descriptor("appearance.theme"), .string("Gruvbox Dark")),
+                                   (try descriptor("appearance.appTheme"), .number(3))]))
+        #expect(settings.applied.appTheme == "Nord")
     }
 }

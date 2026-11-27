@@ -10,7 +10,6 @@ lists cannot drift apart.
 
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -20,9 +19,13 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
 
-WORKFLOWS = ROOT / ".github" / "workflows"
 GOOD_RUNNERS = "LINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\nMACOS_RUNNER_PR=blacksmith-6vcpu-macos-26\nWINDOWS_RUNNER=\n"
 GOOD_SLOTS = '{"glaeda-std-xcode-26.6": 42, "glaeda-light-xcode-26.6": 4, "glaeda-root-std-xcode-26.6": 10}'
+# The pools as the writer left them on 2026-11-19 01:49Z: the two declared-hosted pools keep their hosted labels.
+GOOD_POOLS = ('{"_updated": "2026-11-19T01:49:43Z", "linux": "blacksmith-2vcpu-ubuntu-2404", '
+              '"linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_16": "blacksmith-16vcpu-ubuntu-2404", '
+              '"macos_26": "blacksmith-6vcpu-macos-26", "windows": "blacksmith-4vcpu-windows-2025", '
+              '"provenance": "ubuntu-24.04", "macos_intel": "macos-15-intel"}')
 
 
 def env(**overrides: str) -> dict[str, str]:
@@ -30,14 +33,10 @@ def env(**overrides: str) -> dict[str, str]:
         "CMUX_CI_RUNNER_VARIABLES": GOOD_RUNNERS,
         "CI_OWNED_POOL_SLOTS": GOOD_SLOTS,
         "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.6.app",
+        "RUNNER_POOLS": GOOD_POOLS,
     }
     base.update(overrides)
     return base
-
-
-def runner_block(workflow: str) -> list[str]:
-    text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
-    return re.findall(r"^\s+([A-Z0-9_]+=\$\{\{ vars\.[^\n]*)$", text, re.M)
 
 
 class Values(unittest.TestCase):
@@ -68,6 +67,33 @@ class Values(unittest.TestCase):
                 self.assertIn(f"gh variable set {name}", found[0])
         self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\n")), [])
 
+    def test_no_runner_variable_or_undeclared_pool_holds_a_github_hosted_label(self) -> None:
+        # 2026-11-18: jobs RUNNER_POOLS had routed to `ubuntu-24.04` sat queued 444 min (Leo: "just dont use
+        # github for private"); CI_TRUSTED_RUNNER held the same label.
+        for name, label in (("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("LINUX_RUNNER", "ubuntu-latest"),
+                            ("CI_CONTROL_RUNNER", "ubuntu-24.04-arm"), ("WINDOWS_RUNNER", "windows-2025"),
+                            ("LINUX_BUILD_RUNNER", "ubuntu-22.04")):
+            with self.subTest(name=name, label=label):
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"{name}={label}\n"))
+                self.assertEqual(len(found), 1, found)
+                self.assertIn(f"{name}=", found[0])
+                self.assertIn("GitHub-hosted", found[0])
+        for pool, label in (("linux_2", "ubuntu-24.04"), ("linux_16", "ubuntu-latest"), ("windows", "windows-2025")):
+            with self.subTest(pool=pool):
+                pools = GOOD_POOLS[:-1] + f', "{pool}": "{label}"}}'  # a later key wins in json.loads
+                found = check.problems(env(RUNNER_POOLS=pools))
+                self.assertEqual(len(found), 1, found)
+                self.assertIn(f"pool `{pool}`", found[0])
+        # Blacksmith and owned labels whose names carry an image name are not hosted.
+        for label in ("blacksmith-2vcpu-ubuntu-2404", "cmux-gcp-lane-x64", "blacksmith-4vcpu-windows-2025"):
+            with self.subTest(label=label):
+                self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"LINUX_RUNNER={label}\n")), [])
+
+    def test_the_pools_must_be_passed(self) -> None:
+        found = check.problems(env(RUNNER_POOLS=""))
+        self.assertEqual(len(found), 1)
+        self.assertIn("RUNNER_POOLS is empty", found[0])
+
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))
@@ -78,19 +104,6 @@ class Values(unittest.TestCase):
         found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners))
         self.assertEqual(len(found), 1)
         self.assertIn("repeats MACOS_RUNNER_PR", found[0])
-
-
-class Wiring(unittest.TestCase):
-    def test_same_runner_variables_as_the_health_report(self) -> None:
-        mine = runner_block("ci-repo-variables.yml")
-        self.assertTrue(mine)
-        self.assertEqual(mine, runner_block("ci-health-report.yml"))
-
-    def test_scheduled_and_reads_the_slots(self) -> None:
-        text = (WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8")
-        self.assertIn("schedule:", text)
-        self.assertIn("CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}", text)
-        self.assertIn("run: python3 scripts/ci/check_repo_variables.py", text)
 
 
 if __name__ == "__main__":

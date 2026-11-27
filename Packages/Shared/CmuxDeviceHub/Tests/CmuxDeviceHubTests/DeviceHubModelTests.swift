@@ -11,6 +11,14 @@ import Testing
         DeviceHub(client: makeClient(stub, identity: me), secrets: secrets, deviceName: "Studio", now: fixedNow)
     }
 
+    /// A Mac or a Linux desktop (`cmux-rd linux-host`) hosts a screen; an iPhone only views.
+    @Test func macsAndLinuxDesktopsHostScreensPhonesDoNot() {
+        #expect(DevicePlatform.macos.hostsScreen)
+        #expect(DevicePlatform.linux.hostsScreen)
+        #expect(!DevicePlatform.ios.hostsScreen)
+        #expect(!DevicePlatform.windows.hostsScreen)
+    }
+
     @Test func aDevicesPushRefetchesTheDevices() async {
         let me = self.me, phone = self.phone
         let listed = Locked([(me, "Studio")])
@@ -33,7 +41,7 @@ import Testing
         let hub = makeHub(stub)
         await hub.handle(.push(.permissionsChanged(hostID: "h1")))
         #expect(hub.scope(host: "h1", viewer: "v1") == .full)
-        #expect(hub.scope(host: "h1", viewer: "v2") == .ask)
+        #expect(hub.scope(host: "h1", viewer: "v2") == .full, "no stored permission reads as the hub's own-device default")
         #expect(stub.requests.last?.pathAndQuery == "/v1/permissions?host=h1")
     }
 

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.mobile.terminalSizing.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The size of a terminal shown on this Mac and a phone at once."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حجم الطرفية المعروضة على هذا الـ Mac وهاتف في الوقت نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Veličina terminala koji se istovremeno prikazuje na ovom Macu i telefonu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Størrelsen på en terminal, der vises på denne Mac og en telefon samtidig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Größe eines Terminals, das dieser Mac und ein Telefon gleichzeitig zeigen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El tamaño de un terminal que se muestra a la vez en este Mac y en un teléfono."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La taille d’un terminal affiché à la fois sur ce Mac et sur un téléphone."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La dimensione di un terminale mostrato contemporaneamente su questo Mac e su un telefono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "この Mac とスマートフォンで同時に表示するターミナルのサイズ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំហំ Terminal ដែលបង្ហាញលើ Mac នេះ និងទូរសព្ទក្នុងពេលតែមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac과 휴대폰에 동시에 표시되는 터미널의 크기입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Størrelsen på en terminal som vises på denne Macen og en telefon samtidig."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozmiar terminala wyświetlanego jednocześnie na tym Macu i telefonie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O tamanho de um terminal exibido neste Mac e em um telefone ao mesmo tempo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Размер терминала, который одновременно показан на этом Mac и телефоне."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขนาดของเทอร์มินัลที่แสดงบน Mac เครื่องนี้และโทรศัพท์พร้อมกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac'te ve bir telefonda aynı anda gösterilen terminalin boyutu."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розмір термінала, який одночасно показують цей Mac і телефон."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kích thước terminal khi máy Mac này và điện thoại cùng hiển thị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "终端同时在这台 Mac 和手机上显示时的大小。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "這台 Mac 和手機同時顯示終端機時的大小。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

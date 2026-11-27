@@ -3,7 +3,8 @@
 //! only remote desktop sessions use (VideoToolbox, CoreMedia, CoreVideo, ScreenCaptureKit, ...)
 //! are opened with `dlopen` the first time a session needs them, and every symbol is looked up
 //! with `dlsym`. The binary then links none of them, so the macOS build on Linux needs no link
-//! stub for them either (scripts/ci/macos-stubs).
+//! stub for them either (scripts/ci/macos-stubs). On Linux the same loader opens libva for the
+//! VAAPI encoder (module `vaapi`), so a machine without a GPU driver stack never needs it.
 //!
 //! [`framework!`] declares one framework's symbols the way an `extern` block would: functions
 //! keep their names and signatures (calls do not change), and each data symbol becomes a
@@ -20,7 +21,11 @@ unsafe extern "C" {
 }
 
 const RTLD_LAZY: c_int = 0x1;
+#[cfg(target_os = "macos")]
 const RTLD_LOCAL: c_int = 0x4;
+// glibc and musl: RTLD_LOCAL is 0, the default (4 there is RTLD_NOLOAD).
+#[cfg(not(target_os = "macos"))]
+const RTLD_LOCAL: c_int = 0;
 
 /// An opened library (never closed: the frameworks stay loaded for the process).
 pub struct Library(*mut c_void);
@@ -90,6 +95,8 @@ macro_rules! framework {
             /// `available()` before the first call; the stand-ins only keep a missed check from
             /// calling through a NULL address.
             mod fallback {
+                // Unused in a module that binds only statics (no stand-in functions).
+                #[allow(unused_imports)]
                 use super::*;
                 $(
                     pub unsafe extern "C" fn $function($(_: $arg_ty),*) $(-> $ret)? {

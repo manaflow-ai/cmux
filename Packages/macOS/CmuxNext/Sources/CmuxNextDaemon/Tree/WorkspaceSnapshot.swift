@@ -26,6 +26,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`).
     public var markedUnread: Bool
+    /// Kept awake from a Mac (`workspace-keep-awake-v1`); false on older daemons.
+    public var keepAwake: Bool = false
     /// `home` for the store's home workspace (`workspace-kind-v1`), else `normal`; nil on older daemons.
     public var kind: String?
     /// The store's home workspace, which no close path closes (`home_not_closable`).
@@ -33,6 +35,10 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     /// The app of an app workspace (`kind` `app`, `app-screens-v1`): one
     /// screen with one app tab; nil for every other workspace.
     public var app: String?
+    /// The daemon's recovery workspace (`workspace-recovered-v1`): its tabs are all terminals the
+    /// daemon recovered from orphaned hosts, so it is not a workspace the person made. Nil on
+    /// daemons without the capability.
+    public var recovered: Bool?
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).
@@ -81,10 +87,11 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app
+        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app, recovered
         case nameSource = "name_source"
         case nameRevision = "name_revision"
         case markedUnread = "marked_unread"
+        case keepAwake = "keep_awake"
         case resourceID = "resource_id"
         case shortID = "short_id"
         case unreadCount = "unread_count"
@@ -112,8 +119,10 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
+        keepAwake = try c.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? false
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         app = kind == "app" ? try? c.decodeIfPresent(String.self, forKey: .app) : nil
+        recovered = try c.decodeIfPresent(Bool.self, forKey: .recovered)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }

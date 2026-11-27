@@ -126,6 +126,28 @@ export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefin
   return work.length ? work : undefined;
 }
 
+/// A turn's wall span: from the earlier of `began` and its first timed span's start to the later of
+/// `ended` and its last span's end (a tool's own timeline, a background shell to where it ended
+/// there, a thought). The one span the footer's Timeline draws as its axis and the "Worked for"
+/// reads (turns.ts `turnClock`), so the line never reads less than the panel's total (Leo,
+/// 2026-11-27: "but shouldn't the worked for count the timelines of the tool calls"). A bound left
+/// out is the spans' own; with neither, nor any span, it is empty (start Infinity).
+export function wallSpan(
+  began: number | undefined,
+  ended: number | undefined,
+  work: readonly AcpmuxActivity[] | undefined,
+): { start: number; end: number } {
+  let start = began ?? Infinity;
+  let end = ended ?? -Infinity;
+  for (const item of work ?? []) {
+    const [from, to] = spanTimes(item);
+    if (from === undefined || to === undefined) continue;
+    start = Math.min(start, from);
+    end = Math.max(end, to);
+  }
+  return { start, end };
+}
+
 /// The footer's spans on one axis. The axis starts at the turn's start (where its work ended less its
 /// duration), or at the first span when that came earlier, and ends at the turn's end or the last
 /// span's end. Its work ended at its own time, or later for a stretch the person came in on, which
@@ -134,16 +156,9 @@ export function waterfall(
   row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">,
   work: readonly AcpmuxActivity[],
 ): Waterfall {
-  let first = Infinity;
-  let last = -Infinity;
-  for (const item of work) {
-    const [from, to] = spanTimes(item);
-    first = Math.min(first, from!);
-    last = Math.max(last, to!);
-  }
   const ended = row.workEndedAt ?? row.at;
-  const start = row.durationMs !== undefined ? Math.min(first, ended - row.durationMs) : first;
-  const end = row.durationMs !== undefined ? Math.max(last, ended) : last;
+  const timed = row.durationMs !== undefined;
+  const { start, end } = wallSpan(timed ? ended - row.durationMs! : undefined, timed ? ended : undefined, work);
   const spans = work.map((item): WaterfallSpan => {
     const [began, ended] = spanTimes(item);
     const from = began! - start;
@@ -166,4 +181,35 @@ export function waterfall(
   const gaps = waterfallGaps(spans, total);
   const gapTotal = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
   return { start, total, spans, ...(slowest !== undefined && { slowest }), gaps, gapTotal };
+}
+
+/// A bar under this share of the axis is a tick, not a bar: it shows a call happened, not how long.
+export const WATERFALL_VISIBLE_BAR = 0.02;
+
+/// Whether a turn's Timeline is worth a chart (Leo, 2026-11-22, on "1 call · 1m 40s" drawn as a
+/// 551ms tick, one 24.5s bar and 1m 15s of stripes: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY
+/// THIS BULLSHIT LIKE THIS"). A chart compares bars on one axis, so it needs two or more tool calls
+/// whose bars are visible (each at least 2% of the axis), and the model's time outside every call
+/// and thought under half the turn. Anything else (a lone call, a turn that only thought, a turn
+/// that was mostly the model) reads as plain lines instead (`waterfallLines`).
+export function waterfallCharts(chart: Pick<Waterfall, "spans" | "total" | "gapTotal">): boolean {
+  if (chart.gapTotal * 2 >= chart.total) return false;
+  let visible = 0;
+  for (const span of chart.spans)
+    if (span.item.tool && span.to - span.from >= chart.total * WATERFALL_VISIBLE_BAR && ++visible >= 2) return true;
+  return false;
+}
+
+/// One line of the plain form: a call with its own time, or (no span) the turn's thinking.
+export type WaterfallLine = { span?: WaterfallSpan; ms: number };
+
+/// The plain form's lines: one "Thinking" line for all of the turn's time with no tool running
+/// (its thoughts and the model's time around them, which the chart split into a tick and a striped
+/// row), then each call with its own time, in the order they ran. Under 1ms of thinking is no line.
+export function waterfallLines(chart: Pick<Waterfall, "spans" | "total">): WaterfallLine[] {
+  const calls = chart.spans.filter((span) => span.item.tool);
+  const thinking = waterfallGaps(calls, chart.total).reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  const lines: WaterfallLine[] = thinking >= 1 ? [{ ms: thinking }] : [];
+  for (const span of calls) lines.push({ span, ms: span.to - span.from });
+  return lines;
 }

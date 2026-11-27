@@ -51,6 +51,43 @@ const num = (value: unknown) => (typeof value === "number" && Number.isFinite(va
 const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
+/// The fields a row reads: what it draws, and what it hands to an answer, a verdict or Open. A new
+/// `QueueItem` field fails to compile here until it is put in or left out, so a field the server
+/// moves on every read (as it does `score`) can never again make every read draw every row.
+const ROW_READS: Record<Exclude<keyof QueueItem, "score" | "impact">, true> = {
+  id: true,
+  kind: true,
+  sessionId: true,
+  host: true,
+  title: true,
+  harness: true,
+  vendor: true,
+  workspaceId: true,
+  ask: true,
+  detail: true,
+  at: true,
+  impactReasons: true,
+  permissionId: true,
+  turnId: true,
+  options: true,
+  question: true,
+  prUrl: true,
+};
+// Left out: `score`, the sort key acpmux works out from the item's age at each read
+// (review_queue.rs `score`), and `impact`, its weight; the read has already sorted by them.
+const read = (item: QueueItem) =>
+  JSON.stringify(Object.keys(ROW_READS).map((key) => item[key as keyof typeof ROW_READS]));
+
+/// A new read's items, each one the previous read's object when nothing its row reads changed, so a
+/// read that changes one item draws that row alone (acpmux sends every item on each read).
+export function keptItems(previous: readonly QueueItem[], next: readonly QueueItem[]): QueueItem[] {
+  const byId = new Map(previous.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const old = byId.get(item.id);
+    return old && read(old) === read(item) ? old : item;
+  });
+}
+
 /// Reads acpmux's answer; an item missing what it needs to be shown is dropped, never drawn half.
 export function readQueue(value: unknown, fallbackNow = Date.now()): QueueReply {
   const body = record(value);

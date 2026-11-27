@@ -77,6 +77,112 @@
       ]
     },
     {
+      "name": "terminalCursor",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalCursor",
+        "text": "Cursor"
+      },
+      "rows": [
+        {
+          "key": "terminal.cursorStyle",
+          "name": "cursorStyle",
+          "title": {
+            "key": "settings.terminal.cursorStyle",
+            "text": "Cursor Style"
+          },
+          "help": {
+            "key": "settings.terminal.cursorStyle.help",
+            "text": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.cursorStyle.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "bar",
+              "title": {
+                "key": "settings.choice.cursorStyle.bar",
+                "text": "Bar"
+              }
+            },
+            {
+              "value": "underline",
+              "title": {
+                "key": "settings.choice.cursorStyle.underline",
+                "text": "Underline"
+              }
+            },
+            {
+              "value": "block_hollow",
+              "title": {
+                "key": "settings.choice.cursorStyle.blockHollow",
+                "text": "Hollow Block"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "caret",
+            "bar",
+            "block",
+            "underline",
+            "theme"
+          ]
+        },
+        {
+          "key": "terminal.cursorBlink",
+          "name": "cursorBlink",
+          "title": {
+            "key": "settings.terminal.cursorBlink",
+            "text": "Cursor Blink"
+          },
+          "help": {
+            "key": "settings.terminal.cursorBlink.help",
+            "text": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.cursorBlink.on",
+                "text": "Blink"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cursorBlink.off",
+                "text": "Steady"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "blink",
+            "caret",
+            "theme"
+          ]
+        }
+      ]
+    },
+    {
       "name": "openingLinks",
       "section": "terminal",
       "group": {
@@ -94,7 +200,7 @@
           },
           "help": {
             "key": "settings.terminal.linkOpener.default.help",
-            "text": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+            "text": "Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>."
           },
           "kind": "text",
           "default": "cmux",
@@ -126,7 +232,7 @@
           },
           "help": {
             "key": "settings.terminal.linkOpener.rules.help",
-            "text": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+            "text": "<match> -> <target>, first match wins. Example: caller:gh github.com -> safari"
           },
           "summary": {
             "key": "settings.terminal.linkOpener.rules.summary",
@@ -173,7 +279,7 @@
           },
           "help": {
             "key": "settings.terminal.term.help",
-            "text": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+            "text": "xterm-ghostty needs Ghostty's terminfo on every host you ssh to."
           },
           "kind": "choice",
           "choices": [
@@ -210,6 +316,42 @@
             "name": "TerminalTerm",
             "generated": false
           }
+        }
+      ]
+    },
+    {
+      "name": "terminalTyping",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalTyping",
+        "text": "Typing"
+      },
+      "note": "terminal.predictiveLocalEcho (TerminalPredictiveEchoSetting): the opt-out classic cmux documents.",
+      "rows": [
+        {
+          "key": "terminal.predictiveLocalEcho",
+          "note": "On: a terminal whose shell runs on another machine draws typed characters before the remote echoes them (the shared prediction engine, which still waits for a slow measured echo and skips password prompts and full-screen programs). Off: nothing is predicted, and glyphs already drawn go at once. Applies to running terminals.",
+          "title": {
+            "key": "settings.terminal.predictiveLocalEcho",
+            "text": "Predictive Local Echo"
+          },
+          "help": {
+            "key": "settings.terminal.predictiveLocalEcho.help",
+            "text": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "predictive",
+            "echo",
+            "local echo",
+            "latency",
+            "lag",
+            "ssh",
+            "remote",
+            "typing"
+          ],
+          "swift_owner": "TerminalPredictiveEchoSetting"
         }
       ]
     }

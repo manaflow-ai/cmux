@@ -32,10 +32,18 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
+# scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
+# makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
+# sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
 INPUTS = [
     "webviews",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
+    "schemas/design-scale/design-scale.json",
+    "schemas/type-scale/type-scale.json",
+    "schemas/motion-scale/motion-scale.json",
     ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
@@ -53,7 +61,9 @@ INPUTS = [
 # narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
 CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
 GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
-GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+# A catalog is a file or a one-file-per-key directory (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py);
+# a directory is a pathspec of every file in it.
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings(?:\.d)?)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh).
@@ -184,6 +194,11 @@ def gen_strings_catalogs(root):
             text = f.read()
     except OSError:
         return None
+    return gen_strings_catalogs_in(text)
+
+
+def gen_strings_catalogs_in(text):
+    """gen_strings_catalogs over gen-strings.mjs's TEXT (hot-apply.py reads it from a commit, not a checkout)."""
     consts = dict(GEN_STRINGS_CONST.findall(text))
     found = set()
     for m in GEN_STRINGS_FILE.finditer(text):

@@ -2,7 +2,7 @@ public import Foundation
 public import CmuxNextDesign
 
 /// Persists the selected background: bundled art, a macOS system wallpaper (`system:<path>`), the
-/// person's own image (`file:<path>`), the desktop picture (`desktop`), the paintings shuffled
+/// person's own image (`file:<path>`), the desktop picture (`desktop`), a live wallpaper (`live:<id>`), the paintings shuffled
 /// (`daily`), the pictures of a folder shuffled (`folder:<absolute path>`), or `none`. Unset is
 /// ``defaultSelection``. A shuffle turns as often as `appearance.backgroundRotation` says.
 public struct BackdropSelectionSetting: Sendable {
@@ -25,7 +25,7 @@ public struct BackdropSelectionSetting: Sendable {
     /// The shuffle `root` asks for, with how often it turns; nil for a fixed background.
     public static func shuffle(_ root: JSONValue) -> BackdropShuffle? {
         guard let raw = root.value(at: configPath)?.stringValue else { return nil }
-        let rotation = root.value(at: rotationPath)?.stringValue.flatMap(BackdropRotation.init(rawValue:)) ?? rotationDefault
+        let rotation = Self.rotation(root.value(at: rotationPath)) ?? rotationDefault
         if raw == dailyID { return BackdropShuffle(source: .paintings, rotation: rotation) }
         return folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: rotation) }
     }
@@ -50,8 +50,7 @@ public struct BackdropSelectionSetting: Sendable {
     /// by the snapshot parser, Settings writes and the exported schema's
     /// domain marker so all entry points accept the same values.
     static func accepts(_ value: JSONValue) -> Bool {
-        guard let raw = value.stringValue else { return false }
-        return raw == "none" || raw == dailyID || folderPath(raw) != nil || BackdropSelection(id: raw) != nil
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("selection"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in
@@ -69,16 +68,24 @@ public struct BackdropSelectionSetting: Sendable {
         if let value = root.value(at: Self.configPath) {
             guard let raw = value.stringValue else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
+                                                      message: "expected none, daily, desktop, bundled art, live:<id>, folder:<absolute path>, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             if raw == "none" { return nil }
             if BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
-            // A shuffle shows its picture of now; the app's timer turns it (`TerminalThemeSetting`).
-            if let shuffle = Self.shuffle(root) { return shuffle.pick(on: Date(), calendar: .current) }
+            // Light and Dark: each view draws the side for its appearance.
+            if raw == Self.appearanceID { return Self.pair(root) }
+            if raw == Self.scheduleID, Self.schedule(root) == nil, root.value(at: Self.schedulePath) != nil {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundSchedule",
+                                                      message: "expected an object of HH:MM or sunrise, sunset, dawn, dusk, noon (with +/-Nm or Nh) to fixed backgrounds"))
+            }
+            // A switch (shuffle, schedule, dynamic wallpaper by time) shows its picture of now; the
+            // app's timer turns it (`TerminalThemeSetting`).
+            if let auto = BackdropSwitch(root) { return auto.turn(at: Date(), calendar: .current).picture }
+            if raw == Self.scheduleID { return nil }
             guard let selection = BackdropSelection(id: raw) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
+                                                      message: "expected none, daily, desktop, bundled art, live:<id>, folder:<absolute path>, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             return selection

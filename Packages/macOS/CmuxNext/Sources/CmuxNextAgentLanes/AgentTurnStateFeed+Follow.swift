@@ -127,14 +127,15 @@ nonisolated extension AgentWatchPage {
 
     /// Sets this Mac's session `id` as a push or a follow's row has it: a nil fact is none.
     public mutating func setSession(_ id: String, state: AgentTurnState?, lastMessage: String?, muted isMuted: Bool, title: String?,
-                                    generatedTitle: String?, sessionName: String?, detail: AgentChatDetail?, lane: AgentActivityLane?,
-                                    startedBy parent: String?) {
+                                    generatedTitle: String?, sessionName: String?, identity: AgentSessionIdentity? = nil,
+                                    detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy parent: String?) {
         states.set(id, state)
         lastMessages[id] = lastMessage
         if isMuted { muted.insert(id) } else { muted.remove(id) }
         titles[id] = title
         generatedTitles[id] = generatedTitle
         sessionNames[id] = sessionName
+        identities[id] = identity
         details[id] = detail
         lanes[id] = lane
         startedBy[id] = parent
@@ -161,16 +162,20 @@ nonisolated extension AgentWatchPage {
         for row in follow.rows {
             if let peer = row.peer {
                 setPeerRow(row.session, peer: peer, row: rows.peers[row.session]?[peer])
+                // Its lane too, as a whole list keeps it: without it a machine enrolled while the
+                // app ran had no chat here (`open-tab --host` refused it as no peer's, 2026-11-15).
+                if let lane = rows.lanes[row.session], lane.peer == peer { lanes[row.session] = lane }
                 continue
             }
             let id = row.session
             setSession(id, state: rows.states[id], lastMessage: rows.lastMessages[id], muted: rows.muted.contains(id),
                        title: rows.titles[id], generatedTitle: rows.generatedTitles[id], sessionName: rows.sessionNames[id],
-                       detail: rows.details[id], lane: rows.lanes[id], startedBy: rows.startedBy[id])
+                       identity: rows.identities[id], detail: rows.details[id], lane: rows.lanes[id], startedBy: rows.startedBy[id])
         }
         for row in follow.gone {
             if let peer = row.peer {
                 setPeerRow(row.session, peer: peer, row: nil)
+                if lanes[row.session]?.peer == peer { lanes[row.session] = nil }
             } else {
                 setSession(row.session, state: nil, lastMessage: nil, muted: false, title: nil, generatedTitle: nil,
                            sessionName: nil, detail: nil, lane: nil, startedBy: nil)

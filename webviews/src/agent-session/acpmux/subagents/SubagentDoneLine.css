@@ -5,6 +5,7 @@
 }
 .cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done .cv-agent-tag {
   padding-inline: 0;
+  border-radius: 0;
   color: inherit;
   background: transparent;
   box-shadow: none;
@@ -19,7 +20,14 @@
 }
 .cv-subagent-done-row[data-report-look="compact"]:hover .cv-subagent-done__time,
 .cv-subagent-done-row[data-report-look="compact"]:has(:focus-visible) .cv-subagent-done__time,
-.cv-subagent-done-row[data-report-look="compact"]:has([data-popup-open]) .cv-subagent-done__time {
+.cv-subagent-done-row[data-report-look="compact"][data-popup-within] .cv-subagent-done__time {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+}
+/* Its new dot ends the line, after the time that waits for hover: at rest the dot is flush on the
+   right edge the rows' times end on, never inset by room kept for a time that is not shown
+   (cmux#51746); on hover the time fades in on the dot's left. test/transcript-chevron-vertical-center.test.ts. */
+.cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done__trail > .cv-reaction-mark {
+  order: 1;
+  margin-right: 0;
 }

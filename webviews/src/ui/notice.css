@@ -19,8 +19,13 @@
   gap: var(--ds-space-2);
   box-sizing: border-box;
   min-width: 0;
-  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--transient-surface-radius);
+  /* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+     inside"): one padding on the top, the bottom and the trailing side, the corner the button corner plus it,
+     the text the corner's radius in. */
+  --concentric-padding: var(--ds-space-2);
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
+    calc(var(--ds-radius-control) + var(--concentric-padding));
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   color: var(--ui-notice-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -49,14 +54,19 @@
 /* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, radius 12,
    its action row 8 under the text, all scaled by the interface scale. */
 .ui-notice[data-placement="inline"] {
+  --concentric-padding: var(--grid-cards-padding, var(--ds-space-3));
   gap: var(--grid-gap, var(--ds-space-2));
-  padding: var(--grid-cards-padding, var(--ds-space-3));
-  border-radius: var(--grid-cards-radius, var(--ds-radius-xl));
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
 }
 
 /* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
 .ui-notice[data-placement="stack"] {
   --glass-elevation: var(--elevation-2);
+  /* A toast is a floating surface: its corner is the role's (schemas/design-roles), the button corner
+     plus the inset capped at a third of a one-line toast's height, so a thin toast is never a capsule
+     (the corner rule, design-debate 2026-11-22). */
+  border-radius: var(--role-toast-radius); /* concentric-allow: the toast role caps the concentric corner */
   width: max-content;
   max-width: min(420px, calc(100vw - var(--ds-space-5)));
 }
@@ -378,7 +388,7 @@
   width: min(96px, 30%);
   height: var(--ds-space-6, 32px);
   border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
-  border-radius: var(--transient-surface-radius);
+  border-radius: var(--role-toast-radius);
   pointer-events: none;
   transition:
     background-color var(--cmux-motion-quick, 80ms),
@@ -417,4 +427,88 @@
   :is(.ui-notice-deck-card, .ui-notice-deck-card > .ui-notice, .ui-notice-deck-card > .ui-notice > *, .ui-notice-anchor-ghost) {
     transition: none;
   }
+}
+
+/* A promise toast (NoticeQueue.promise): the lead is a spinner while it works, then its result's
+   mark, in the same slot, so the text never moves sideways. The spinner is the shared `Spinner`
+   (its sheet turns it on the shared keyframes and clock, and Reduce Motion holds it still); motion
+   off holds it still here too. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .ui-notice-spinner {
+  animation: none !important;
+}
+
+/* Toasts v2 (toastsV2.experiment.ts), only on a card with `data-look`: the default arm draws none of
+   this. Every arm: the state's colour on the mark, and the toast's Undo an ink-filled compact button
+   (the one filled control, the text colour on the surface's). */
+.ui-notice[data-look][data-state="success"] {
+  --ui-notice-mark: var(--ds-color-success);
+  --ui-notice-state: var(--ds-color-success);
+}
+.ui-notice[data-look]:is([data-state="error"], [data-kind="error"]) {
+  --ui-notice-state: var(--ds-color-danger);
+}
+.ui-notice[data-look][data-state="working"] {
+  --ui-notice-state: var(--ui-notice-ink-2);
+}
+.ui-notice[data-look] .ui-btn[data-ink] {
+  background: var(--ui-notice-ink);
+  color: var(--ds-color-surface);
+}
+.ui-notice[data-look] .ui-btn[data-ink]:hover:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ui-notice-ink) 86%, var(--ds-color-surface));
+}
+.ui-notice[data-look] .ui-btn[data-ink]:active:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ui-notice-ink) 76%, var(--ds-color-surface));
+}
+/* A one-line toast with an Undo: the text and the button on one row, the button at the trailing edge. */
+.ui-notice[data-look][data-kind="toast"]:not(:has(.ui-notice-title, .ui-notice-check, .ui-notice-extra)) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.ui-notice[data-look][data-kind="toast"]:not(:has(.ui-notice-title, .ui-notice-check, .ui-notice-extra))
+  > .ui-notice-main {
+  grid-column: 1;
+}
+.ui-notice[data-look][data-kind="toast"]:not(:has(.ui-notice-title, .ui-notice-check, .ui-notice-extra))
+  > .ui-notice-foot {
+  grid-column: 2;
+  grid-row: 1;
+}
+.ui-notice[data-look][data-kind="toast"]:not(:has(.ui-notice-title, .ui-notice-check, .ui-notice-extra))
+  > .ui-notice-dismiss {
+  grid-column: 3;
+  align-self: center;
+}
+
+/* While the card's box moves to its new size (noticeMorph.ts): a one-line toast holds its line, and
+   a card whose height changes clips what is past its moving edge. */
+.ui-notice[data-morphing] {
+  overflow: clip;
+}
+.ui-notice[data-morphing="line"] :is(.ui-notice-title, .ui-notice-message) {
+  white-space: nowrap;
+}
+
+/* tinted: the rich-colours pattern, a status-tinted surface with the mark and the text in the
+   status colour. It goes against "never red slabs" (Leo 2026-10-29); here only to compare. */
+.ui-notice[data-look="tinted"]:is([data-state="success"], [data-state="error"], [data-kind="error"]) {
+  --glass-tint: color-mix(in srgb, var(--ui-notice-state) 16%, var(--transient-surface-veil));
+  --ui-notice-mark: var(--ui-notice-state);
+}
+.ui-notice[data-look="tinted"]:is([data-state="success"], [data-state="error"], [data-kind="error"])
+  :is(.ui-notice-title, .ui-notice-message) {
+  color: var(--ui-notice-state);
+}
+
+/* accent-bar: a thin bar at the leading edge in the state's colour, inside the card's padding. */
+.ui-notice[data-look="accent-bar"][data-state]::before,
+.ui-notice[data-look="accent-bar"][data-kind="error"]::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--ds-space-2);
+  inset-inline-start: var(--ds-space-1);
+  width: 3px;
+  border-radius: var(--ds-radius-sm); /* concentric-allow: a 3px bar inside the padding, no buttons in it */
+  background: var(--ui-notice-state);
+  pointer-events: none;
 }

@@ -2,34 +2,35 @@ import CmuxNextSettings
 import Testing
 
 /// `sidebar.showSearchButton` (plans/cmux-next/sidebar-search.md): the sidebar footer's Search button
-/// shows by default; the user hides it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and
-/// a bad value keeps the default with a diagnostic.
+/// is off by default (Lawrence 2026-11-20: "drastically simplify all parts of the UI"; search stays in
+/// the palette); the user shows it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and a
+/// bad value keeps the default with a diagnostic.
 struct SidebarShowSearchButtonSettingTests {
     static func parse(_ value: JSONValue?) -> CmuxConfigSnapshot {
         let root: JSONValue = value.map { .object(["sidebar": .object(["showSearchButton": $0])]) } ?? .object([:])
         return CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
     }
 
-    @Test func onByDefault() {
+    @Test func offByDefault() {
         let snapshot = Self.parse(nil)
-        #expect(snapshot.sidebarSections.showSearchButton)
+        #expect(snapshot.sidebarSections.showSearchButton == false)
         #expect(snapshot.diagnostics.isEmpty, "no key, no diagnostic: \(snapshot.diagnostics)")
     }
 
-    @Test func theUserCanTurnItOff() {
+    @Test func theUserCanTurnItOnAndOff() {
         #expect(Self.parse(.bool(false)).sidebarSections.showSearchButton == false)
         #expect(Self.parse(.bool(true)).sidebarSections.showSearchButton)
     }
 
     @Test func aBadValueKeepsTheDefaultWithADiagnostic() {
         let snapshot = Self.parse(.string("yes"))
-        #expect(snapshot.sidebarSections.showSearchButton)
+        #expect(snapshot.sidebarSections.showSearchButton == false)
         #expect(snapshot.diagnostics.contains { $0.path == "sidebar.showSearchButton" }, "\(snapshot.diagnostics)")
     }
 
-    @Test func settingsAndThePaletteListTheToggleOnByDefault() throws {
+    @Test func settingsAndThePaletteListTheToggleOffByDefault() throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: ["sidebar", "showSearchButton"]))
-        #expect(descriptor.defaultValue == .bool(true))
+        #expect(descriptor.defaultValue == .bool(false))
         #expect(descriptor.section == .appearance)
         #expect(descriptor.isPaletteExposed, "Cmd+Shift+P lists every palette-exposed schema setting")
     }

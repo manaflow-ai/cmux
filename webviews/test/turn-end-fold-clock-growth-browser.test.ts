@@ -25,6 +25,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
+import { EXIT_LEAD_MS } from "../src/agent-session/acpmux/conversation/exitLead";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -89,7 +91,7 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     const script = await built.outputs[0]!.text();
     const page =
-      `<!doctype html><html style="--cmux-motion-settle:180ms;--cv-fold-duration:180ms">` +
+      `<!doctype html><html style="--cmux-motion-settle:${MOTION_SETTLE_MS}ms;--cv-fold-duration:${MOTION_SETTLE_MS}ms">` +
       `<head><script>${script.replaceAll("</script", "<\\/script")}</script></head>` +
       `<body style="margin:0"><div class="acpmux-scroll" style="height:400px;overflow:auto">` +
       `<div class="acpmux-thread" style="position:relative;height:400px">${rows(BEFORE)}</div></div></body></html>`;
@@ -166,10 +168,12 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
       expect(back).toEqual([]);
       expect(samples.at(-1)!.b).toBeCloseTo(34, 1);
       // The clock started again two frames in: b still moves past the first clock's 180 ms, and rests
-      // one settle after the restart, never on a longer clock (before: 720 ms for this move).
+      // one settle after the restart, never on a longer clock (before: 720 ms for this move). The move
+      // starts once the copies' exit lead is over (#48554, exitLead.ts: the leaving text is gone before
+      // anything travels), so its end comes that lead later too.
       const moving = samples.filter((sample) => sample.b > 34.02).at(-1)!;
       expect(moving.t - samples[0]!.t).toBeGreaterThan(180);
-      expect(moving.t - samples[0]!.t).toBeLessThan(180 + 25);
+      expect(moving.t - samples[0]!.t).toBeLessThan(180 + EXIT_LEAD_MS + 25);
       // The copy of the work only ever fades.
       const brightened = samples
         .map((sample, index) => ({ index, step: index ? sample.ink - samples[index - 1]!.ink : 0 }))

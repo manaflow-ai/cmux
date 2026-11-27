@@ -9,6 +9,9 @@ const TEXT_CHARS: usize = 160;
 const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
+    "handle",
+    // The chat's own icon (`session_icon.rs`); an image is left to the full summary.
+    "icon",
     "shortName",
     "indicator",
     "titleSource",
@@ -22,6 +25,8 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     "pullRequests",
     "usageWarnings",
@@ -49,6 +54,7 @@ const EXTRA_KEYS: &[&str] = &[
     "watching",
     "loopEpisode",
     "coldArchive",
+    "autoSession",
     "waitingPrompt",
     "since",
     "stuckError",
@@ -106,27 +112,61 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
-fn selected_extra(row: &Map<String, Value>) -> Value {
+/// A handle derived from the session id costs the row bytes and says nothing a reader cannot
+/// derive itself (`session_handle::display`, `session_handle::matches`), so only a given one rides.
+fn derived_handle(row: &Map<String, Value>, value: &Value) -> bool {
+    let id = row.get("sessionId").and_then(Value::as_str);
+    match (id, value.as_str()) {
+        (Some(id), Some(handle)) => crate::session_handle::default_handle(id) == handle,
+        _ => value.is_null(),
+    }
+}
+
+fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !value.is_null()
+                && !(key.as_str() == "handle" && derived_handle(row, value))
+                && !(key.as_str() == "icon"
+                    && value.get("kind").and_then(Value::as_str) == Some("image"))
+                // Every chat's row carries `autoSession` (#54159), Auto off on almost all; the
+                // off default is what a reader assumes when it is absent, and its ~90 bytes in
+                // both forms push a full row past MAX_SUMMARY_BYTES. Nulls say the same as a missing key.
+                && !(key.as_str() == "autoSession"
+                    && **value == crate::auto_session::record::AutoRecord::row_of(None))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    // Status describes the session; state may instead say stuck or stopping.
+    // Ordinary rows need no second copy of the same string on the wire.
+    if let Some(status) = row.get("status").and_then(Value::as_str)
+        && status != state
+    {
+        values.insert("status".into(), Value::String(status.to_owned()));
+    }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),
-        &["startedAt", "prompt", "notice", "activity", "planStep", "stalledSince", "turnId"],
+        &["startedAt", "prompt", "notice", "activity", "stalledSince", "turnId"],
     );
     retain(values.get_mut("lastTurn"), &["status", "endedAt"]);
     retain(values.get_mut("pullRequest"), &["number", "title", "state", "reviewReady", "checks"]);
     retain(values.get_mut("coldArchive"), &["archivedAt", "messages"]);
     retain(
         values.get_mut("tags"),
-        &["notifications", "mux.parent", "mux.children", "cmux.chief.participant", "archived"],
+        // `cmux.chief` names the Home Chief that owns the chat: its readers (cmux-tui-core's
+        // `chief-work` and update plan, row 7c) find the Chief's roots by it.
+        &[
+            "notifications",
+            "mux.parent",
+            "mux.children",
+            "cmux.chief",
+            "cmux.chief.participant",
+            "archived",
+        ],
     );
     if let Some(Value::Array(warnings)) = values.get_mut("usageWarnings") {
         for warning in warnings {
@@ -136,8 +176,8 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
     Value::Object(values)
 }
 
-fn extra(row: &Map<String, Value>) -> Value {
-    let mut value = selected_extra(row);
+fn extra(row: &Map<String, Value>, state: &str) -> Value {
+    let mut value = selected_extra(row, state);
     cut_values(&mut value);
     value
 }
@@ -156,7 +196,6 @@ fn shrinkable(key: &str) -> bool {
             | "prompt"
             | "waitingPrompt"
             | "activity"
-            | "planStep"
             | "error"
             | "stuckError"
             | "cwd"
@@ -219,7 +258,7 @@ impl Form {
     }
 }
 
-pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
+pub(crate) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
     let value = hub.session_list_summary(session);
     let row = value.as_object().ok_or_else(|| invalid("v1 summary is not an object"))?;
     let meta = session.meta();
@@ -261,13 +300,15 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     // Apply typed field bounds once, while extra is empty. Subsequent fitting
     // never uses the index's empty-extra fallback.
     summary = summary.prepare()?;
-    let mut local = Form { row: summary, extra: extra(row) };
+    let local_extra = extra(row, &summary.state);
+    let mut local = Form { row: summary, extra: local_extra };
 
     // Mask before cutting: a text boundary must not leave a partial secret.
     // v1 bounds the scan itself. It recognizes a summary by these three keys.
     // Keep them on the temporary
     // mask input, then convert the result to the same typed Summary shape.
-    let mut mask_input = selected_extra(row).as_object().cloned().unwrap_or_default();
+    let mut mask_input =
+        selected_extra(row, &local.row.state).as_object().cloned().unwrap_or_default();
     mask_input.insert("sessionId".into(), Value::String(local.row.chat_id.clone()));
     mask_input.insert("harness".into(), Value::String(local.row.harness.clone()));
     mask_input.insert("lastSeq".into(), row.get("lastSeq").cloned().unwrap_or(Value::from(0)));
@@ -287,7 +328,7 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
                 masked.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
             cut_title(&mut summary.title);
             summary = summary.prepare()?;
-            let peer_extra = extra(&masked);
+            let peer_extra = extra(&masked, &summary.state);
             if summary.title == local.row.title && peer_extra == local.extra {
                 None
             } else {
@@ -327,17 +368,15 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
     let mut summary = Summary::new(chat_id);
     summary.origin = peer.to_owned();
-    summary.title = value
-        .get("title")
-        .or_else(|| value.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    // A null or empty `title` (a hub row whose machine did not say) falls back to its name.
+    let text = |key: &'static str| value.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+    summary.title = text("title").or_else(|| text("name")).unwrap_or_default().to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
-    summary.state = row
-        .status()
-        .or_else(|| value.get("state").and_then(Value::as_str))
+    summary.state = value
+        .get("state")
+        .and_then(Value::as_str)
+        .or_else(|| row.status())
         .unwrap_or("closed")
         .to_owned();
     summary.last_activity = row.updated_ms();
@@ -354,7 +393,7 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
     summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
     let mut opaque = value
         .as_object()
-        .map(extra)
+        .map(|row| extra(row, &summary.state))
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
@@ -365,169 +404,5 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    async fn fixture(secret: bool) -> (std::sync::Arc<Hub>, std::sync::Arc<Session>) {
-        let mut config = crate::config::Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let store =
-            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-        let mut meta = crate::god_fixture::session_meta(
-            "fixture",
-            "fixture",
-            "/work/project///",
-            "native-id",
-            400,
-            crate::store::now_ms(),
-        );
-        meta["status"] = Value::from("closed");
-        meta["lastPrompt"] = Value::from("p".repeat(100_000));
-        meta["preview"] = Value::from("v".repeat(100_000));
-        if secret {
-            meta["title"] =
-                Value::from(format!("token gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"));
-        }
-        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
-        let hub = Hub::new(config, store);
-        hub.wait_store().await;
-        let session = hub.sessions.lock().unwrap().get("fixture").cloned().unwrap();
-        (hub, session)
-    }
-
-    #[tokio::test]
-    async fn a_long_v1_summary_keeps_required_shapes_without_empty_extra() {
-        let (hub, session) = fixture(false).await;
-        let row = summary_from_session(&hub, &session).unwrap();
-        row.validate().unwrap();
-        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
-        assert_eq!(row.folder.as_deref(), Some("/work/project"));
-        assert_eq!(extra["cwd"], "/work/project///");
-        assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        assert!(extra.get("forkSeq").is_some());
-        assert!(extra.get("spawnedBy").is_none());
-        assert!(extra.get("queue").is_none());
-        assert!(extra.get("usageStats").is_none());
-        assert!(extra.get("tools").is_none());
-        assert!(row.peer_form.is_none());
-        assert_eq!(row.last_activity, session.meta().updated_at);
-    }
-
-    #[tokio::test]
-    async fn peer_form_is_a_masked_summary_and_keeps_the_local_secret_local() {
-        let (hub, session) = fixture(true).await;
-        let row = summary_from_session(&hub, &session).unwrap();
-        row.validate().unwrap();
-        assert!(row.title.contains("ghp_"));
-        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
-        assert!(!peer.title.contains("ghp_"));
-        assert!(peer.title.contains("GitHub"));
-        assert_eq!(peer.chat_id, row.chat_id);
-        assert_eq!(peer.archived, row.archived);
-        assert!(peer.peer_form.is_none());
-    }
-
-    #[tokio::test]
-    async fn display_lists_shrink_without_losing_required_keys_or_the_peer_form() {
-        let (hub, session) = fixture(true).await;
-        hub.edit_test_meta(&session, |meta| {
-            meta.pull_requests = (0..LIST_ITEMS)
-                .map(|n| format!("https://example.test/{n}/{}", "p".repeat(200)))
-                .collect();
-        });
-        let row = summary_from_session(&hub, &session).unwrap();
-        row.validate().unwrap();
-        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
-        for form in [&row, &peer] {
-            let extra: Value = serde_json::from_str(form.extra.get()).unwrap();
-            let urls = extra["pullRequests"].as_array().unwrap();
-            assert_eq!(urls.len(), LIST_ITEMS);
-            assert!(urls.iter().all(|url| url.as_str().unwrap().chars().count() <= TEXT_CHARS));
-            assert!(urls.iter().any(|url| url.as_str().unwrap().chars().count() < TEXT_CHARS));
-            assert!(extra.get("lastPrompt").is_some());
-            assert!(extra.get("preview").is_some());
-            assert!(extra.get("cwd").is_some());
-        }
-    }
-
-    #[tokio::test]
-    async fn a_multibyte_title_keeps_its_cut_marker_inside_the_byte_bound() {
-        let (hub, session) = fixture(false).await;
-        hub.edit_test_meta(&session, |meta| meta.title = Some("雪".repeat(TEXT_CHARS)));
-        let row = summary_from_session(&hub, &session).unwrap();
-        assert!(row.title.len() <= MAX_TITLE_BYTES);
-        assert!(row.title.ends_with('…'));
-        assert!(row.title.trim_end_matches('…').chars().all(|ch| ch == '雪'));
-        assert!(!row.title.trim_end_matches('…').is_empty());
-    }
-
-    #[tokio::test]
-    async fn workspace_comes_from_own_metadata_when_the_v1_row_omits_it() {
-        let (hub, session) = fixture(false).await;
-        let workspace = "00000000-0000-4000-8000-000000000001";
-        hub.edit_test_meta(&session, |meta| meta.workspace_id = Some(workspace.into()));
-        assert!(hub.session_list_summary(&session).get("workspaceId").is_none());
-        let row = summary_from_session(&hub, &session).unwrap();
-        assert_eq!(row.workspace.as_deref(), Some(workspace));
-    }
-
-    #[tokio::test]
-    async fn parent_folding_matches_v1_without_rewriting_the_child() {
-        let (hub, parent) = fixture(false).await;
-        let mut child_meta = parent.meta();
-        child_meta.id = "child".into();
-        child_meta.subsession = Some(crate::store::SubsessionLink {
-            started_by: parent.id.clone(),
-            short_name: "child".into(),
-            depth: 1,
-            offered: false,
-        });
-        let child = hub.insert_test_session(child_meta);
-        let original = summary_from_session(&hub, &child).unwrap();
-        for case in ["root", "archived", "nested", "root-again"] {
-            hub.edit_test_meta(&parent, |meta| {
-                meta.tags.remove("archived");
-                meta.subsession = None;
-                if case == "archived" {
-                    meta.tags.insert(
-                        "archived".into(),
-                        crate::store::Tag { value: "true".into(), expires_at: None },
-                    );
-                } else if case == "nested" {
-                    meta.subsession = Some(crate::store::SubsessionLink {
-                        started_by: "grandparent".into(),
-                        short_name: "parent".into(),
-                        depth: 1,
-                        offered: false,
-                    });
-                }
-            });
-            let child_row = summary_from_session(&hub, &child).unwrap();
-            let parent_row = summary_from_session(&hub, &parent).unwrap();
-            assert_eq!(parent_row.archived, case == "archived");
-            assert!(child_row.same_content(&original), "parent case {case} changed the child");
-            assert_eq!(
-                Summary::listed_under(&child_row, Some(&parent_row)),
-                hub.spawned_by(&child.meta()).is_some(),
-                "parent case {case}",
-            );
-        }
-        assert!(!Summary::listed_under(&original, None));
-    }
-
-    #[tokio::test]
-    async fn expired_archived_tag_is_not_copied_to_the_typed_row() {
-        let (hub, parent) = fixture(false).await;
-        hub.edit_test_meta(&parent, |meta| {
-            meta.tags.insert(
-                "archived".into(),
-                crate::store::Tag {
-                    value: "true".into(),
-                    expires_at: Some(crate::store::now_ms().saturating_sub(1)),
-                },
-            );
-        });
-        assert!(!summary_from_session(&hub, &parent).unwrap().archived);
-    }
-}
+#[path = "summary_tests.rs"]
+mod tests;

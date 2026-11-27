@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { failureKind } from "../failureCopy";
-import { classifyError, controlsIn, controlWay, etaIn, outOfAppWords, waitReason } from "./classify";
+import { classifyError, clockIn, controlsIn, controlWay, etaIn, outOfAppWords, waitReason } from "./classify";
 import { measureCloudErgonomics } from "./measure";
 import { cloudErgonomicsStates, KINDS, NOT_ON_CLOUD, TURN_FAILURE_FIXTURES, turnFailureRoute } from "./states";
 
@@ -54,7 +54,7 @@ test("words that send the person out of the pane: a command, a terminal, Setting
   expect(outOfAppWords([html("<p>Claude Code stopped.</p><details>run `claude /login`</details>")])).toBeUndefined();
 });
 
-test("a wait's reason is any words but a bare Thinking, and its ETA is the element marked as one", () => {
+test("a wait's reason is any words but a bare Thinking, its ETA the element marked as one, its clock the time", () => {
   const generic = new Set(["thinking"]);
   const bare = html(
     `<div class="cv-worked"><output class="cv-thinking">Thinking</output><span class="cv-worked__time">4s</span></div>`,
@@ -67,6 +67,13 @@ test("a wait's reason is any words but a bare Thinking, and its ETA is the eleme
   expect(waitReason([staged], generic)).toBe("Starting your Cloud machine");
   expect(etaIn([staged])).toBe("· usually under a minute");
   expect(etaIn([html(`<p>Waiting <span data-wait-eta>about 30 s</span></p>`)])).toBe("about 30 s");
+  // The Cloud start line now counts its seconds with no ETA: the clock is its time.
+  const counted = html(`<div><output class="cv-thinking">Copying your project</output>
+    <time class="cv-worked__time" data-stage-clock="true">1:05</time></div>`);
+  expect(waitReason([counted], generic)).toBe("Copying your project");
+  expect(etaIn([counted])).toBeUndefined();
+  expect(clockIn([counted])).toBe("1:05");
+  expect(clockIn([html(`<p>Waiting</p>`)])).toBeUndefined();
 });
 
 test("each turn failure fixture reads as its kind on a Cloud route, and every Cloud kind has one", () => {
@@ -87,10 +94,15 @@ test("a whole run renders every state and adds up", async () => {
   expect(report.waits_total).toBeGreaterThan(0);
   const byId = new Map(report.states.map((reading) => [reading.id, reading]));
   // Anchors that hold whatever the counts are: a retryable start offers Retry in the pane, a signed-out start
-  // signs in from the card, Cloud off by policy offers nothing, a rate limit leads with Retry.
+  // signs in from the card, Cloud off by policy runs the prompt on this Mac (in a sentence, never its code), a
+  // folder refusal picks another folder, a rate limit leads with Retry.
   expect(byId.get("cloud-start.cloud_start_failed.retryable")?.class).toBe("next-step");
   expect(byId.get("cloud-start.not_signed_in.timed-out")?.class).toBe("next-step");
-  expect(byId.get("cloud-start.cloud_disabled")?.class).toBe("dead-end");
+  expect(byId.get("cloud-start.cloud_disabled")?.class).toBe("next-step");
+  expect(byId.get("cloud-start.cloud_disabled")?.text).not.toContain("cloud_disabled");
+  expect(byId.get("cloud-start.cloud_folder_missing")?.class).toBe("next-step");
+  expect(byId.get("turn-failure.trust-pending")?.class).toBe("next-step");
+  expect(byId.get("repo-recovery.no-access")?.class).toBe("next-step");
   expect(byId.get("turn-failure.rate-limited")?.class).toBe("next-step");
   expect(byId.get("repo-recovery.ambiguous")?.class).toBe("next-step");
   // A start that is signing in says so; it gives no time, since that is the person's.

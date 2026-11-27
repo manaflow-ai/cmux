@@ -1,7 +1,7 @@
 # Review account: a working Chief with no Mac
 
-The cmux iOS app (`cmux-next-ios/`, which replaces the classic `ios/` app under the production App
-Store record) signs in and opens Home. The account's Hosted Chief has no `brain_place`: the Cloud
+The cmux iOS app (`cmux-next-ios/`; its App Store submission is cmux INTERNAL,
+`dev.cmux.app.internal`, ASC 6791408425) signs in and opens Home. The account's Hosted Chief has no `brain_place`: the Cloud
 Chief brain in the production API Worker (`cloud-api.cmux.dev`) answers it, so a reviewer needs no
 Mac, no pairing, no tailnet and no Cloud machine. This page is the operator setup that makes that
 Chief answer for the review account, and the steps the reviewer follows.

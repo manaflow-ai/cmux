@@ -12,7 +12,9 @@
 //! `lastSeq`. Once they are in, the chat's log is read again as after a restart (`log_load.rs`
 //! `settle_restored`): a turn the old machine was running when it went away is settled as cut
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
-//! resend of that id joins it instead of running it twice.
+//! resend of that id joins it instead of running it twice. The agent resumes its own session
+//! from that older disk too, so its next prompt carries the turns after where the journal ended
+//! (`SessionMeta::agent_behind_seq`, `transcript.rs` `missed_turns`).
 //!
 //! Design (sixth and seventh reviews of #37284): a restore is one exclusive operation on its
 //! chat, from the owner's first try until every record it holds is in and flushed, or the
@@ -53,46 +55,33 @@
 use super::*;
 use std::time::Duration;
 
+mod seams;
+#[cfg(any(debug_assertions, test))]
+use seams::note_taken;
+#[cfg(any(debug_assertions, test))]
+pub use seams::records_taken;
+use seams::test_flush_fails;
+#[cfg(debug_assertions)]
+use seams::test_pause;
+#[cfg(debug_assertions)]
+pub use seams::{fail_flush_once, pause_once_holding, test_paused};
+
 /// The most records one restore takes.
 pub const MAX_RECORDS: usize = 4096;
 
-/// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
-/// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. 918d2403's: the twenty-fifth review's F1
-/// and F2.
-pub(crate) const AT_918D: u8 = 1;
-/// 27f3761b's (the twenty-fourth review's F1 is missing too).
-pub(crate) const AT_27F3: u8 = 2;
-/// b7496c3f's (the twenty-third review's F1 and F2 are missing too).
-pub(crate) const AT_B749: u8 = 3;
-/// fd33a65b's (the twenty-second review's F1 and F2 are missing too).
-pub(crate) const AT_FD33: u8 = 4;
-/// 4bce04df's (the twenty-first review's F1 and F2 are missing too).
-pub(crate) const AT_4BCE: u8 = 5;
-/// c4a1c13b's (the twentieth review's F1 is missing too).
-pub(crate) const AT_C4A1: u8 = 6;
-/// 8b5f3063's (the nineteenth review's F1 to F3 are missing too).
-pub(crate) const AT_8B5F: u8 = 7;
-/// 77f91e5a's (the eighteenth review's F1 is missing too).
-pub(crate) const AT_77F9: u8 = 8;
-/// a088585e's (the sixteenth review's F1 to F3 are missing too).
-pub(crate) const AT_A088: u8 = 9;
-/// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 10;
-/// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 11;
-/// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 12;
-/// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 13;
-/// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 14;
+/// The `initialize` feature of a machine that takes a restore in pages (cmuxterm-hq
+/// `docs/design/remote-cloud-durability.md` 4.5, F19): a request whose `throughSeq` is past its
+/// last record is one page of a restore that ends there. The page goes in as any try does, and
+/// once it is in whole the try stops short on purpose: answered `append_failed` with `page:
+/// true` and its `lastSeq`, the chat held for the owner's next page (`RESTORE_HOLD`), and only
+/// the page that reaches `throughSeq` settles the log. So a link cut midway costs the page in
+/// flight, never the pages before it: the next link's restore goes on from where the journal
+/// ends. A machine without the feature takes the whole restore in one request, as before.
+pub const PAGES_FEATURE: &str = "journalRestorePages";
 
-#[cfg(test)]
-thread_local! {
-    /// Tests only: the rules this thread replays ([`AT_A088`] and earlier; 0: now).
-    pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
-}
+// The rule replay moved to `replay_rules.rs` (the store's cut reads it too); kept here by
+// its old paths.
+pub(crate) use crate::replay_rules::*;
 
 impl Hub {
     /// The rules this hub replays (tests only; 0 in a build).
@@ -185,79 +174,6 @@ impl Hub {
     }
 }
 
-fn thread_rules() -> u8 {
-    #[cfg(test)]
-    {
-        OLD_RULES.with(std::cell::Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        0
-    }
-}
-
-/// Whether this thread replays the rules of 91b1343d (tests only; never in a build): the
-/// copies' store and the restore's merge, which tests drive on their own thread.
-pub(crate) fn rules_of_91b() -> bool {
-    thread_rules() >= AT_91B
-}
-
-/// Whether this thread replays the rules of 918d2403 (tests only; never in a build).
-pub(crate) fn rules_of_918d() -> bool {
-    thread_rules() >= AT_918D
-}
-
-/// Whether this thread replays the rules of 27f3761b (tests only; never in a build).
-pub(crate) fn rules_of_27f3() -> bool {
-    thread_rules() >= AT_27F3
-}
-
-/// Whether this thread replays the rules of b7496c3f (tests only; never in a build): the
-/// store's cut of a journal (`store/compact.rs`), which runs on the restore's thread.
-pub(crate) fn rules_of_b749() -> bool {
-    thread_rules() >= AT_B749
-}
-
-/// Whether this thread replays the rules of fd33a65b (tests only; never in a build).
-pub(crate) fn rules_of_fd33() -> bool {
-    thread_rules() >= AT_FD33
-}
-
-/// Whether this thread replays the rules of 4bce04df (tests only; never in a build).
-pub(crate) fn rules_of_4bce() -> bool {
-    thread_rules() >= AT_4BCE
-}
-
-/// Whether this thread replays the rules of c4a1c13b (tests only; never in a build).
-pub(crate) fn rules_of_c4a1() -> bool {
-    thread_rules() >= AT_C4A1
-}
-
-/// Whether this thread replays the rules of 8b5f3063 (tests only; never in a build).
-pub(crate) fn rules_of_8b5f() -> bool {
-    thread_rules() >= AT_8B5F
-}
-
-/// Whether this thread replays the rules of 77f91e5a (tests only; never in a build).
-pub(crate) fn rules_of_77f9() -> bool {
-    thread_rules() >= AT_77F9
-}
-
-/// Whether this thread replays the rules of a088585e (tests only; never in a build).
-pub(crate) fn rules_of_a088() -> bool {
-    thread_rules() >= AT_A088
-}
-
-/// Whether this thread replays the rules of 07f76930 (tests only; never in a build).
-pub(crate) fn rules_of_07f7() -> bool {
-    thread_rules() >= AT_07F7
-}
-
-/// Whether this thread replays the rules of 4dcbe192 (tests only; never in a build).
-pub(crate) fn rules_of_4dcb() -> bool {
-    thread_rules() >= AT_4DCB
-}
-
 impl Hub {
     pub async fn journal_restore(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let id = params
@@ -281,6 +197,8 @@ impl Hub {
                 "at most {MAX_RECORDS} records restore at once"
             )));
         }
+        #[cfg(any(debug_assertions, test))]
+        note_taken(id, raw.len());
         let mut records = Vec::with_capacity(raw.len());
         let mut last = after;
         for r in raw {
@@ -343,13 +261,15 @@ impl Hub {
         let hub = self.clone();
         let held = session.clone();
         let files = files_of(params)?;
+        // A page of a longer restore names where the whole restore ends ([`PAGES_FEATURE`]).
+        let through = params.get("throughSeq").and_then(Value::as_u64);
         let old = self.at_ff3d();
         let result = blocking(move || {
             // ff3da306 wrote the files before it decided (review of #37284 at ff3da306, F2).
             if old {
                 restore_files(&held, &files, true)?;
             }
-            hub.restore_records(&held, after, records, resumed, &files)
+            hub.restore_records(&held, after, records, resumed, &files, through)
         });
         // (5) Stopped short: the chat stays held for the owner's next try, at most
         // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
@@ -372,6 +292,7 @@ impl Hub {
         records: Vec<EventRecord>,
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through: Option<u64>,
     ) -> Result<Value, RpcError> {
         // The chat's log is read first, now, when a deferred start has not read it yet (review
         // of #37284 at 98b4575a, F3): the restore settles the log it writes into, and only then
@@ -386,7 +307,7 @@ impl Hub {
         if !*loaded {
             return Err(refused("busy", "this chat's log is not read yet", session));
         }
-        let result = self.write_restored(session, after, &records, resumed, files);
+        let result = self.write_restored(session, after, &records, resumed, files, through);
         if result.as_ref().is_err_and(|e| reason_of(e) != Some("append_failed")) {
             self.recover_pending(session, None);
         }
@@ -405,6 +326,7 @@ impl Hub {
         records: &[EventRecord],
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through_seq: Option<u64>,
     ) -> Result<Value, RpcError> {
         let old = self.at_ff3d();
         let (at, failed, flush_failed) = {
@@ -543,10 +465,20 @@ impl Hub {
             }
             let last = durable.iter().map(|r| r.seq).max().unwrap_or(at);
             meta.last_seq = last;
+            // The agent's own session came from the same disk as this journal: it ends where
+            // the journal did, and its next prompt carries the turns after (`transcript.rs`).
+            if last > at {
+                meta.agent_behind_seq = Some(meta.agent_behind_seq.map_or(at, |s| s.min(at)));
+            }
             drop(meta);
             session.seq.store(last, Ordering::SeqCst);
             (at, failed, flushed.err())
         };
+        // The records put back dated the chat and moved its counts with no record of the hub's
+        // own: told before the next list read, so the kept list order places it again
+        // (`list_order.rs`) and the usage pass finds it among the chats of the last day
+        // (`usage_view.rs`).
+        self.events.row_changed(session);
         // Its counts and end are on disk before it answers, or it stops short (review of #37284
         // at a088585e: a failed save was logged, and the restore answered done).
         if !self.at_a088()
@@ -561,11 +493,21 @@ impl Hub {
             self.save_meta(session);
         }
         let last = session.seq.load(Ordering::SeqCst);
-        let through = records.last().map_or(after, |r| r.seq);
+        let page_end = records.last().map_or(after, |r| r.seq);
+        // A page of a longer restore ([`PAGES_FEATURE`]) ends where the whole restore does.
+        let through = page_end.max(through_seq.unwrap_or(0));
         // Only every record in and flushed to stable storage is a restore: until then nothing
         // settles the log, and the owner keeps its copy and delivers nothing again
         // (`peer_snapshot/restore.rs`). A flush that failed fails it however far the log reads.
         let short = last < through;
+        // A page taken whole is a try that stopped short on purpose: held for the next page,
+        // as a try the disk stopped is, and the owner goes on from `lastSeq`. It returns before
+        // anything below (the parked records, `recover_pending`, `settle_restored`), and its
+        // `append_failed` keeps `restore_records` from recovering: no record but the copy's goes
+        // in between pages, so the next page starts where this one ended.
+        if short && flush_failed.is_none() && failed.is_none() && last >= page_end {
+            return Err(page_taken(session, last, through));
+        }
         if let Some(e) = flush_failed
             .or_else(|| failed.filter(|_| short))
             .or_else(|| short.then(|| anyhow::anyhow!("the journal ends at {last}, not {through}")))
@@ -804,13 +746,19 @@ fn files_of(params: &Value) -> Result<Vec<(std::path::PathBuf, Vec<u8>)>, RpcErr
 }
 
 /// `path` when it is a file in chat `id`'s uploads folder (`hub/file_uploads.rs`): absolute,
-/// under it, with no `..`.
-fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
+/// under it, with no `..`. A Windows drive-qualified path leads with a `Prefix` component, which
+/// is as plain as the root: `starts_with` below still holds it to the chat's folder.
+pub(super) fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
     let root = super::file_uploads::session_dir(id)?;
     let path = std::path::PathBuf::from(path);
-    let plain = path
-        .components()
-        .all(|c| matches!(c, std::path::Component::RootDir | std::path::Component::Normal(_)));
+    let plain = path.components().all(|c| {
+        matches!(
+            c,
+            std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+                | std::path::Component::Normal(_)
+        )
+    });
     (plain && path.is_absolute() && path.starts_with(&root) && path != root).then_some(path)
 }
 
@@ -1018,6 +966,14 @@ fn reason_of(e: &RpcError) -> Option<&str> {
     e.data.as_ref()?.get("reason")?.as_str()
 }
 
+/// One page of a longer restore went in whole: the answer of a try that stopped short
+/// (`append_failed`, so the chat is held for the next page), marked `page`, at `last`.
+fn page_taken(session: &Session, last: u64, through: u64) -> RpcError {
+    tracing::debug!(session = %session.id, last, through, "journal restore: a page went in");
+    RpcError::internal(format!("journal restore: a page went in, through {last} of {through}"))
+        .with_data(json!({"reason": "append_failed", "lastSeq": last, "page": true}))
+}
+
 fn stopped(session: &Session, e: &anyhow::Error) -> RpcError {
     tracing::warn!(session = %session.id, "journal restore stopped: {e:#}");
     let last = session.seq.load(Ordering::SeqCst);
@@ -1156,63 +1112,4 @@ fn test_between_records(id: &str) {
     if let Some(crash) = crash {
         crash();
     }
-}
-
-/// Debug builds only: the restore of chat `id` waits `ms` once it holds the chat, so a test can
-/// send a prompt in that window ([`test_paused`] says when it is in it).
-#[cfg(debug_assertions)]
-static PAUSE: std::sync::Mutex<Option<(String, u64, bool)>> = std::sync::Mutex::new(None);
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn pause_once_holding(id: &str, ms: u64) {
-    *PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), ms, false));
-}
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn test_paused() -> bool {
-    PAUSE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|p| p.2)
-}
-
-#[cfg(debug_assertions)]
-async fn test_pause(id: &str) {
-    let ms = {
-        let mut pause = PAUSE.lock().unwrap_or_else(|e| e.into_inner());
-        match pause.as_mut() {
-            Some(p) if p.0 == id && !p.2 => {
-                p.2 = true;
-                p.1
-            }
-            _ => return,
-        }
-    };
-    tokio::time::sleep(Duration::from_millis(ms)).await;
-    *PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-}
-
-/// Debug builds only: the next flush of a restore of chat `id` fails (a disk whose fsync fails),
-/// after every record is written.
-#[cfg(debug_assertions)]
-static FLUSH_FAILS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn fail_flush_once(id: &str) {
-    *FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
-}
-
-#[cfg(debug_assertions)]
-fn test_flush_fails(id: &str) -> bool {
-    let mut armed = FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner());
-    let fails = armed.as_deref() == Some(id);
-    if fails {
-        *armed = None;
-    }
-    fails
-}
-
-#[cfg(not(debug_assertions))]
-fn test_flush_fails(_: &str) -> bool {
-    false
 }

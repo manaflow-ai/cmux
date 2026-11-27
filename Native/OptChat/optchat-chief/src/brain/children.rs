@@ -18,6 +18,8 @@ use super::{Brain, Source};
 use crate::acpmux::AgentEvent;
 use crate::state::{ChildRecord, ChildStatus};
 
+pub(super) const NO_REPLY_TEXT: &str = "(no reply text)";
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
@@ -86,6 +88,7 @@ impl Brain {
                 }
                 self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
+                self.catch_up_background();
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();
@@ -99,6 +102,9 @@ impl Brain {
                     Some("the acpmux daemon ended (sessions were ended); the host stops".into());
             }
             AgentEvent::SessionChanged(session) => self.on_session(session),
+            AgentEvent::BackgroundTurn { session_id, state } => {
+                self.on_background_turn(&session_id, &state)
+            }
             AgentEvent::Permission {
                 session_id,
                 permission_id,
@@ -442,7 +448,7 @@ impl Brain {
             Ok(events) => {
                 let (mut replies, last_end, _) = ended_replies(&events);
                 if replies.is_empty() {
-                    replies.push("(no reply text)".to_owned());
+                    replies.push(NO_REPLY_TEXT.to_owned());
                 }
                 let text = replies
                     .iter()
@@ -516,9 +522,10 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         for output in folder.apply(event) {
             match output {
                 TurnOutput::Started { .. } => cuts.clear(),
-                // A `/goal` subagent's hold turn only says `ready` (goal.rs):
-                // its run goes on in the goal turn, so it neither reports nor
-                // ends. One that was stopped or failed gets no goal turn: it ends.
+                // The hold turn of a subagent started before the one-prompt
+                // start (goal.rs) only said `ready`: its run went on in the
+                // goal turn, so it neither reports nor ends. One that was
+                // stopped or failed got no goal turn: it ends.
                 TurnOutput::Ended {
                     turn, error: None, ..
                 } if !stopped && crate::goal::is_hold_prompt(turn.prompt_id.as_deref()) => {
@@ -543,6 +550,257 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
         }
     }
     (replies, last_end, cancelled)
+}
+
+/// The goal snapshot of a `session_info_update` (`_meta.goal`; null when
+/// cleared), if `event` is one.
+fn goal_of(event: &AcpmuxEvent) -> Option<&Value> {
+    event.msg.get("params")?.pointer("/update/_meta/goal")
+}
+
+/// Whether the session reported a goal in `events` (Codex's own, set from
+/// the stop condition: goal.rs).
+/// Whether a prompt came after seq `end` in `events` (acpmux logs `user_message` when a prompt
+/// is taken, `turn_started` when it runs): the turn that ended at `end` is not the run's end,
+/// the next one is. A Chief restart cuts a turn, and the Chief's next prompt can be queued behind
+/// it before the reopened session's idle reaches the host.
+/// A prompt acpmux refused or took back out of its queue (`prompt_refused`, `queue_removed`)
+/// starts no turn, so it does not count.
+pub(super) fn prompt_after(events: &[AcpmuxEvent], end: u64) -> bool {
+    let id = |e: &AcpmuxEvent| {
+        e.msg
+            .get("promptId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let dropped: Vec<String> = events
+        .iter()
+        .filter(|e| e.dir == "mux" && matches!(e.kind.as_str(), "prompt_refused" | "queue_removed"))
+        .filter_map(id)
+        .collect();
+    events.iter().any(|e| {
+        e.seq > end
+            && e.dir == "mux"
+            && match e.kind.as_str() {
+                "turn_started" => true,
+                "user_message" => id(e).is_none_or(|p| !dropped.contains(&p)),
+                _ => false,
+            }
+    })
+}
+
+/// Whether every prompt in `events` (at least one) was an acpmux notice (`user_message` whose
+/// `_meta.provenance.kind` is `notice`: a background command of its own finished, a watch
+/// fired), none the Chief's or the person's.
+/// acpmux batches notices that arrive together into one `agent_digest` prompt whose messages are
+/// each a notice (live, Nov 18: most notices came that way); it counts as a notice too.
+pub(super) fn notice_only(events: &[AcpmuxEvent]) -> bool {
+    let mut prompts = events
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "user_message")
+        .peekable();
+    prompts.peek().is_some() && prompts.all(|e| is_notice(&e.msg))
+}
+
+pub(super) fn has_task_prompt(events: &[AcpmuxEvent]) -> bool {
+    events
+        .iter()
+        .any(|event| event.dir == "mux" && event.kind == "user_message" && !is_notice(&event.msg))
+}
+
+fn is_notice(msg: &serde_json::Map<String, Value>) -> bool {
+    let Some(provenance) = msg.get("_meta").and_then(|m| m.get("provenance")) else {
+        return false;
+    };
+    match provenance.get("kind").and_then(Value::as_str) {
+        Some("notice") => true,
+        Some("agent_digest") => provenance
+            .get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|m| {
+                !m.is_empty()
+                    && m.iter().all(|x| {
+                        x.pointer("/provenance/kind").and_then(Value::as_str) == Some("notice")
+                    })
+            }),
+        _ => false,
+    }
+}
+
+/// The most background work a subagent record keeps (a leak never grows it).
+const BACKGROUND_KEPT: usize = 64;
+
+/// A subagent's background work still pending after `events`, from `pending` (what was pending
+/// before them): the harness's background shells and monitors (acpmux `process_update`, Claude
+/// Code and Codex alike: `running` adds its id, any other state removes it) and the daemon's
+/// tasks (`bg_start`: a `bg-…` id in its result adds it; its notice, or a `bg_stop` naming it,
+/// removes it). Work pending when a run ends will wake the subagent again with a notice
+/// (tests/subagent_waiting.rs).
+pub(super) fn background_after(pending: &[String], events: &[AcpmuxEvent]) -> Vec<String> {
+    let mut out: Vec<String> = pending.to_vec();
+    let add = |out: &mut Vec<String>, id: String| {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    };
+    for e in events {
+        match (e.dir.as_str(), e.kind.as_str()) {
+            ("mux", "process_update") => {
+                let Some(p) = e.msg.get("process") else {
+                    continue;
+                };
+                let Some(id) = p.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if p.get("state").and_then(Value::as_str) == Some("running") {
+                    add(&mut out, id.to_owned());
+                } else {
+                    out.retain(|x| x != id);
+                }
+            }
+            ("in", "tool_call" | "tool_call_update") => {
+                let text = Value::Object(e.msg.clone()).to_string();
+                let started = e.kind == "tool_call_update" && text.contains("bg_start");
+                let stopped = text.contains("bg_stop");
+                if !(started || stopped) {
+                    continue;
+                }
+                for id in bg_ids(&text) {
+                    if stopped {
+                        out.retain(|x| *x != id);
+                    } else {
+                        add(&mut out, id);
+                    }
+                }
+            }
+            ("mux", "user_message") => {
+                for id in notice_task_ids(&e.msg) {
+                    out.retain(|x| *x != id);
+                }
+            }
+            _ => {}
+        }
+    }
+    let excess = out.len().saturating_sub(BACKGROUND_KEPT);
+    out.drain(..excess);
+    out
+}
+
+/// The daemon task ids (`bg-` and 12 hex digits) in `text`.
+fn bg_ids(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(k) = text[i..].find("bg-") {
+        let start = i + k;
+        let id = &bytes[start + 3..(start + 15).min(bytes.len())];
+        let before = start.checked_sub(1).map(|b| bytes[b]);
+        let after = bytes.get(start + 15).copied();
+        let word = |c: Option<u8>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'-');
+        if id.len() == 12 && id.iter().all(u8::is_ascii_hexdigit) && !word(before) && !word(after) {
+            let id = text[start..start + 15].to_owned();
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+        i = start + 3;
+    }
+    out
+}
+
+/// The daemon tasks a notice prompt says ended: `bgTaskId` of the notice, or of each notice in
+/// a digest, and the `bg-done-<id>` prompt ids.
+fn notice_task_ids(msg: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut take = |v: Option<&Value>| {
+        if let Some(id) = v.and_then(Value::as_str) {
+            out.push(id.trim_start_matches("bg-done-").to_owned());
+        }
+    };
+    take(msg.get("promptId"));
+    let provenance = msg.get("_meta").and_then(|m| m.get("provenance"));
+    take(provenance.and_then(|p| p.get("bgTaskId")));
+    for m in provenance
+        .and_then(|p| p.get("messages"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        take(m.pointer("/provenance/bgTaskId"));
+        take(m.get("promptId"));
+    }
+    out
+}
+
+pub(super) fn has_goal(events: &[AcpmuxEvent]) -> bool {
+    events
+        .iter()
+        .any(|e| goal_of(e).is_some_and(|g| !g.is_null()))
+}
+
+/// The state of an acpmux `background_turn` record (`started` / `ended`):
+/// a turn the agent ran by itself.
+fn background_state(event: &AcpmuxEvent) -> Option<&str> {
+    (event.dir == "mux" && event.kind == "background_turn")
+        .then(|| event.msg.get("state").and_then(Value::as_str))
+        .flatten()
+}
+
+/// The seq and final words of the last background turn that ended in
+/// `events` (its words after its last own tool call), when it said any.
+pub(super) fn last_background_reply(events: &[AcpmuxEvent]) -> Option<(u64, String)> {
+    let mut text: Option<String> = None;
+    let mut last = None;
+    for event in events {
+        match background_state(event) {
+            Some("started") => text = Some(String::new()),
+            Some("ended") => {
+                if let Some(t) = text.take()
+                    && !t.trim().is_empty()
+                {
+                    last = Some((event.seq, t.trim().to_owned()));
+                }
+            }
+            _ => {
+                let Some(t) = text.as_mut() else { continue };
+                if is_own_tool_call(event) {
+                    t.clear();
+                } else if event.kind == "agent_message_chunk"
+                    && let Some(words) = event
+                        .msg
+                        .get("params")
+                        .and_then(|p| p.pointer("/update/content/text"))
+                        .and_then(Value::as_str)
+                {
+                    t.push_str(words);
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Whether the session's goal goes on in `events`: its last goal snapshot
+/// has status `active`, or a turn it ran by itself is still open (Codex
+/// marks the goal complete inside its last turn and says its final words
+/// after). Never once its last event is older than `quiet` at `now` (one
+/// with no time counts as young), so a goal Codex dropped holds no one
+/// forever. Codex (codex-acp 1.10.0) runs its next turns toward an active
+/// goal itself, so a turn end then is not the subagent's end.
+pub(super) fn goal_goes_on(events: &[AcpmuxEvent], now: u64, quiet: std::time::Duration) -> bool {
+    let active = events
+        .iter()
+        .rev()
+        .find_map(goal_of)
+        .is_some_and(|goal| goal.get("status").and_then(Value::as_str) == Some("active"));
+    let open =
+        has_goal(events) && events.iter().rev().find_map(background_state) == Some("started");
+    let young = events
+        .iter()
+        .rev()
+        .find_map(|e| e.at)
+        .is_none_or(|at| now.saturating_sub(at) < quiet.as_millis() as u64);
+    (active || open) && young
 }
 
 /// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
@@ -581,7 +839,7 @@ pub(super) fn report_of(replies: &[String], cancelled: bool) -> String {
     let last = replies.last().map_or("", |r| r.as_str());
     if !cancelled {
         return if last.is_empty() {
-            "(no reply text)".to_owned()
+            NO_REPLY_TEXT.to_owned()
         } else {
             last.to_owned()
         };

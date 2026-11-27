@@ -54,6 +54,11 @@ impl Hub {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
+        // A harness's name (`claude`) no session has as its name or id is no one session's key,
+        // whatever starts with it (`harness_key.rs`).
+        if let Some(refusal) = self.harness_key_refusal(key, &own) {
+            return Err(refusal);
+        }
         if let Some((host, rest)) = key.split_once('/').filter(|(_, rest)| !rest.is_empty()) {
             // `HOST/NAME` with a peer's or this machine's exact name, and a qualified id: an
             // exact name or id is read as before (`own_host.rs`, `resolve_remote`); a name in
@@ -67,7 +72,22 @@ impl Hub {
                 return self.name_on(&Machine::Here(own), key, rest, true);
             }
         }
+        // A session as `acpmux ls` printed it (`HANDLE · NAME`, `ALIAS · NAME`, a cell cut
+        // short with `…`): the one session that row is, here or on a peer.
+        if let Some(found) = self.shown_candidates(key, &own) {
+            return pick(key, &found).map(|c| c.map(|c| c.route.clone()));
+        }
         let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
+        // No session anywhere has it as its name, in any case: one that had it before a rename
+        // (`former_names.rs`), here or on a peer, ahead of prefixes and short names.
+        if named.is_empty() && cased.is_empty() {
+            if let Some(route) = self.former_route_here(key)? {
+                return Ok(Some(route));
+            }
+            if let Some(route) = self.former_remote_route(key).transpose()? {
+                return Ok(Some(route));
+            }
+        }
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a
@@ -101,13 +121,7 @@ impl Hub {
         rest: &str,
         own: &str,
     ) -> Result<Option<Machine>, RpcError> {
-        let mut hosts: Vec<String> = self
-            .peers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .cloned()
-            .collect();
+        let mut hosts: Vec<String> = self.peers.load().keys().cloned().collect();
         hosts.extend(self.remote_sessions.read().values().map(|r| r.peer.clone()));
         hosts.sort();
         hosts.dedup();
@@ -174,19 +188,42 @@ impl Hub {
         // The whole name's steps first, then a sub-session's short name by the same steps
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
-        let mut found: Vec<(Option<(bool, Step)>, Candidate)> = Vec::new();
-        let mut take = |host: &str, name: &str, id: &str, route: String, closed: bool| {
-            let at = if name == rest || id.starts_with(rest) {
+        let mut found = Vec::new();
+        let mut take = |host: &str,
+                        name: &str,
+                        alias: Option<&str>,
+                        id: &str,
+                        handle: Option<&str>,
+                        route: &str,
+                        closed: bool| {
+            let spoken = alias.map(crate::session_handle::spoken_alias);
+            let legacy_exact = name == rest || alias == Some(rest) || id.starts_with(rest);
+            let at = if legacy_exact
+                || spoken.as_deref() == Some(rest)
+                || crate::session_handle::matches(handle, id, rest)
+            {
                 Some((false, Step::Exact))
             } else {
-                crate::name_match::step(name, rest)
-                    .map(|at| (false, at))
-                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+                [
+                    crate::name_match::step(name, rest),
+                    spoken.as_deref().and_then(|alias| crate::name_match::step(alias, rest)),
+                ]
+                .into_iter()
+                .flatten()
+                .min()
+                .map(|at| (false, at))
+                .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
-            if at.is_some() {
+            if let Some(at) = at {
                 found.push((
                     at,
-                    Candidate { host: host.to_owned(), name: name.to_owned(), route, closed },
+                    legacy_exact,
+                    Candidate {
+                        host: host.to_owned(),
+                        name: name.to_owned(),
+                        route: route.to_owned(),
+                        closed,
+                    },
                 ));
             }
         };
@@ -199,8 +236,10 @@ impl Hub {
                     take(
                         own,
                         &meta.name,
+                        meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
                         &s.id,
-                        s.id.clone(),
+                        meta.handle.as_deref(),
+                        &s.id,
                         meta.status == SessionStatus::Closed,
                     );
                 }
@@ -212,21 +251,29 @@ impl Hub {
                     let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
                     let closed = r.summary.closed();
-                    take(peer, bare, &r.receipt.mux_session_id, route.clone(), closed);
+                    take(
+                        peer,
+                        bare,
+                        r.summary.alias(),
+                        &r.receipt.mux_session_id,
+                        r.summary.handle(),
+                        route,
+                        closed,
+                    );
                 }
             }
         }
-        let Some(first) = found.iter().filter_map(|(at, _)| *at).min() else {
+        let Some(first) = found.iter().map(|(at, _, _)| *at).min() else {
             return Ok(match machine {
                 Machine::Peer(peer) if !exact => Some(format!("{peer}/{rest}")),
                 _ => None,
             });
         };
-        if exact && first == (false, Step::Exact) {
+        let best = found.into_iter().filter(|(at, _, _)| *at == first).collect::<Vec<_>>();
+        if exact && best.iter().all(|(_, legacy_exact, _)| *legacy_exact) {
             return Ok(None);
         }
-        let tier: Vec<Candidate> =
-            found.into_iter().filter(|(at, _)| *at == Some(first)).map(|(_, c)| c).collect();
+        let tier: Vec<Candidate> = best.into_iter().map(|(_, _, c)| c).collect();
         pick(key, &tier).map(|c| c.map(|c| c.route.clone()))
     }
 
@@ -243,28 +290,49 @@ impl Hub {
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
         let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, here: bool| {
-            if name == key || id.starts_with(key) {
-                return Some(0);
-            }
-            let at = crate::name_match::step(name, key);
-            if at == Some(Step::Case) {
-                Some(1)
-            } else if here && at == Some(Step::Prefix) {
-                Some(2)
-            } else if crate::session_name::ends_with_segments(name, key) {
-                Some(3)
-            } else {
-                match (at, crate::name_match::short_step(name, key)) {
-                    (_, Some(Step::Exact | Step::Case)) => Some(4),
-                    (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
-                    _ => None,
+        let tier_of =
+            |name: &str, alias: Option<&str>, id: &str, handle: Option<&str>, here: bool| {
+                // A broker's alias tag spells its spaces `+`; `acpmux ls` prints the spaces.
+                let spoken = alias.map(crate::session_handle::spoken_alias);
+                if name == key
+                    || alias == Some(key)
+                    || spoken.as_deref() == Some(key)
+                    || id.starts_with(key)
+                    || crate::session_handle::matches(handle, id, key)
+                {
+                    return Some(0);
                 }
-            }
-        };
+                let at = [
+                    crate::name_match::step(name, key),
+                    spoken.as_deref().and_then(|alias| crate::name_match::step(alias, key)),
+                ]
+                .into_iter()
+                .flatten()
+                .min();
+                if at == Some(Step::Case) {
+                    Some(1)
+                } else if here && at == Some(Step::Prefix) {
+                    Some(2)
+                } else if crate::session_name::ends_with_segments(name, key) {
+                    Some(3)
+                } else {
+                    match (at, crate::name_match::short_step(name, key)) {
+                        (_, Some(Step::Exact | Step::Case)) => Some(4),
+                        (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
+                        _ => None,
+                    }
+                }
+            };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(tier) = tier_of(&meta.name, &s.id, true).and_then(|t| tiers.get_mut(t)) else {
+            let Some(tier) = tier_of(
+                &meta.name,
+                meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
+                &s.id,
+                meta.handle.as_deref(),
+                true,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -277,9 +345,14 @@ impl Hub {
         for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            let Some(tier) =
-                tier_of(bare, &r.receipt.mux_session_id, false).and_then(|t| tiers.get_mut(t))
-            else {
+            let Some(tier) = tier_of(
+                bare,
+                r.summary.alias(),
+                &r.receipt.mux_session_id,
+                r.summary.handle(),
+                false,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -290,6 +363,60 @@ impl Hub {
             });
         }
         tiers
+    }
+}
+
+impl Hub {
+    /// The sessions `key` names when it is a row's first cell from `acpmux ls`
+    /// (`cli/ls_table.rs`): `HANDLE · NAME` or `ALIAS · NAME` (both halves must name the same
+    /// session; either may be cut short with `…`), or an alias or name cut short with `…`.
+    /// `None` when `key` is no such cell or no session shows it, so the usual rules read it.
+    fn shown_candidates(&self, key: &str, own: &str) -> Option<Vec<Candidate>> {
+        use crate::session_handle::{matches, shown_matches, spoken_alias};
+        let halves = key.split_once(" · ").map(|(l, r)| (l.trim(), r.trim()));
+        if halves.is_none() && !key.ends_with('…') {
+            return None;
+        }
+        let shows = |name: &str, alias: Option<&str>, id: &str, handle: Option<&str>| {
+            let alias = alias.map(spoken_alias);
+            match halves {
+                Some((left, right)) => {
+                    shown_matches(right, name)
+                        && (matches(handle, id, left)
+                            || alias.as_deref().is_some_and(|a| shown_matches(left, a)))
+                }
+                None => {
+                    shown_matches(key, name)
+                        || alias.as_deref().is_some_and(|a| shown_matches(key, a))
+                }
+            }
+        };
+        let mut found = Vec::new();
+        for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
+            if shows(&meta.name, alias, &s.id, meta.handle.as_deref()) {
+                found.push(Candidate {
+                    host: own.to_owned(),
+                    name: meta.name.clone(),
+                    route: s.id.clone(),
+                    closed: meta.status == SessionStatus::Closed,
+                });
+            }
+        }
+        for (route, r) in self.remote_sessions.read().iter() {
+            let name = r.summary.name().unwrap_or_default();
+            let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
+            if shows(bare, r.summary.alias(), &r.receipt.mux_session_id, r.summary.handle()) {
+                found.push(Candidate {
+                    host: r.peer.clone(),
+                    name: bare.to_owned(),
+                    route: route.clone(),
+                    closed: r.summary.closed(),
+                });
+            }
+        }
+        (!found.is_empty()).then_some(found)
     }
 }
 
@@ -314,12 +441,11 @@ pub(crate) fn pick<'a>(
     }
 }
 
-/// The refusal for `key` naming several sessions: each as `HOST/NAME`, or its route when two
-/// share that.
-fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
+/// A refusal's `choices`: each candidate's host, name, route, status and the key to `use`
+/// instead (its `HOST/NAME`, or its route when two share that).
+pub(super) fn choices(many: &[&Candidate]) -> Vec<Value> {
     let qualified = |c: &Candidate| format!("{}/{}", c.host, c.name);
-    let choices: Vec<Value> = many
-        .iter()
+    many.iter()
         .map(|c| {
             let unique = many.iter().filter(|o| qualified(o) == qualified(c)).count() == 1;
             json!({
@@ -330,7 +456,13 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
                 "use": if unique { qualified(c) } else { c.route.clone() },
             })
         })
-        .collect();
+        .collect()
+}
+
+/// The refusal for `key` naming several sessions: each as `HOST/NAME`, or its route when two
+/// share that.
+fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
+    let choices = choices(many);
     let mut list: Vec<String> =
         choices.iter().take(SHOWN).filter_map(|c| c["use"].as_str()).map(str::to_owned).collect();
     if many.len() > SHOWN {
@@ -352,190 +484,5 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
 mod fold_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session_identity::SessionReceipt;
-
-    pub(super) fn test_hub() -> Arc<Hub> {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        Hub::new(cfg, store)
-    }
-
-    /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
-    pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
-        let row = RemoteSession {
-            peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
-                .into(),
-            receipt: SessionReceipt {
-                host_id: peer.into(),
-                mux_session_id: id.into(),
-                agent_session_id: None,
-                generation: 1,
-            },
-        };
-        hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
-    }
-
-    pub(super) async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
-        let start = NewRequest {
-            name: Some(name.into()),
-            cwd: Some(std::env::temp_dir()),
-            ..NewRequest::default()
-        };
-        hub.new_session(start).await.unwrap()
-    }
-
-    #[tokio::test]
-    async fn a_bare_name_only_a_peer_has_routes_to_that_peer() {
-        let hub = test_hub();
-        list(&hub, "hb", "0199aaaa-1111", "acpmux-owner", "idle");
-        list(&hub, "cmux16", "0199bbbb-2222", "builder", "idle");
-        assert_eq!(hub.key_route("acpmux-owner").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
-        assert_eq!(hub.key_route("nobody").unwrap(), None);
-        // `HOST/NAME` names it too (`hb` is no configured peer here, only a host its rows name, so
-        // the key is routed rather than left to the exact lookup a configured peer gets).
-        assert_eq!(hub.key_route("hb/acpmux-owner").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
-    }
-
-    #[tokio::test]
-    async fn a_name_on_this_machine_and_a_peer_is_refused_never_picked() {
-        let hub = test_hub();
-        let here = named(&hub, "review").await;
-        list(&hub, "hb", "0199aaaa-1111", "review", "running");
-        let e = hub.key_route("review").unwrap_err();
-        let data = e.data.clone().unwrap();
-        assert_eq!(data["reason"], AMBIGUOUS, "{e:?}");
-        let routes: Vec<&str> = data["choices"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|c| c["route"].as_str())
-            .collect();
-        assert!(
-            routes.contains(&here.id.as_str()) && routes.contains(&"hb/0199aaaa-1111"),
-            "{e:?}"
-        );
-        assert!(e.message.contains("hb/review"), "{}", e.message);
-        // The session's own id still names it alone.
-        assert_eq!(hub.key_route(&here.id).unwrap(), None);
-    }
-
-    #[tokio::test]
-    async fn an_id_prefix_names_a_peers_session_or_one_here() {
-        let hub = test_hub();
-        list(&hub, "hb", "0199aaaa-1111-7000", "builder", "idle");
-        list(&hub, "hb", "0199cccc-3333-7000", "other", "idle");
-        assert_eq!(hub.key_route("0199aaaa").unwrap().as_deref(), Some("hb/0199aaaa-1111-7000"));
-        let here = named(&hub, "lane").await;
-        assert_eq!(hub.key_route(&here.id[..12]).unwrap().as_deref(), Some(here.id.as_str()));
-        // A prefix several sessions share is refused like a shared name.
-        assert_eq!(hub.key_route("0199").unwrap_err().data.unwrap()["reason"], AMBIGUOUS);
-        // A prefix of a peer's name is no route there.
-        assert_eq!(hub.key_route("build").unwrap(), None);
-        // A name here and another session's id prefix are one tier: a tie, not the name.
-        named(&hub, "0199aaaa").await;
-        let e = hub.key_route("0199aaaa").unwrap_err();
-        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
-    }
-
-    /// A sub-session's short name is the last tier, on every host: one is routed, two tie with
-    /// each `HOST/NAME`, and a whole name or a name here starting with the key wins.
-    #[tokio::test]
-    async fn a_short_name_routes_to_its_one_sub_session_on_any_host() {
-        let hub = test_hub();
-        list(&hub, "hb", "0199aaaa-1111", "coord/lane-3", "idle");
-        assert_eq!(hub.key_route("lane-3").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
-        let here = named(&hub, "boss/lane-3").await;
-        let e = hub.key_route("lane-3").unwrap_err();
-        let uses: Vec<String> = e.data.unwrap()["choices"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|c| c["use"].as_str().map(str::to_owned))
-            .collect();
-        assert!(uses.contains(&"hb/coord/lane-3".to_owned()), "{uses:?}");
-        assert!(uses.iter().any(|u| u.ends_with("/boss/lane-3")), "{uses:?} {}", here.id);
-        // `ci-3` is no segment of either name.
-        assert_eq!(hub.key_route("ci-3").unwrap(), None);
-        let whole = named(&hub, "lane-3x").await;
-        assert_eq!(hub.key_route("lane-3").unwrap().as_deref(), Some(whole.id.as_str()));
-    }
-
-    /// Review of #28000: a sub-session's whole name has a `/`, and is routed like any name.
-    #[tokio::test]
-    async fn a_sub_sessions_whole_name_is_routed_across_hosts_too() {
-        let hub = test_hub();
-        list(&hub, "hb", "0199aaaa-1111", "coord/lane", "idle");
-        assert_eq!(hub.key_route("coord/lane").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
-        // A prefix of it names nothing.
-        assert_eq!(hub.key_route("coord/la").unwrap(), None);
-        named(&hub, "coord/lane").await;
-        let e = hub.key_route("coord/lane").unwrap_err();
-        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
-        // `local/ID` and this machine's own `HOST/NAME` stay exact.
-        assert_eq!(hub.key_route("local/0199aaaa").unwrap(), None);
-    }
-
-    #[tokio::test]
-    async fn closed_sessions_do_not_count_while_a_live_one_matches() {
-        let hub = test_hub();
-        list(&hub, "hb", "0199aaaa-1111", "deploy", "closed");
-        list(&hub, "cmux16", "0199bbbb-2222", "deploy", "idle");
-        assert_eq!(hub.key_route("deploy").unwrap().as_deref(), Some("cmux16/0199bbbb-2222"));
-        let old = named(&hub, "fixer").await;
-        hub.set_status(&old, SessionStatus::Closed);
-        list(&hub, "hb", "0199dddd-4444", "fixer", "idle");
-        assert_eq!(hub.key_route("fixer").unwrap().as_deref(), Some("hb/0199dddd-4444"));
-        // Only closed ones: still one to name, so `session info` reads a finished lane.
-        list(&hub, "hb", "0199eeee-5555", "done", "closed");
-        assert_eq!(hub.key_route("done").unwrap().as_deref(), Some("hb/0199eeee-5555"));
-    }
-
-    fn c(host: &str, name: &str, route: &str, closed: bool) -> Candidate {
-        Candidate { host: host.into(), name: name.into(), route: route.into(), closed }
-    }
-
-    #[test]
-    fn one_live_session_wins_over_closed_ones() {
-        let found = [c("hb", "review", "hb/m3", false), c("mac-a", "review", "m1", true)];
-        assert_eq!(pick("review", &found).unwrap().unwrap().route, "hb/m3");
-        let closed = [c("mac-a", "review", "m1", true)];
-        assert_eq!(pick("review", &closed).unwrap().unwrap().route, "m1");
-        assert_eq!(pick("review", &[]).unwrap(), None);
-    }
-
-    #[test]
-    fn several_live_sessions_are_refused_with_each_host_and_name() {
-        let found = [
-            c("mac-a", "review", "m1", false),
-            c("hb", "review", "hb/m3", false),
-            c("hb", "review", "hb/m4", false),
-            c("cmux16", "review", "cmux16/m5", true),
-        ];
-        let e = pick("review", &found).unwrap_err();
-        assert_eq!(
-            e.message,
-            "\"review\" names 3 live sessions: mac-a/review, hb/m3, hb/m4; name one of them"
-        );
-        let data = e.data.unwrap();
-        assert_eq!(data["reason"], AMBIGUOUS);
-        assert_eq!(data["session"], "review");
-        let uses: Vec<&str> =
-            data["choices"].as_array().unwrap().iter().filter_map(|c| c["use"].as_str()).collect();
-        assert_eq!(uses, ["mac-a/review", "hb/m3", "hb/m4"]);
-        // The message names ten; the data lists every one.
-        let many: Vec<Candidate> =
-            (0..12).map(|i| c(&format!("h{i}"), "review", &format!("h{i}/m"), false)).collect();
-        let e = pick("review", &many).unwrap_err();
-        assert!(e.message.contains("h9/review, and 2 more"), "{}", e.message);
-        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 12);
-    }
-}
+#[path = "key_route_tests.rs"]
+mod tests;

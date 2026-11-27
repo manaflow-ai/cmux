@@ -6,16 +6,18 @@
 // Session Info lab). Past five, "Show more" opens the rest. The ones that ended fold under one row,
 // "94 done · 1 failed", failed first. Every line opens what it names: a subagent's pane or view
 // (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
-// says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
-// `subagentCounts`).
+// says its state and its task. The live counts sit in the section's head (the running ones as their mark
+// and number, then "40 done",
+// `subagentCountParts`).
 import { useState } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { SubagentCardBody } from "../subagents/SubagentPreview";
 import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
@@ -23,7 +25,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
+import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -33,7 +35,8 @@ import { orderedSessions, sessionStatus, sessionStateText } from "./childSession
 import "./SubagentsSection.css";
 import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCountParts } from "./subagentsSectionModel";
+import { CountLine } from "../summary/LiveCount";
 import { WindowedRows } from "./WindowedRows";
 
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
@@ -49,8 +52,12 @@ export function SubagentCountsMeta({
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
-  const text = subagentCounts(t, agents, waiting, sessions, now);
-  return text ? <span className="acpmux-session-info-section__value">{text}</span> : null;
+  const parts = subagentCountParts(t, agents, waiting, sessions, now);
+  return parts.length > 0 ? (
+    <span className="acpmux-session-info-section__value">
+      <CountLine parts={parts} />
+    </span>
+  ) : null;
 }
 
 /// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
@@ -123,6 +130,8 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
@@ -148,9 +157,9 @@ export function SubagentsSection({
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
+      time: subagentTime(agent, now),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
@@ -165,7 +174,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,
@@ -259,21 +268,21 @@ export function SubagentsSection({
 
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
+  // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
-    <span className="acpmux-agent-card">
-      <span className="acpmux-agent-card__name">{item.name}</span>
-      <span className="acpmux-agent-card__state" data-status={item.status}>
-        {[
-          item.state,
-          item.time,
-          item.kind,
-          progress,
-          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </span>
-      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-    </span>
+    <SubagentCardBody
+      name={item.name}
+      status={item.status}
+      state={[
+        item.state,
+        item.time,
+        item.kind,
+        progress,
+        item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      task={item.task && item.task !== item.name ? item.task : undefined}
+    />
   );
 }

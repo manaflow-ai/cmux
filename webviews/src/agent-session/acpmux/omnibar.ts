@@ -1,4 +1,5 @@
 import type { TabKind } from "./newTabModel";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 
 /// What the omnibar can suggest besides the typed text: the window's open tabs and
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
@@ -7,7 +8,7 @@ export type OmnibarContext = {
   /// `icon`: a browser tab's or page's favicon, a `data:image/` URL from the host.
   tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string; icon?: string }[];
   workspaces: { id: string; name: string; detail?: string }[];
-  sessions: { sessionId: string; title: string; harness?: string; detail?: string }[];
+  sessions: { sessionId: string; title: string; harness?: string; icon?: HarnessIconSpec; detail?: string }[];
   folders: string[];
   commands: string[];
   history: { url: string; title?: string; icon?: string }[];
@@ -47,7 +48,14 @@ export type OmnibarProfile = { id: string; name: string; color?: string };
 export const MAX_NEW_TAB_PROFILES = 200;
 
 /// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
-export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
+export type OmnibarAction = {
+  id: string;
+  title: string;
+  detail?: string;
+  keywords: string[];
+  keycaps?: string[];
+  symbol?: string;
+};
 
 /// The most action rows accepted from the host: every palette action fits (AgentPaneOmnibar.maximumActions).
 export const MAX_NEW_TAB_ACTIONS = 2000;
@@ -156,6 +164,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
       if (!id || !title) return [];
       const detail = string(action.detail);
       const keycaps = strings(action.keycaps);
+      const symbol = string(action.symbol);
       return [
         {
           id,
@@ -163,6 +172,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
           keywords: strings(action.keywords),
           ...(detail ? { detail } : {}),
           ...(keycaps.length ? { keycaps } : {}),
+          ...(symbol ? { symbol } : {}),
         },
       ];
     })
@@ -172,7 +182,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
 export type OmnibarRow =
   | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string; icon?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "session"; id: string; title: string; harness?: string; detail?: string }
+  | { type: "session"; id: string; title: string; harness?: string; sessionIcon?: HarnessIconSpec; detail?: string }
   | { type: "folder"; path: string }
   | { type: "command"; command: string }
   | { type: "history"; url: string; title?: string; icon?: string }
@@ -192,13 +202,36 @@ export function matchScore(query: string, ...texts: (string | undefined)[]): num
   if (!needle) return 0;
   let best = 0;
   for (const text of texts) {
-    const hay = text?.toLowerCase();
-    if (!hay) continue;
-    const at = hay.indexOf(needle);
-    if (at === 0) return 3;
-    if (at > 0) best = Math.max(best, /[\s/._:@#-]/.test(hay[at - 1]!) ? 2 : 1);
+    best = Math.max(best, foldedScore(needle, text?.toLowerCase()));
+    if (best === 3) return 3;
   }
   return best;
+}
+
+/// ``matchScore`` for a needle and a text both already trimmed and lowercased: a list folded once
+/// (``foldedTexts``) scores each key without lowercasing every entry again.
+// perf-hot: 1ms new-tab-omnibar-keystroke
+export function foldedScore(needle: string, hay: string | undefined): number {
+  if (!hay || !needle) return 0;
+  const at = hay.indexOf(needle);
+  if (at === 0) return 3;
+  if (at < 0) return 0;
+  return /[\s/._:@#-]/.test(hay[at - 1]!) ? 2 : 1;
+}
+
+const folded = new WeakMap<object, Map<string, unknown>>();
+
+/// `fold(list)` once per list and `shape`: the omnibar's lists are new objects only when the host
+/// sends new ones, so every key between reads the same folded copy. `shape` names the fold, so one
+/// list folded two ways keeps both.
+export function foldedTexts<T extends object, F>(list: T, shape: string, fold: (list: T) => F): F {
+  let shapes = folded.get(list);
+  if (!shapes) folded.set(list, (shapes = new Map()));
+  const known = shapes.get(shape) as F | undefined;
+  if (known !== undefined) return known;
+  const made = fold(list);
+  shapes.set(shape, made);
+  return made;
 }
 
 /// The rows under the bar. Empty: where you can go (open tabs and workspaces first),
@@ -226,6 +259,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     id: session.sessionId,
     title: session.title,
     ...(session.harness ? { harness: session.harness } : {}),
+    ...(session.icon ? { sessionIcon: session.icon } : {}),
     ...(session.detail ? { detail: session.detail } : {}),
   }));
   const folders = context.folders.map((path): OmnibarRow => ({ type: "folder", path }));
