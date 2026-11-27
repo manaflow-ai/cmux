@@ -39,7 +39,7 @@ env:
 
 jobs:
   route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # the default branch's scheduled run starts feat-cmux-next's
@@ -49,7 +49,7 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
       - name: Checkout pool helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
@@ -59,6 +59,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       # The macOS pool the walk runs on (scripts/ci/ios_runner_pool.py, the
@@ -117,7 +118,7 @@ jobs:
           echo "OUT=$RUNNER_TEMP/first-user-journey-ios" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/first-user-journey-ios"
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -217,7 +218,8 @@ jobs:
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           # The smallest current iPhone the image has, so layout breaks show
           # first; the review gate covers the Pro Max and iPad.
-          runtime="$(xcrun simctl list runtimes available -j | python3 -I -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("platform")=="iOS" and x.get("isAvailable")]; r.sort(key=lambda x: [int(p) for p in x["version"].split(".")]); print(r[-1]["identifier"] if r else "")')"
+          # The fleet's pinned runtime when the host has it, else the newest.
+          runtime="$(xcrun simctl list runtimes available -j | python3 -I scripts/ci/ios_sim_runtime.py --prefer-pin --runtime-only 2>/dev/null || true)"
           udid=""
           for model in "iPhone 17e" "iPhone 16e" "iPhone 17" "iPhone 16"; do
             type_id="$(xcrun simctl list devicetypes -j | python3 -I -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']==sys.argv[1]]; print(t[0] if t else '')" "$model")"

@@ -2,6 +2,7 @@
 //! listed here is closed with `unknown_service`.
 
 use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,7 +11,8 @@ use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -27,7 +29,7 @@ use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub device_id: String,
-    /// The link session (a UUID): one `upload` folder per session.
+    /// The link session (a UUID). Legacy uploads use one folder per session.
     pub session_id: String,
     /// The link's media lane (browser video as RTP: a WebRTC track or UDP
     /// inside the WireGuard tunnel), if the
@@ -72,6 +74,17 @@ pub async fn serve(
     peer: Peer,
     link: Arc<crate::pairing::LinkAuth>,
     incoming: IncomingChannel,
+) {
+    serve_with_upload_timeout(config, peer, link, incoming, UPLOAD_STALL_TIMEOUT).await;
+}
+
+/// Serve a channel with a host-selected inactivity deadline for resumable uploads.
+pub async fn serve_with_upload_timeout(
+    config: Arc<ServiceConfig>,
+    peer: Peer,
+    link: Arc<crate::pairing::LinkAuth>,
+    incoming: IncomingChannel,
+    upload_timeout: Duration,
 ) {
     let IncomingChannel { service, args, lane, channel } = incoming;
     let (mut sender, mut receiver) = channel.split();
@@ -156,7 +169,8 @@ pub async fn serve(
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
-        "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "upload" => upload(&config, &peer, &args, &sender, receiver, upload_timeout).await,
+        "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
@@ -171,10 +185,18 @@ pub async fn serve(
                 .map_err(|(code, reason)| Refusal::new(code, reason))
         }
         "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
+        // Swift live code patches for a cmux Dev app on this phone (live_code.rs).
+        "live-code" => crate::live_code::serve(&sender, receiver).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "site-data" => {
+            let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
+            let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
+            crate::site_data::serve(tabs, &args, &control::emit, &sender).await
+        }
+        cmux_phone_page::SERVICE => crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await,
         "phone-frames" => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -258,6 +280,10 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// `WS_MAX_MESSAGE_BYTES`).
 const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 
+const UPLOAD_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+const UPLOAD_ACK_BYTES: u64 = 1 << 20;
+const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
@@ -270,10 +296,14 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
+/// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
+/// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 11] = [
+pub const CAPABILITIES: [&str; 13] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -284,7 +314,9 @@ pub const CAPABILITIES: [&str; 11] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
     names::MAILBOX_SEND,
+    names::BUNDLE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -316,6 +348,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
+    }
+    if crate::site_data::enabled() && control::enabled() {
+        out.push(names::SITE_DATA_HANDOFF);
     }
     if crate::lan::running() {
         // The phone may enroll for the LAN direct path (`lan`, lan.rs).
@@ -1318,9 +1353,14 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
     let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
         .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
-    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
-        .await
-        .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    let (socket, _) = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(limits),
+        false,
+        "cmux_mobile_host::services::acpmux",
+    )
+    .await
+    .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
 }
 
@@ -1985,16 +2025,13 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file of any size inside a workspace root, then
-/// close with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now. `file-preview`
-/// prepends metadata from the same open descriptor before streaming those bytes.
-async fn file(
+/// The regular file `args.path` names, opened inside the shared roots (the Chat Folders, then the
+/// Mac's workspace folders as they are now), checked again where the open descriptor points. `file`,
+/// `file-preview` and `bundle` `get` read only through it.
+pub(crate) async fn open_shared_file(
     config: &ServiceConfig,
     args: &Value,
-    sender: &ChannelSender,
-    preview_metadata: bool,
-) -> Result<(), Refusal> {
+) -> Result<(tokio::fs::File, std::fs::Metadata), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -2027,6 +2064,20 @@ async fn file(
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
+    Ok((file, metadata))
+}
+
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
+    let (file, metadata) = open_shared_file(config, args).await?;
     // A distinct service keeps old hosts' raw file bytes from being mistaken for
     // metadata. Read the size from this descriptor, after all confinement checks,
     // so the phone can check free storage before accepting the file's contents.
@@ -2229,7 +2280,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
-async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
+pub(crate) async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
@@ -2302,15 +2353,28 @@ fn with_pane_folder(reply: Option<&Value>, line: Vec<u8>) -> Vec<u8> {
 /// The folder an `upload` writes to. With `cwd` (a folder of one of the
 /// Mac's tabs, or inside a shared root): `<cwd>/.cmux/attachments/phone-<session>`,
 /// next to acpmux's own attachments, so the agent of that workspace reads
-/// it without leaving its folder. Without: `<uploads>/<session>`.
-async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -> Result<PathBuf, Refusal> {
+/// it without leaving its folder. Without: `<uploads>/<session>`. Resumable
+/// uploads use a per-phone directory in place of the link session.
+async fn upload_folder(
+    config: &ServiceConfig,
+    peer: &Peer,
+    cwd: Option<&str>,
+    resumable: bool,
+) -> Result<PathBuf, Refusal> {
     let session: String =
         peer.session_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(36).collect();
     if session.is_empty() {
         return Err(Refusal::new("bad_request", "no link session"));
     }
+    // The link's session id changes on redial. Scope resumable parts to this phone
+    // across links, without putting a peer-supplied path component on disk.
+    let scope = if resumable {
+        format!("device-{:x}", Sha256::digest(peer.device_id.to_ascii_lowercase().as_bytes()))
+    } else {
+        session
+    };
     let Some(cwd) = cwd else {
-        let folder = config.uploads_dir.join(&session);
+        let folder = config.uploads_dir.join(&scope);
         create_private_dir(&config.uploads_dir)?;
         create_private_dir(&folder)?;
         return Ok(folder);
@@ -2323,10 +2387,12 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
         return Err(Refusal::new("bad_request", "cwd is not a folder"));
     }
     let in_roots = confine(&config.file_roots, &canonical).is_ok();
+    // The daemon is asked only for a folder outside the roots (`daemon_query` bounds it at
+    // 5 s, `unavailable`, on which the phone falls back to the uploads folder).
     if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
         return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
-    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{session}"));
+    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{scope}"));
     std::fs::create_dir_all(&folder)
         .map_err(|e| Refusal::new("io", format!("cannot create the upload folder: {e}")))?;
     // `.cmux` or `attachments` may be a symlink out of the workspace.
@@ -2338,7 +2404,37 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
     Ok(resolved)
 }
 
-fn create_private_dir(path: &Path) -> Result<(), Refusal> {
+/// Keep resumable bytes inside the authorized publish folder and partition them
+/// by authenticated device, even when two publish folders resolve to one alias.
+/// A link session may change on redial; the device identity must not.
+fn upload_parts_dir(folder: &Path, device_id: &str) -> Result<PathBuf, Refusal> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let folder = std::fs::canonicalize(folder).map_err(|e| Refusal::new("io", e.to_string()))?;
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(device_id.to_ascii_lowercase().as_bytes())));
+    match std::fs::DirBuilder::new().mode(0o700).create(&parts) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(Refusal::new("io", format!("cannot create the upload parts: {e}"))),
+    }
+    // Refuse aliases instead of allowing one phone's staging directory to point
+    // at another's. Open before changing permissions so a symlink is never chmod'ed.
+    let directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&parts)
+        .map_err(|_| Refusal::new("forbidden", "the upload parts must be a private directory"))?;
+    directory
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| Refusal::new("io", e.to_string()))?;
+    let resolved = std::fs::canonicalize(&parts).map_err(|_| Refusal::new("io", "upload parts vanished"))?;
+    if resolved.parent() != Some(folder.as_path()) {
+        return Err(Refusal::new("forbidden", "the upload parts leave the upload folder"));
+    }
+    Ok(resolved)
+}
+
+pub(crate) fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     use std::os::unix::fs::DirBuilderExt;
     match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
         Ok(()) => Ok(()),
@@ -2348,22 +2444,28 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
-fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+    let path = link_upload(folder, name, part)?;
+    let _ = std::fs::remove_file(part);
+    Ok(path)
+}
+
+fn upload_candidate(folder: &Path, name: &str, attempt: usize) -> PathBuf {
+    if attempt == 1 {
+        return folder.join(name);
+    }
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
     };
+    folder.join(format!("{stem} {attempt}{extension}"))
+}
+
+fn link_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     for attempt in 1..=999 {
-        let candidate = if attempt == 1 {
-            folder.join(name)
-        } else {
-            folder.join(format!("{stem} {attempt}{extension}"))
-        };
+        let candidate = upload_candidate(folder, name, attempt);
         match std::fs::hard_link(part, &candidate) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(part);
-                return Ok(candidate);
-            }
+            Ok(()) => return Ok(candidate),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(Refusal::new("io", format!("cannot save the upload: {e}"))),
         }
@@ -2371,43 +2473,199 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
     Err(Refusal::new("io", "too many files with that name"))
 }
 
+/// A completed upload remains replayable if its final reply was lost. The
+/// record is private, device-scoped, and binds to the published inode, not just
+/// a filename that the user might later replace.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UploadCompletion {
+    name: String,
+    size: u64,
+    file: String,
+    device: u64,
+    inode: u64,
+    sha256: String,
+}
+
+fn completed_upload(
+    receipt: &Path,
+    folder: &Path,
+    name: &str,
+    size: u64,
+    hash: Option<&str>,
+) -> Result<Option<PathBuf>, Refusal> {
+    use std::io::Read;
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(receipt)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(Refusal::new("io", e.to_string())),
+    };
+    let meta = file.metadata().map_err(|e| Refusal::new("io", e.to_string()))?;
+    if !meta.is_file() || meta.nlink() != 1 || meta.len() > 4096 {
+        return Err(Refusal::new("io", "invalid upload completion"));
+    }
+    let done: UploadCompletion = serde_json::from_reader(file.take(4097))
+        .map_err(|_| Refusal::new("io", "invalid upload completion"))?;
+    if done.name != name || done.size != size || hash.is_some_and(|hash| hash != done.sha256) {
+        return Err(Refusal::new("bad_request", "upload_id already completed a different file"));
+    }
+    if Path::new(&done.file).file_name().and_then(|name| name.to_str()) != Some(done.file.as_str()) {
+        return Err(Refusal::new("io", "invalid completed upload path"));
+    }
+    let path = folder.join(&done.file);
+    let meta = std::fs::symlink_metadata(&path)
+        .map_err(|_| Refusal::new("not_found", "the completed upload is no longer present"))?;
+    if !meta.is_file()
+        || meta.len() != size
+        || (meta.dev(), meta.ino()) != (done.device, done.inode)
+        || file_sha256(&path).as_deref() != Some(done.sha256.as_str())
+    {
+        return Err(Refusal::new("io", "the completed upload changed"));
+    }
+    Ok(Some(path))
+}
+
+/// Write a complete receipt before making it visible. A crash during the write
+/// leaves only an unreferenced temporary file; a retry never reads partial JSON.
+fn record_upload_completion(
+    receipt: &Path,
+    path: &Path,
+    name: &str,
+    size: u64,
+    hash: &str,
+) -> Result<(), Refusal> {
+    use std::io::Write;
+    let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let meta = std::fs::symlink_metadata(path).map_err(io_error)?;
+    if !meta.is_file() || meta.len() != size {
+        return Err(Refusal::new("io", "the completed upload changed"));
+    }
+    let done = UploadCompletion {
+        name: name.into(),
+        size,
+        file: path.file_name().unwrap().to_string_lossy().into_owned(),
+        device: meta.dev(),
+        inode: meta.ino(),
+        sha256: hash.into(),
+    };
+    let temporary = receipt.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut record = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(io_error)?;
+        record
+            .write_all(&serde_json::to_vec(&done).map_err(|e| Refusal::new("io", e.to_string()))?)
+            .map_err(io_error)?;
+        record.sync_all().map_err(io_error)?;
+        std::fs::rename(&temporary, receipt).map_err(io_error)?;
+        std::fs::File::open(receipt.parent().unwrap()).and_then(|dir| dir.sync_all()).map_err(io_error)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
+}
+
+fn publish_resumable_upload(
+    folder: &Path,
+    name: &str,
+    part: &Path,
+    receipt: &Path,
+    size: u64,
+    hash: Option<&str>,
+) -> Result<PathBuf, Refusal> {
+    let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let meta = std::fs::symlink_metadata(part).map_err(io_error)?;
+    if !meta.is_file() || meta.len() != size {
+        return Err(Refusal::new("io", "the upload part changed"));
+    }
+    let actual = file_sha256(part).ok_or_else(|| Refusal::new("io", "cannot hash upload"))?;
+    if hash.is_some_and(|hash| hash != actual) {
+        return Err(Refusal::new("bad_request", "upload sha256 does not match its bytes"));
+    }
+    let path = match meta.nlink() {
+        1 => link_upload(folder, name, part)?,
+        // The process stopped after publication but before recording completion.
+        // Recover the exact published inode, with the same bounded name search
+        // as publication; never link it a second time or scan the whole folder.
+        2 => (1..=999)
+            .map(|attempt| upload_candidate(folder, name, attempt))
+            .find(|candidate| {
+                std::fs::symlink_metadata(candidate).is_ok_and(|saved| {
+                    saved.is_file() && (saved.dev(), saved.ino()) == (meta.dev(), meta.ino())
+                })
+            })
+            .ok_or_else(|| Refusal::new("io", "cannot locate published upload"))?,
+        _ => return Err(Refusal::new("io", "unexpected upload part links")),
+    };
+    // Make the published link durable before the completion record can outlive it.
+    std::fs::File::open(folder).and_then(|dir| dir.sync_all()).map_err(io_error)?;
+    record_upload_completion(receipt, &path, name, size, &actual)?;
+    std::fs::remove_file(part).map_err(io_error)?;
+    Ok(path)
+}
+
 /// `upload` `{name, size, cwd?}`: the phone sends exactly `size` bytes as
 /// data frames; hostd writes them to a new file of the upload folder
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
-/// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short or long upload leaves no file. Any `size` is
-/// accepted: the bytes stream to disk as they arrive (attachments have no
-/// size cap). `size` may be a JSON number or a decimal string (the app's
-/// channel arguments are strings).
+/// channel closes with that code. Legacy uploads remove an incomplete part.
+/// Resumable uploads retain it for a later attempt. Nothing is overwritten,
+/// nothing is executed, and any `size` is accepted: the bytes stream to disk
+/// as they arrive (attachments have no size cap). `size` may be a JSON number
+/// or a decimal string (the app's channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
     sender: &ChannelSender,
     receiver: ChannelReceiver,
+    stall_timeout: Duration,
 ) -> Result<(), Refusal> {
-    match receive_upload(config, peer, args, receiver).await {
-        Ok((path, size)) => {
-            tracing::info!(size, phone = peer.device_id, "upload saved");
-            let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+    let resumable = args.get("upload_id").is_some();
+    match receive_upload(config, peer, args, sender, receiver, stall_timeout).await {
+        Ok(Received { path, size, deduped }) => {
+            tracing::info!(size, deduped, phone = peer.device_id, "upload saved");
+            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size});
+            if deduped {
+                reply["deduped"] = true.into();
+            }
+            let mut reply = reply.to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Ok(())
         }
         Err(refusal) => {
-            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable && refusal.code == "resume_gap" {
+                return Err(refusal);
+            }
+            let mut reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Err(refusal)
         }
     }
 }
 
-async fn receive_upload(
-    config: &ServiceConfig,
-    peer: &Peer,
-    args: &Value,
-    mut receiver: ChannelReceiver,
-) -> Result<(PathBuf, u64), Refusal> {
+/// A finished upload: where it is, and whether it was a stored copy (no bytes crossed).
+struct Received {
+    path: PathBuf,
+    size: u64,
+    deduped: bool,
+}
+
+/// An `upload`'s (or a `bundle` `put`'s) `{name, size, cwd?}`: the safe file name, the declared size
+/// and the folder it lands in ([`upload_folder`]).
+fn upload_name_size(args: &Value) -> Result<(String, u64), Refusal> {
     let name = args
         .get("name")
         .and_then(Value::as_str)
@@ -2419,8 +2677,189 @@ async fn receive_upload(
     }
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
     let name = safe_file_name(name);
+    Ok((name, size))
+}
+
+pub(crate) async fn upload_target(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+) -> Result<(String, u64, PathBuf), Refusal> {
+    let (name, size) = upload_name_size(args)?;
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
-    let folder = upload_folder(config, peer, cwd).await?;
+    // A resumable upload (`upload_id`) lands in the phone's device-keyed folder, so a redial
+    // on a new link session finds the same folder and part.
+    let resumable = args.get("upload_id").is_some();
+    let folder = upload_folder(config, peer, cwd, resumable).await?;
+    Ok((name, size, folder))
+}
+
+async fn receive_upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    stall_timeout: Duration,
+) -> Result<Received, Refusal> {
+    let (name, size) = upload_name_size(args)?;
+    if let Some(value) = args.get("upload_id") {
+        let id = value
+            .as_str()
+            .filter(|id| {
+                id.len() == 36 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'-'))
+            })
+            .ok_or_else(|| Refusal::new("bad_request", "invalid upload_id"))?;
+        let offset = match args.get("offset") {
+            None => Some(0),
+            Some(Value::String(s)) if s.bytes().all(|b| b.is_ascii_digit()) => s.parse().ok(),
+            Some(value) => value.as_u64(),
+        }
+        .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
+        // Validate the request before either completed-upload replay or dedup
+        // can return a path without consuming a payload.
+        if offset > size {
+            return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
+        }
+        let sha256 = match args.get("sha256") {
+            None => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .map(str::to_ascii_lowercase)
+                    .ok_or_else(|| Refusal::new("bad_request", "invalid sha256"))?,
+            ),
+        };
+        let (_, _, folder) = upload_target(config, peer, args).await?;
+        let parts = upload_parts_dir(&folder, &peer.device_id)?;
+        cleanup_stale_upload_parts(&parts);
+        let part = parts.join(format!(".{id}.part"));
+        let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+        // Drop the descriptor before waking a retry, including on cancellation.
+        let _release;
+        let raw = open_upload_part(&part).await?;
+        _release = UploadLockRelease;
+        let receipt = parts.join(format!(".{id}.done"));
+        let replay = {
+            let (receipt, folder, name, hash) =
+                (receipt.clone(), folder.clone(), name.clone(), sha256.clone());
+            tokio::task::spawn_blocking(move || {
+                let result = completed_upload(&receipt, &folder, &name, size, hash.as_deref());
+                (raw, result)
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))?
+        };
+        let (raw, replay) = replay;
+        if let Some(path) = replay? {
+            let _ = std::fs::remove_file(&part);
+            let _ = sender.send(Bytes::from(format!("{{\"have\":{size}}}\n"))).await;
+            return Ok(Received { path, size, deduped: false });
+        }
+        let meta = raw.metadata().map_err(io_error)?;
+        if !meta.is_file() || !matches!(meta.nlink(), 1 | 2) {
+            return Err(Refusal::new("io", "the upload part must be a regular file with one link"));
+        }
+        // A preceding writer may have published and unlinked this inode between open and lock.
+        let named =
+            std::fs::symlink_metadata(&part).map_err(|_| Refusal::new("busy", "upload part changed"))?;
+        if (named.dev(), named.ino()) != (meta.dev(), meta.ino()) {
+            return Err(Refusal::new("busy", "upload part changed"));
+        }
+        if meta.nlink() == 2 {
+            let (folder, name, part, receipt, hash) =
+                (folder.clone(), name.clone(), part.clone(), receipt.clone(), sha256.clone());
+            let path = tokio::task::spawn_blocking(move || {
+                // Keep the writer's lock throughout recovery and cleanup.
+                let _lock = raw;
+                publish_resumable_upload(&folder, &name, &part, &receipt, size, hash.as_deref())
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))??;
+            let _ = sender.send(Bytes::from(format!("{{\"have\":{size}}}\n"))).await;
+            return Ok(Received { path, size, deduped: false });
+        }
+        let mut file = tokio::fs::File::from_std(raw);
+        confine_open(std::slice::from_ref(&parts), &file)?;
+        let index = upload_index_dir(&parts, &folder);
+        if let (Some(hash), Some(index)) = (&sha256, &index)
+            && UPLOAD_DEDUP.load(std::sync::atomic::Ordering::Relaxed)
+            && let Some(stored) = dedup_lookup(index, &folder, hash, size).await
+        {
+            // The part this upload may have begun is not needed any more (it is ours: locked, one link).
+            record_upload_completion(&receipt, &stored, &name, size, hash)?;
+            let _ = std::fs::remove_file(&part);
+            return Ok(Received { path: stored, size, deduped: true });
+        }
+        let length = meta.len();
+        if offset > length {
+            let _ =
+                sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
+            return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
+        }
+        file.set_len(offset).await.map_err(io_error)?;
+        file.seek(SeekFrom::Start(offset)).await.map_err(io_error)?;
+        let _ = sender.send(Bytes::from(format!("{{\"have\":{offset}}}\n"))).await;
+        let mut received = offset;
+        let mut last_ack = offset;
+        while received < size {
+            let data = async {
+                loop {
+                    match receiver.recv().await {
+                        Some(ChannelEvent::Data(bytes)) if bytes.is_empty() => continue,
+                        event => return event,
+                    }
+                }
+            };
+            let bytes = match timeout(stall_timeout, data).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => bytes,
+                ended => {
+                    file.flush().await.map_err(io_error)?;
+                    file.sync_data().await.map_err(io_error)?;
+                    send_upload_ack(sender, received).await;
+                    return Err(if ended.is_err() {
+                        Refusal::new("stalled", "upload stalled waiting for data")
+                    } else {
+                        Refusal::new("bad_request", "the upload ended early")
+                    });
+                }
+            };
+            if bytes.len() as u64 > size - received {
+                let _ = std::fs::remove_file(&part);
+                return Err(Refusal::new("bad_request", "more bytes than the declared size"));
+            }
+            file.write_all(&bytes).await.map_err(io_error)?;
+            received += bytes.len() as u64;
+            // An ack means durable: each MiB is synced as it lands, so a Mac that crashes or loses
+            // power never loses bytes the phone was told it has, and the final answer below waits on
+            // the last MiB at most instead of syncing the whole file.
+            if received < size && received - last_ack >= UPLOAD_ACK_BYTES {
+                file.flush().await.map_err(io_error)?;
+                file.sync_data().await.map_err(io_error)?;
+                send_upload_ack(sender, received).await;
+                last_ack = received;
+            }
+        }
+        file.flush().await.map_err(io_error)?;
+        file.sync_data().await.map_err(io_error)?;
+        send_upload_ack(sender, received).await;
+        let path = {
+            let (folder, name, part, receipt, hash) =
+                (folder.clone(), name.clone(), part.clone(), receipt.clone(), sha256.clone());
+            tokio::task::spawn_blocking(move || {
+                let _lock = file;
+                publish_resumable_upload(&folder, &name, &part, &receipt, size, hash.as_deref())
+            })
+            .await
+            .map_err(|e| Refusal::new("io", e.to_string()))??
+        };
+        if let (Some(hash), Some(index)) = (&sha256, &index) {
+            dedup_record(index, hash, &path);
+        }
+        return Ok(Received { path, size, deduped: false });
+    }
+    let (_, _, folder) = upload_target(config, peer, args).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -2455,12 +2894,456 @@ async fn receive_upload(
     let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
     })?;
-    Ok((path, size))
+    Ok(Received { path, size, deduped: false })
+}
+
+/// Whole-file dedup (PROTOCOL.md `upload`, `sha256`). Off only in tests that play a Mac from
+/// before it (an older hostd ignores the field).
+#[doc(hidden)]
+pub static UPLOAD_DEDUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The dedup index of one upload folder: `<parts>/.sha256-<folder name>/<sha256>`, each entry a
+/// file holding the stored file's name in that folder. One file per hash, so a lookup or a record
+/// costs the same at any number of uploads, and the index lives as long as the folder's files.
+/// Scoped to the folder (one phone, one workspace): a phone never learns of another's files.
+fn upload_index_dir(parts: &Path, folder: &Path) -> Option<PathBuf> {
+    let name = folder.file_name()?.to_str()?;
+    Some(parts.join(format!(".sha256-{name}")))
+}
+
+const MAX_DEDUP_ENTRY_BYTES: usize = 4096;
+
+fn dedup_name(name: &str) -> Option<std::ffi::CString> {
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name).ok()
+}
+
+fn dedup_index_name(index: &Path) -> Option<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = index.file_name()?;
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name.as_bytes()).ok()
+}
+
+/// Open the index directory through its parts directory, refusing aliases at both final components.
+fn open_dedup_index(index: &Path, create: bool) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let parent = index.parent()?;
+    let name = dedup_index_name(index)?;
+    let parent = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(parent)
+        .ok()?;
+    if create {
+        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+        if result == -1 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST) {
+            return None;
+        }
+    }
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn open_dedup_entry(index: &std::fs::File, name: &str) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = dedup_name(name)?;
+    let fd = unsafe {
+        libc::openat(index.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn remove_dedup_entry(index: &std::fs::File, name: &str) {
+    use std::os::fd::AsRawFd;
+
+    let Some(name) = dedup_name(name) else { return };
+    let _ = unsafe { libc::unlinkat(index.as_raw_fd(), name.as_ptr(), 0) };
+}
+
+/// The SHA-256 of a regular file, not following a symlink.
+fn file_sha256(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        match file.read(&mut buffer).ok()? {
+            0 => break,
+            n => hasher.update(&buffer[..n]),
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+/// The stored file the index names for `hash`, when it is still a regular file in `folder` of
+/// `size` bytes whose content hashes to `hash`. A stale entry (moved, deleted, changed) is removed.
+async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Option<PathBuf> {
+    let (index, folder, hash) = (index.to_path_buf(), folder.to_path_buf(), hash.to_string());
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+
+        let index = open_dedup_index(&index, false)?;
+        let entry = open_dedup_entry(&index, &hash)?;
+        let metadata = entry.metadata().ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_DEDUP_ENTRY_BYTES as u64 {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(MAX_DEDUP_ENTRY_BYTES + 1);
+        if entry.take((MAX_DEDUP_ENTRY_BYTES + 1) as u64).read_to_end(&mut bytes).is_err()
+            || bytes.len() > MAX_DEDUP_ENTRY_BYTES
+        {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let name = std::str::from_utf8(&bytes).ok()?;
+        let name = name.trim_end_matches('\n');
+        let plain =
+            !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0');
+        let stored = folder.join(name);
+        let valid = plain
+            && std::fs::symlink_metadata(&stored).is_ok_and(|meta| meta.is_file() && meta.len() == size)
+            && file_sha256(&stored).as_deref() == Some(hash.as_str());
+        if !valid {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        Some(stored)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Records `stored` as the file for `hash` (best effort: a failed record only costs a later
+/// re-send its bytes). The hash is the phone's claim; a lookup re-verifies it before use.
+fn dedup_record(index: &Path, hash: &str, stored: &Path) {
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let Some(name) = stored.file_name().and_then(|n| n.to_str()) else { return };
+    let Some(index) = open_dedup_index(index, true) else { return };
+    let temp_name = format!(".{hash}.{}.tmp", uuid::Uuid::new_v4());
+    let Some(temp_name_c) = dedup_name(&temp_name) else { return };
+    let fd = unsafe {
+        libc::openat(
+            index.as_raw_fd(),
+            temp_name_c.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if fd == -1 {
+        return;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    let mut temp = unsafe { std::fs::File::from_raw_fd(fd) };
+    let written = temp.write_all(name.as_bytes());
+    let hash_name = dedup_name(hash);
+    let renamed = if written.is_ok() {
+        hash_name.is_some_and(|hash_name| unsafe {
+            libc::renameat(index.as_raw_fd(), temp_name_c.as_ptr(), index.as_raw_fd(), hash_name.as_ptr())
+                == 0
+        })
+    } else {
+        false
+    };
+    drop(temp);
+    if !renamed {
+        let _ = unsafe { libc::unlinkat(index.as_raw_fd(), temp_name_c.as_ptr(), 0) };
+    }
+}
+
+// A phone's local channel close can finish just before hostd releases the file.
+// Wake immediate retries when a writer finishes, including writers on another link.
+static UPLOAD_UNLOCKED: std::sync::LazyLock<tokio::sync::watch::Sender<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(()).0);
+
+struct UploadLockRelease;
+
+impl Drop for UploadLockRelease {
+    fn drop(&mut self) {
+        UPLOAD_UNLOCKED.send_replace(());
+    }
+}
+
+async fn open_upload_part(part: &Path) -> Result<std::fs::File, Refusal> {
+    let open = async {
+        let mut unlocked = UPLOAD_UNLOCKED.subscribe();
+        loop {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(part)
+                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(std::fs::TryLockError::WouldBlock) => drop(file),
+                Err(std::fs::TryLockError::Error(e)) => return Err(Refusal::new("io", e.to_string())),
+            }
+            let _ = unlocked.changed().await;
+        }
+    };
+    timeout(Duration::from_secs(2), open)
+        .await
+        .map_err(|_| Refusal::new("busy", "another channel is writing this upload"))?
+}
+
+async fn send_upload_ack(sender: &ChannelSender, received: u64) {
+    let _ = sender.send(Bytes::from(format!("{{\"ack\":{received}}}\n"))).await;
+}
+
+struct UploadPartsDirStream(*mut libc::DIR);
+
+impl Drop for UploadPartsDirStream {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: fdopendir transfers ownership of this descriptor to the
+            // DIR stream, which remains valid until this guard is dropped.
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+}
+
+fn cleanup_stale_upload_parts(folder: &Path) {
+    let Ok(directory) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(folder)
+    else {
+        return;
+    };
+    cleanup_stale_upload_parts_fd(&directory);
+}
+
+fn cleanup_stale_upload_parts_fd(directory: &std::fs::File) {
+    use std::ffi::CStr;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    // Keep the verified directory open for the complete scan and cleanup.  A
+    // pathname read followed by remove_file(path) can be redirected by a
+    // concurrent rename or symlink replacement, including outside the upload
+    // folder.  Enumerate through a duplicate descriptor and unlink relative
+    // to the original descriptor instead.
+    let directory_fd = directory.as_raw_fd();
+    let duplicate = unsafe { libc::dup(directory_fd) };
+    if duplicate == -1 {
+        return;
+    }
+    let stream = UploadPartsDirStream(unsafe { libc::fdopendir(duplicate) });
+    if stream.0.is_null() {
+        unsafe { libc::close(duplicate) };
+        return;
+    }
+    let stale = |meta: &std::fs::Metadata| {
+        meta.is_file()
+            && meta
+                .modified()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UPLOAD_PART_MAX_AGE)
+    };
+    unsafe {
+        // Process each name while the descriptor remains open instead of
+        // retaining an unbounded list for large staging directories.
+        loop {
+            let entry = libc::readdir(stream.0);
+            if entry.is_null() {
+                break;
+            }
+            let bytes = CStr::from_ptr((*entry).d_name.as_ptr()).to_bytes();
+            if bytes == b"."
+                || bytes == b".."
+                || !bytes
+                    .strip_prefix(b".")
+                    .is_some_and(|rest| rest.ends_with(b".part") || rest.ends_with(b".done"))
+            {
+                continue;
+            }
+            let Ok(name) = std::ffi::CString::new(bytes) else { continue };
+            let fd = libc::openat(
+                directory_fd,
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            );
+            if fd == -1 {
+                continue;
+            }
+            // SAFETY: `fd` is the owned descriptor returned by openat.
+            let file = std::fs::File::from_raw_fd(fd);
+            // Recheck under the writer's lock. A retry may have reopened the part during the scan.
+            if file.try_lock().is_ok() && file.metadata().is_ok_and(|meta| stale(&meta) && meta.nlink() == 1)
+            {
+                let _ = libc::unlinkat(directory_fd, name.as_ptr(), 0);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_completion_recovers_interrupted_publication_and_checks_bytes() {
+        let folder = tempfile::tempdir().unwrap();
+        let parts = upload_parts_dir(folder.path(), "phone").unwrap();
+        let part = parts.join(".recovery.part");
+        let receipt = parts.join(".recovery.done");
+        std::fs::write(folder.path().join("a.txt"), "old").unwrap();
+        std::fs::write(&part, "new").unwrap();
+        // Simulate process loss after the second hard link and during receipt
+        // serialization. The partial temporary receipt is never authoritative.
+        let published = link_upload(folder.path(), "a.txt", &part).unwrap();
+        std::fs::write(parts.join(".recovery.interrupted.part"), "{broken").unwrap();
+        let hash = format!("{:x}", Sha256::digest(b"new"));
+        let recovered =
+            publish_resumable_upload(folder.path(), "a.txt", &part, &receipt, 3, Some(&hash)).unwrap();
+        assert_eq!(recovered, published);
+        assert!(!folder.path().join("a 3.txt").exists());
+        assert!(!part.exists());
+        assert_eq!(
+            completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&hash)).unwrap(),
+            Some(published.clone())
+        );
+        let wrong_hash = "0".repeat(64);
+        assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&wrong_hash)).is_err());
+        // Same inode, same size is insufficient proof of completion.
+        std::fs::write(&published, "bad").unwrap();
+        assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, Some(&hash)).is_err());
+    }
+
+    #[test]
+    fn upload_completion_refuses_legacy_hashless_and_partial_receipts() {
+        let folder = tempfile::tempdir().unwrap();
+        let parts = upload_parts_dir(folder.path(), "phone").unwrap();
+        let receipt = parts.join(".legacy.done");
+        let published = folder.path().join("a.txt");
+        std::fs::write(&published, b"new").unwrap();
+        let meta = std::fs::metadata(&published).unwrap();
+        let legacy = serde_json::json!({
+            "name": "a.txt", "size": 3, "file": "a.txt",
+            "device": meta.dev(), "inode": meta.ino()
+        });
+        let hash = format!("{:x}", Sha256::digest(b"new"));
+        // Development receipts without a recorded digest cannot establish the
+        // original content. Never silently upgrade them from current bytes.
+        for bytes in [serde_json::to_vec(&legacy).unwrap(), b"{broken".to_vec()] {
+            std::fs::write(&receipt, &bytes).unwrap();
+            for supplied in [None, Some(hash.as_str())] {
+                assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, supplied).is_err());
+            }
+            assert_eq!(std::fs::read(&receipt).unwrap(), bytes);
+            assert_eq!(std::fs::read(&published).unwrap(), b"new");
+        }
+    }
+
+    #[test]
+    fn upload_parts_stay_inside_authorized_folder_and_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
+        // A publish folder resolving to the workspace root used to stage in
+        // its parent. The caller may pass precisely that authorized root.
+        let parts = upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(parts.parent(), Some(std::fs::canonicalize(&folder).unwrap().as_path()));
+        assert_eq!(std::fs::metadata(&parts).unwrap().permissions().mode() & 0o777, 0o700);
+        let other = upload_parts_dir(&folder, "phone-b").unwrap();
+        assert_ne!(parts, other);
+        // Existing permissive staging directories are made private again.
+        std::fs::set_permissions(&parts, std::fs::Permissions::from_mode(0o755)).unwrap();
+        upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(std::fs::metadata(parts).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn upload_parts_refuse_symlink_aliases_between_devices() {
+        let workspace = tempfile::tempdir().unwrap();
+        let first = upload_parts_dir(workspace.path(), "phone-a").unwrap();
+        let alias = workspace.path().join(format!(".parts-{:x}", Sha256::digest(b"phone-b")));
+        std::os::unix::fs::symlink(&first, &alias).unwrap();
+        assert!(upload_parts_dir(workspace.path(), "phone-b").is_err());
+    }
+
+    #[test]
+    fn stale_cleanup_does_not_follow_file_symlinks() {
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let outside = workspace.path().join("outside.part");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&outside, b"keep").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join(".stale.part")).unwrap();
+
+        cleanup_stale_upload_parts(&folder);
+
+        assert!(outside.exists());
+        assert!(folder.join(".stale.part").exists());
+    }
+
+    #[test]
+    fn stale_cleanup_keeps_descriptor_when_folder_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let moved = workspace.path().join("parts-moved");
+        let outside = workspace.path().join("outside");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let stale = folder.join(".old.part");
+        let victim = outside.join(".victim.part");
+        std::fs::write(&stale, b"old").unwrap();
+        std::fs::write(&victim, b"keep").unwrap();
+        let old = std::time::SystemTime::now() - UPLOAD_PART_MAX_AGE - Duration::from_secs(1);
+        std::fs::File::open(&stale).unwrap().set_modified(old).unwrap();
+        std::fs::File::open(&victim).unwrap().set_modified(old).unwrap();
+
+        let directory = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&folder)
+            .unwrap();
+        std::fs::rename(&folder, &moved).unwrap();
+        symlink(&outside, &folder).unwrap();
+
+        cleanup_stale_upload_parts_fd(&directory);
+
+        assert!(!moved.join(".old.part").exists());
+        assert!(victim.exists(), "cleanup must not follow a replaced folder path");
+    }
 
     /// The query is the bytes hostd always sent, its capability names now from the registry.
     #[test]
@@ -2613,7 +3496,9 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
-                "mailbox-send-v1"
+                "phone-page-v1",
+                "mailbox-send-v1",
+                "bundle-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2633,7 +3518,9 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
+                "bundle-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2746,7 +3633,14 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP, MAC_DISPLAY])
+            .chain([
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK,
+                SURFACE_STREAM,
+                CLOUD_DESKTOP,
+                MAC_DISPLAY,
+                names::SITE_DATA_HANDOFF,
+            ])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();

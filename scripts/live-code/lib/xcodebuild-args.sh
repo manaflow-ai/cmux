@@ -24,8 +24,17 @@ live_code_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # CMUX_LIVE_CODE_SHARED_MODULES, by default MessagesLabHome (the Home transcript, vendored in
 # Packages/Shared/CmuxMessagesLab), named only while Package.swift links it. Set it empty to build
 # them optimized again. live_apply.py LIVE_MODULE sorts their Swift as patchable.
+# The iPhone app (scripts/live-code/ios-sim.sh) sets LIVE_CODE_MODULE_PREFIX=CmuxMobile,
+# LIVE_CODE_PACKAGE_SWIFT to CmuxMobileKit's manifest and LIVE_CODE_EXTRA_TARGETS to the app target,
+# whose sources are in the Xcode project, not a package; the shared modules are the macOS app's only.
+live_code_package_swift() {
+  printf '%s\n' "${LIVE_CODE_PACKAGE_SWIFT:-$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift}"
+}
+
 live_code_shared_modules() {
-  local package="$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" module
+  [[ "${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" == CmuxNext ]] || return 0
+  local package module
+  package="$(live_code_package_swift)"
   for module in ${CMUX_LIVE_CODE_SHARED_MODULES-MessagesLabHome}; do
     grep -q "product(name: \"$module\"" "$package" && printf '%s\n' "$module"
   done
@@ -33,8 +42,10 @@ live_code_shared_modules() {
 }
 
 live_code_targets() {
-  { grep -oE 'name: "CmuxNext[A-Za-z0-9_]*"' "$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" \
+  local prefix="${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" target
+  { grep -oE "name: \"${prefix}[A-Za-z0-9_]*\"" "$(live_code_package_swift)" \
       | sed -E 's/.*"(.*)"/\1/'
+    for target in ${LIVE_CODE_EXTRA_TARGETS:-}; do echo "$target"; done
     live_code_shared_modules; } | sort -u
 }
 
@@ -42,7 +53,7 @@ live_code_targets() {
 live_code_module_pattern() {
   local shared
   shared="$(live_code_shared_modules | paste -sd '|' -)"
-  printf '%s\n' "[0-9](CmuxNext${shared:+|$shared})"
+  printf '%s\n' "[0-9](${LIVE_CODE_MODULE_PREFIX:-CmuxNext}${shared:+|$shared})"
 }
 
 live_code_xcodebuild_args() { # CONFIG [LIST]

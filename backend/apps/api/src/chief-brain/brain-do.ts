@@ -695,6 +695,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return slack.slackOutbound(this, reply)
   }
 
+  /** RFD 0123: the owner's non-owner allowance (set it with `set`; null is the default again) and who spent the hours. */
+  async slackAwake(o: { set?: number | null; days: number }) {
+    return slack.slackAwake(this, o)
+  }
+
   /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
   async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
     return turnLoop.peerNote(this, w)

@@ -48,7 +48,7 @@
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 0: never), its attempts run on a
 //!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
@@ -121,6 +121,7 @@ mod first_send;
 mod compact_first;
 // A chat a full disk cut waits for free space (`disk_wait.rs`).
 mod disk_wait;
+pub(super) use disk_wait::RefusedRules;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
@@ -644,13 +645,29 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
 }
 
 impl TurnInfo {
-    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq,
+    /// showing its prompt's own line (`prompt_line.rs`, no provenance).
     pub(super) fn prompted(
         client: &str,
         text: &str,
         turn_id: &str,
         prompt_id: &str,
         control: Control,
+    ) -> Self {
+        let line = super::prompt_line::prompt_line(text, client, None);
+        Self::prompted_as(client, text, turn_id, prompt_id, control, &line)
+    }
+
+    /// [`TurnInfo::prompted`] showing `line` instead: masked once, here. A secret scan is the
+    /// costliest step of a prompt's start at scale, so a caller that knows its line passes it
+    /// rather than masking a default line and then its own.
+    pub(super) fn prompted_as(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+        line: &str,
     ) -> Self {
         TurnInfo {
             trigger: false,
@@ -668,7 +685,7 @@ impl TurnInfo {
             accepted: true,
             device: None,
         }
-        .shown_as(&super::prompt_line::prompt_line(text, client, None))
+        .shown_as(line)
     }
 
     /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
@@ -1476,10 +1493,11 @@ impl Hub {
         }
         match (session.turn().map(|t| t.turn_id), ending) {
             (Some(t), _) => pending.replace(Mark::Stopped(t)),
-            (None, Some(t)) if let Some(fired_gen) = fired => {
-                pending.replace(Mark::stopping(t, fired_gen))
-            }
-            (None, Some(t)) => pending.replace(Mark::Stopped(t)),
+            // A nested match, not an `if let` guard: those need Rust 1.95, past the 1.91 MSRV.
+            (None, Some(t)) => match fired {
+                Some(fired_gen) => pending.replace(Mark::stopping(t, fired_gen)),
+                None => pending.replace(Mark::Stopped(t)),
+            },
             (None, None) => pending.take(),
         };
         drop(pending);
@@ -1598,8 +1616,14 @@ impl Hub {
         // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
         // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
+        // The person waits on their own turn until its first token (`hub/cpu_pressure.rs`).
+        let waited = turn.persons && !turn.trigger;
         self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
+            session.awaiting_reply.store(waited, std::sync::atomic::Ordering::SeqCst);
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+            if waited {
+                super::cpu_pressure::wake();
+            }
         })
     }
 

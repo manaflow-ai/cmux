@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.hub.problem.failed" : {
+      "comment" : "Settings > Integrations: shown when the hub did not answer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The integrations hub didn't answer. Try Refresh."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يستجب مركز عمليات الدمج. جرّب التحديث."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Centar za integracije nije odgovorio. Pokušajte Osvježi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Integrationshubben svarede ikke. Prøv Opdater."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Integrations-Hub hat nicht geantwortet. Versuche „Aktualisieren“."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El centro de integraciones no respondió. Prueba Actualizar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le hub d'intégrations n'a pas répondu. Essayez Actualiser."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'hub delle integrazioni non ha risposto. Prova Aggiorna."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "連携ハブから応答がありません。「更新」を試してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មជ្ឈមណ្ឌលការភ្ជាប់មិនបានឆ្លើយតបទេ។ សាកល្បងផ្ទុកឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "통합 허브가 응답하지 않았습니다. 새로 고침을 눌러 보세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Integrasjonshuben svarte ikke. Prøv Oppdater."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Centrum integracji nie odpowiedziało. Spróbuj Odśwież."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O hub de integrações não respondeu. Tente Atualizar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Центр интеграций не ответил. Нажмите «Обновить»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ศูนย์การเชื่อมต่อไม่ตอบสนอง ลองกดรีเฟรช"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entegrasyon merkezi yanıt vermedi. Yenile'yi deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Центр інтеграцій не відповів. Спробуйте «Оновити»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trung tâm tích hợp không phản hồi. Hãy thử Làm mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "集成中心没有响应。请尝试刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "整合中心沒有回應。請嘗試重新整理。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

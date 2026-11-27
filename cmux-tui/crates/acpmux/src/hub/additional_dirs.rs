@@ -54,6 +54,29 @@ pub(crate) async fn requested(params: &Value) -> Result<Vec<PathBuf>, RpcError> 
     Ok(out)
 }
 
+/// The compare-and-set token comes from the persisted session info. Validate its shape without
+/// requiring paths to still exist, so a deleted source folder can still be removed.
+fn expected_directories(value: &Value, cwd: &Path) -> Result<Vec<PathBuf>, RpcError> {
+    let list =
+        value.as_array().ok_or_else(|| refused("must be a list of absolute folder paths"))?;
+    if list.len() > MAX_DIRS {
+        return Err(refused(&format!("at most {MAX_DIRS} folders")));
+    }
+    let own = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let path = item.as_str().ok_or_else(|| refused("each entry must be a path string"))?;
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err(refused("expected folders must be absolute paths"));
+        }
+        if path != own && path != cwd && !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    Ok(out)
+}
+
 /// `dirs` without the chat's own folder `cwd` (compared canonical when it can be read).
 pub(crate) fn without_cwd(dirs: Vec<PathBuf>, cwd: &Path) -> Vec<PathBuf> {
     if dirs.is_empty() {
@@ -84,12 +107,31 @@ pub(crate) fn acp_value(meta: &SessionMeta) -> Option<Value> {
     })
 }
 
+/// The folder a change added, for the chat's one line about it ("Added ~/x as /vm/path"):
+/// `added: {path, from?}` when `path` is among the new folders (canonical either way), `from`
+/// the person's own name for it (a Mac path), each at most 4096 bytes. Anything else: none.
+pub(crate) fn added(params: &Value, dirs: &[PathBuf]) -> Option<Value> {
+    let added = params.get("added")?;
+    fn short(v: &Value) -> Option<&str> {
+        v.as_str().filter(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+    }
+    let path = short(added.get("path")?)?;
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let path = dirs.iter().find(|d| **d == canonical || d.as_path() == Path::new(path))?;
+    let mut out = json!({"path": path.to_string_lossy()});
+    if let Some(from) = added.get("from").and_then(short) {
+        out["from"] = json!(from);
+    }
+    Some(out)
+}
+
 impl Hub {
     /// `_acpmux/set_directories`: the chat's folders become `additionalDirectories` (an empty
     /// list clears them), and its agent restarts on them, resuming the same conversation, as a
     /// tool switch does (`tools.rs` `set_tools`): now between turns, at the end of a running
     /// turn, or at the next start of an agent that is not running. Watchers hear it as a `mux`
-    /// record of kind `directories`.
+    /// record of kind `directories`, carrying `added` ([`added`]) when the caller named the
+    /// folder it added (`chat-folder-add` in the machine daemon).
     pub async fn set_directories(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -99,8 +141,18 @@ impl Hub {
             return Err(refused("is required (an empty list clears them)"));
         }
         let dirs = without_cwd(requested(params).await?, &session.meta().cwd);
+        let expected = match params.get("expectedAdditionalDirectories") {
+            Some(value) => Some(expected_directories(value, &session.meta().cwd)?),
+            None => None,
+        };
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if expected.as_ref().is_some_and(|expected| expected != &m.additional_directories) {
+                return Err(
+                    RpcError::invalid_params("additionalDirectories changed")
+                        .with_data(json!({"reason": "additionalDirectories.changed", FIELD: m.additional_directories})),
+                );
+            }
             let changed = m.additional_directories != dirs;
             m.additional_directories = dirs.clone();
             changed
@@ -108,7 +160,11 @@ impl Hub {
         let applied = if !changed {
             "unchanged"
         } else {
-            self.append(session, "mux", "directories", json!({FIELD: dirs}));
+            let mut record = json!({FIELD: dirs});
+            if let Some(added) = added(params, &dirs) {
+                record["added"] = added;
+            }
+            self.append(session, "mux", "directories", record);
             self.save_meta_answered(session)?;
             self.restart_on_change(session).await?
         };

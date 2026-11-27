@@ -40,6 +40,7 @@ fn the_configuration_is_made_from_the_runtime_selection() {
     assert_eq!(body["storage"]["keychainService"], "com.cmuxterm.app.debug.next.auth.dev-1");
     assert_eq!(body["storage"]["defaultsKeySuffix"], "dev-1");
     assert_eq!(body["namespacedLegacyStore"], Value::Null);
+    assert_eq!(body["sharedSession"], Value::Null);
     let (_, names) = call(
         c"cloud_config_storage_names",
         &json!({"bundleId": "com.cmuxterm.app.cloud-unavailable"}),
@@ -58,6 +59,75 @@ fn the_configuration_is_made_from_the_runtime_selection() {
             .unwrap()
             .starts_with("https://cmux.com/handler/native-sign-in?after_auth_return_to=")
     );
+}
+
+#[test]
+fn a_team_signed_production_channel_names_the_shared_session_item() {
+    let selection = json!({"name": "prod", "apiOrigin": "https://api.invalid", "authWebOrigin": "https://web.invalid",
+        "stackOrigin": "https://stack.invalid", "stackProjectId": "p", "stackClientKey": "k",
+        "bundleId": "com.cmuxterm.app.nightly", "authNamespace": "prod", "legacyStorage": true});
+    let (code, body) = call(
+        c"cloud_config_from_selection",
+        &json!({"selection": selection, "bundled": {}, "process": {}, "isDebugBuild": false}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body["sharedSession"],
+        json!({"keychainService": "com.cmuxterm.app.shared.auth.p",
+               "accessGroup": "7WLXT3NR37.com.cmuxterm.app.shared"})
+    );
+}
+
+#[test]
+fn the_shared_session_store_answers_its_next_effects() {
+    let (code, launch) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": {}, "event": {"event": "settle", "ownRefresh": null}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(launch["effects"], json!([{"kind": "read_shared"}]));
+    let (_, imported) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": launch["state"], "event": {"event": "shared_read", "pair": {"access": "a", "refresh": "r"}}}),
+    );
+    assert_eq!(imported["state"]["usesImported"], true);
+    assert_eq!(
+        imported["effects"],
+        json!([{"kind": "seed_imported", "access": "a", "refresh": "r"}])
+    );
+    let (_, shared) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": imported["state"], "event": {"event": "is_shared", "refresh": "r"}}),
+    );
+    assert_eq!(shared["shared"], true);
+    let (code, _) = call(c"cloud_auth_shared_session_next", &json!({"event": {"event": "nope"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
+fn the_sign_in_screen_backend_label_answers_here() {
+    let (code, production) =
+        call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));
+    assert_eq!(code, OK);
+    assert_eq!(production, json!({"kind": "production", "title": "cmux.com", "detail": null}));
+    let (_, development) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "development", "url": "https://dev-abc.cmux.dev"}}),
+    );
+    assert_eq!(
+        development,
+        json!({"kind": "development", "title": "Development backend", "detail": "dev-abc.cmux.dev"})
+    );
+    let (_, local) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "localOnly", "url": "http://localhost:3777"}}),
+    );
+    assert_eq!(
+        local,
+        json!({"kind": "local", "title": "Local backend", "detail": "localhost:3777"})
+    );
+    let (code, _) = call(c"cloud_config_backend_label", &json!({"backend": {"kind": "elsewhere"}}));
+    assert_eq!(code, ERR_INVALID);
 }
 
 #[test]
@@ -92,7 +162,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         launch["signIn"],
         json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
     );
-    assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(launch["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, login) = call(
         c"cloud_auth_launch_login",
         &json!({"signIn": launch["signIn"], "reads": {"environment": {}, "home": "/h", "files": {}}}),
@@ -212,7 +282,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
 fn auth_rules_answer_from_what_the_app_read() {
     let (_, paths) =
         call(c"cloud_auth_credential_paths", &json!({"environment": {}, "home": "/h"}));
-    assert_eq!(paths["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(paths["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, decision) =
         call(c"cloud_auth_credentials", &json!({"environment": {}, "home": "/h", "files": {}}));
     assert_eq!(decision, json!({"credentials": null, "refusal": {"kind": "noDeclaredAccount"}}));
@@ -310,6 +380,23 @@ fn the_device_list_answers_here() {
     assert_eq!(
         listed,
         json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
+fn the_device_list_groups_by_machine_id_first() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly", "machineId": "m1"},
+                "devices": [{"id": "dev", "name": "Renamed", "platform": "macos", "machineId": "m1"},
+                            {"id": "mini", "name": "Desk Mac", "platform": "macos", "machineId": "m2"},
+                            {"id": "old", "name": "Laptop", "platform": "macos", "machineId": null}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"],
+               "others": [{"id": "mini", "ids": ["mini"]}, {"id": "old", "ids": ["old"]}]})
     );
 }
 

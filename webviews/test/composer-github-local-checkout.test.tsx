@@ -122,9 +122,9 @@ test("with This Mac picked, a repository's pick stays on this Mac; one it has a 
   const { root, picked, here, modes } = await render({}, picker);
   try {
     await openFolderMenu();
-    // acme/api has a checkout here: its one row is the checkout, with the GitHub glyph (cmux#53226).
+    // acme/api has a checkout here: its one row is the checkout, a folder with the folder icon (cmux#53226).
     expect(option("acme/api")).toBeUndefined();
-    expect(option("api")?.querySelector("[data-github]")).not.toBeNull();
+    expect(option("api")?.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("folder");
     // A repository this Mac has no checkout of: the host clones it.
     await press(option("acme/web")!);
     expect(here).toEqual([["acme/web", []]]);
@@ -157,7 +157,7 @@ test("with Cloud picked a repository's pick is the Cloud start's folder, and thi
     await openFolderMenu();
     // Cloud lists this Mac's folders too (cmux#53226): acme/api's clone is its row, never a second one.
     expect(option("acme/api")).toBeUndefined();
-    expect(option("api")?.querySelector("[data-github]")).not.toBeNull();
+    expect(option("api")?.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("folder");
     await press(option("acme/web")!);
     expect(picked).toEqual(["github:acme/web"]);
     expect(here).toEqual([]);

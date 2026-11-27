@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.push.authFailed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "رفض المستودع البعيد بيانات الاعتماد. تحقق من مفتاح SSH أو مساعد بيانات الاعتماد في الطرفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remote je odbio akreditive. Provjerite SSH ključ ili credential helper u terminalu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remotet afviste loginoplysningerne. Tjek din SSH-nøgle eller credential helper i en terminal."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Remote hat die Anmeldedaten abgelehnt. Prüfe deinen SSH-Schlüssel oder Credential Helper in einem Terminal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The remote refused the credentials. Check your SSH key or credential helper in a terminal."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El remoto ha rechazado las credenciales. Comprueba tu clave SSH o el asistente de credenciales en un terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le dépôt distant a refusé les identifiants. Vérifiez votre clé SSH ou votre assistant d’identifiants dans un terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il remote ha rifiutato le credenziali. Controlla la chiave SSH o l’helper delle credenziali in un terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リモートが認証情報を拒否しました。ターミナルで SSH 鍵または認証情報ヘルパーを確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remote បានបដិសេធព័ត៌មានផ្ទៀងផ្ទាត់។ សូមពិនិត្យសោ SSH ឬកម្មវិធីជំនួយព័ត៌មានផ្ទៀងផ្ទាត់របស់អ្នកនៅក្នុងទែមីណាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "원격이 자격 증명을 거부했습니다. 터미널에서 SSH 키 또는 자격 증명 도우미를 확인하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remoten avviste påloggingsinformasjonen. Sjekk SSH-nøkkelen eller credential-hjelperen i en terminal."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zdalne repozytorium odrzuciło dane uwierzytelniające. Sprawdź klucz SSH lub pomocnika poświadczeń w terminalu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O remoto recusou as credenciais. Verifique sua chave SSH ou o auxiliar de credenciais em um terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалённый репозиторий отклонил учётные данные. Проверьте ключ SSH или помощник учётных данных в терминале."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รีโมตปฏิเสธข้อมูลรับรอง ตรวจสอบคีย์ SSH หรือตัวช่วยข้อมูลรับรองในเทอร์มินัล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uzak depo kimlik bilgilerini reddetti. Terminalde SSH anahtarınızı veya kimlik bilgisi yardımcınızı kontrol edin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Віддалене сховище відхилило облікові дані. Перевірте ключ SSH або помічник облікових даних у терміналі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remote đã từ chối thông tin xác thực. Kiểm tra khóa SSH hoặc credential helper trong terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "远程仓库拒绝了凭据。请在终端中检查 SSH 密钥或凭据助手。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "遠端拒絕了憑證。請在終端機中檢查 SSH 金鑰或憑證輔助程式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

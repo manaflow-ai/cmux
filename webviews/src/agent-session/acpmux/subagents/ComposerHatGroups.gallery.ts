@@ -84,21 +84,11 @@ const loneAgent = chat(
   { isWorking: true },
 );
 
-/** cmux#56151's hat: a six-step plan at step four, one Claude subagent done, "4 of 6 · Verify in tagged
- *  dev build · 1 subagent done". Its first mark centres on the +, its words start at the prompt's. */
-const planAndDone = chat(
+/** cmux#56151's hat: one Claude subagent done, "1 subagent done". Its first mark centres on the +, its
+ *  words start at the prompt's. */
+const oneDone = chat(
   [
     user("Fix the composer hat's alignment", 14),
-    row("plan", 13.9, {
-      plan: [
-        { content: "Read the hat's column rules", status: "completed" },
-        { content: "Find the doubled offset", status: "completed" },
-        { content: "Fix and add a test", status: "completed" },
-        { content: "Run the gallery", status: "completed" },
-        { content: "Verify in tagged dev build", status: "in_progress" },
-        { content: "Open the PR and merge", status: "pending" },
-      ],
-    }),
     row(SUBAGENTS, 12, { subagents: [agent("Measure every row over the composer", 8, "completed")] }),
   ],
   { isWorking: true, turnStartedAtMs: minutesAgo(14) },
@@ -199,13 +189,13 @@ export default agentPaneEntry({
       snapshot: mixed,
       experiments: { "subagent-tray-fold-head": "groups" },
     },
-    "plan-and-done": {
-      note: "cmux#56151: 4 of 6 · Verify in tagged dev build · 1 subagent done. The plan's mark centres on the +, its words start at the prompt's, the panel button and the chevron sit over Stop and the mic.",
+    "one-done": {
+      note: "cmux#56151: 1 subagent done. Its mark centres on the +, its words start at the prompt's, the panel button and the chevron sit over Stop and the mic.",
       play: async (ctx) => {
         await show(ctx);
         columnHolds(ctx);
       },
-      snapshot: planAndDone,
+      snapshot: oneDone,
       experiments: { "subagent-tray-fold-head": "groups" },
     },
     "mixed-marks": {

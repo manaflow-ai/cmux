@@ -1,11 +1,20 @@
-import React, { memo, useEffect, useReducer, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
-import { DismissButton } from "../../../ui/DismissButton";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect, useReducer } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
-import { hasCustomizeRunner, idleRun, runCustomize, runReducer, type CustomizeRun } from "./customizeRun";
+import { CardDismiss } from "../question/CardDismiss";
+import { copyTextResult } from "./clipboard";
+import {
+  hasCustomizeRunner,
+  idleRun,
+  runCustomize,
+  runReducer,
+  shareLine,
+  shareTarget,
+  type CustomizeRun,
+} from "./customizeRun";
 import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import type { AnswerBlock } from "../subagents/restart";
 import {
@@ -102,18 +111,25 @@ export const NextStepCard = memo(function NextStepCard({
   // The answer on its way and whether the last one failed: the card says so and keeps its
   // buttons, never drops it. Shared by the card's copies when it has a key.
   const [own, setOwn] = useState<AnswerState>({});
-  const shared = useSyncExternalStore(
+  const answers = useSyncExternalStore(
     subscribeAnswers,
     () => (answerKey ? answerState(answerKey) : own),
     () => own,
   );
-  const state = answerKey ? shared : own;
+  const state = answerKey ? answers : own;
   const { sending, failed = false } = state;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
   // A typed answer (`{label, run}`, customizeRun.ts) runs `cmux customize`: Try it on, then Keep
   // or Revert. The card's own state: the run is the person's click here, not a reply.
   const [run, dispatchRun] = useReducer(runReducer, idleRun);
+  // Share copies the one-line install of what was tried on; the card says whether it copied, the
+  // line, and the daemon's words (where a profile's setup repo is, or why there is no line).
+  const [shared, setShared] = useState<{
+    state: "sharing" | "copied" | "failed" | "none";
+    line?: string;
+    note?: string;
+  }>();
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const shown = answer ?? givenAnswer(state);
   const settled = shown !== undefined || superseded;
@@ -203,16 +219,36 @@ export const NextStepCard = memo(function NextStepCard({
   // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
   const tried = run.phase === "tried";
   const done = run.phase === "kept" || run.phase === "reverted";
+  // Save is Keep: a kept try-on stays in the person's library (RFD 0150). Share copies the line
+  // (code as it is; a profile as the setup repo the daemon writes; a folder as its pushed branch)
+  // that tries the same code on another cmux, while it is on and once it is kept.
+  const target = tried || run.phase === "kept" ? run.target : undefined;
+  const canShare = target !== undefined && (shareLine(target) !== undefined || hasCustomizeRunner());
+  const share: NextStepOption[] = canShare ? [{ label: t("liveCustomize.share"), share: target }] : [];
   const shownOptions: NextStepOption[] = tried
     ? [
         { label: t("liveCustomize.keep"), run: { customize: "keep" } },
         { label: t("liveCustomize.revert"), run: { customize: "revert" } },
+        ...share,
       ]
     : done
-      ? ask.options.filter((option) => !option.run)
+      ? [...share, ...ask.options.filter((option) => !option.run)]
       : ask.options;
+  const copy = (target: string) => {
+    if (shared?.state === "sharing") return;
+    setShared({ state: "sharing" });
+    void shareTarget(target).then(({ line, note }) =>
+      line
+        ? copyTextResult(line).then((ok) => setShared({ state: ok ? "copied" : "failed", line, note }))
+        : setShared({ state: "none", note }),
+    );
+  };
   const click = (option: NextStepOption) =>
-    option.run && hasCustomizeRunner() ? customize(option.run) : send(option.label);
+    option.share !== undefined
+      ? copy(option.share)
+      : option.run && hasCustomizeRunner()
+        ? customize(option.run)
+        : send(option.label);
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       <div className="acpmux-question-bar acpmux-next-step__bar">
@@ -220,7 +256,7 @@ export const NextStepCard = memo(function NextStepCard({
           <Icon name="status.question" size={14} />
           {t("question.needsInput")}
         </span>
-        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+        {onDismiss && <CardDismiss label={t("message.dismiss")} onDismiss={onDismiss} />}
       </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
@@ -244,6 +280,21 @@ export const NextStepCard = memo(function NextStepCard({
             : run.failed
               ? t("liveCustomize.failed")
               : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+        </output>
+      )}
+      {shared && (
+        <output className="acpmux-next-step__detail">
+          {t(
+            shared.state === "sharing"
+              ? "liveCustomize.sharing"
+              : shared.state === "none"
+                ? "liveCustomize.shareNone"
+                : shared.state === "copied"
+                  ? "liveCustomize.shared"
+                  : "liveCustomize.shareFailed",
+          )}{" "}
+          {shared.line && <code>{shared.line}</code>}
+          {shared.note && <span> {shared.note}</span>}
         </output>
       )}
       {onAnswer ? (
@@ -322,6 +373,7 @@ export const NextStepCard = memo(function NextStepCard({
           />
         </label>
       )}
+      {/* retry-prompt-ok: the person's pick did not send; sending it again is their paid model request. */}
       {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );

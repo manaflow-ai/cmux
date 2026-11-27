@@ -244,3 +244,19 @@
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+
+/* ---------- the one-line hat's marks (hatLine.experiment.ts) ---------- */
+/* The marks after the sentence (`trail`): one gap after the words, the same marks and pop. */
+.acpmux-hat-deck[data-at="trail"] {
+  margin-inline-start: var(--acpmux-tray-gap, 4px);
+}
+/* On the one line the marks keep the header's height. */
+.acpmux-running-tray[data-line] .acpmux-hat-deck {
+  align-self: center;
+  height: var(--acpmux-tray-head-height);
+}
+/* The trailing deck's empty slots keep their room and take no pointer. */
+.acpmux-hat-deck__mark[data-blank] {
+  pointer-events: none;
+  visibility: hidden;
+}

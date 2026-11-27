@@ -89,10 +89,15 @@ CHECK_POOL_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timeout.sh"
 export CHECK_POOL_TIMEOUT
 
 run_one() {
-  local work="$1" index="$2" start status deadline="" limit
+  local work="$1" index="$2" start status deadline="" limit had_git=""
   start="$(date +%s)"
   echo "$start" > "$work/$index.started"
   status=0
+  # The checkout's own repository: every git read in the job needs it. A test that ran a workflow step body
+  # with the job's environment (`rm -rf "$GITHUB_WORKSPACE/.git"`) deleted it mid-pool, and ~20 checks then
+  # failed with "not a git repository" with no word of who did it (cmux-next.yml checks, run 45884200942).
+  # A command it was there for and is gone after fails and says so; the culprit is one of those it names.
+  [ -z "${GITHUB_WORKSPACE:-}" ] || [ ! -e "$GITHUB_WORKSPACE/.git" ] || had_git=1
   [ ! -s "$work/deadline" ] || read -r deadline < "$work/deadline"
   if [ -n "$deadline" ]; then
     limit=$(( deadline - start ))
@@ -106,6 +111,10 @@ run_one() {
     fi
   else
     bash -c "$(cat "$work/$index.cmd")" > "$work/$index.log" 2>&1 < /dev/null || status=$?
+  fi
+  if [ -n "$had_git" ] && [ ! -e "$GITHUB_WORKSPACE/.git" ]; then
+    echo "check-pool: $GITHUB_WORKSPACE/.git was deleted while this command ran: it, or a command running alongside it, removed the checkout's repository (a test must point GITHUB_WORKSPACE at its own scratch directory)" >> "$work/$index.log"
+    [ "$status" != 0 ] || status=1
   fi
   printf '%s %s\n' "$status" "$(( $(date +%s) - start ))" > "$work/$index.rc.tmp"
   mv "$work/$index.rc.tmp" "$work/$index.rc"

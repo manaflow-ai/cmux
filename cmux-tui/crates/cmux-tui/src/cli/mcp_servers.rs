@@ -148,7 +148,11 @@ pub(super) fn parse(
         other => return Err(format!("unknown verb {other} (cmux mcp-servers --help)")),
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let platform = match platform.or_else(|| env("CMUX_PLATFORM_URL")) {
         Some(p) => Some(
@@ -215,6 +219,18 @@ pub(super) fn unavailable_text(reason: Option<&str>) -> String {
     }
 }
 
+/// An RFC 3339 instant as the platform writes it (`2026-12-01T09:00:00Z`): a date, a `T`, at most 40
+/// characters of digits and separators. Anything else is dropped rather than shown.
+fn looks_like_time(at: &str) -> bool {
+    let b = at.as_bytes();
+    at.len() >= 20
+        && at.len() <= 40
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[10] == b'T'
+        && at.bytes().all(|c| c.is_ascii_digit() || b"-:.TZ+".contains(&c))
+}
+
 fn tools_label(count: u64) -> String {
     if count == 1 { "1 tool".into() } else { format!("{count} tools") }
 }
@@ -245,6 +261,7 @@ pub(super) fn entry_view(entry: &Value) -> Value {
         "ownerLabel": null,
         "toolCount": null,
         "toolsLabel": null,
+        "expiresAt": null,
     });
     let Some(connection) = connection else {
         if !available {
@@ -270,6 +287,12 @@ pub(super) fn entry_view(entry: &Value) -> Value {
     put(&mut view, "ownerLabel", json!(if owner == "team" { "Team" } else { "Personal" }));
     put(&mut view, "toolCount", json!(count));
     put(&mut view, "toolsLabel", json!(tools_label(count)));
+    // When the provider's sign-in lapses (RFC 3339), so the card can offer Reconnect before it does.
+    put(
+        &mut view,
+        "expiresAt",
+        json!(text(connection, "expiresAt").filter(|at| looks_like_time(at))),
+    );
     let (state, status, button) = match text(connection, "status").unwrap_or("ready") {
         "ready" => ("connected", format!("Connected · {}", tools_label(count)), None),
         "changed" => {
@@ -375,7 +398,9 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    // Through the egress gate (docs/privacy.md); --platform or CMUX_PLATFORM_URL is a host the person named.
+    cmux_egress::allow_named(&platform);
+    let http = match cmux_egress::client_builder("cmux_tui::cli::mcp_servers")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(45))

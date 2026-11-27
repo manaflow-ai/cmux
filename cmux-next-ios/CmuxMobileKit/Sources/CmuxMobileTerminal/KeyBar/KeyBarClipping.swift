@@ -107,17 +107,18 @@ public struct ComposerDockState: Equatable, Sendable {
     }
 }
 
-/// The dock's metrics: a 44 pt key row (Apple's minimum touch target; the
-/// row was classic's 28 pt with 32 pt glyph keys, Leo 2026-11-23: "the buttons
-/// are really small") of keys that hug their labels (glyph keys at least 44 pt
-/// wide) 6 pt apart, 8 pt above the composer, which is the agent chat's card
+/// The dock's metrics: classic's 28 pt key row of keys that hug their labels
+/// (glyph keys 32 pt wide) 4 pt apart. #53325 made it 44 pt (Leo, 2026-11-23:
+/// "the buttons are really small"); it is 28 pt again (Leo, 2026-11-25: "We can
+/// just bring it back to what the older size was"). Each key's hit area is its
+/// own cap, inside the row: none reaches the composer 8 pt below, which is the agent chat's card
 /// (`ComposerCardMetrics`: a 44 pt row 2 pt inside it, 48 pt at one line, 12 pt
 /// side insets). The stack rests 8 pt above the keyboard or the safe area.
 /// Plain numbers here, so the macOS test leg runs them.
 public struct TerminalDockMetrics: Sendable {
-    public static let keyRowHeight: CGFloat = 44
-    public static let keySpacing: CGFloat = 6
-    public static let minKeyWidth: CGFloat = 44
+    public static let keyRowHeight: CGFloat = 28
+    public static let keySpacing: CGFloat = 4
+    public static let minKeyWidth: CGFloat = 32
     /// Between the key row and the composer.
     public static let keyRowGap: CGFloat = 8
     public static let horizontalInset: CGFloat = 12

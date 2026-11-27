@@ -51,6 +51,7 @@ import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 import { perfRow } from "./perfRow";
+import { segmenter } from "./replySegments";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 120);
@@ -145,7 +146,11 @@ const WORD = new Map([
   [B, "Reply"],
   [S, "Answer"],
 ]);
-const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
+/// The text a painted page of `chat` shows at its end: its newest prompt. Each workspace_switch round adds a turn to its
+/// target (`newTurn`), so after a dozen rounds the seed's last turn ("Answer 120:") is above the rows a page mounts at
+/// the latest row, and a wait for it never ended (the 60 s first-paint timeout in round 13 of workspace_switch.stream).
+const newestMark = new Map<string, string>();
+const markOf = (chat: string) => newestMark.get(chat) ?? `${WORD.get(chat)} ${TURNS}:`;
 const SEQ_SPAN = 100_000;
 const SEQ_BASE = new Map([
   [A, 0],
@@ -159,6 +164,8 @@ const rowOf = (rowId: string, chat: string) => {
   return seq > base && seq <= base + SEQ_SPAN;
 };
 
+const segmenters = new Map<string, ReturnType<typeof segmenter>>();
+
 type Chat = { session: Record<string, unknown>; events: Record<string, unknown>[] };
 const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
   const word = WORD.get(sessionId)!;
@@ -168,6 +175,9 @@ const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
     answer: (n) => `${word} ${n}: the checks on the merged head are green.`,
   });
   const base = SEQ_BASE.get(sessionId)!;
+  const stamp = segmenter();
+  segmenters.set(sessionId, stamp);
+  for (const event of events) stamp(event as Parameters<typeof stamp>[0]);
   return {
     session: { ...session, sessionId, title, lastSeq: Number(session.lastSeq) + base },
     events: events.map((event) => ({ ...event, sessionId, seq: Number(event.seq) + base })),
@@ -187,7 +197,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
   const chat = chats.get(String(params.sessionId)) ?? chats.get(A)!;
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      // As acpmux (capabilities.rs): it serves the settled attach, so the app asks for it as it does on a person's Mac.
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [], capabilities: ["settled-attach-v1"] } },
+      };
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
@@ -207,6 +221,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         events,
         hasMore: events.length < chat.events.length,
         turnOpener,
+        // As acpmux's settled attach (server/requests/settled_attach.rs): the view written through the chat's last record.
+        settled: params.settled === true ? { lastSeq: lastSeq(chat), forkSeqs: [] } : null,
       };
     }
     case "_acpmux/events": {
@@ -231,6 +247,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
 const append = (sessionId: string, dir: string, kind: string, msg: Record<string, unknown>) => {
   const chat = chats.get(sessionId)!;
   const event = { sessionId, seq: lastSeq(chat) + 1, at: Date.now(), dir, kind, msg };
+  segmenters.get(sessionId)?.(event);
   chat.events.push(event);
   chat.session = { ...chat.session, lastSeq: event.seq, updatedAt: event.at };
   const line = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event });
@@ -267,7 +284,8 @@ let extraTurns = 0;
 const newTurn = (sessionId: string, running = false) => {
   extraTurns += 1;
   if (running) append(sessionId, "mux", "turn_result", { status: "completed" });
-  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}` });
+  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}: what is left?` });
+  newestMark.set(sessionId, `Follow-up ${extraTurns}:`);
   append(sessionId, "mux", "turn_started", {});
   chunk(sessionId, `Follow-up answer ${extraTurns}: done, the branch is pushed and the checks are queued.`);
   if (!running) append(sessionId, "mux", "turn_result", { status: "completed" });
@@ -288,7 +306,7 @@ function installFrameReader() {
   type Rec = {
     t: number;
     copyShown: boolean;
-    rows: { id: string; top: number }[];
+    rows: { id: string; top: number; bottom: number }[];
     composer: { top: number; height: number } | null;
     scrollTop: number | null;
     drawnBy?: number;
@@ -370,7 +388,7 @@ function installFrameReader() {
       for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
         const box = row.getBoundingClientRect();
         if (box.height > 0 && box.bottom > view.top && box.top < view.bottom)
-          rows.push({ id: row.dataset.rowId ?? "", top: box.top });
+          rows.push({ id: row.dataset.rowId ?? "", top: box.top, bottom: box.bottom });
       }
     rows.sort((x, y) => x.top - y.top);
     const composer = rootHidden
@@ -405,8 +423,13 @@ function installFrameReader() {
   };
   const tick = () => {
     if (!running) return;
-    // After this frame painted: a task queued from the frame callback runs once the frame is drawn.
-    setTimeout(() => {
+    // As this frame paints: a ResizeObserver made in the frame callback is the last one the frame delivers to (its
+    // first delivery comes in this frame's rendering steps, after layout), so it reads the rows after the app's own
+    // observers placed them, as the frame then paints them. A task queued from the frame callback ran after a commit
+    // that a task before it made: it read that commit's rows before the frame that placed them (a reply's measured
+    // growth read at its old place, 432 px off, in chat_switch stream's later rounds).
+    const reader = new ResizeObserver(() => {
+      reader.disconnect();
       if (!running) return;
       const rec = read();
       const key = JSON.stringify([rec.rows, rec.composer, rec.scrollTop]);
@@ -415,7 +438,8 @@ function installFrameReader() {
         lastChange = rec.t;
       }
       frames.push(rec);
-    }, 0);
+    });
+    reader.observe(document.documentElement);
     raf(tick);
   };
   w.__settle = {
@@ -465,6 +489,9 @@ async function framesOf(page: Page, mark: string): Promise<Read> {
   return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
+/** A row's bottom edge in the frame, its top when the frame did not read one. */
+const bottomOfRow = (row: FrameRecord["rows"][number]) => (row as { bottom?: number }).bottom ?? row.top;
+
 /** How far a frame's thread was drawn from its place (the follow glide), 0 when not read. */
 const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy ?? 0;
 
@@ -475,7 +502,7 @@ const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy 
  */
 function streamView(frame: FrameRecord): FrameRecord {
   const offset = (frame.scrollTop ?? 0) - drawnBy(frame);
-  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset }));
+  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset, bottom: bottomOfRow(row) + offset }));
   let bottom = -1;
   rows.forEach((row, at) => {
     if (bottom < 0 || row.top >= rows[bottom]!.top) bottom = at;
@@ -494,12 +521,35 @@ function streamView(frame: FrameRecord): FrameRecord {
 function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
-    const before = new Map(a.rows.map((row) => [row.id, row.top]));
+    const before = new Map(a.rows.map((row) => [row.id, row]));
     const offset = (frame: FrameRecord) => (frame.scrollTop ?? 0) - drawnBy(frame);
+    // The reply streaming above the live row: the bottom-most row left after `streamView` took the live row out. When
+    // it grew with its foot held in the view, the view followed it: its top and every row above it rose by its growth
+    // in the view. In a frame where nothing above changed that is a view move only, which the content check below
+    // already passes; in the frame where the history mounts above (every row's content top moves, the offset absorbs
+    // it), the same follow read as a shift of the reply and each row above it.
+    const reply = b.rows.reduce<FrameRecord["rows"][number] | undefined>(
+      (best, row) => (!best || row.top >= best.top ? row : best),
+      undefined,
+    );
+    const replyBefore = reply && before.get(reply.id);
+    let follow: number | undefined;
+    if (reply && replyBefore) {
+      const rise = reply.top - offset(b) - (replyBefore.top - offset(a));
+      const footMoved = bottomOfRow(reply) - offset(b) - (bottomOfRow(replyBefore) - offset(a));
+      const grew = bottomOfRow(reply) - reply.top - (bottomOfRow(replyBefore) - replyBefore.top);
+      if (
+        grew > MOVE_TOLERANCE_PX &&
+        Math.abs(footMoved) <= 2 * MOVE_TOLERANCE_PX &&
+        Math.abs(rise + grew) <= 2 * MOVE_TOLERANCE_PX
+      )
+        follow = rise;
+    }
     for (const row of b.rows) {
-      const top = before.get(row.id);
+      const top = before.get(row.id)?.top;
       if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
       const [viewA, viewB] = [top - offset(a), row.top - offset(b)];
+      if (follow !== undefined && Math.abs(viewB - viewA - follow) <= 2 * MOVE_TOLERANCE_PX) continue;
       if (Math.abs(viewA - viewB) > MOVE_TOLERANCE_PX)
         return `row ${row.id} view ${viewA.toFixed(1)} -> ${viewB.toFixed(1)}, content ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
@@ -678,8 +728,10 @@ try {
   });
   releases.push(() => statics.stop(true));
   const base = `http://127.0.0.1:${statics.port}`;
+  // `scheme=cmux`, a shipped build's, as every other bench passes: the default `cmux-dev` turns on the dev-only
+  // layout-motion audit (devMotionAudit.ts), a box read every frame after each DOM change that Release and NIGHTLY never pay.
   const urlFor = (session: string) =>
-    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${session}`;
+    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${session}`;
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());

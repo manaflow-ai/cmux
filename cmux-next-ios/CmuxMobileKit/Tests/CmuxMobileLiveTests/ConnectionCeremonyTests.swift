@@ -27,6 +27,8 @@ import Testing
         let session = try #require(live.sessions["m1"])
         let link = session.link
         link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        // The first failure retries silently at once (`LinkMachine.silentRetries`); the second backs off.
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
         link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
         live.phaseChanged(session)
         return session

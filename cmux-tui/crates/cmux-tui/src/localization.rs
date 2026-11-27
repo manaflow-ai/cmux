@@ -13,7 +13,6 @@ mod automation;
 mod billing;
 mod browser;
 mod cli_connection;
-mod coderouter;
 mod config;
 mod copy_mode;
 mod foreign_viewport;
@@ -46,8 +45,8 @@ mod update_notice;
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{
-    AppControlMessages, ChatMemoryMessages, NightlyMessages, ShareMessages, TryMessages,
-    VersionLabels,
+    AppControlMessages, ChatMemoryMessages, NightlyMessages, RecordMessages, ShareMessages,
+    TryMessages, VersionLabels,
 };
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;
@@ -57,7 +56,6 @@ pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
-pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
 pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
@@ -177,7 +175,6 @@ pub(crate) struct Catalog {
     pub agents_doctor: AgentsDoctorMessages,
     pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
-    pub coderouter: CodeRouterMessages,
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
@@ -201,7 +198,6 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
-    coderouter: coderouter::ENGLISH,
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
@@ -243,7 +239,6 @@ static ENGLISH: Catalog = Catalog {
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
-    coderouter: coderouter::JAPANESE,
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
