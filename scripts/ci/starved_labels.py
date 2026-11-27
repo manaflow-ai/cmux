@@ -44,6 +44,10 @@ STARVED_AFTER = dt.timedelta(minutes=10)
 FLEET_PREFIX = "glaeda-"
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
+# The Actions jobs API uses these non-terminal states while a job is waiting
+# for a runner. Treating only ``queued`` as waiting misses labels whose jobs
+# are reported as ``waiting`` or ``pending`` during scheduler handoff.
+QUEUED_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -70,7 +74,7 @@ def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int
                 continue
             status = job.get("status")
             started = parse_time(job.get("started_at"))
-            if status == "queued" and not job.get("runner_name"):
+            if status in QUEUED_STATUSES and not job.get("runner_name"):
                 waiting.setdefault(key, []).append(job)
             elif status == "in_progress" or (job.get("runner_name") and started and now - started <= after):
                 served.add(frozenset(key.split("+")))
