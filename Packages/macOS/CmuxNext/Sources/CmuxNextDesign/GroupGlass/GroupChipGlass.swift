@@ -47,8 +47,11 @@ public nonisolated struct GroupChipGlass: Equatable, Sendable {
                               gradient: sections.groupGradient, borders: Borders.current)
     }
 
-    /// Whether the chip draws as glass: the headers' rule (`SidebarGroupBackgroundStyle.drawsGlass`).
-    public var drawsGlass: Bool { background.drawsGlass(appLooksGlassy: glass != .solid) }
+    /// Whether the chip draws as glass: the headers' rule (`SidebarGroupBackgroundStyle.drawsGlass`). The folder, chip, tree and card looks
+    /// are sidebar looks only: a tab strip has no folder, so its chips keep the automatic look.
+    public var drawsGlass: Bool {
+        (background.drawsOnTabStrip ? background : .auto).drawsGlass(appLooksGlassy: glass != .solid)
+    }
 
     /// The glass paint for a chip colored `tint` over the tab strip's chrome, `steps` (hover, press) laid over it;
     /// nil when the chip is solid or the group has no color.

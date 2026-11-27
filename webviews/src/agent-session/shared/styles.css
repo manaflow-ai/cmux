@@ -19,7 +19,9 @@
   --agent-border: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --agent-border-strong: color-mix(in srgb, var(--agent-text) 22%, transparent);
   --agent-text: var(--cmux-text, #ececec);
-  --agent-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
+  /* The theme's secondary ink (WebTheme, 4.5:1 on every fill), about the old 58% step where the theme
+     has room; the fixed 58% wash fell under 4.5:1 on low-contrast themes and over pictures. */
+  --agent-muted: var(--cmux-text-secondary, color-mix(in srgb, var(--agent-text) 58%, transparent));
   --agent-soft: color-mix(in srgb, var(--agent-text) 78%, transparent);
   --agent-accent: var(--agent-text);
   /* Links are blue in every theme (Leo 2026-10-19: "links are blue, period", as Claude desktop

@@ -12,9 +12,12 @@
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
 //! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
-//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! recipe and a worktree's setup run (`worktree_setup`). `project.actions.list`
+//! reads a project's `.cmux/actions.json` with the global actions (`project_actions`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
-//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
+//! sent (`diff_comments`). `git.review.*` reviews a GitHub pull request
+//! from its link in a worktree of its own, with those comments as its
+//! drafts (`pr_review`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -33,7 +36,14 @@ mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
+mod pr_review;
+mod project_actions;
 mod push;
+mod read_cache;
+#[cfg(all(test, unix))]
+mod read_cache_tests;
+#[cfg(test)]
+mod read_probe;
 mod target;
 mod user_run;
 mod work_tree_entry;
@@ -43,6 +53,8 @@ mod worktree_include;
 mod worktree_recipe;
 mod worktree_remove;
 mod worktree_setup;
+
+pub(crate) use pr_review::POST as REVIEW_POST_OPERATION;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -78,8 +90,15 @@ pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
 
+/// Advertised in identify: the session host owns `git.review.start`,
+/// `comment` and `post`.
+pub(crate) const REVIEW_CAPABILITY: &str = pr_review::CAPABILITY;
+
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
+
+/// Advertised in identify: the session host keeps review threads.
+pub(crate) const DIFF_COMMENTS_THREADS_CAPABILITY: &str = diff_comments::THREADS_CAPABILITY;
 
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
@@ -103,6 +122,10 @@ pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 /// recipe, and the session host answers `git.worktree.setup`.
 pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
 
+/// Advertised in identify: a repository recipe's setup waits for the
+/// person's approval, and the session host answers `git.worktree.setup.run`.
+pub(crate) const WORKTREE_SETUP_RUN_CAPABILITY: &str = "git-worktree-setup-run-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -118,8 +141,11 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
+            | ResourceOperation::GitWorktreeSetupRun
+            | ResourceOperation::ProjectActionsList
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
+        || pr_review::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -133,14 +159,26 @@ pub(crate) fn dispatch(
     if diff_comments::handles(request.envelope.operation) {
         return diff_comments::dispatch(mux, &request);
     }
-    match request.envelope.operation {
-        ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
-        ResourceOperation::GitPush => return push::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
+    let changed = match request.envelope.operation {
+        // A review's start fetches and makes a worktree: it moves refs too.
+        operation if pr_review::handles(operation) => Some(pr_review::dispatch(mux, &request)),
+        ResourceOperation::GitCommit => Some(commit::dispatch(mux, &request)),
+        ResourceOperation::GitPush => Some(push::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeCreate => Some(worktree::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeApply => Some(worktree_apply::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeRemove => Some(worktree_remove::dispatch(mux, &request)),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
-        _ => {}
+        ResourceOperation::GitWorktreeSetupRun => {
+            return worktree_setup::dispatch_run(mux, &request);
+        }
+        ResourceOperation::ProjectActionsList => return project_actions::dispatch(mux, &request),
+        _ => None,
+    };
+    if let Some(result) = changed {
+        // The daemon moved a repository itself (also when the run failed
+        // part way): every cached read is read again before its next answer.
+        read_cache::invalidate_all();
+        return result;
     }
     let operation = match request.envelope.operation {
         ResourceOperation::GitDiff => "git.diff",
@@ -154,17 +192,31 @@ pub(crate) fn dispatch(
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
         let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
-        return status(&directory, github);
+        return status_reply(&directory, github);
     }
     if operation == "git.fingerprint" {
         return fingerprint::read(&directory, &request.fields);
     }
+    if operation == "git.branches" {
+        return branches_reply(&directory, &request.fields);
+    }
+    if operation == "git.files.list" {
+        // A folder in no repository still lists, from the disk: git only adds to a file tree.
+        return match Repository::open(&directory) {
+            // The home folder's repository holds every folder of the home
+            // folder: its listing would walk all of them (`cmux_git::home`).
+            Ok(repository) if !repository.lists_untracked() => {
+                list::list_folder(&directory, &request.fields)
+            }
+            Ok(repository) => list::list(&repository, &directory, &request.fields),
+            Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
+            Err(error) => Err(open_failed(operation, &directory, error)),
+        };
+    }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
-        "git.branches" => branches(&repository, &request.fields),
-        "git.files.search" => files::search(&repository, &directory, &request.fields),
-        _ => list::list(&repository, &directory, &request.fields),
+        _ => files::search(&repository, &directory, &request.fields),
     }
 }
 
@@ -180,16 +232,49 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
     }
 }
 
+/// `git.status` of `directory`, from the cache while HEAD, the refs and the
+/// config are as they were (`read_cache`).
+fn status_reply(directory: &Path, github: bool) -> Result<Value, ResourceError> {
+    let at = directory.to_path_buf();
+    read_cache::status(directory, github, move || status(&at, github))
+}
+
+/// `git.branches` of the repository `directory` is in.
+fn branches_reply(
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let limit = fields.get("limit").and_then(Value::as_u64);
+    let (at, fields) = (directory.to_path_buf(), fields.clone());
+    read_cache::branches(directory, limit, move || {
+        let repository = open_repository(&at, "git.branches")?;
+        let root = repository.root.clone();
+        let git_dir = repository.git_dir().to_path_buf();
+        // Taken before the reads, so a ref that moves during them leaves the
+        // answer stale.
+        let stamp = read_cache::refs_stamp(&root, &git_dir);
+        let value = branches(&at, &repository, &fields)?;
+        Ok(read_cache::RefsRead { value, root, git_dir, stamp })
+    })
+}
+
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
 /// count would set the cost. `github` adds `github_repo`, the `owner/name`
 /// of the upstream's remote (else `origin`) on github.com: one more git run,
 /// so only a caller that asks pays it.
-fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
+fn status(directory: &Path, github: bool) -> Result<read_cache::RefsRead, ResourceError> {
     const OPERATION: &str = "git.status";
+    #[cfg(test)]
+    read_probe::ran(read_probe::Read::Status, directory);
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
+    let root = repository.root().to_path_buf();
+    let git_dir = repository.git_dir().to_path_buf();
+    // Taken before the reads, so a ref that moves during them leaves the
+    // answer stale.
+    let stamp = read_cache::refs_stamp(&root, &git_dir);
     let headers = repository.head().map_err(|failure| git_failed(OPERATION, &failure))?;
     let mut value = json!({
         "root":repository.root().to_string_lossy(),
@@ -222,15 +307,20 @@ fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     if let Some(main) = repository.main_checkout() {
         value.set("worktree", json!({"main_root": main.to_string_lossy()}));
     }
-    Ok(value)
+    Ok(read_cache::RefsRead { value, root, git_dir, stamp })
 }
 
 /// Local, then remote branches, with HEAD's branch and the bases a branch
 /// diff may compare with (`cmux_git::refs`).
 fn branches(
+    directory: &Path,
     repository: &Repository,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    #[cfg(test)]
+    read_probe::ran(read_probe::Read::Branches, directory);
+    #[cfg(not(test))]
+    let _ = directory;
     let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_BRANCH_LIMIT);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let listing = refs::branches(repository, limit)

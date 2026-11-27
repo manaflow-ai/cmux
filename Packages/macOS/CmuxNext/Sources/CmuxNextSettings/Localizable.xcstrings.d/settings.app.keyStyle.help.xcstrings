@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.keyStyle.help" : {
+      "comment" : "Settings help under Key Style. j, k, gg, G and / are Vim keys; Control-N, P, F, B, A and E are Emacs keys; keep the key letters as they are.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim bewegt sich mit j, k, gg, G und / durch Listen. Emacs nutzt Control-N, P, F, B, A und E."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim parcourt les listes avec j, k, gg, G et /. Emacs utilise Contrôle-N, P, F, B, A et E."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتنقّل Vim في القوائم باستخدام j وk وgg وG و/. ويستخدم Emacs مفاتيح Control-N وP وF وB وA وE."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim recorre las listas con j, k, gg, G y /. Emacs usa Control-N, P, F, B, A y E."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim 使用 j、k、gg、G 和 / 在列表中移動。Emacs 使用 Control-N、P、F、B、A 和 E。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim 使用 j、k、gg、G 和 / 在列表中移动。Emacs 使用 Control-N、P、F、B、A 和 E。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim은 j, k, gg, G, /로 목록을 이동합니다. Emacs는 Control-N, P, F, B, A, E를 사용합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim は j、k、gg、G、/ でリストを移動します。Emacs は Control-N、P、F、B、A、E を使います。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim se kreće kroz liste tipkama j, k, gg, G i /. Emacs koristi Control-N, P, F, B, A i E."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim bevæger sig gennem lister med j, k, gg, G og /. Emacs bruger Control-N, P, F, B, A og E."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim scorre gli elenchi con j, k, gg, G e /. Emacs usa Control-N, P, F, B, A ed E."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim ផ្លាស់ទីក្នុងបញ្ជីដោយ j, k, gg, G និង /។ Emacs ប្រើ Control-N, P, F, B, A និង E។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim beveger seg gjennom lister med j, k, gg, G og /. Emacs bruker Control-N, P, F, B, A og E."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim porusza się po listach klawiszami j, k, gg, G i /. Emacs używa Control-N, P, F, B, A i E."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Vim percorre listas com j, k, gg, G e /. O Emacs usa Control-N, P, F, B, A e E."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim перемещается по спискам клавишами j, k, gg, G и /. Emacs использует Control-N, P, F, B, A и E."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim เลื่อนในรายการด้วย j, k, gg, G และ / ส่วน Emacs ใช้ Control-N, P, F, B, A และ E"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim listelerde j, k, gg, G ve / ile gezinir. Emacs Control-N, P, F, B, A ve E kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim переміщується списками клавішами j, k, gg, G і /. Emacs використовує Control-N, P, F, B, A і E."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim di chuyển trong danh sách bằng j, k, gg, G và /. Emacs dùng Control-N, P, F, B, A và E."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

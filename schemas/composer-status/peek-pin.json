@@ -1,0 +1,181 @@
+{
+  "$comment": "The composer status dot's card: closed, a hover or focus peek, or pinned by a click, a tap or Enter (design/composer-status-dot.md). Leo, 2026-11-22: \"when you hover or click into it (presumably a click in you can do a click out and a hover you can hover out ...)\". `held` is closed after a click on the dot closed the card: hovering does not peek again until the pointer has left the dot once. A (state, event) pair with no row changes nothing and runs no effect. Effects: focusCard (the card's first action, else the card), focusDot (the dot, with no focus ring), stopHover (the hover bridge forgets the pointer). webviews/src/agent-session/acpmux/peekPin.ts reads this table and nothing else decides a transition.",
+  "states": [
+    "closed",
+    "peek",
+    "pinned",
+    "held"
+  ],
+  "events": [
+    "hoverIntent",
+    "hoverEnd",
+    "focusVisible",
+    "blur",
+    "clickDot",
+    "keyActivate",
+    "pressCard",
+    "pressOutside",
+    "escape",
+    "pointerLeaveDot",
+    "empty"
+  ],
+  "effects": [
+    "focusCard",
+    "focusDot",
+    "stopHover"
+  ],
+  "transitions": [
+    {
+      "from": "closed",
+      "on": "hoverIntent",
+      "to": "peek",
+      "effects": []
+    },
+    {
+      "from": "closed",
+      "on": "focusVisible",
+      "to": "peek",
+      "effects": []
+    },
+    {
+      "from": "closed",
+      "on": "clickDot",
+      "to": "pinned",
+      "effects": []
+    },
+    {
+      "from": "closed",
+      "on": "keyActivate",
+      "to": "pinned",
+      "effects": [
+        "focusCard"
+      ]
+    },
+    {
+      "from": "peek",
+      "on": "hoverEnd",
+      "to": "closed",
+      "effects": []
+    },
+    {
+      "from": "peek",
+      "on": "blur",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "peek",
+      "on": "clickDot",
+      "to": "pinned",
+      "effects": []
+    },
+    {
+      "from": "peek",
+      "on": "keyActivate",
+      "to": "pinned",
+      "effects": [
+        "focusCard"
+      ]
+    },
+    {
+      "from": "peek",
+      "on": "pressCard",
+      "to": "pinned",
+      "effects": []
+    },
+    {
+      "from": "peek",
+      "on": "pressOutside",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "peek",
+      "on": "escape",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "peek",
+      "on": "empty",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "pinned",
+      "on": "clickDot",
+      "to": "held",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "pinned",
+      "on": "keyActivate",
+      "to": "closed",
+      "effects": [
+        "stopHover",
+        "focusDot"
+      ]
+    },
+    {
+      "from": "pinned",
+      "on": "pressOutside",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "pinned",
+      "on": "escape",
+      "to": "closed",
+      "effects": [
+        "stopHover",
+        "focusDot"
+      ]
+    },
+    {
+      "from": "pinned",
+      "on": "empty",
+      "to": "closed",
+      "effects": [
+        "stopHover"
+      ]
+    },
+    {
+      "from": "held",
+      "on": "pointerLeaveDot",
+      "to": "closed",
+      "effects": []
+    },
+    {
+      "from": "held",
+      "on": "focusVisible",
+      "to": "peek",
+      "effects": []
+    },
+    {
+      "from": "held",
+      "on": "clickDot",
+      "to": "pinned",
+      "effects": []
+    },
+    {
+      "from": "held",
+      "on": "keyActivate",
+      "to": "pinned",
+      "effects": [
+        "focusCard"
+      ]
+    }
+  ]
+}

@@ -56,6 +56,17 @@ swap_nightly() {
   found="$out/nightly/$(basename "$found")"
   commit="$(plutil -extract CMUXCommit raw -o - "$found/Contents/Info.plist" 2>/dev/null || true)"
   version="$(plutil -extract CFBundleVersion raw -o - "$found/Contents/Info.plist" 2>/dev/null || true)"
+  # Nightlies stamp the commit's first 7 hex (nightly.yml SHORT_SHA): this checkout resolves it, else GitHub's commit API.
+  if [[ "$commit" =~ ^[0-9a-f]{7,39}$ ]]; then
+    local short="$commit"
+    # hot-apply.py app-commit: this checkout, else the bundle's own records (a fleet Mac's
+    # step source is shallow and GitHub 403s it, hq#27830); the API last.
+    commit="$(python3 -I "$PWD/scripts/cmux-next/hot-apply.py" app-commit "$found" --repo "$PWD" --no-fetch 2>/dev/null \
+      | python3 -I -c 'import json, sys; d = json.load(sys.stdin); print(d["commit"] if d["resolved"] else "")' 2>/dev/null)"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || commit="$(git rev-parse -q --verify "$short^{commit}" 2>/dev/null \
+      || curl -fsSL --retry 3 --retry-all-errors -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
+    [[ "$commit" == "$short"* ]] || commit=""
+  fi
   echo "LR nightly $url sha256=$hex version=$version commit=$commit"
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "LR swap refused: the nightly names no CMUXCommit"; return 3; }
   # Every commit is checked before any builds: a refusal costs no build.

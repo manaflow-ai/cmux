@@ -88,9 +88,10 @@ export function installStabilityProbe(options: {
         (line) =>
           line && line !== "Error" && !line.includes("installStabilityProbe") && !/^at (w\.|window\.)/.test(line),
       )
-      // The caller that registered the callback first, then two of its callers (the wrapper's own frame is
-      // filtered above; slicing from 1 dropped the caller itself, naming only its caller's caller).
-      .slice(0, 3)
+      // The caller that registered the callback first, then four of its callers (the wrapper's own frame is
+      // filtered above): a shared timer (slackTimers.ts `later` < `arm`) takes two frames, and the job that
+      // asked for it sits under them, so three frames named the timer, never the job.
+      .slice(0, 5)
       .join(" < ") || "unknown";
   const note = (kind: keyof typeof counts, error: Error | undefined) => {
     counts[kind] += 1;
@@ -252,10 +253,19 @@ export function installStabilityProbe(options: {
           (a as Animation & { transitionProperty?: string }).transitionProperty ??
           a.id ??
           "animation";
-        const owner =
-          target instanceof Element
-            ? `${target.tagName.toLowerCase()}${typeof target.className === "string" && target.className ? `.${target.className.split(" ")[0]}` : ""}`
-            : "?";
+        // An svg's className is an SVGAnimatedString, so the class attribute names it; the nearest ancestor with a
+        // class or data-slot says which spinner of the page's many it is.
+        const tag = (el: Element) => {
+          const cls = (el.getAttribute("class") ?? "").trim().split(/\s+/)[0];
+          const slot = el.getAttribute("data-slot");
+          return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}${slot ? `[data-slot=${slot}]` : ""}`;
+        };
+        const host = (el: Element) => {
+          for (let up = el.parentElement, i = 0; up && i < 6; up = up.parentElement, i++)
+            if (up.getAttribute("class") || up.getAttribute("data-slot")) return ` in ${tag(up)}`;
+          return "";
+        };
+        const owner = target instanceof Element ? `${tag(target)}${host(target)}` : "?";
         return `animation: ${name} on ${owner}`;
       };
       for (const animation of running) {

@@ -19,8 +19,8 @@
 .cv-disclosure__panel:hover > .cv-card-copy,
 .cv-agentmsg__card:hover > .cv-card-copy,
 .cv-whole-report:hover > .cv-card-copy,
-.cv-whole-report:has([data-popup-open]) > .cv-card-copy,
-.cv-agentmsg__card:has([data-popup-open]) > .cv-card-copy,
+.cv-whole-report[data-popup-within] > .cv-card-copy,
+.cv-agentmsg__card[data-popup-within] > .cv-card-copy,
 .cv-card-copy:focus-within,
 .cv-card-copy:has([data-copied]) {
   opacity: 1;
@@ -48,7 +48,7 @@
 }
 .cv-card-copy__button:hover {
   color: var(--cv-text);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-card-copy__button:active {
   background: var(--ds-color-pressed);

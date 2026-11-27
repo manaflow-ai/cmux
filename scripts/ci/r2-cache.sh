@@ -32,6 +32,14 @@ if [[ "$dir" == *$'\n'* ]]; then
   echo "r2-cache: one directory per call" >&2
   exit 2
 fi
+# Workflows pass `path: ~/.bun/install/cache` as actions/cache does, but the
+# composite action hands it over as a quoted env value, so the shell never
+# expands the tilde: saves warned "does not exist" and uploaded nothing, and
+# every restore of those keys missed (and would have unpacked into ./~).
+case "$dir" in
+  "~") dir="$HOME" ;;
+  "~/"*) dir="$HOME/${dir#\~/}" ;;
+esac
 
 # CI_CACHE_R2_NAMESPACE names a platform-independent cache (for example
 # `any` for built web bundles that a Linux job saves and a Mac restores);
@@ -205,17 +213,48 @@ publish_pointer() { # <prefix> <work dir> <archive generation>
   return 1
 }
 
+# A save that writes nothing: a warning, or with CACHE_REQUIRED=true an error that fails the step.
+# A writer whose entry pull requests compare against (the base's test log) is required: from #57363
+# (02:53Z) to #57975 (2026-11-26 15:35Z) its save had no credentials, warned "nothing saved" and went
+# green, so every red acpmux pull request found no base log and had each base red charged to it.
+not_saved() {
+  if [[ "${CACHE_REQUIRED:-}" == true ]]; then
+    echo "::error::r2-cache: $1 (a required save)"
+    return 1
+  fi
+  echo "::warning::r2-cache: $1"
+  return 0
+}
+
+# The archive is written whole before its upload (an S3 PUT needs its length). Its size is at most the
+# directory's, so a save whose disk lacks that room plus headroom is skipped with a warning: the cache
+# misses once, and the job stays green. Filling the disk instead killed the runner itself: machine
+# channel x86_64 musl leg, job 140250090793 (2026-11-27, cmux-runner-pool-e5a-0207), "No space left on
+# device" in the runner's own _diag log while "Save the workspace delta to R2" wrote its archive.
+room_for_archive() { # <work dir>
+  local need_kib free_kib headroom_kib="${CI_CACHE_R2_SAVE_HEADROOM_KIB:-1048576}"
+  [[ "$headroom_kib" =~ ^[0-9]+$ ]] || headroom_kib=1048576
+  need_kib="$(du -sk "$dir" 2>/dev/null | cut -f1)" || need_kib=""
+  free_kib="$(df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }')" || free_kib=""
+  [[ "$need_kib" =~ ^[0-9]+$ && "$free_kib" =~ ^[0-9]+$ ]] || return 0
+  if ((free_kib < need_kib + headroom_kib)); then
+    room_short="$key not saved: $((free_kib >> 10)) MiB free for its archive, $(((need_kib + headroom_kib) >> 10)) MiB needed (scripts/ci/r2-cache.sh room_for_archive)"
+    return 1
+  fi
+  echo "r2-cache: $((free_kib >> 10)) MiB free, archive at most $((need_kib >> 10)) MiB"
+}
+
 save() {
   local name
   for name in CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET CI_CACHE_R2_PUBLIC_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     if [[ -z "${!name:-}" ]]; then
-      echo "::warning::r2-cache: $name is not set; nothing saved"
-      return 0
+      not_saved "$name is not set; nothing saved"
+      return
     fi
   done
   if [[ ! -d "$dir" ]]; then
-    echo "::warning::r2-cache: $dir does not exist; nothing saved"
-    return 0
+    not_saved "$dir does not exist; nothing saved"
+    return
   fi
 
   local extension="tar.gz" work status generation url
@@ -224,10 +263,16 @@ save() {
   # order runs were created. Run numbers count per workflow, and nightly.yml
   # and seed-derived-data.yml write the same prefixes.
   generation="${GITHUB_RUN_ID:-0}"
-  valid_generation "$generation" || { echo "::warning::r2-cache: invalid run ID; nothing saved"; return 0; }
+  valid_generation "$generation" || { not_saved "invalid run ID; nothing saved"; return; }
   work="$(mktemp -d)"
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000
+  local room_short=""
+  if [[ "$status" == 404 ]] && ! room_for_archive "$work"; then
+    rm -rf "$work"
+    not_saved "$room_short"
+    return
+  fi
   if [[ "$status" == 404 ]]; then
     if [[ "$extension" == "tar.zst" ]]; then
       tar -cf - -C "$dir" . | zstd -T0 -3 -q -o "$work/archive"
@@ -235,8 +280,18 @@ save() {
       tar -cf - -C "$dir" . | gzip -1 > "$work/archive"
     fi
     echo "r2-cache: archive is $(du -m "$work/archive" | cut -f1) MB"
-    status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
-      -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+    # A dropped connection (HTTP 000: no response, which curl's own --retry does not retry) or a 5xx
+    # sends the archive again, up to 3 times: the fat cargo legs' first 1483 MB save got 000 and
+    # published nothing (job 140187794318, 2026-11-26). An upload the bucket kept before the drop
+    # answers the retry with 412, read back below like a concurrent writer's.
+    local attempt
+    for attempt in 1 2 3; do
+      status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
+        -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+      echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
+      sleep "$((attempt * 5))"
+    done
     if [[ "$status" == 412 ]]; then
       status="$(request --head --dump-header "$work/headers" "$url")" || status=000
     elif [[ "$status" == 200 ]]; then
@@ -247,30 +302,32 @@ save() {
     echo "r2-cache: $key already exists; not saving archive, checking pointers"
   fi
   if [[ "$status" != 200 ]]; then
-    echo "::warning::r2-cache: archive request failed (HTTP $status); nothing published"
     rm -rf "$work"
-    return 0
+    not_saved "archive request failed (HTTP $status); nothing published"
+    return
   fi
   generation="$(header x-amz-meta-generation "$work/headers")"
   generation="${generation:-0}"
   if ! valid_generation "$generation"; then
-    echo "::warning::r2-cache: invalid stored generation; nothing published"
     rm -rf "$work"
-    return 0
+    not_saved "invalid stored generation; nothing published"
+    return
   fi
 
   # One pointer per dash-terminated prefix, so any restore prefix finds the
   # newest key. Pointers go last: a reader never sees one without its object.
-  local prefix="" part rest="$key"
+  local prefix="" part rest="$key" missed=""
   printf '%s\n' "$key" > "$work/pointer"
   while [[ "$rest" == *-* ]]; do
     part="${rest%%-*}"
     rest="${rest#*-}"
     prefix="$prefix$part-"
     publish_pointer "$prefix" "$work" "$generation" \
-      || echo "::warning::r2-cache: pointer $prefix was not updated"
+      || missed="$missed $prefix"
   done
   rm -rf "$work"
+  # A reader restores by prefix through these pointers: one left behind hides this save from it.
+  [[ -z "$missed" ]] || { not_saved "pointer(s)$missed not updated"; return; }
   echo "r2-cache: saved $key"
 }
 

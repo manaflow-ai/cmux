@@ -4,7 +4,10 @@
 //! registry, `<config dir>/sessions/<pid>.json` with the session's pid and
 //! folder, one per running Claude Code (an agent in a terminal outside
 //! acpmux included). A record whose pid no longer runs is stale. A reused
-//! pid reads as running, which keeps a worktree: the safe side.
+//! pid reads as running, which keeps a worktree: the safe side. A record
+//! also names its session, so a worktree whose owner record
+//! (`inventory::Owner`) names a running session stays wherever that
+//! session's folder is.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -17,6 +20,8 @@ use serde::Deserialize;
 pub struct Process {
     pub pid: u32,
     pub cwd: PathBuf,
+    /// The session it runs, when its registry names one.
+    pub session_id: Option<String>,
 }
 
 /// Where a pass learns what works where, read up front and again right
@@ -24,9 +29,12 @@ pub struct Process {
 pub type Uses = dyn Fn() -> Result<Vec<Process>, String> + Send + Sync;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ClaudeSession {
     pid: u32,
     cwd: PathBuf,
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 /// The running Claude Code sessions registered under each of `config_dirs`
@@ -54,7 +62,11 @@ pub fn claude_sessions(config_dirs: &[PathBuf]) -> Result<Vec<Process>, String> 
             let Ok(session) = serde_json::from_slice::<ClaudeSession>(&bytes) else { continue };
             read += 1;
             if runs(session.pid) {
-                found.push(Process { pid: session.pid, cwd: session.cwd });
+                found.push(Process {
+                    pid: session.pid,
+                    cwd: session.cwd,
+                    session_id: session.session_id,
+                });
             }
         }
         // None of several records reads: the format changed, and every
@@ -88,6 +100,38 @@ fn runs(_pid: u32) -> bool {
     true
 }
 
+/// Whether a recorded owner's `pid` runs. Its recorded start time is not
+/// compared (that reads the process table, which cmux-next never does): a
+/// reused pid keeps the worktree, the safe side, as for the registry.
+pub fn owner_runs(pid: u32) -> bool {
+    runs(pid)
+}
+
+/// Whether `host` names this machine, by its short name (before the
+/// first dot), as `wt` compares hosts.
+pub fn is_this_host(host: &str) -> bool {
+    let short = |name: &str| name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    hostname().is_none_or(|here| short(&here) == short(host))
+}
+
+#[cfg(unix)]
+fn hostname() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer outlives the call and its length is passed.
+    let result = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if result != 0 {
+        return None;
+    }
+    let name = buffer.split(|b| *b == 0).next().unwrap_or_default();
+    Some(String::from_utf8_lossy(name).into_owned())
+}
+
+/// Elsewhere this machine's name is not read: every host is this one.
+#[cfg(not(unix))]
+fn hostname() -> Option<String> {
+    None
+}
+
 /// The first program working in `folder` or below it, other than this one.
 /// Both sides are compared as given and resolved through links: a registry
 /// may record a real path (`/tmp` is `/private/tmp` on macOS) or a linked
@@ -119,6 +163,17 @@ pub type Open = dyn Fn(&Path) -> Result<Option<u32>, String> + Send + Sync;
 /// an error, so the folder stays.
 #[cfg(unix)]
 pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
+    open_files(folder, "+d")
+}
+
+/// PR archive moves an entire checkout, including nested working directories.
+#[cfg(unix)]
+pub fn open_tree(folder: &Path) -> Result<Option<u32>, String> {
+    open_files(folder, "+D")
+}
+
+#[cfg(unix)]
+fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
     // lsof is in /usr/sbin on macOS, which a daemon's PATH may lack.
     let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
     dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
@@ -126,7 +181,7 @@ pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
     let mut command = std::process::Command::new("lsof");
     command
         .env("PATH", path)
-        .args(["-w", "-t", "+d"])
+        .args(["-w", "-t", depth])
         .arg(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -159,60 +214,9 @@ pub fn open_inside(_folder: &Path) -> Result<Option<u32>, String> {
     Ok(None)
 }
 
+#[cfg(not(unix))]
+pub use open_inside as open_tree;
+
 #[cfg(test)]
-mod care_tests {
-    #[cfg(unix)]
-    #[test]
-    fn care_a_program_working_in_a_folder_has_it_open() {
-        let folder = std::env::temp_dir().join(format!("care-open-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
-        let mut child =
-            std::process::Command::new("sleep").arg("30").current_dir(&folder).spawn().unwrap();
-        let found = open_inside(&folder);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&folder);
-        match found {
-            Ok(pid) => assert_eq!(pid, Some(child.id())),
-            // No lsof on this machine: the check fails closed, which is
-            // what a pass needs; nothing more to test here.
-            Err(error) => assert!(error.starts_with("lsof"), "{error}"),
-        }
-    }
-
-    use super::*;
-
-    #[test]
-    fn a_process_in_a_subfolder_is_inside_but_a_sibling_prefix_is_not() {
-        let processes = vec![
-            Process { pid: 1, cwd: PathBuf::from("/w/a-2/src") },
-            Process { pid: 2, cwd: PathBuf::from("/w/a/src") },
-        ];
-        assert_eq!(inside(&processes, Path::new("/w/a")).map(|p| p.pid), Some(2));
-        assert_eq!(inside(&processes, Path::new("/w/b")), None);
-    }
-
-    #[test]
-    fn care_a_running_claude_session_is_found_and_a_stale_one_is_not() {
-        let dir = crate::store::care_tests::scratch("claude-registry");
-        let sessions = dir.join("sessions");
-        std::fs::create_dir_all(&sessions).unwrap();
-        let me = std::process::id();
-        std::fs::write(
-            sessions.join("1.json"),
-            format!(r#"{{"pid":{me},"cwd":"/w/a","kind":"interactive"}}"#),
-        )
-        .unwrap();
-        // Far above any pid_max: never running.
-        std::fs::write(sessions.join("2.json"), r#"{"pid":2000000000,"cwd":"/w/b"}"#).unwrap();
-        std::fs::write(sessions.join("3.json"), "{not json").unwrap();
-        let found = claude_sessions(&[dir.clone(), dir.join("absent")]).unwrap();
-        assert_eq!(found, vec![Process { pid: me, cwd: PathBuf::from("/w/a") }]);
-        // A format change: no record reads, so the pass must not act.
-        for name in ["1.json", "2.json"] {
-            std::fs::write(sessions.join(name), r#"{"processId":1,"folder":"/w/a"}"#).unwrap();
-        }
-        assert!(claude_sessions(std::slice::from_ref(&dir)).is_err());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}
+#[path = "procs_care_tests.rs"]
+mod care_tests;

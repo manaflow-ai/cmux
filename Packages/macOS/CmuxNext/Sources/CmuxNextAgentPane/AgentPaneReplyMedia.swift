@@ -197,7 +197,7 @@ extension AgentPaneModel {
     /// own media reader, as its images are; nothing here is looked up.
     private func loadRemoteVideo(_ src: String) async -> [String: Any] {
         guard let path = AgentPaneReplyPaths.imagePath(src),
-              AgentPaneRemoteMedia.extensions.values.contains(URL(fileURLWithPath: path).pathExtension.lowercased()),
+              AgentPaneRemoteMedia.extensions.values.contains((path as NSString).pathExtension.lowercased()),
               let read = transport.remoteMediaRange else { return Self.replyFailure(.pathOutsideRoots) }
         guard let media = await AgentPaneRemoteMedia.open(path, read: read) else { return Self.replyFailure(.mediaRefused) }
         // A chat that switched while that machine answered plays nothing of the old one.

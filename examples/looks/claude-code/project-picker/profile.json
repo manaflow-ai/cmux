@@ -1,0 +1,11 @@
+{
+  "cmuxProfile": 1,
+  "name": "claude-code-project-picker",
+  "description": "Choose the working folder from the focused chat and expose the workspace menu beside the sidebar’s plus button.",
+  "settings": {
+    "sidebar.showNewWorkspaceChooser": true
+  },
+  "files": {
+    "keybindings.json": "[\n  {\n    \"key\": \"cmd+alt+o\",\n    \"command\": \"agentPane.composer.chooseFolder\"\n  }\n]\n"
+  }
+}

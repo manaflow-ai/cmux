@@ -26,6 +26,7 @@
 // and motion off never move the chase (x stays 0), so this draws nothing.
 import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
+import { keyframeKinds } from "./keyframeKinds";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
 
@@ -121,8 +122,7 @@ function reachAbove(rows: Pinned, px: number): void {
 /// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
 function dropClipGlides(playing: readonly Animation[]) {
   for (const animation of playing) {
-    const effect = animation.effect as KeyframeEffect | null;
-    if (effect?.getKeyframes?.().some((frame) => "clipPath" in frame)) animation.cancel();
+    if (keyframeKinds(animation.effect).clips) animation.cancel();
   }
 }
 
@@ -214,6 +214,12 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
 }
 
+/// The live line `thread` holds pinned now, if any: its translate is the pin's while it is held, so
+/// a motion's settle (VirtualTranscript.tsx `settleMotion`) leaves it on. O(1).
+export function pinnedLiveRow(thread: HTMLElement | null): HTMLElement | undefined {
+  return thread ? pinned.get(thread)?.live : undefined;
+}
+
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
 export function refreshPinned(thread: HTMLElement | null): void {
   if (thread) drawPinned(thread, threadY(thread));
@@ -228,7 +234,8 @@ export function notePinPass(thread: HTMLElement | null): void {
   if (rows) rows.painted = rows.x - rows.cap;
 }
 
-/// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass. Let go while
+/// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass, which draws it
+/// with `refreshPinned` once its tail glides start. Let go while
 /// it was held away from the thread's offset, it returns what it was held back by for the pass's glide
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
 /// Whether `row` plays a translate of its own (a glide, a send's rise, a carry home). O(its own).
@@ -244,8 +251,7 @@ function translating(row: HTMLElement): Animation[] {
 function translatingOf(animations: readonly Animation[]): Animation[] {
   return animations.filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
-    const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
-    return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
+    return keyframeKinds(animation.effect).translates;
   });
 }
 
@@ -289,7 +295,10 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     stepUp(rows, live.previousElementSibling);
     pinned.set(thread, rows);
     thread.setAttribute(PIN_LIVE_ATTR, "");
-    drawPinned(thread, x);
+    // Not drawn here: the placement pass draws it once, after its tail glides start (`refreshPinned`),
+    // at this same offset (the glides move rows, never the thread, and skip the pinned line). Drawn here
+    // too, each streamed token read every animation in the thread twice (`playingOn`): 0.24 ms a token
+    // in a chat of short turns, which mounts twice the rows (bench/transcript-replay.bench.ts PAIRED=1).
     return undefined;
   }
   if (!was) return undefined;

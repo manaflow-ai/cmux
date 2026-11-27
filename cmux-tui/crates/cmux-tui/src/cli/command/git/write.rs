@@ -5,7 +5,10 @@
 use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
 
-use super::super::{CommandPlan, Flags, Selectors, UsageError, WireOperation, request};
+use super::super::{
+    CommandPlan, Flags, Selectors, UsageError, WireOperation, insert_bounded_u32, request,
+    validate_one_of,
+};
 
 /// `git commit --message <text> [--all [--include-untracked]] [--amend]
 /// [--no-verify] [--expected-head <commit>] [<path>...]`.
@@ -84,6 +87,38 @@ pub(super) fn worktree_create(
     request(Op::GitWorktreeCreate, selectors, flags, params)
 }
 
+/// `git review start <url>`: the pull request, checked out into a review
+/// worktree of its own.
+pub(super) fn review_start(
+    url: &str,
+    flags: &mut Flags,
+    selectors: &Selectors,
+    mut params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    params.insert("url".into(), Value::String(url.to_string()));
+    request(Op::GitReviewStart, selectors, flags, params)
+}
+
+/// `git review comment --file <path> --line <n> [--start-line <n>]
+/// [--side new|old] --message <text>`: one draft in a review worktree.
+pub(super) fn review_comment(
+    flags: &mut Flags,
+    selectors: &Selectors,
+    mut params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    params.insert("file".into(), Value::String(flags.required("file")?));
+    insert_bounded_u32(&mut params, "line", "--line", flags.required("line")?, 1, u32::MAX)?;
+    if let Some(value) = flags.take("start-line") {
+        insert_bounded_u32(&mut params, "start_line", "--start-line", value, 1, u32::MAX)?;
+    }
+    if let Some(side) = flags.take("side") {
+        validate_one_of("--side", &side, &["new", "old"])?;
+        params.insert("side".into(), Value::String(side));
+    }
+    params.insert("message".into(), Value::String(flags.required("message")?));
+    request(Op::GitReviewComment, selectors, flags, params)
+}
+
 /// `git worktree apply`: the worktree's work, onto its main checkout.
 pub(super) fn worktree_apply(
     flags: &mut Flags,
@@ -127,14 +162,18 @@ pub(in crate::cli) fn localize_commit_paths(
                 | Op::GitPush
                 | Op::GitWorktreeCreate
                 | Op::GitWorktreeApply
-                | Op::GitWorktreeRemove,
+                | Op::GitWorktreeRemove
+                | Op::GitReviewStart
+                | Op::GitReviewComment,
         )
     );
     if !write {
         return Ok(());
     }
     if params.get("machine").and_then(Value::as_str) != Some("current") {
-        return Err("git commit, git push and git worktree run only on this machine".into());
+        return Err(
+            "git commit, git push, git worktree and git review run only on this machine".into()
+        );
     }
     if !matches!(operation, WireOperation::Typed(Op::GitCommit)) {
         return Ok(());

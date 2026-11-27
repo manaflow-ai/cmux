@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Snapshots of a tagged app over a see-through window (background-opacity 0.6): which surfaces paint opaque."""
-import json, os, socket, subprocess, sys, tempfile, time
+import hashlib, json, os, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 SOCKET = "/tmp/cmux-debug-%s.sock" % TAG
 os.makedirs(OUT, exist_ok=True)
@@ -27,8 +29,15 @@ subprocess.run(["open", "-n", "--stdout", log, "--stderr", log] + [a for k, v in
 for _ in range(240):
     if os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"): break
     time.sleep(0.5)
+def picture():
+    probe = os.path.join(scratch, "settle.png")
+    rpc("debug.window_snapshot", {"kind": "main", "path": probe}, timeout=60)
+    with open(probe, "rb") as f:
+        return hashlib.sha1(f.read()).hexdigest()
 def shot(name):
-    time.sleep(1.5)  # proof capture: let the surface paint
+    # The surface painted: the main window's snapshot is the same picture three reads in a row.
+    if wait_stable(picture, name + " painted", timeout=15, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print("note: %s did not hold still in 15 s" % name, flush=True)
     print(name, json.dumps(rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, name + ".png")}, timeout=60))[:160], flush=True)
 try:
     shot("1-new-tab-page")
@@ -40,6 +49,9 @@ try:
         shot(name)
 finally:
     rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10)
-    time.sleep(5)  # test harness: let the app quit before NX_APP_STOP checks
+    # The app quit: its socket no longer answers (NX_APP_STOP checks it is gone).
+    if not wait_until(lambda: "error" in (rpc("debug.windows", timeout=2) or {"error": 1}), "the app to quit", timeout=20,
+                      interval=0.2, raise_on_timeout=False):
+        print("note: the app still answered 20 s after its quit", flush=True)
     stop = os.environ.get("NX_APP_STOP")
     if stop: subprocess.run([stop], timeout=60)

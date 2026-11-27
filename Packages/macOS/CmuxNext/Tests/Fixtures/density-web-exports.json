@@ -14,7 +14,6 @@
       "tabTitleSize": 11.200000000000001,
       "sidebarTitleSize": 11.200000000000001,
       "chatEditorMin": 28,
-      "sidebarRowInset": 5,
       "sidebarContentInset": 5.5,
       "sidebarLineBoxBaseline": 1,
       "sidebarIconColumn": 13,
@@ -60,14 +59,13 @@
     "spacing": 0.9,
     "fontSize": 12.6,
     "tokens": {
-      "sidebarRowHeight": 24,
+      "sidebarRowHeight": 26,
       "browserRowHeight": 28,
-      "browserRowGap": 1,
+      "browserRowGap": 2.5,
       "tabStripHeight": 33,
       "tabTitleSize": 12.6,
       "sidebarTitleSize": 12.6,
       "chatEditorMin": 31.5,
-      "sidebarRowInset": 5.5,
       "sidebarContentInset": 6.5,
       "sidebarLineBoxBaseline": 1,
       "sidebarIconColumn": 15,
@@ -83,7 +81,7 @@
       "omnibarPopupRowCornerRadius": 7,
       "toolbarGlyphSize": 22.5,
       "omnibarHeight": 28,
-      "omnibarFontSize": 13.753,
+      "omnibarFontSize": 13.752678862884796,
       "omnibarLineBoxBaseline": 1,
       "omnibarButtonSpacing": 2.5,
       "omnibarEdgeInset": 2,
@@ -102,7 +100,8 @@
       "omnibarPopupRowGap": 2,
       "omnibarPopupBottomPadding": 3.5,
       "densityScale": 0.9,
-      "composerZoom": 0.9
+      "composerZoom": 0.9,
+      "tabToOmnibarGap": 3.5
     }
   },
   {
@@ -114,12 +113,11 @@
     "tokens": {
       "sidebarRowHeight": 28,
       "browserRowHeight": 30,
-      "browserRowGap": 3,
-      "tabStripHeight": 36,
+      "browserRowGap": 5,
+      "tabStripHeight": 40,
       "tabTitleSize": 14,
       "sidebarTitleSize": 14,
       "chatEditorMin": 35,
-      "sidebarRowInset": 6,
       "sidebarContentInset": 7,
       "sidebarLineBoxBaseline": 1,
       "sidebarIconColumn": 16.5,
@@ -156,7 +154,8 @@
       "omnibarPopupRowGap": 2,
       "omnibarPopupBottomPadding": 3.5,
       "densityScale": 1,
-      "composerZoom": 1
+      "composerZoom": 1,
+      "omnibarRowGap": 6
     }
   },
   {
@@ -169,12 +168,11 @@
     "tokens": {
       "sidebarRowHeight": 30,
       "browserRowHeight": 32,
-      "browserRowGap": 3.5,
-      "tabStripHeight": 39,
+      "browserRowGap": 5.5,
+      "tabStripHeight": 43,
       "tabTitleSize": 15.400000000000002,
       "sidebarTitleSize": 15.400000000000002,
       "chatEditorMin": 38.5,
-      "sidebarRowInset": 6.5,
       "sidebarContentInset": 7.5,
       "sidebarLineBoxBaseline": 1,
       "sidebarIconColumn": 18,
@@ -209,7 +207,8 @@
       "omnibarPopupRowGap": 2,
       "omnibarPopupBottomPadding": 4.5,
       "densityScale": 1.1,
-      "composerZoom": 1.1
+      "composerZoom": 1.1,
+      "omnibarRowGap": 6.5
     }
   },
   {
@@ -222,12 +221,11 @@
     "tokens": {
       "sidebarRowHeight": 33.5,
       "browserRowHeight": 36,
-      "browserRowGap": 3.5,
-      "tabStripHeight": 43,
+      "browserRowGap": 6.5,
+      "tabStripHeight": 49,
       "tabTitleSize": 16.8,
       "sidebarTitleSize": 16.8,
       "chatEditorMin": 42,
-      "sidebarRowInset": 7,
       "sidebarContentInset": 8.5,
       "sidebarLineBoxBaseline": 1,
       "sidebarIconColumn": 20,
@@ -262,7 +260,8 @@
       "omnibarPopupRowGap": 2.5,
       "omnibarPopupBottomPadding": 5,
       "densityScale": 1.2,
-      "composerZoom": 1.2
+      "composerZoom": 1.2,
+      "omnibarRowGap": 7.5
     }
   }
 ]

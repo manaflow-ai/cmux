@@ -9,6 +9,8 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
+#[path = "window_rules_desktop.rs"]
+mod desktop;
 #[path = "window_rules_misc.rs"]
 mod misc;
 #[path = "window_rules_workspaces.rs"]
@@ -51,7 +53,21 @@ struct Asked {
     warnings: Warnings,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KnownToAsk {
+    #[serde(default)]
+    reads: close::Reads,
+    #[serde(default)]
+    tabs: Vec<close::ProgramFacts>,
+    #[serde(flatten)]
+    warnings: Warnings,
+}
+
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
+    if desktop::handles(operation) {
+        return desktop::respond_desktop(operation, request);
+    }
     if operation.starts_with(b"window_tabs_") || operation.starts_with(b"window_panes_") {
         return respond_tabs(operation, request);
     }
@@ -72,6 +88,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"window_close_warning" => {
             let request: Asked = read(request)?;
             json!({ "warning": close::warning(&request.agents, &request.answers, request.unanswered_asks, request.warnings) })
+        }
+        // Whether the close's question is known before the daemon's read (its tabs stay through it).
+        b"window_close_known_to_ask" => {
+            let request: KnownToAsk = read(request)?;
+            json!({ "ask": close::known_to_ask(&request.reads, &request.tabs, request.warnings) })
         }
         operation
             if operation.starts_with(b"window_chat_")
@@ -161,6 +182,12 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         // Where a Toggle Terminal and Chat swap lands in the other view: the same turn.
         b"window_tabs_terminal_place" => value(&tabs::place::terminal_place(&read(request)?))?,
         b"window_tabs_chat_place" => value(&tabs::place::chat_place(&read(request)?))?,
+        // A swap's reads and moves around those places (`TerminalChatPlacing`): what it reads of
+        // the terminal, how the hidden terminal scrolls, what the chat shows.
+        b"window_tabs_terminal_read" => value(&tabs::place::terminal_read(&read(request)?))?,
+        b"window_tabs_terminal_scroll" => value(&tabs::place::terminal_scroll(&read(request)?))?,
+        b"window_tabs_chat_read" => value(&tabs::place::chat_read(&read(request)?))?,
+        b"window_tabs_chat_show" => value(&tabs::place::chat_show(&read(request)?))?,
         // What a swap carries of the unsent draft: the composer's into the terminal, or back.
         b"window_tabs_draft_to_terminal" => value(&tabs::draft::to_terminal(&read(request)?))?,
         b"window_tabs_draft_to_chat" => value(&tabs::draft::to_chat(&read(request)?))?,
@@ -211,6 +238,7 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         b"window_panes_split" => value(&panes::split(&read(request)?))?,
         b"window_panes_auto_direction" => value(&panes::auto_direction(read(request)?))?,
         b"window_panes_tab_bar" => value(&panes::tab_bar(read(request)?))?,
+        b"window_tabs_plus_menu" => value(&tabs::plus_menu::rows(&read(request)?))?,
         b"window_panes_terminal_bindings" => json!({ "bindings": panes::TERMINAL_BINDINGS }),
         b"window_panes_clear_failure" => {
             let request: Text = read(request)?;
@@ -219,6 +247,10 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         b"window_panes_shell_quote" => {
             let request: Text = read(request)?;
             json!({ "text": panes::shell_quoted(&request.text) })
+        }
+        b"window_panes_go_to_directory" => {
+            let request: Text = read(request)?;
+            json!({ "text": panes::go_to_directory_input(&request.text) })
         }
         _ => return Err(ERR_INVALID),
     };
@@ -365,6 +397,13 @@ struct ColumnsAvailability {
 }
 
 /// The agent chat handlers' ops (`chat::agent`).
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct EditorScheme {
+    line: Option<i64>,
+    bundle_id: Option<String>,
+}
+
 fn respond_chat_agent(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     use cmux_window_rules::chat::agent;
     fn value<T: serde::Serialize>(answer: T) -> Result<serde_json::Value, i32> {
@@ -373,6 +412,11 @@ fn respond_chat_agent(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
     let answer = match operation {
         // The tables the agent actions bind from.
         b"window_chat_agent_tables" => value(agent::tables())?,
+        // Open in Editor's file-location scheme for the selected editor; null: it gets the file.
+        b"window_chat_agent_editor_scheme" => {
+            let request: EditorScheme = read(request)?;
+            json!({ "scheme": agent::editor_scheme(request.line, request.bundle_id.as_deref()) })
+        }
         // The agent chat zoom after a step, clamped, and its percent.
         b"window_chat_agent_zoom" => {
             let request: AgentZoom = read(request)?;

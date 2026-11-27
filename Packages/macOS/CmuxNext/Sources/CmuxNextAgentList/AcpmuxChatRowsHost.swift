@@ -9,9 +9,10 @@ import CmuxNextCompat
 /// (one batch out at a time, at most ``maxBatchBytes`` unless it is one change); the host reads a
 /// change's `kind` (a `fallback` closes the connection, a change other than a `chatOp` is one the
 /// page waits on) and nothing else. Shown, the page's `taken` is the acknowledgement and the only
-/// pacer. Hidden (a covered or minimized window, another tab), it paces as v1's pacer does for a
-/// pane nobody sees: a batch the page waits on (a window, a page, a blob, an error) goes at once,
-/// and ops go at most every ``hiddenInterval``, on one deadline, while the daemon's credit holds
+/// pacer; a batch untaken after ``ackWait`` goes again under its number (doubling to
+/// ``lastAckWait``), so one lost call or `taken` never stops the chat's rows. Hidden (a covered
+/// or minimized window, another tab), it paces as v1's pacer does for a pane nobody sees: a batch
+/// the page waits on (a window, a page, a blob, an error) goes at once, and ops go at most every ``hiddenInterval``, on one deadline, while the daemon's credit holds
 /// the rest. A chat started in a covered window draws its rows and its turn's end (cmux#44964);
 /// holding every batch left it on Thinking with no row while acpmux had the answer. When
 /// the page is gone the host ends its sids, closes the connection and lets the handle go; a later
@@ -47,6 +48,9 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         var batchesIn = 0
         var bridgeCalls = 0
         var timersArmed = 0
+        /// Ack deadlines armed, and batches sent again because their `taken` never came.
+        var ackDeadlines = 0
+        var resends = 0
     }
 
     /// How a driver starts and reopens (tests replace it with the driver's feed seam).
@@ -60,14 +64,28 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
             reconnect: { driver, path, refused in driver.reconnect(path: path, refused: refused) })
     }
 
+    /// A batch out to the page: its number, the driver it came from (nil: a carried batch, which
+    /// owes no driver an ack), the JSON text that carried it (resent as it is: the same number), and
+    /// when it goes again untaken.
+    private struct Outstanding {
+        var batch: Int
+        var driver: AcpmuxClientByteConnection?
+        var batchText: String
+        /// How long the page has from the last send (``ackWait``, doubled each send to ``lastAckWait``).
+        var wait: TimeInterval
+        /// Uptime nanoseconds when ``wait`` runs out.
+        var deadline: UInt64
+    }
+
     private struct State {
         var client: AcpmuxClient?
         var driver: AcpmuxClientByteConnection?
         var sids: Set<String> = []
         var hidden = false
-        /// The batch the page has and has not taken, and the driver it came from (nil: a carried
-        /// batch, which owes no driver an ack).
-        var outstanding: (batch: Int, driver: AcpmuxClientByteConnection?)?
+        /// The batch the page has and has not taken.
+        var outstanding: Outstanding?
+        /// A deadline is out for ``outstanding``: one at a time, and none once every batch is taken.
+        var ackDeadlineArmed = false
         /// A batch the driver handed over that waits for the page (hidden, or one is out).
         var held: (bytes: Data, driver: AcpmuxClientByteConnection)?
         /// A held batch whose driver was replaced. The core already gave these changes, so they
@@ -87,27 +105,42 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
 
     static let firstBackoff = 0.25
     static let lastBackoff = 8.0
+    /// How long the page has to take a batch before the host sends it again, under the same number.
+    /// A shown page takes one in a frame or a few. A call that never ran, a page that never got it
+    /// or a `taken` that was lost otherwise held the chat's rows until the pane was reopened; the
+    /// page applies a batch number once and takes a repeat again (rows/receiver.ts).
+    public static let ackWait: TimeInterval = 2
+    /// The longest wait between two sends of one untaken batch (a page that cannot draw yet).
+    public static let lastAckWait: TimeInterval = 30
     private let queue = DispatchQueue(label: "cmux.acpmux-chat-rows", qos: .utility) // qos-allow: a chat's rows are background transport work; the page's call hops to main once per batch
     private let state = Mutex(State())
     private let socketPath: String
     private let deliver: @Sendable (String) -> Void
+    /// The page's fixed call for every batch; `deliver`'s text is its `batch` argument.
+    public static let receiveBody = AcpmuxChatRowsBatch.receiveBody
     private let makeClient: @Sendable () -> AcpmuxClient
     private let connector: Connector
     /// ``hiddenInterval``, or a test's own.
     private let hiddenPace: TimeInterval
+    /// ``ackWait``, or a test's own.
+    private let firstAckWait: TimeInterval
 
     /// - Parameters:
     ///   - socketPath: The pane's own daemon socket on this machine.
-    ///   - deliver: Runs the page's call for one batch; called off the main actor, once a batch.
+    ///   - deliver: Runs the page's call for one batch, given the batch's JSON text
+    ///     (``AcpmuxChatRowsBatch/argument(batch:changes:)``), as the `batch` argument of the fixed
+    ///     ``AcpmuxChatRowsBatch/receiveBody``; called off the main actor, once a batch.
     public convenience init(socketPath: String, deliver: @escaping @Sendable (String) -> Void) {
         self.init(socketPath: socketPath, deliver: deliver, makeClient: { AcpmuxClient(surfaces: ["chat"]) }, connector: .socket)
     }
 
     init(socketPath: String, deliver: @escaping @Sendable (String) -> Void,
          makeClient: @escaping @Sendable () -> AcpmuxClient, connector: Connector,
-         hiddenInterval: TimeInterval = AcpmuxChatRowsHost.hiddenInterval) {
+         hiddenInterval: TimeInterval = AcpmuxChatRowsHost.hiddenInterval,
+         ackWait: TimeInterval = AcpmuxChatRowsHost.ackWait) {
         self.socketPath = socketPath
         self.hiddenPace = hiddenInterval
+        self.firstAckWait = ackWait
         self.deliver = deliver
         self.makeClient = makeClient
         self.connector = connector
@@ -280,10 +313,14 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         } else {
             let number = state.nextBatch
             state.nextBatch += 1
-            state.outstanding = (number, next.driver)
+            let batch = AcpmuxChatRowsBatch.argument(batch: number, changes: changes)
+            let now = DispatchTime.now().uptimeNanoseconds
+            state.outstanding = Outstanding(batch: number, driver: next.driver, batchText: batch, wait: firstAckWait,
+                                            deadline: now &+ Self.nanoseconds(firstAckWait))
             state.counters.bridgeCalls += 1
-            state.lastCall = DispatchTime.now().uptimeNanoseconds
-            deliver(AcpmuxChatRowsBatch.script(batch: number, changes: changes))
+            state.lastCall = now
+            deliver(batch)
+            armAckDeadline(&state)
         }
         guard fallback else { return }
         // The daemon answered as v1 or grants no `chat`: each sid got its `chatError` in this
@@ -305,6 +342,43 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
             deliverHeld(&state)
         }
     }
+
+    /// Arms the one deadline for the batch out, at its ``Outstanding/deadline``. A batch taken in
+    /// time leaves the deadline nothing to do, and it arms no other: a stream costs at most one
+    /// wakeup an ``ackWait``, an idle chat none.
+    private func armAckDeadline(_ state: inout State) {
+        guard !state.ackDeadlineArmed, let out = state.outstanding else { return }
+        state.ackDeadlineArmed = true
+        state.counters.ackDeadlines += 1
+        let generation = state.generation
+        let left = out.deadline &- min(out.deadline, DispatchTime.now().uptimeNanoseconds)
+        // concurrency-allow: the ack deadline runs on this host's utility queue, never main; one at a time, only while a batch is out, at most lastAckWait
+        queue.asyncAfter(deadline: .now() + .nanoseconds(Int(left))) { [weak self] in self?.ackDeadlinePassed(generation) }
+    }
+
+    /// The deadline for the batch out passed. Still untaken, the page gets the same call again
+    /// (same number, so the page applies it once) and twice as long, up to ``lastAckWait``; a
+    /// later batch out gets a deadline of its own; none out, nothing is armed.
+    private func ackDeadlinePassed(_ generation: Int) {
+        state.withLock { state in
+            state.counters.wakeups += 1
+            guard state.generation == generation else { return }
+            state.ackDeadlineArmed = false
+            guard var out = state.outstanding else { return }
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= out.deadline {
+                out.wait = min(out.wait * 2, Self.lastAckWait)
+                out.deadline = now &+ Self.nanoseconds(out.wait)
+                state.outstanding = out
+                state.counters.resends += 1
+                state.lastCall = now
+                deliver(out.batchText)
+            }
+            armAckDeadline(&state)
+        }
+    }
+
+    private static func nanoseconds(_ seconds: TimeInterval) -> UInt64 { UInt64(max(0, seconds) * 1e9) }
 
     /// The socket dropped: no event to the page. The same handle reconnects after a backoff and
     /// the core's resume gives what was missed; with no sid open the handle is let go instead.
@@ -344,7 +418,7 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
             state.withLock { state in
                 state.counters.wakeups += 1
                 guard let driver = state.driver, ObjectIdentifier(driver) == id, let client = state.client else { return }
-                if let out = state.outstanding, out.driver === driver { state.outstanding = (out.batch, nil) }
+                if let out = state.outstanding, out.driver === driver { state.outstanding?.driver = nil }
                 if let held = state.held {
                     state.carried = held.bytes
                     state.held = nil
