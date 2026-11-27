@@ -6002,7 +6002,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
       const log = (line: string) => console.log(scrub(line, J.secrets));
       let cycles: WakeCycle[] = [];
-      const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
+      const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN, image_id: bound.image?.id ?? null };
+      // Sample outside the timed cycles. A missing commit remains explicit in a partial artifact.
+      const platformHealth = async (): Promise<PreclaimHealthSnapshot> => {
+        try {
+          const config = await api.raw("GET", "/v1/client-config", undefined, 5_000);
+          const platform = clientPlatformOrigin(config.body);
+          return preclaimHealthSnapshot(await http("GET", `${platform}/v1/health`, undefined, {}, 5_000, false));
+        } catch (error) {
+          return { http_status: 0, outcome: "error", commit: null, commit_unavailable: publicError(String(error), J.secrets).slice(0, 120) };
+        }
+      };
+      meta.platform_health_before = await platformHealth();
       const write = () => {
         if (!outDir) return;
         writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
@@ -6059,6 +6070,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
         meta.setup_error = String((e as Error).message ?? e);
       }
+      meta.platform_health_after = await platformHealth();
       write();
       const sum = wakeEchoSummary(cycles);
       const table = wakeEchoMarkdown(cycles, meta);
