@@ -691,6 +691,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_DEVICE_HELLO, Request),
+        untyped(method::MUX_DEVICE_CHALLENGE, Request),
         untyped(method::MUX_DEVICE_ENROLL, Request),
         untyped(method::MUX_BROWSER_SIGN_IN_START, Request),
         untyped(method::MUX_BROWSER_SIGN_IN_COMPLETE, Request),
