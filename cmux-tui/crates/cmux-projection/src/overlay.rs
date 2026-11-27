@@ -398,7 +398,7 @@ pub struct Overlay {
     pins_file: PathBuf,
     /// The free disk a pin leaves untouched ([`pin::DEFAULT_PIN_RESERVE`]).
     pin_reserve: u64,
-    /// Held for reading while a top-level name is looked up, and for writing while a swap
+    /// Held for reading while a name is looked up, and for writing while a swap
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
@@ -1145,12 +1145,13 @@ impl Overlay {
     // MARK: Reads
 
     pub fn lookup(&self, parent: u64, name: &str) -> Result<Attr, i32> {
+        // A lookup through an existing directory handle must use the same view from its
+        // retirement check through resolving the child (including .git/index).
+        let _swap = self.swap.read().unwrap_or_else(PoisonError::into_inner);
         if let Some(found) = self.lookup_retired(parent, name) {
             return found;
         }
         let (_, child) = self.child(parent, name)?;
-        let _swap = (!child.contains('/'))
-            .then(|| self.swap.read().unwrap_or_else(PoisonError::into_inner));
         let node = self.node(&child).ok_or(ENOENT)?;
         Ok(self.attr(&child, &node))
     }
@@ -1190,6 +1191,14 @@ impl Overlay {
     /// only through the mount, which the kernel sees, so the kernel may keep its listing.
     pub fn lower_only(&self, ino: u64) -> bool {
         matches!(self.named(ino), Some((_, Node::Lower(_))))
+    }
+
+    /// Whether this file already has local bytes, including a file unlinked while open.
+    pub fn is_upper(&self, ino: u64) -> bool {
+        match self.named(ino) {
+            Some((_, node)) => matches!(node, Node::Upper(_)),
+            None => self.open_file_of(ino).is_some(),
+        }
     }
 
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {

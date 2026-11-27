@@ -86,6 +86,9 @@ final class ScreenContentView: NSView {
     /// The pane contents that follow a person's live resize of the window as they follow a divider drag
     /// (`ScreenContentView+WindowLiveResize`); nil outside one.
     var windowResizeListeners: [PaneResizeGestureListener]?
+    /// The window resize mode above was started by the window's chrome resizing the content area (the sidebar's
+    /// width motion, ``contentAreaMotionBegan()``), not by a person's live resize: only that motion's end ends it.
+    var holdsForContentAreaMotion = false
     /// A presentation during the window's live resize kept a pane out of the viewport at its old size
     /// (`applyPresentation`, `ScreenContentView+WindowLiveResize`): the resize's end lays it out at its final one.
     var deferredOffscreenLayout = false

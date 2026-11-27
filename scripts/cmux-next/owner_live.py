@@ -210,6 +210,9 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     """(acpmux's session records, None) or (None, why not): every host's, closed ones included (successor chains)."""
     if os.environ.get("CI") or not shutil.which("acpmux"):
         return None, None
+    cached = _cache_read()
+    if cached is not None:
+        return cached, None
     try:
         out = subprocess.run(["acpmux", "ls", "--json"], capture_output=True, text=True, timeout=timeout)
         doc = json.loads(out.stdout or "null")
@@ -219,7 +222,36 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     if not isinstance(rows, list):
         return None, None
     rows = [r for r in rows if isinstance(r, dict)]
-    return merge_tagged(rows, _tagged(TAG_KEYS, timeout)), None
+    merged = merge_tagged(rows, _tagged(TAG_KEYS, timeout))
+    _cache_write(merged)
+    return merged, None
+
+
+# Each `ls --tag KEY` asks every peer host over ssh (3 keys, about 40 hosts, 4 processes a host: ~500 processes a
+# push; 2026-11-24 cosmic-gray load 65 on 15 cores, 5 pushes a minute). A listing is shared by every push for
+# CACHE_S, so a burst of pushes reads the fleet once.
+CACHE_S = 90
+CACHE_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_CACHE") or Path.home() / ".cache" / "cmux" / "owner-live-sessions.json")
+
+
+def _cache_read() -> list[dict] | None:
+    try:
+        if time.time() - CACHE_FILE.stat().st_mtime > CACHE_S:
+            return None
+        rows = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rows if isinstance(rows, list) else None
+
+
+def _cache_write(rows: list[dict]) -> None:
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_FILE.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, CACHE_FILE)
+    except OSError:
+        pass
 
 
 TAG_KEYS = ("owns", "succeeds", "failover")

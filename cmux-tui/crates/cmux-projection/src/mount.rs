@@ -198,11 +198,28 @@ fn filesystem(
     overlay: Arc<Overlay>,
     options: &Options,
 ) -> anyhow::Result<(Fs, Arc<OnceLock<Notifier>>)> {
+    overlay.keep_atime(options.read_only || !options.disk_atime);
+    let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
+    let fs = Fs {
+        overlay,
+        jobs: pool("projection-io", WORKERS)?,
+        local_jobs: pool("projection-local", 4)?,
+        listings: HashMap::new(),
+        versions: Arc::new(Mutex::new(HashMap::new())),
+        notifier: notifier.clone(),
+        read_only: options.read_only,
+        touched: Arc::new(AtomicU64::new(now_s())),
+    };
+    Ok((fs, notifier))
+}
+
+/// Runs blocking file operations on workers until the filesystem drops its sender.
+fn pool(name: &str, count: usize) -> std::io::Result<Sender<Job>> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
-    for index in 0..WORKERS {
+    for index in 0..count {
         let receiver = receiver.clone();
-        std::thread::Builder::new().name(format!("projection-io-{index}")).spawn(move || {
+        std::thread::Builder::new().name(format!("{name}-{index}")).spawn(move || {
             loop {
                 let job = receiver.lock().unwrap_or_else(PoisonError::into_inner).recv();
                 match job {
@@ -212,18 +229,7 @@ fn filesystem(
             }
         })?;
     }
-    overlay.keep_atime(options.read_only || !options.disk_atime);
-    let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
-    let fs = Fs {
-        overlay,
-        jobs: sender,
-        listings: HashMap::new(),
-        versions: Arc::new(Mutex::new(HashMap::new())),
-        notifier: notifier.clone(),
-        read_only: options.read_only,
-        touched: Arc::new(AtomicU64::new(now_s())),
-    };
-    Ok((fs, notifier))
+    Ok(sender)
 }
 
 /// The write end of the pipe [`on_stop_signal`] wakes the unmounting thread through (-1: none).
@@ -355,6 +361,7 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
+    local_jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
     listings: HashMap<u64, Arc<[Listed]>>,
@@ -451,10 +458,11 @@ impl Fs {
         self.touched.store(now_s(), Ordering::Relaxed);
     }
 
-    fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
+    fn run_on(&self, local: bool, job: impl FnOnce(&Overlay) + Send + 'static) {
         self.touch();
         let overlay = self.overlay.clone();
-        let _ = self.jobs.send(Box::new(move || job(&overlay)));
+        let pool = if local { &self.local_jobs } else { &self.jobs };
+        let _ = pool.send(Box::new(move || job(&overlay)));
     }
 }
 
@@ -580,9 +588,11 @@ impl Filesystem for Fs {
         // A size or mode change may copy a lower file up (a fetch): off the session loop. A change
         // through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's time that
         // way) goes to the file that handle holds, without a lookup or an open.
-        self.run(move |overlay| match overlay.setattr(ino, fh, set) {
-            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
-            Err(errno) => reply.error(errno),
+        self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            match overlay.setattr(ino, fh, set) {
+                Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
+                Err(errno) => reply.error(errno),
+            }
         });
     }
 
@@ -667,7 +677,11 @@ impl Filesystem for Fs {
         };
         let (name, newname) = (name.to_owned(), newname.to_owned());
         // A rename may copy a lower file up (a fetch): off the session loop.
-        self.run(move |overlay| {
+        let local = self
+            .overlay
+            .lookup(parent, &name)
+            .is_ok_and(|attr| attr.kind == Type::File && self.overlay.is_upper(attr.ino));
+        self.run_on(local, move |overlay| {
             empty(reply, overlay.rename(parent, &name, newparent, &newname, flags));
         });
     }
@@ -685,15 +699,19 @@ impl Filesystem for Fs {
             return;
         };
         // A link of a lower file copies it up (a fetch): off the session loop.
-        self.run(move |overlay| entry(reply, overlay.link(ino, newparent, &newname)));
+        self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            entry(reply, overlay.link(ino, newparent, &newname))
+        });
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
         let (versions, notifier) = (self.versions.clone(), self.notifier.clone());
         // A write open copies a lower file up (a fetch): off the session loop.
-        self.run(move |overlay| match overlay.open_handle(ino, flags) {
-            Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
-            Err(errno) => reply.error(errno),
+        self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            match overlay.open_handle(ino, flags) {
+                Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
+                Err(errno) => reply.error(errno),
+            }
         });
     }
 
@@ -709,9 +727,11 @@ impl Filesystem for Fs {
         reply: ReplyData,
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
-        self.run(move |overlay| match overlay.read_handle(fh, ino, offset, size) {
-            Ok(bytes) => reply.data(&bytes),
-            Err(errno) => reply.error(errno),
+        self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            match overlay.read_handle(fh, ino, offset, size) {
+                Ok(bytes) => reply.data(&bytes),
+                Err(errno) => reply.error(errno),
+            }
         });
     }
 
@@ -729,9 +749,11 @@ impl Filesystem for Fs {
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
         let data = data.to_vec();
-        self.run(move |overlay| match overlay.write_handle(fh, ino, offset, &data) {
-            Ok(written) => reply.written(written),
-            Err(errno) => reply.error(errno),
+        self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            match overlay.write_handle(fh, ino, offset, &data) {
+                Ok(written) => reply.written(written),
+                Err(errno) => reply.error(errno),
+            }
         });
     }
 
@@ -757,7 +779,7 @@ impl Filesystem for Fs {
     }
 
     fn fsync(&mut self, _req: &Request<'_>, _ino: u64, fh: u64, _data: bool, reply: ReplyEmpty) {
-        self.run(move |overlay| empty(reply, overlay.fsync(fh)));
+        self.run_on(true, move |overlay| empty(reply, overlay.fsync(fh)));
     }
 
     fn fallocate(
@@ -770,7 +792,7 @@ impl Filesystem for Fs {
         mode: i32,
         reply: ReplyEmpty,
     ) {
-        self.run(move |overlay| empty(reply, overlay.fallocate(fh, offset, length, mode)));
+        self.run_on(true, move |overlay| empty(reply, overlay.fallocate(fh, offset, length, mode)));
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
