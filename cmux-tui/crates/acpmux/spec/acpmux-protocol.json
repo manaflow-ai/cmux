@@ -1169,6 +1169,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
