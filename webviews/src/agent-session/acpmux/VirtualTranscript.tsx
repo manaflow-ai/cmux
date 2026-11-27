@@ -19,16 +19,16 @@ import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { setEffectKeyframes } from "./conversation/keyframeKinds";
 import { dockClearSpans, dockClearStops } from "./conversation/dockClear";
-import { KeptLayouts } from "./conversation/keptLayouts";
+import { KeptLayouts, type RowHeight } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
 import { LoadFadeWindow } from "../shared/loadFade";
+import { LiveRowTable } from "../shared/liveRowTable";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
   type PlacedLayout,
-  type RowHeights,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -2072,9 +2072,9 @@ function TranscriptView({
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
-  const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({
+  const rowHeights = useRef<{ registry: NativeRegistry; heights: LiveRowTable<AcpmuxRow, RowHeight> }>({
     registry,
-    heights: new WeakMap(),
+    heights: new LiveRowTable(),
   });
   const measurementSession = useRef(sessionId);
   if (measurementSession.current !== sessionId) {
@@ -2084,7 +2084,7 @@ function TranscriptView({
     // drew, and its estimates measure none of them again (conversation/keptLayouts.ts).
     measurementSession.current = sessionId;
     measurementCache.current.clear();
-    rowHeights.current = { registry, heights: new WeakMap() };
+    rowHeights.current = { registry, heights: new LiveRowTable() };
     pendingDrawn.current.clear();
     const shown =
       sessionId === undefined
@@ -3680,7 +3680,7 @@ function TranscriptView({
     measuredView.current = attachmentView;
     const fresh = rowHeights.current.registry !== registry || !sameSession || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged) {
-      rowHeights.current = { registry, heights: new WeakMap() };
+      rowHeights.current = { registry, heights: new LiveRowTable() };
       // A kept layout was measured with the look and registry before: none of it places a row now.
       if (sessionId !== undefined) keptLayouts.forget(sessionId);
     }
@@ -3719,6 +3719,9 @@ function TranscriptView({
       near && newWidth ? { ...near, all: true } : near,
       coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
     );
+    // Estimates of rows this chat no longer holds are dropped once they outnumber its rows: the table
+    // stays a few times the rows on hand, however many row objects a long stream made (liveRowTable.ts).
+    rowHeights.current.heights = rowHeights.current.heights.compacted(rows.length, () => rows);
     lastEstimate.current = {
       rows,
       layout,
