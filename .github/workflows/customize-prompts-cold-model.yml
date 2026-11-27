@@ -3,7 +3,7 @@ name: Customize copy-paste prompts (cold model, nightly)
 # Every copy-paste prompt in skills/cmux-extension-author/prompts/ handed, as a person would paste it, to a fresh
 # Claude Code in an empty folder (scripts/cmux-next/ext-recipe-cold-model.py --prompts). A prompt passes only when
 # the folder it leaves ends in a working customization: `cmux ext dev --once --headless --json` exits 0 (the real
-# QuickJS app host loads and renders it, no cmux running) and its scene shows the text the page's prompt-check names.
+# QuickJS app host runs without cmux) and the scene or command behavior matches the page's prompt-check.
 #
 # Leo: "good docs for agents and good copy-paste prompts for agents"
 #

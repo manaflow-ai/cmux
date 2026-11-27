@@ -3,7 +3,7 @@
 One operation that runs from the Command Palette, as `cmux NAME ...` in a terminal, and as a tool
 agents can call. Surface: `command` (`cmux customize docs command`).
 
-<!-- prompt-check: loads -->
+<!-- prompt-check: command standup note -->
 
 ```text
 Add a command to cmux called "Stand-up: Copy my note" that builds a stand-up note from a list

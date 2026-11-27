@@ -3,7 +3,7 @@
 A `/` command in the agent chat composer. Surface: `composer-command`
 (`cmux customize docs composer-command`).
 
-<!-- prompt-check: loads -->
+<!-- prompt-check: composer /review -->
 
 ```text
 Add a slash command to cmux's agent chat composer: typing `/review` offers "Review my changes",

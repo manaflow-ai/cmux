@@ -19,7 +19,7 @@ Opt-in: it calls a model, so it never runs in PR CI. It needs:
 
 `--prompts` checks the copy-paste prompts (skills/cmux-extension-author/prompts) instead: the model
 gets only the page's prompt, as a person would paste it, and finds the rest with
-`cmux customize docs`; the page's `<!-- prompt-check: shows "..." -->` names the words.
+`cmux customize docs`; the page's prompt-check names the expected scene text or command behavior.
 `--headless` checks with `cmux ext dev --once --headless --json`, which loads and renders in this
 process, so it needs no running cmux (the scheduled customize-prompts-cold-model workflow runs
 `--prompts --headless` on a Linux runner).
@@ -45,10 +45,14 @@ import tempfile
 import time
 from pathlib import Path
 
+from ext_prompt_composer import check_composer
+from ext_prompt_palette import check_palette
+
 ROOT = Path(__file__).resolve().parents[2]
 RECIPES = ROOT / "skills" / "cmux-extension-author" / "recipes"
 PROMPTS = ROOT / "skills" / "cmux-extension-author" / "prompts"
-SHOWS = re.compile(r'<!-- (?:recipe|prompt)-check: shows "([^"]+)" -->')
+COMMAND_CHECKS = {"command standup note": check_palette, "composer /review": check_composer}
+SHOWS = re.compile(r'shows "([^"]+)"')
 PROMPT_BLOCK = re.compile(r"```text\n(.*?)\n```", re.S)
 TIMEOUT_S = 600
 
@@ -127,26 +131,48 @@ def run_model(prompt: str, folder: Path, model: str) -> tuple[int, str, dict]:
     return code, (said or stderr).strip()[-2000:], counts
 
 
-def check(folder: Path, shows: str | None, no_daemon_ok: bool, headless: bool) -> dict:
+def page_check(page: str, prompts: bool) -> str:
+    kind = "prompt" if prompts else "recipe"
+    checks = re.findall(rf"^<!-- {kind}-check: (.+) -->$", page, re.MULTILINE)
+    if len(checks) == 1:
+        check = checks[0]
+        if SHOWS.fullmatch(check) or check in COMMAND_CHECKS or (not prompts and check == "loads"):
+            return check
+    raise ValueError(f"expected one supported {kind}-check, got {checks!r}")
+
+
+def check(folder: Path, expectation: str, no_daemon_ok: bool, headless: bool,
+          *, prompts: bool = False) -> dict:
     argv = ["cmux", "ext", "dev", "--once", "--json"]
-    argv += ["--headless"] if headless else ["--no-install", "--remove-on-exit"]
-    done = subprocess.run(
-        argv,
-        cwd=folder, capture_output=True, text=True, timeout=300,
-    )
+
+    def run(options: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(argv + options, cwd=folder, capture_output=True, text=True, timeout=300)
+
+    done = run(["--headless"] if headless else ["--no-install", "--remove-on-exit"])
+    if prompts and no_daemon_ok and not headless and done.returncode == 3:
+        done = run(["--headless"])
     try:
         result = json.loads(done.stdout.strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        result = {"raw": done.stdout[-2000:], "stderr": done.stderr[-2000:]}
+        if not isinstance(result, dict):
+            raise ValueError("expected a JSON object")
+    except (ValueError, IndexError):
+        errors = [done.stderr[-2000:] or "ext dev returned no JSON object"]
+        return {"exitCode": done.returncode, "passed": False, "why": "invalid ext dev result",
+                "errors": errors, "scene": ""}
     code = done.returncode
     scene = "\n".join(result.get("scene") or [])
-    passed = code == 0 and (shows is None or shows in scene)
-    if code == 3 and no_daemon_ok:
-        passed = True  # the manifest and the build passed; no cmux to load into
     why = None
-    if not passed:
-        why = f"exit {code}" if code != 0 else f"the scene does not show {shows!r}"
-    return {"exitCode": code, "passed": passed, "why": why, "errors": result.get("errors"), "scene": scene}
+    if code == 0:
+        shows = SHOWS.fullmatch(expectation)
+        if shows and shows.group(1) not in scene:
+            why = f"the scene does not show {shows.group(1)!r}"
+        elif expectation in COMMAND_CHECKS:
+            why = COMMAND_CHECKS[expectation](folder)
+        elif not shows and expectation != "loads":
+            why = f"unknown expectation {expectation!r}"
+    elif not (code == 3 and no_daemon_ok and not prompts):
+        why = f"exit {code}"
+    return {"exitCode": code, "passed": why is None, "why": why, "errors": result.get("errors"), "scene": scene}
 
 
 def main() -> int:
@@ -179,7 +205,11 @@ def main() -> int:
     report = []
     for page in pages:
         text = page.read_text(encoding="utf-8")
-        match = SHOWS.search(text)
+        try:
+            expectation = page_check(text, args.prompts)
+        except ValueError as error:
+            print(f"ext-recipe-cold-model: {page.name}: {error}", file=sys.stderr)
+            return 2
         folder = Path(tempfile.mkdtemp(prefix=f"cold-{page.stem}-"))
         if args.prompts:
             block = PROMPT_BLOCK.search(text)
@@ -191,7 +221,7 @@ def main() -> int:
             prompt = PROMPT.format(page=text)
         model_exit, said, counts = run_model(prompt, folder, args.model)
         row = {"recipe": page.stem, "model": args.model, "modelExit": model_exit, "said": said, **counts}
-        row.update(check(folder, match.group(1) if match else None, args.no_daemon_ok, args.headless))
+        row.update(check(folder, expectation, args.no_daemon_ok, args.headless, prompts=args.prompts))
         if row["passed"] and args.max_docs_bugs is not None and counts["docsBugs"] > args.max_docs_bugs:
             row["passed"] = False
             row["why"] = f"{counts['docsBugs']} source reads or guesses (at most {args.max_docs_bugs})"
