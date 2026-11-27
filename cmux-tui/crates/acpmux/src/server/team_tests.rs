@@ -366,7 +366,8 @@ async fn team_legacy_routes_share_authorization_and_status_is_scoped() {
     let reply = recipient.call(method::MUX_SEND_STATUS, status.clone()).await;
     assert_eq!(reply["error"]["data"]["reason"], "team.forbidden", "{reply}");
     let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
-    assert!(owner.call(method::MUX_SEND_STATUS, status.clone()).await.get("error").is_none());
+    let owner_status = owner.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert!(owner_status.get("error").is_none(), "{owner_status}");
     hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
     let refused = owner.call(method::MUX_SEND_STATUS, status).await;
     assert_eq!(refused["error"]["data"]["reason"], "team_messaging_disabled", "{refused}");
@@ -817,10 +818,18 @@ async fn team_offline_rpc_restart_alias_and_sender_scope() {
     hub.mesh.clear();
     let queued = sender.call(method::MUX_SEND_STATUS, status.clone()).await;
     assert_eq!(queued["result"]["status"], "queued", "{queued}");
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let owner_status = owner.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(owner_status["result"]["status"], "queued", "{owner_status}");
     // Both entry points queue without a mesh client, preserving the first item on disk.
     let legacy = sender.call(method::MUX_SEND_QUEUE, legacy_team_send("offline-second")).await;
     assert_eq!(legacy["result"]["status"], "queued", "{legacy}");
-    assert_eq!(hub.team_send_queue.pending().len(), 2);
+    let pending = hub.team_send_queue.pending();
+    assert_eq!(pending.len(), 2);
+    let admitted_bodies = pending.iter().map(|item| item.message.body.clone()).collect::<Vec<_>>();
+    assert_eq!(admitted_bodies[0], "first");
+    assert!(admitted_bodies[1].starts_with("hello\n\nSent-by: "));
+    drop(owner);
     drop(sender);
     drop(hub);
 
@@ -839,7 +848,7 @@ async fn team_offline_rpc_restart_alias_and_sender_scope() {
     restarted.flush_team_send_queue(online.clone()).await;
     assert_eq!(
         online.sent.lock().unwrap().iter().map(|m| m.body.clone()).collect::<Vec<_>>(),
-        ["first", "hello"]
+        admitted_bodies
     );
     assert!(restarted.team_send_queue.pending().is_empty());
     assert!(restarted.sent_team_message(OTHER, OWN_MESSAGE));

@@ -480,7 +480,10 @@ pub(super) async fn status(
     // receipt they already received, including after a daemon restart.
     if let Some((queued, target, caller)) = hub.team_send_queue.lookup(id).await {
         super::team::authorize(hub, conn).await?;
-        if !conn.is_person() && conn.caller() != caller.as_deref() {
+        if !conn.is_person()
+            && let Some(sender) = conn.caller()
+            && Some(sender) != caller.as_deref()
+        {
             return Err(super::team::forbidden());
         }
         if queued.message_id.starts_with("teamq:") {
@@ -565,7 +568,10 @@ pub(super) async fn queued_status(
             .with_data(json!({"reason": "outbox.unknown", "deliveryId": id})));
     };
     super::team::authorize(hub, conn).await?;
-    if !conn.is_person() && conn.caller() != caller.as_deref() {
+    if !conn.is_person()
+        && let Some(sender) = conn.caller()
+        && Some(sender) != caller.as_deref()
+    {
         return Err(super::team::forbidden());
     }
     Ok(status_of(&receipt, &target))
