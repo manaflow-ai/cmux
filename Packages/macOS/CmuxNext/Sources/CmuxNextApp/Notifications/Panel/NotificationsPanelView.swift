@@ -204,18 +204,29 @@ final class NotificationsPanelView: NSView {
 }
 
 /// The list's scroll view: tells the list each time the clip view moves, so
-/// it mounts the rows a scroll reveals.
+/// it mounts the rows a scroll reveals. A clip-view callback, not a
+/// NotificationCenter observer (no process-wide observer lifetime).
 private final class NotificationsPanelScrollView: OverlayScrollView {
-    /// Set once; observes the clip view's bounds (no selector override: the crash-class
-    /// selector table needs no Mac probe for it).
     var onScroll: (() -> Void)? {
-        didSet {
-            contentView.postsBoundsChangedNotifications = true
-            boundsObserver = MainActorObservation(NSView.boundsDidChangeNotification, object: contentView) { [weak self] in
-                self?.onScroll?()
-            }
-        }
+        didSet { clip.onScroll = onScroll }
     }
 
-    private var boundsObserver: MainActorObservation?
+    private let clip = NotificationsPanelClipView(frame: .zero)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        contentView = clip
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+}
+
+private final class NotificationsPanelClipView: NSClipView {
+    var onScroll: (() -> Void)?
+
+    override func setBoundsOrigin(_ newOrigin: NSPoint) {
+        super.setBoundsOrigin(newOrigin)
+        onScroll?()
+    }
 }
