@@ -39,6 +39,10 @@ path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_auto_journal_nightly_artifact.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -1205,10 +1209,6 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_unittest_shard.py"
 lane = "manual"
 reason = "Run by the lane that changes tests/unittest_shard.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 -I tests/test_unittest_shard.py; needs only python3."
-
-[[test]]
-path = "tests/test_update_release_tag.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"

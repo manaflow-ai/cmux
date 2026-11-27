@@ -122,7 +122,7 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
-/// `credentials {env}` on `agent-transfer-finish`: the owner's login for the moved chat's agent
+/// `credentials {env, connection?}` on `agent-transfer-finish`: the owner's login for the moved chat's agent
 /// (`agent-session-start`'s `credentials`), which a new Cloud machine has none of. Held on the chat
 /// before its queue runs, so the turn the move continues starts signed in. An older daemon refuses
 /// the field, so the pump sends it only to a target that lists this.
@@ -889,7 +889,13 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if name.as_deref().is_some_and(|name| !is_chat_name(name)) {
                 return Err(Refusal::BadRequest.into());
             }
-            if credentials.as_ref().is_some_and(|c| !c.valid()) {
+            if credentials.as_ref().is_some_and(|credential| {
+                !credential.valid()
+                    || credential
+                        .connection
+                        .as_deref()
+                        .is_some_and(|binding| !binding.contains(':'))
+            }) {
                 return Err(Refusal::BadRequest.into());
             }
             if credentials.is_some()
