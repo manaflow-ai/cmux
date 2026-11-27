@@ -439,6 +439,62 @@
     hover: "hover",
     selected: "selected"
   });
+  var kept = {
+    seed: {},
+    values: Object.create(null),
+    signals: new Map,
+    dirty: false
+  };
+  function seedKeptState(values) {
+    const seed = values && typeof values === "object" && !Array.isArray(values) ? values : {};
+    kept.seed = { ...seed };
+    kept.values = { ...kept.values, ...seed };
+    let restored = false;
+    for (const [name, entry] of kept.signals) {
+      if (Object.prototype.hasOwnProperty.call(seed, name)) {
+        entry.set(seed[name]);
+        restored = true;
+      }
+    }
+    if (restored)
+      kept.dirty = true;
+  }
+  onAfterFlush(() => {
+    if (!kept.dirty)
+      return;
+    kept.dirty = false;
+    const keep = state.native?.keepState;
+    if (!keep)
+      return;
+    let json;
+    try {
+      json = JSON.stringify(kept.values);
+    } catch (e) {
+      log("warn", `cmux.state: the values are not JSON (${e instanceof Error ? e.message : String(e)}); not kept`);
+      return;
+    }
+    keep.call(state.native, json);
+  });
+  function keptState(key, initial) {
+    const name = String(key);
+    const have = kept.signals.get(name);
+    if (have)
+      return have.pair;
+    const start = Object.prototype.hasOwnProperty.call(kept.seed, name) ? kept.seed[name] : initial;
+    const [read, write] = signal(start);
+    const keep = (next) => {
+      write(next);
+      const value = read.peek();
+      if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value))
+        return;
+      Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true });
+      kept.dirty = true;
+      batch(() => {});
+    };
+    const pair = [read, keep];
+    kept.signals.set(name, { pair, set: write });
+    return pair;
+  }
   var sharedMembers = {};
   function createCmux(gesture) {
     const g = (name, params, options) => callWith(name, params ?? {}, options, gesture());
@@ -488,6 +544,7 @@
       }),
       timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
       time: { zone: timeZone },
+      state: keptState,
       app: {
         get id() {
           return state.app.id;
@@ -3281,6 +3338,7 @@
       state.locale = init.locale ?? "en";
       state.strings = init.strings ?? {};
       setPaletteScopes(init.paletteScopes);
+      seedKeptState(init.state);
       state.settings[1](init.settings ?? {});
       return "";
     }, "init failed");

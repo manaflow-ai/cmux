@@ -925,11 +925,12 @@ def main(argv: list[str] | None = None) -> int:
                 # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
                 # head=) answered "unknown harness" to every round.
                 env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
-                folder = Path(env["XDG_CONFIG_HOME"]) / "cmux" / "harnesses"
-                folder.mkdir(parents=True, exist_ok=True)
-                (folder / f"{HARNESS}.toml").write_text(
-                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                for name in l5.HARNESS_DIRS:  # NEXT's own `cmux-next`, and `cmux` for builds before #56195
+                    folder = Path(env["XDG_CONFIG_HOME"]) / name / "harnesses"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / f"{HARNESS}.toml").write_text(
+                        f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
+                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
                 gamut.boot(bundle, env)
                 gamut.app.cli("setup", "trust", str(gamut.work))
                 gamut.run(bundle, env, newer, previous)
