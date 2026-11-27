@@ -237,7 +237,38 @@ pub fn ls_tree_cached_with(
     let temp = cache.with_extension(format!("tmp{}", std::process::id()));
     std::fs::write(&temp, &bytes)?;
     std::fs::rename(&temp, cache)?;
+    if let Some(parent) = cache.parent() {
+        prune_listings(parent);
+    }
     Ok(items)
+}
+
+/// The listings folder every mount of `git_dir` shares by default: a new worktree's own keep
+/// starts empty, and with no listing beside it `ls_tree_cached_with` reads every blob's size and
+/// fetches each absent blob before the mount comes up (31-195 s for cmux's 77,000 files on a
+/// loaded lane VM, 2026-11-27, against 1-2 s from the last commit's listing). In the mirror, so
+/// wt, the cloud start and any other caller of one mirror share it with no flag.
+pub fn shared_trees(git_dir: &Path) -> PathBuf {
+    git_dir.join("cmux-projection-trees")
+}
+
+/// Listings a shared folder keeps (about 10 MB each for cmux): the newest are the ones a new
+/// commit's sizes come from, and an older commit's listing is rebuilt from them in about a second.
+pub const KEPT_LISTINGS: usize = 8;
+
+/// Removes all but the newest [`KEPT_LISTINGS`] listings in `folder` (temp files, named with a
+/// dot, are left to their writers).
+fn prune_listings(folder: &Path) {
+    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let mut listings: Vec<_> = entries
+        .flatten()
+        .filter(|entry| !entry.file_name().to_string_lossy().contains('.'))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .collect();
+    listings.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in listings.into_iter().skip(KEPT_LISTINGS) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Each blob's size in the newest listing beside `cache` (its folder's other files), if any.
