@@ -226,8 +226,9 @@ FOLDED: dict[str, tuple[str, ...]] = {
     "app-platform.yml": ("app-platform",),
     "app-store-shelf.yml": ("app-store-shelf",),
     "cmux-next-ios-kit.yml": ("ios-kit",),
-    "ios-reliability-matrix.yml": ("ios-matrix-protocol", "ios-phone-cells"),
 }
+# ios-reliability-matrix.yml has no push left (its phone and protocol cells run in the post-merge batch, suites
+# pr-pipeline-ios and pr-pipeline-linux); cmux-next-ios-kit.yml's push names only its own file (registration).
 
 
 def folded(workflows: dict[str, dict]) -> set[str]:

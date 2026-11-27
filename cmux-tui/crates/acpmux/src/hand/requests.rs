@@ -44,9 +44,19 @@ where
     F: FnOnce(Value) -> Fut,
     Fut: Future<Output = Result<bool, HandError>>,
 {
+    // The hand was paired on this machine by its person, for their own Cloud account: their own
+    // machine reaching it, so joining is the consent and only their Off here refuses it.
     handle_with_consent(ctx, action, p, approve, || {
-        crate::machine_record::require_joined_consent("control")
-            .map_err(|_| HandError::new("consent_required", "local control consent is required"))
+        crate::machine_record::require_joined_consent_from(
+            "control",
+            crate::machine_record::Requester::OwnMachine,
+        )
+        .map_err(|_| {
+            HandError::new(
+                "consent_required",
+                "Control is turned off on this machine; turn it on in Settings > Devices or with `acpmux host consent grant --control`",
+            )
+        })
     })
     .await
 }
