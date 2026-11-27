@@ -241,7 +241,7 @@ test("after a press of Jump to latest no up arrow comes, and none going back up 
 });
 
 /// The chat as the page draws it: the transcript's seen reports move its cursor (direct.ts
-/// `noteVisibleThrough`, the reader attending), as acpmux's `readThrough` comes back.
+/// `markSeenRows`, the reader attending), as acpmux's `readThrough` comes back.
 async function openSeeing(readThrough: number) {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const expanded = new Set<string>();
@@ -250,9 +250,12 @@ async function openSeeing(readThrough: number) {
     root.render(
       <VirtualTranscript
         rows={turnView(rows, expanded)}
+        sessionId="jump-seeing"
         readThrough={cursor}
-        onSeenThrough={(seq) => {
-          if (seq === undefined || seq <= cursor) return;
+        onSeenRows={(visible, beforeSeq) => {
+          const newest = visible.reduce((seq, row) => Math.max(seq, row.messageRun?.through ?? row.seq ?? -1), -1);
+          const seq = beforeSeq === undefined ? newest : Math.min(newest, beforeSeq - 1);
+          if (seq <= cursor) return;
           cursor = seq;
           queueMicrotask(draw);
         }}
