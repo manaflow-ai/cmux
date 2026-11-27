@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45976535863",
+  "recorded_at": "2026-11-27T10:11:55Z",
+  "reason": "image inputs changed in 8eb1e62877c20bca6d395d176444546bfbe53fd8..8698938c09a15ada67fa3b1cb35c9f2ca50d3865; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD; none of the 40 newest commits after the pin has a published build)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "8698938c09a15ada67fa3b1cb35c9f2ca50d3865",
+      "mergedAt": "2026-11-27T09:46:34Z",
+      "subject": "Image scripts: retry the provider's 'Background requests are temporarily unavailable' refusal (#61195)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T10:11:55Z",
+    "snapshot_id": "sh-af02f69ec7864be0b82d053e87ba1f29",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45976535863): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4ce0a38f7e6838544bd30789174e96ba493cf755",
+    "image": "cloud-native-auto-f7b548a5-45976535863-1",
+    "revision": "ci-45976535863-1",
+    "at": "2026-11-27T10:11:55Z"
+  },
+  "rolled_back": false
+}
