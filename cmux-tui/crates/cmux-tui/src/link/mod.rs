@@ -28,6 +28,7 @@ mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
 mod paired_streams;
+mod phone_chat;
 mod process_exit;
 // `cmux link seed plan`; `cmux link seed push|clone|pull|move` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]

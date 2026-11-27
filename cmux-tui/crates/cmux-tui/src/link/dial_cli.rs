@@ -125,6 +125,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
         Some("owner_session") => Service::OwnerSession,
         Some("desktop") => Service::Desktop,
         Some("acpmux") => Service::Acpmux,
+        Some("phone_chat") => Service::PhoneChat,
         Some(_) => return Err(Failure::BadUsage),
     };
     let socket = socket.map(PathBuf::from);

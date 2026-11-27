@@ -1856,7 +1856,20 @@ fn submit_steering_prompt(
     // marker is inserted by the typed agent-session path, never accepted from
     // the phone or forwarded as arbitrary ACP metadata.
     if attachment.cloud_mobile {
-        params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+        if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            meta.insert("via".to_owned(), json!("cloud-mobile"));
+            // The phone the Cloud link's owner check admitted (owner_phone.rs): acpmux treats it as
+            // the owner's own phone under D13, never with Full access (RFD 0135 gate 4).
+            #[cfg(unix)]
+            if let Some(device) =
+                attachment.mux.upgrade().and_then(|mux| mux.owner_phone(attachment.client))
+            {
+                meta.insert(
+                    "ownerPhone".to_owned(),
+                    json!({"device": device, "fullAccess": false}),
+                );
+            }
+        }
     }
     // Only the owner and team members steer. Even a Drive invite submits ordinary prompts.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);

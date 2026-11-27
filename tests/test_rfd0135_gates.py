@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scripts/cmux-next/rfd0135_gates.py: the kill matrix table is counted cell by cell, p95 is the
-nearest-rank 95th percentile, and the phone gate is NO (not NOT-RUN) until its check exists."""
+nearest-rank 95th percentile, and the phone gate is NO (not NOT-RUN) when its check fails."""
 
 from __future__ import annotations
 
@@ -85,16 +85,29 @@ class Rfd0135GatesTest(unittest.TestCase):
             (root / gates.MOVE_CODE[0]).unlink()
             self.assertFalse(gates.move_code_landed(root))
 
-    def test_phone_is_no_until_its_check_exists(self) -> None:
-        os.environ.pop("PHONE_GATE_CMD", None)
-        result = gates.gate_phone(None)
-        self.assertTrue(result["ran"])
-        self.assertFalse(result["ok"])
-        os.environ["PHONE_GATE_CMD"] = "true"
+    def test_phone_is_no_when_its_check_fails(self) -> None:
+        os.environ["PHONE_GATE_CMD"] = "false"
         try:
-            self.assertTrue(gates.gate_phone(None)["ok"])
+            result = gates.gate_phone(None)
+            self.assertTrue(result["ran"])
+            self.assertFalse(result["ok"])
+            os.environ["PHONE_GATE_CMD"] = 'echo \'GATE phone {"ok":true,"first_reply_ms":12}\''
+            result = gates.gate_phone(None)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["measured"]["first_reply_ms"], 12)
         finally:
             os.environ.pop("PHONE_GATE_CMD")
+
+    def test_every_gate_calls_cargo_test_with_its_signature(self) -> None:
+        # A base merge once left gate_phone calling an older cargo_test(binary, name, env); nothing
+        # else runs that branch in unit tests, so call each gate's cargo path through the real signature.
+        def fake(name: str, env: dict[str, str]):
+            return mock.Mock(returncode=1, stdout="", stderr="")
+        os.environ.pop("PHONE_GATE_CMD", None)
+        with mock.patch.object(gates, "cargo_test", side_effect=fake) as run:
+            self.assertFalse(gates.gate_phone(None)["ok"])
+            gates.gate_lid_close(argparse.Namespace(runs=1, secs=1))
+        self.assertEqual(run.call_args_list[0].args[0], "phone_direct_gate::")
 
     def test_summary_adds_parallel_lid_close_jobs(self) -> None:
         one = {"gate": "lid-close", "ran": True, "runs": 1, "passed": 1, "lid_s": 1800, "each": [{"pass": True}]}

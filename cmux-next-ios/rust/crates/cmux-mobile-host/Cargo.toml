@@ -15,7 +15,9 @@ anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-build-space.workspace = true
-# Silence bounds for a cloud prompt and a mailbox round trip (src/cloud_acp.rs, src/mailbox_apply.rs).
+# The phone's Cloud ACP chat: adapter, handshake and line reader (src/services.rs cloud-acpmux).
+cmux-cloud-phone-acp.workspace = true
+# Silence bounds for a mailbox round trip (src/mailbox_apply.rs).
 cmux-deadline.workspace = true
 # The `bundle` service (src/bundle.rs): attachments as sealed content-defined chunks.
 cmux-bundle.workspace = true

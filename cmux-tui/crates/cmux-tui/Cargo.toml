@@ -268,6 +268,8 @@ cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
+# The phone_chat link service (src/link/phone_chat.rs): the same adapter hostd serves.
+cmux-cloud-phone-acp.workspace = true
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 x25519-dalek.workspace = true

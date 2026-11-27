@@ -1824,6 +1824,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-phone-acp"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
@@ -3512,6 +3521,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
+ "cmux-cloud-phone-acp",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-composer-send",

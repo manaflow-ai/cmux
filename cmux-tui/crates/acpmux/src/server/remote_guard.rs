@@ -205,8 +205,9 @@ pub(super) fn full_access_device(
 /// daemon read, and which that daemon's change notice or this link's end takes back
 /// ([`owner_phone_changed`]). That link already controls every chat here as the owner's daemon
 /// (`Control::Peer` when it asks for itself), so its word gives the phone nothing the link
-/// lacks, as its `personVerified` does not (`requests::person_admitted`). The claim from any
-/// other connection (a Web client, a paired machine, the unix socket) is ignored.
+/// lacks, as its `personVerified` does not (`requests::person_admitted`). The unix socket's claim
+/// counts only on a Cloud mobile prompt, without Full access ([`local_cloud_phone`]); from any
+/// other connection (a Web client, a paired machine) it is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
     if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
         return None;
@@ -219,9 +220,11 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
 }
 
 /// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
-/// from a link that presented this daemon's peer token, forwarding for its Web client.
+/// from a link that presented this daemon's peer token, forwarding for its Web client; or the
+/// Cloud phone's claim ([`local_cloud_phone`]), never with Full access.
 fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool, u64)> {
-    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+    let peer = conn.origin == super::Origin::Peer && conn.auth.peer_daemon();
+    if !peer && !local_cloud_phone(conn, params) {
         return None;
     }
     if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
@@ -230,7 +233,26 @@ fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, 
     let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
     let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
     let epoch = claim.get("epoch").and_then(Value::as_u64).unwrap_or(0);
-    Some((device, claim.get("fullAccess")?.as_bool()?, epoch))
+    let full = claim.get("fullAccess")?.as_bool()?;
+    // The local socket's claim never carries Full access, whatever it says.
+    Some((device, peer && full, epoch))
+}
+
+/// RFD 0135 gate 4: the owner's phone chatting with their Cloud machine directly, the Mac off.
+/// The machine's own cmux link admits the phone only after the owner check (`cmux-tui`
+/// `link/phone_chat.rs`, `OwnerSession::authorize`) and stamps its daemon connection with it
+/// (`cmux-tui-core` `server/owner_phone.rs`); that daemon names the phone on each of its Cloud
+/// mobile prompts (`via: cloud-mobile`, `ownerPhone`) over this daemon's own socket. The phone
+/// is then the owner's own phone for D13 (`Hub::local_claude_refusal`), as a phone the Mac
+/// pairs is, and nothing more: no Full access (`vouched_claim`), every other Web rule and the
+/// Cloud mobile floor stay. The socket is owner-only and same-user (`ConnAuth::LocalSocket`):
+/// any process there already controls every chat as `Control::Local`, so the claim, which
+/// comes only with the marker that holds the prompt to the Web's rules, gives it nothing it
+/// lacks. Leo, 2026-11-14: "chat writable in both directions".
+fn local_cloud_phone(conn: &super::Conn, params: &Value) -> bool {
+    conn.origin == super::Origin::Local
+        && conn.auth == super::ConnAuth::LocalSocket
+        && cloud_mobile(params)
 }
 
 /// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this

@@ -41,6 +41,8 @@ cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 # Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
 cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
+# The phone's Cloud ACP chat (adapter, handshake), shared with the Cloud machine's own link.
+cmux-cloud-phone-acp = { path = "../../cmux-tui/crates/cmux-cloud-phone-acp" }
 # The terminal composer's Send: one keyed request, kept across a reconnect.
 cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 # Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
