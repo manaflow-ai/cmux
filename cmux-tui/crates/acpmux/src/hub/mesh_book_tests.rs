@@ -452,7 +452,7 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
         .find(|row| row["name"] == "machine-b")
         .expect("machine-b row");
     assert!(machine_b.get("health").is_none());
-    assert_eq!(hub.hub_only_hosts(), ["machine-b"]);
+    assert!(!hub.hub_only_hosts().contains(&"machine-b".to_owned()));
 }
 
 /// A just-started daemon's `transfer_hub {resolve}` waits for its first book read rather than
