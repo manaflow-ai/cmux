@@ -489,6 +489,7 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
+mod wake_place;
 mod warm;
 mod watch;
 mod watch_events;
