@@ -132,6 +132,8 @@ imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
+# The four words a person compares for a Mac key (`cli/consent_grant.rs`).
+cmux-server-core = { path = "../cmux-server-core" }
 cmux-json.workspace = true
 # Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),
 # and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
@@ -325,7 +327,6 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
-cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
 # The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
 cmux-api-compat = { workspace = true }
