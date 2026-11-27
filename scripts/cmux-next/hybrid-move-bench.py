@@ -38,7 +38,7 @@ Fields:
                   -> the first event the target's log accepted after `transferred_in` (idle: the
                   probe prompt the bench sends the moment transfer_finish answers)
   first_output_ms the same start -> the target's first agent output event (text or tool call)
-  total_ms        bench clock: transfer_begin sent -> transfer_commit answered
+  total_ms        bench clock: pre-copy started -> transfer_commit answered
   begin_ms / copy_ms / finish_ms / commit_ms   each step's share of total_ms
   turn_finished   the turn's last step ran and the target's stand-in answered "HMB-WORK DONE"
   continuation_msgs  distinct user text blocks the target's model saw that no bench prompt sent
@@ -899,6 +899,11 @@ def main():
                          "carries the chat's last TURNS turns, the history before them follows the move "
                          "(hub/transfer_history.rs); 0 (default) pre-copies the whole history first")
     args = ap.parse_args()
+    moves = [kind.strip() for kind in args.moves.split(",")]
+    if any(kind not in ("idle", "turn", "interrupt") for kind in moves):
+        ap.error("--moves accepts a comma-separated list of idle, turn, interrupt")
+    if len(set(moves)) != len(moves):
+        ap.error("--moves must name each requested move only once")
     if not shutil.which("claude"):
         sys.exit("hybrid-move-bench: needs `claude` (Claude Code) on PATH")
     args.acpmux = os.path.abspath(args.acpmux)
@@ -908,7 +913,7 @@ def main():
     version = subprocess.run([args.acpmux, "--version"], capture_output=True, text=True).stdout.strip()
     failed = False
     try:
-        for kind in [k.strip() for k in args.moves.split(",") if k.strip()]:
+        for kind in moves:
             log(f"move {kind}: building a {args.size_mb:.0f} MB chat")
             try:
                 r = run_move(kind, args, scratch, log)
