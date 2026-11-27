@@ -152,7 +152,11 @@ public struct AgentNotificationReconciler: Sendable {
                 session.deliveredSurfaceIDs.removeValue(forKey: identity)
             }
         }
-        if draft.kind == .sessionStarted, sessions[sessionKey] != nil {
+        // A compaction start continues the same live conversation on the same
+        // pane: it keeps the session and its phase, which `lifecycleEvent`
+        // then re-asserts. Every other repeat start resets it below.
+        if draft.kind == .sessionStarted, sessions[sessionKey] != nil,
+           !(draft.isCompactSessionStart && !session.ended && session.surfaceID == draft.surfaceId) {
             // A reused native session id still marks a new authoritative
             // boundary after restart, /clear, or auto-resume. Retire every
             // receipt from the prior turn and reset its lifecycle projection
